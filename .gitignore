@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+# real exports and databases never go to git
+data/
+*.kdbx
+*.xml
+!tests/**/*.xml
