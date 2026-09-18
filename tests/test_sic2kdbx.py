@@ -57,19 +57,28 @@ line 2</field>
 
 
 class ConvertTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.xml = os.path.join(self.tmp.name, "in.xml")
-        self.kdbx = os.path.join(self.tmp.name, "out.kdbx")
-        with open(self.xml, "w", encoding="utf-8") as f:
-            f.write(XML)
+    """Each conversion runs Argon2 twice (save + open), so the default one is shared."""
 
-    def tearDown(self):
-        self.tmp.cleanup()
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.xml = os.path.join(cls.tmp.name, "in.xml")
+        with open(cls.xml, "w", encoding="utf-8") as f:
+            f.write(XML)
+        cls.default = cls.convert_with()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    @classmethod
+    def convert_with(cls, **kw):
+        kdbx = os.path.join(cls.tmp.name, f"out{len(os.listdir(cls.tmp.name))}.kdbx")
+        stats = sic2kdbx.convert(sic2kdbx.parse_sic(cls.xml), kdbx, "pw", **kw)
+        return stats, PyKeePass(kdbx, "pw")
 
     def convert(self, **kw):
-        stats = sic2kdbx.convert(sic2kdbx.parse_sic(self.xml), self.kdbx, "pw", **kw)
-        return stats, PyKeePass(self.kdbx, "pw")
+        return self.convert_with(**kw) if kw else self.default
 
     def entry(self, kp, title):
         return kp.find_entries(title=title, first=True)
@@ -108,6 +117,7 @@ class ConvertTest(unittest.TestCase):
 
     def test_quotes_labels_and_bad_attachment(self):
         _, kp = self.convert()
+        # find_entries builds XPath from the title and breaks on quotes
         e = next(x for x in kp.entries if x.title == 'Say "hi"')
         fields = {s.findtext("Key"): s.findtext("Value") for s in e._element.findall("String")}
         self.assertEqual(fields['Code "A"'], "42")
