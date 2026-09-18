@@ -12,7 +12,7 @@ Works fully offline. Mapping:
   symbol, color        -> entry CustomData "SafeInCloud" (JSON), for a future app
   labels               -> tags; first label also becomes the group
   <image>, <file>      -> attachments
-  template cards       -> "Templates" group (registered as the templates group)
+  template cards       -> "Templates" group
   deleted cards        -> Recycle Bin (or skipped with --skip-deleted)
 """
 
@@ -21,6 +21,7 @@ import base64
 import getpass
 import json
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -29,8 +30,10 @@ from urllib.parse import quote
 
 from lxml.builder import E
 from pykeepass import create_database
+from pykeepass.entry import Entry
 
 RESERVED_KEYS = {"Title", "UserName", "Password", "URL", "Notes", "otp"}
+STANDARD_KEYS = {"UserName", "Password", "URL"}
 PROTECTED_TYPES = {"password", "pin", "secret", "one_time_password", "otp"}
 OTP_TYPES = {"one_time_password", "otp", "totp"}
 TEMPLATES_GROUP = "Templates"
@@ -125,7 +128,12 @@ def parse_sic(path):
                     history=_parse_history(child.get("history")),
                 ))
             elif child.tag in ("image", "file") and (child.text or "").strip():
-                data = base64.b64decode("".join(child.text.split()))
+                try:
+                    data = base64.b64decode("".join(child.text.split()), validate=True)
+                except ValueError:
+                    print(f"Попередження: пошкоджене вкладення <{child.tag}> у картці "
+                          f"«{c.get('title')}» пропущено", file=sys.stderr)
+                    continue
                 name = child.get("name") or f"{child.tag}{_sniff_extension(data)}"
                 name = _unique(name, names)
                 names.add(name)
@@ -198,7 +206,8 @@ def history_snapshots(card, keys):
     SafeInCloud stores {timestamp: value set at that time} per field; the current
     value is the field text. Returns [(timestamp, {key: value})] oldest first,
     skipping repeated states and those where every tracked field is empty
-    (SafeInCloud records the blank card at creation).
+    (SafeInCloud records the blank card at creation). Fields without history
+    keep their current value in every snapshot (their past is unknown).
     """
     stamps = sorted({ts for f in card.fields for ts in f.history})
     snapshots, previous = [], None
@@ -215,8 +224,7 @@ def history_snapshots(card, keys):
         if tracked and state != previous:
             snapshots.append((ts, state))
         previous = state
-    current = {keys[i]: field_value(f, keys[i], card.title) for i, f in enumerate(card.fields)}
-    if snapshots and snapshots[-1][1] == current:
+    if snapshots and snapshots[-1][1] == current_values(card, keys):
         snapshots.pop()
     return snapshots
 
@@ -235,39 +243,53 @@ def _set_custom_data(entry, key, value):
     cd.append(E.Item(E.Key(key), E.Value(value)))
 
 
-def _set_fields(entry, card, keys, values, drop_empty):
+def _add_string(entry, key, value, protected):
+    # Appended directly: pykeepass setters build XPath from the key and break on quotes.
+    attrs = {"Protected": "True"} if protected else {}
+    entry._element.append(E.String(E.Key(key), E.Value(value, **attrs)))
+
+
+def _set_fields(entry, card, keys, values, keep_empty):
     """Replace all card-derived string fields of the entry with `values`."""
     for s in entry._element.findall("String"):
         if s.findtext("Key") not in ("Title", "Notes"):
             entry._element.remove(s)
-    for key in ("UserName", "URL"):
-        entry._set_string_field(key, "")
-    entry._set_string_field("Password", "", protected=True)
+    present = set()
     for i, f in enumerate(card.fields):
-        key = keys[i]
-        value = values[key]
-        if key in ("UserName", "URL"):
-            entry._set_string_field(key, value)
-        elif not value and (key == "otp" or (drop_empty and not card.template)):
+        key, value = keys[i], values[keys[i]]
+        if not value and key not in STANDARD_KEYS and (
+                key == "otp" or not (keep_empty or card.template)):
             continue
-        else:
-            entry._set_string_field(key, value, protected=key != "URL" and (
-                key in ("Password", "otp") or f.type in PROTECTED_TYPES))
+        protected = key in ("Password", "otp") or (
+            key not in ("UserName", "URL") and f.type in PROTECTED_TYPES)
+        _add_string(entry, key, value, protected)
+        present.add(key)
+    for key in STANDARD_KEYS - present:
+        _add_string(entry, key, "", key == "Password")
 
 
-def add_card(kp, group, card, drop_empty=True):
+def current_values(card, keys):
+    return {keys[i]: field_value(f, keys[i], card.title) for i, f in enumerate(card.fields)}
+
+
+def _tag(label):
+    # KeePass splits tags on ";" and ",".
+    return re.sub(r"\s*[;,]\s*", " ", label).strip()
+
+
+def add_card(kp, group, card, keep_empty=True):
     keys = assign_keys(card)
-    tags = list(dict.fromkeys(card.labels + (["Favorite"] if card.star else [])))
-    entry = kp.add_entry(group, card.title, "", "", notes=card.notes or None,
-                         tags=tags or None, force_creation=True)
+    tags = [t for t in dict.fromkeys(
+        _tag(label) for label in card.labels + (["Favorite"] if card.star else [])) if t]
+    entry = Entry(title=card.title, notes=card.notes or None, tags=tags or None, kp=kp)
+    group.append(entry)
 
     for ts, state in history_snapshots(card, keys):
-        _set_fields(entry, card, keys, state, drop_empty)
+        _set_fields(entry, card, keys, state, keep_empty)
         entry.mtime = _dt(ts)
         entry.save_history()
 
-    current = {keys[i]: field_value(f, keys[i], card.title) for i, f in enumerate(card.fields)}
-    _set_fields(entry, card, keys, current, drop_empty)
+    _set_fields(entry, card, keys, current_values(card, keys), keep_empty)
 
     for att in card.attachments:
         entry.add_attachment(kp.add_binary(att.data), att.filename)
@@ -286,7 +308,7 @@ def add_card(kp, group, card, drop_empty=True):
     return entry
 
 
-def convert(cards, output, password, keyfile=None, skip_deleted=False, drop_empty=True):
+def convert(cards, output, password, keyfile=None, skip_deleted=False, keep_empty=True):
     kp = create_database(output, password=password, keyfile=keyfile)
     kp.database_name = "SafeInCloud import"
     kp.root_group.name = "Root"
@@ -311,21 +333,13 @@ def convert(cards, output, password, keyfile=None, skip_deleted=False, drop_empt
             stats["templates"] += 1
         else:
             group = group_for(card.labels[0] if card.labels else None)
-        entry = add_card(kp, group, card, drop_empty)
+        entry = add_card(kp, group, card, keep_empty)
         stats["attachments"] += len(card.attachments)
         if card.deleted:
             kp.trash_entry(entry)
             stats["deleted"] += 1
         stats["entries"] += 1
 
-    if TEMPLATES_GROUP in groups:
-        meta = kp._xpath("/KeePassFile/Meta", first=True)
-        uuid_b64 = base64.b64encode(groups[TEMPLATES_GROUP].uuid.bytes).decode()
-        tpl = meta.find("EntryTemplatesGroup")
-        if tpl is None:
-            tpl = E.EntryTemplatesGroup()
-            meta.append(tpl)
-        tpl.text = uuid_b64
 
     kp.save()
     return stats
@@ -334,8 +348,6 @@ def convert(cards, output, password, keyfile=None, skip_deleted=False, drop_empt
 # ---------------------------------------------------------------- CLI
 
 def _read_password(args):
-    if env := os.environ.get("SIC2KDBX_PASSWORD"):
-        return env
     if args.keyfile and args.no_password:
         return None
     while True:
@@ -349,6 +361,8 @@ def _read_password(args):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="SafeInCloud XML -> KeePass KDBX 4")
     ap.add_argument("input", help="файл експорту SafeInCloud (.xml)")
     ap.add_argument("output", help="нова база KeePass (.kdbx)")
@@ -357,8 +371,8 @@ def main(argv=None):
                     help="лише файл-ключ, без майстер-пароля (потрібен --keyfile)")
     ap.add_argument("--skip-deleted", action="store_true",
                     help="не переносити видалені картки (інакше вони йдуть у Кошик)")
-    ap.add_argument("--keep-empty", action="store_true",
-                    help="зберігати порожні поля карток")
+    ap.add_argument("--drop-empty", action="store_true",
+                    help="не переносити порожні поля карток (крім шаблонів)")
     ap.add_argument("--force", action="store_true", help="перезаписати наявний output")
     args = ap.parse_args(argv)
 
@@ -370,7 +384,7 @@ def main(argv=None):
     cards = parse_sic(args.input)
     password = _read_password(args)
     stats = convert(cards, args.output, password, args.keyfile,
-                    skip_deleted=args.skip_deleted, drop_empty=not args.keep_empty)
+                    skip_deleted=args.skip_deleted, keep_empty=not args.drop_empty)
     print(f"Готово: {args.output}")
     print(f"  записів: {stats['entries']} (у Кошику: {stats['deleted']}, "
           f"шаблонів: {stats['templates']}), пропущено: {stats['skipped']}, "

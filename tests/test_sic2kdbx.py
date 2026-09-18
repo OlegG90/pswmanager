@@ -44,7 +44,13 @@ line 2</field>
   <card title="Car template" id="4" template="true">
     <field name="VIN" type="text" />
   </card>
+  <card title='Say "hi"' id="5">
+    <field name='Code "A"' type="text">42</field>
+    <image>not base64!</image>
+    <label_id>30</label_id>
+  </card>
   <label name="NET" id="10" />
+  <label name="Work; Home, X" id="30" />
   <label name="Old" id="20" />
 </database>
 """
@@ -76,7 +82,7 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(e.get_custom_property("Remarks"), "line 1\nline 2")
         self.assertTrue(e.is_custom_property_protected("PIN"))
         self.assertFalse(e.is_custom_property_protected("Host IP"))
-        self.assertIsNone(e.get_custom_property("Empty"))
+        self.assertIn("Empty", e.custom_properties)
         self.assertEqual(e.otp, "otpauth://totp/Router?secret=JBSWY3DP")
 
     def test_groups_tags_attachments(self):
@@ -94,6 +100,20 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(e.history[0].get_custom_property("Host IP"), "10.0.0.1")
         self.assertEqual(e.ctime.year, 2017)
         self.assertEqual(int(e.mtime.timestamp()), 1700000000)
+
+    def test_drop_empty(self):
+        _, kp = self.convert(keep_empty=False)
+        self.assertNotIn("Empty", self.entry(kp, "Router").custom_properties)
+        self.assertIn("VIN", self.entry(kp, "Car template").custom_properties)
+
+    def test_quotes_labels_and_bad_attachment(self):
+        _, kp = self.convert()
+        e = next(x for x in kp.entries if x.title == 'Say "hi"')
+        fields = {s.findtext("Key"): s.findtext("Value") for s in e._element.findall("String")}
+        self.assertEqual(fields['Code "A"'], "42")
+        self.assertEqual(e.group.name, "Work; Home, X")
+        self.assertEqual(e.tags, ["Work Home X"])
+        self.assertEqual(e.attachments, [])
 
     def test_email_fallback_for_username(self):
         _, kp = self.convert()
@@ -116,9 +136,7 @@ class ConvertTest(unittest.TestCase):
         tpl = self.entry(kp, "Car template")
         self.assertEqual(tpl.group.name, "Templates")
         self.assertIn("VIN", tpl.custom_properties)  # empty value is kept in templates
-        meta = kp._xpath("/KeePassFile/Meta/EntryTemplatesGroup", first=True)
-        self.assertEqual(base64.b64decode(meta.text), tpl.group.uuid.bytes)
-        self.assertEqual((stats["entries"], stats["deleted"]), (4, 1))
+        self.assertEqual((stats["entries"], stats["deleted"]), (5, 1))
 
         stats, kp = self.convert(skip_deleted=True)
         self.assertIsNone(self.entry(kp, "Gone"))
