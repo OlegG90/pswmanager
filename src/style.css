@@ -365,11 +365,6 @@ input::-ms-reveal {
   display: none;
 }
 
-#detail .buttons.confirm {
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .strength {
   display: flex;
   gap: 8px;
@@ -447,4 +442,35 @@ input::-ms-reveal {
 
 .editor .error {
   color: var(--danger);
+}
+
+/* Questions */
+
+dialog.modal {
+  max-width: min(420px, 90vw);
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+dialog.modal::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+dialog.modal p {
+  margin: 0 0 16px;
+}
+
+dialog.modal .buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--bg);
 }

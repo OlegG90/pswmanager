@@ -1,6 +1,7 @@
 import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved } from './api'
 import { button, el } from './dom'
 import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
+import { ask } from './modal'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -25,7 +26,7 @@ let generatorOptions: GeneratorOptions = {
 }
 
 /** The open editor, from the moment it starts loading. */
-let active: { save: () => void; close: () => void } | null = null
+let active: { save: () => void; close: () => void | Promise<void> } | null = null
 
 export const isEditing = () => active !== null
 
@@ -227,14 +228,10 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       saving = false
     }
   }
-  let warned = false
-  const close = () => {
-    // Esc also closes pop-ups (the group list, an input method), so changes
-    // are only thrown away on a second Esc.
-    if (!warned && JSON.stringify(collect()) !== untouched) {
-      warned = true
-      showError('Unsaved changes: press Esc again to discard them.')
-      return
+  const close = async () => {
+    if (JSON.stringify(collect()) !== untouched) {
+      const discard = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
+      if (!discard || active !== self) return
     }
     active = null
     options.onClose()
