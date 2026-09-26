@@ -5,3 +5,18 @@ data/
 *.kdbx
 *.xml
 !tests/**/*.xml
+
+# Node
+node_modules/
+dist/
+
+# Rust / Tauri
+target/
+src-tauri/gen/
+
+# Local app data written next to the exe during development
+pswm.json
+icons/
+!src-tauri/icons/
+
+!src-tauri/tests/fixtures/*.kdbx

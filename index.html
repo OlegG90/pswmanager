@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PswManager</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <form id="unlock" hidden autocomplete="off">
+      <h1>PswManager</h1>
+      <div class="file-row">
+        <span id="database-path" class="path"></span>
+        <button type="button" id="pick-database">Choose…</button>
+      </div>
+      <input id="password" type="password" placeholder="Master password" aria-label="Master password" />
+      <div class="file-row">
+        <span id="key-file-path" class="path muted"></span>
+        <button type="button" id="pick-key-file">Key file…</button>
+        <button type="button" id="clear-key-file" hidden>Remove</button>
+      </div>
+      <button type="submit" id="unlock-button" class="primary">Unlock</button>
+      <p id="unlock-error" role="alert" hidden></p>
+    </form>
+
+    <div id="vault" hidden>
+      <header id="toolbar">
+        <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false" />
+        <select id="filter" aria-label="Show"></select>
+        <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
+      </header>
+      <ul id="list" role="listbox" aria-label="Entries" tabindex="0"></ul>
+      <section id="detail" aria-label="Entry"></section>
+      <div id="toast" role="status" hidden></div>
+    </div>
+  </body>
+</html>

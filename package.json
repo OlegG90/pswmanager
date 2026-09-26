@@ -1,0 +1,24 @@
+{
+  "name": "pswmanager",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:web": "tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "build": "tauri build --no-bundle",
+    "build:x64": "npm run build -- --target x86_64-pc-windows-msvc",
+    "build:arm64": "npm run build -- --target aarch64-pc-windows-msvc",
+    "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  }
+}
