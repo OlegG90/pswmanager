@@ -58,6 +58,13 @@ export interface FieldData {
   protected: boolean
 }
 
+/** Sent when the database file changed on disk and was read again. */
+export interface DiskChange {
+  listing: Listing
+  /** Entries that differ from what was shown. */
+  changed: string[]
+}
+
 export interface Saved {
   id: string
   listing: Listing

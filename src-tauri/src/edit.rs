@@ -67,11 +67,13 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 }
 
 /// Creates the entry (`id` is `None`) or changes it, and returns its id. An
-/// edit that changes nothing leaves the entry and its history alone.
+/// edit that changes nothing leaves the entry and its history alone. An entry
+/// deleted elsewhere since the editor opened comes back with its id: this
+/// edit is the newer change.
 /// `hidden` are the groups entries cannot be put in (recycle bin, templates).
 pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &HashSet<GroupId>) -> Result<EntryId, String> {
     check_field_names(&data.fields)?;
-    let existing = id.map(|id| db.entry(id).ok_or(NOT_FOUND)).transpose()?;
+    let existing = id.and_then(|id| db.entry(id));
     // A TOTP value the entry already has is kept as it is, even one this app
     // cannot read; a new one must work and is stored as a URI.
     let otp = match (data.otp.trim(), existing.as_ref().and_then(|e| e.get(fields::OTP))) {
@@ -88,13 +90,18 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         None => group_at(db, &data.group, hidden)?,
     };
 
-    let Some(id) = id else {
+    let Some(id) = id.filter(|id| db.entry(*id).is_some()) else {
         let wanted = wanted_fields(db, None, data, otp)?;
         let mut parent = db.group_mut(group).ok_or("The group is gone")?;
-        let mut entry = parent.add_entry();
+        let mut entry = match id {
+            Some(id) => parent.add_entry_with_id(id).map_err(|e| e.to_string())?,
+            None => parent.add_entry(),
+        };
         entry.fields = wanted;
         entry.tags = tags;
-        return Ok(entry.id());
+        let id = entry.id();
+        db.deleted_objects.remove(&id.uuid());
+        return Ok(id);
     };
 
     let entry = db.entry(id).expect("checked above");
@@ -103,16 +110,20 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
     if entry.fields == wanted && entry.tags == tags && !moved {
         return Ok(id);
     }
-    {
-        let mut entry = db.entry_mut(id).expect("checked above");
+    let mut entry = db.entry_mut(id).expect("checked above");
+    // Moved first and untracked: the file keeps no group for old versions, so
+    // a version recorded before the move would not read back the same (and
+    // KeePass does not record moves in history either).
+    if moved {
+        entry.move_to(group).map_err(|e| e.to_string())?;
+        entry.times.location_changed = Some(Times::now());
+    }
+    if entry.fields != wanted || entry.tags != tags {
         let mut tracked = entry.track_changes();
         tracked.edit(|e| {
             e.fields = wanted;
             e.tags = tags;
         });
-        if moved {
-            tracked.move_to(group).map_err(|e| e.to_string())?;
-        }
     } // dropping the tracker files the old version into the history
     trim_history(db, id);
     Ok(id)
@@ -386,6 +397,19 @@ mod tests {
         let hidden = HashSet::from([bin]);
         let into_bin = with("y", |d| d.group = vec!["Recycle Bin".into()]);
         assert!(apply(&mut db, None, &into_bin, &hidden).is_err());
+    }
+
+    #[test]
+    fn an_entry_deleted_elsewhere_comes_back_when_edited() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
+        let edited = with("x", |d| d.password = "newer".into());
+        db.root_mut().entry_mut(id).unwrap().track_changes().remove();
+        assert!(db.deleted_objects.contains_key(&id.uuid()));
+
+        assert_eq!(apply(&mut db, Some(id), &edited, &HashSet::new()).unwrap(), id);
+        assert_eq!(db.entry(id).unwrap().get_password(), Some("newer"));
+        assert!(!db.deleted_objects.contains_key(&id.uuid()));
     }
 
     #[test]

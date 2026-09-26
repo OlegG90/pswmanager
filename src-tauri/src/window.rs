@@ -49,6 +49,8 @@ pub fn show(app: &AppHandle) {
     let _ = window.unminimize();
     let _ = window.set_focus();
     let _ = app.emit("window-shown", ());
+    // Another device may have changed the file while the window was away.
+    crate::check_disk(app);
 }
 
 /// Hides the window to the tray, remembering where it was.

@@ -2,7 +2,7 @@
 //! summaries without secrets, a secret only when asked for one field, and a
 //! whole entry only while it is being edited.
 
-use crate::dbfile::DbFile;
+use crate::dbfile::{DbFile, SaveError};
 use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
@@ -56,7 +56,7 @@ pub struct EntryDetail {
     pub fields: Vec<Field>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Listing {
     pub entries: Vec<EntrySummary>,
@@ -151,9 +151,6 @@ impl Vault {
         icons::web_url(&self.field(id, fields::URL)?)
     }
 
-    fn entry_id(&self, id: &str) -> Result<EntryId, String> {
-        self.entry(id).map(|e| e.id()).ok_or_else(|| NOT_FOUND.into())
-    }
 
     /// A visible entry by id; entries in the recycle bin are not reachable.
     fn entry(&self, id: &str) -> Option<EntryRef<'_>> {
@@ -171,30 +168,57 @@ impl Vault {
     /// Creates (`id` is `None`) or changes an entry and saves the file.
     /// Returns the entry's id. Nothing changes when saving fails.
     pub fn save_entry(&mut self, id: Option<&str>, data: &EntryData) -> Result<String, String> {
-        let id = id.map(|id| self.entry_id(id)).transpose()?;
-        let hidden = self.hidden_groups();
-        let mut db = self.db.clone();
-        let id = edit::apply(&mut db, id, data, &hidden)?;
-        // An untouched entry does not rewrite the file (and wake the sync client).
-        if db != self.db {
-            self.commit(db)?;
-        }
+        let id = id.map(parse_id).transpose()?;
+        let id = self.change(|db, hidden| edit::apply(db, id, data, hidden))?;
         Ok(id.uuid().to_string())
     }
 
-    /// Moves an entry to the recycle bin and saves the file.
+    /// Moves an entry to the recycle bin and saves the file. An entry already
+    /// gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
-        let id = self.entry_id(id)?;
-        let mut db = self.db.clone();
-        edit::recycle(&mut db, id)?;
-        self.commit(db)
+        let id = parse_id(id)?;
+        self.change(|db, hidden| match db.entry(id) {
+            Some(entry) if !is_in(&entry, hidden) => edit::recycle(db, id),
+            _ => Ok(()),
+        })
     }
 
-    /// Saves `db` and makes it the current database, or keeps the old one.
-    fn commit(&mut self, mut db: Database) -> Result<(), String> {
-        self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db)?;
+    /// The file as it is now, if it changed on disk since it was last read or
+    /// written: it becomes the database, and the ids of the entries that
+    /// differ are returned (added, changed, moved or gone).
+    pub fn reload(&mut self) -> Result<Option<Vec<String>>, String> {
+        let Some(file) = self.file.as_mut() else { return Ok(None) };
+        let Some(db) = file.reload()? else { return Ok(None) };
+        let changed = changed_entries(&self.db, &db);
         self.db = db;
-        Ok(())
+        Ok(Some(changed))
+    }
+
+    /// Makes a change and saves it. The change is made on the file as it is
+    /// now — reloaded first, and again if it changes while saving — so a
+    /// change from another device is kept, and where both touched an entry
+    /// this newer one wins with the other version in the entry's history.
+    /// An untouched database does not rewrite the file (and wake the sync
+    /// client). Nothing changes when saving fails.
+    fn change<R>(&mut self, change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>) -> Result<R, String> {
+        const ATTEMPTS: usize = 3;
+        for _ in 0..ATTEMPTS {
+            self.reload()?;
+            let mut db = self.db.clone();
+            let result = change(&mut db, &self.hidden_groups())?;
+            if db == self.db {
+                return Ok(result);
+            }
+            match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
+                Ok(()) => {
+                    self.db = db;
+                    return Ok(result);
+                }
+                Err(SaveError::Changed) => continue,
+                Err(SaveError::Failed(message)) => return Err(message),
+            }
+        }
+        Err("The database file keeps changing on disk; try again in a moment".into())
     }
 
     /// Every group entries can go in, as paths, for the editor.
@@ -215,6 +239,26 @@ impl Vault {
         let Some(value) = self.field(id, fields::OTP) else { return Ok(None) };
         otp::Totp::parse(&value).map(|totp| Some(totp.code_now()))
     }
+}
+
+fn parse_id(id: &str) -> Result<EntryId, String> {
+    Uuid::parse_str(id).map(EntryId::from).map_err(|_| NOT_FOUND.into())
+}
+
+/// The ids of entries that differ between two versions of the database.
+fn changed_entries(old: &Database, new: &Database) -> Vec<String> {
+    let ids: HashSet<EntryId> = old.iter_all_entries().chain(new.iter_all_entries()).map(|e| e.id()).collect();
+    let mut changed: Vec<String> = ids
+        .into_iter()
+        .filter(|&id| match (old.entry(id), new.entry(id)) {
+            (Some(a), Some(b)) => *a != *b,
+            (None, None) => false,
+            _ => true,
+        })
+        .map(|id| id.uuid().to_string())
+        .collect();
+    changed.sort();
+    changed
 }
 
 /// Group names from the top, without the root group.
@@ -432,7 +476,8 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let before = vault.db.clone();
-        vault.commit(before.clone()).unwrap();
+        vault.file.as_mut().unwrap().save(&mut before.clone()).unwrap();
+        vault.db.config.version = keepass::config::DatabaseVersion::KDB4(1);
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(reopened.db, vault.db);
         // Everything but the format version, which saving moves to 4.1.
@@ -501,5 +546,119 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault = fixture("sic2kdbx.kdbx", dir.path());
         assert_eq!(vault.group_paths(), [vec!["NET".to_string()], vec!["Work; Home, X".to_string()]]);
+    }
+
+    /// Another device changes the file: it is read, changed and written as a
+    /// whole, the way a sync client delivers it.
+    fn elsewhere(path: &Path, change: impl FnOnce(&mut Database)) {
+        let key = || DatabaseKey::new().with_password("test");
+        let mut db = Database::open(&mut File::open(path).unwrap(), key()).unwrap();
+        change(&mut db);
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1); // the only version keepass-rs writes
+        db.save(&mut File::create(path).unwrap(), key()).unwrap();
+    }
+
+    fn id_of(vault: &Vault, title: &str) -> EntryId {
+        let id = vault.listing().entries.into_iter().find(|e| e.title == title).unwrap().id;
+        parse_id(&id).unwrap()
+    }
+
+    #[test]
+    fn a_change_from_elsewhere_is_kept_when_saving() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        elsewhere(&path, |db| {
+            db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone");
+        });
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        let mut data = vault.edit_data(&mail).unwrap();
+        data.password = "from this PC".into();
+        vault.save_entry(Some(&mail), &data).unwrap();
+
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        let titles: Vec<String> = reopened.listing().entries.into_iter().map(|e| e.title).collect();
+        assert!(titles.contains(&"Added on the phone".to_string()), "{titles:?}");
+        assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "from this PC");
+    }
+
+    #[test]
+    fn when_both_change_an_entry_this_edit_wins_and_the_other_goes_to_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let mail = id_of(&vault, "Mail");
+        let mut data = vault.edit_data(&mail.uuid().to_string()).unwrap(); // the editor opens
+        elsewhere(&path, |db| {
+            db.entry_mut(mail).unwrap().track_changes().set_protected(fields::PASSWORD, "from the phone");
+        });
+        data.password = "from this PC".into();
+        vault.save_entry(Some(&mail.uuid().to_string()), &data).unwrap();
+
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        let entry = reopened.db.entry(mail).unwrap();
+        assert_eq!(entry.get_password(), Some("from this PC"));
+        assert_eq!(entry.history.as_ref().unwrap().get_entries()[0].get_password(), Some("from the phone"));
+    }
+
+    #[test]
+    fn an_entry_deleted_elsewhere_and_edited_here_comes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let mail = id_of(&vault, "Mail");
+        let data = vault.edit_data(&mail.uuid().to_string()).unwrap();
+        // Keepass2Android moves a deleted entry to its recycle bin.
+        elsewhere(&path, |db| {
+            let bin = db.recycle_bin().unwrap().id();
+            db.entry_mut(mail).unwrap().move_to(bin).unwrap();
+        });
+        vault.save_entry(Some(&mail.uuid().to_string()), &data).unwrap();
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        assert!(reopened.detail(&mail.uuid().to_string()).is_some());
+    }
+
+    #[test]
+    fn reload_reports_what_changed_and_deleting_twice_is_fine() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        assert_eq!(vault.reload().unwrap(), None);
+        let mail = id_of(&vault, "Mail");
+        elsewhere(&path, |db| {
+            let bin = db.recycle_bin().unwrap().id();
+            db.entry_mut(mail).unwrap().move_to(bin).unwrap();
+        });
+        assert_eq!(vault.reload().unwrap(), Some(vec![mail.uuid().to_string()]));
+        assert!(vault.detail(&mail.uuid().to_string()).is_none());
+        vault.delete_entry(&mail.uuid().to_string()).unwrap();
+    }
+
+    #[test]
+    fn nothing_is_saved_while_the_file_cannot_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        std::fs::write(&path, b"half-synced").unwrap();
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        let mut data = vault.edit_data(&mail).unwrap();
+        data.password = "x".into();
+        assert!(vault.save_entry(Some(&mail), &data).unwrap_err().contains("cannot be read now"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"half-synced");
+    }
+
+    #[test]
+    fn moving_an_entry_to_another_group_saves() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let router = id_of(&vault, "Router").uuid().to_string();
+        let mut data = vault.edit_data(&router).unwrap();
+        data.group = vec!["Elsewhere".into()];
+        data.password = "and changed".into();
+        vault.save_entry(Some(&router), &data).unwrap();
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        let detail = reopened.detail(&router).unwrap();
+        assert_eq!(detail.summary.group, ["Elsewhere"]);
+        assert_eq!(reopened.field(&router, fields::PASSWORD).unwrap().as_str(), "and changed");
     }
 }

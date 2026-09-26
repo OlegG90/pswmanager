@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
 import { button, el } from './dom'
-import { closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { ask, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -113,7 +113,9 @@ async function showLocked() {
   showUnlock(await api.status())
 }
 
+/** Fills the filter menu from the listing, keeping the choice while it still exists. */
 function fillFilter() {
+  const chosen = filterSelect.value
   const { groups, tags } = filterChoices(listing.entries)
   const section = (label: string, kind: string, values: string[]) =>
     values.length ? [el('optgroup', { label }, ...values.map((v) => new Option(v, `${kind}:${v}`)))] : []
@@ -122,6 +124,7 @@ function fillFilter() {
     ...section('Groups', 'group', groups),
     ...section('Tags', 'tag', tags),
   )
+  filterSelect.value = [...filterSelect.options].some((o) => o.value === chosen) ? chosen : 'all'
 }
 
 /** Filter options carry their kind before the first colon: `group:Work`, `tag:Favorite`. */
@@ -426,11 +429,23 @@ function openUrl() {
 }
 
 let toastTimer: number | undefined
-function notify(message: string) {
+function notify(message: string, seconds = 3) {
   toast.textContent = message
   toast.hidden = false
   clearTimeout(toastTimer)
-  toastTimer = window.setTimeout(() => (toast.hidden = true), 3000)
+  toastTimer = window.setTimeout(() => (toast.hidden = true), seconds * 1000)
+}
+
+/** The file changed on disk and was read again: show the new state in place. */
+function showDiskChange({ listing: next, changed }: DiskChange) {
+  if (vault.hidden) return
+  listing = next
+  fillFilter()
+  // The open entry is fetched again if it changed (or was deleted).
+  if (current && changed.includes(current.id)) current = null
+  refresh()
+  changedElsewhere(changed)
+  notify('Updated from another device')
 }
 
 // ---------------------------------------------------------------- keys
@@ -533,6 +548,8 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 }
 
 listen('locked', showLocked)
+listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
+listen<string>('database-error', (e) => notify(e.payload, 10))
 listen('window-shown', () => (vault.hidden ? passwordInput : searchInput).focus())
 
 listen<string>('icon-ready', (e) => {

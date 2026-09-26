@@ -139,19 +139,26 @@ not talk to any cloud; it keeps the file consistent when another device changes 
   the sync client never picks up a half-written file. The new file is opened again with the key before it
   replaces the old one. Before each save the previous file is kept as `<name>.kdbx.bak` next to it. Saving
   an entry that did not change does not write the file.
-- **Change detection:** the app remembers the file's hash when it loads or saves it. Before every save, and
-  every time the window is shown from the tray, it checks the file on disk. The file is also watched
-  (`notify`), so a change that arrives while the app is open is picked up.
-- **Merge:** if the file changed on disk, it is read and merged with the in-memory database before saving:
-  - entries and groups are matched by UUID;
-  - the version with the newer `LastModificationTime` wins; the other version goes into the entry's
-    history, so nothing is lost;
-  - histories are united;
-  - a deletion recorded in `DeletedObjects` removes the object unless it was modified after the deletion;
-  - a move between groups follows `LocationChanged`.
-- An entry open in the editor is never replaced silently: if the merge changed it, the editor says so.
-- A file that cannot be read (wrong key, corrupt, mid-sync) is never overwritten; the app shows the error
-  and keeps the in-memory data.
+- **Change detection:** the app remembers the file's hash when it loads or saves it. Every save, and every
+  time the window is shown from the tray, checks the file on disk first. The file's folder is also watched
+  (`notify`; sync clients replace a file by renaming a new one over it), so a change that arrives while the
+  app is open is read at once: the list updates in place, and an entry being viewed is shown again.
+- **Merge:** the app saves every change as soon as it is made, so it never holds unsaved edits beyond the
+  one being saved. Instead of merging two databases, it **makes each change on the file as it is now**:
+  - the file is read again if it changed (and again if it changes while saving — up to three tries);
+  - the change is applied on top: other devices' changes to other entries are kept as they are;
+  - where both changed the same entry, this change is the newer one and wins; the other version goes into
+    the entry's history, so nothing is lost;
+  - an entry deleted elsewhere (recycle bin or `DeletedObjects`) and edited here comes back with its id —
+    the edit is newer than the deletion; deleting an entry already gone elsewhere does nothing;
+  - nothing is ever removed from the file, so keepass-rs's attachment renumbering on removal never applies.
+- An entry open in the editor is never replaced silently: if another device changed it, the editor says so,
+  and saving keeps this version with the other one in history.
+- A file that cannot be read (wrong key, corrupt, mid-sync) is never overwritten; the app shows the error,
+  keeps the in-memory data, and saves again once the file can be read.
+- Saving checks that the new file reads back with the same content before it replaces the old one. (Old
+  versions in history are compared by what the file keeps of them: keepass-rs also remembers in memory
+  which group each was made in, which the file does not store.)
 
 **Compatibility gate:** a file saved by PswManager must open in KeePassXC and in Keepass2Android, and a
 change made in Keepass2Android must merge back without loss. This is checked before every release.

@@ -3,6 +3,7 @@ mod clipboard;
 mod data_dir;
 mod dbfile;
 mod edit;
+mod file_watch;
 mod generator;
 mod icons;
 mod otp;
@@ -67,6 +68,10 @@ impl Session {
         self.0.lock().unwrap().is_some()
     }
 }
+
+/// Watches the open database's file; dropping the watcher stops it.
+#[derive(Default)]
+struct FileWatch(Mutex<Option<notify::RecommendedWatcher>>);
 
 /// Something the user should know that happened before the window could say
 /// it (the global hotkey could not be registered).
@@ -133,7 +138,47 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     // Touched first, so the inactivity check never sees a fresh vault as idle.
     app.state::<Activity>().touch();
     session.set(Some(vault));
+    watch_database(&app, &database);
     Ok(listing)
+}
+
+/// Picks up changes other devices make while the database is open. Without a
+/// watcher (a folder that cannot be watched) the window-shown check remains.
+fn watch_database(app: &AppHandle, database: &std::path::Path) {
+    let on_change = app.clone();
+    let watcher = file_watch::watch(database, move || check_disk(&on_change)).ok();
+    *app.state::<FileWatch>().0.lock().unwrap() = watcher;
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskChange {
+    listing: Listing,
+    /// Entries that differ from what the window showed.
+    changed: Vec<String>,
+}
+
+/// Reads the database file again if it changed on disk, and tells the window:
+/// `database-changed` with the new listing, or `database-error` when the file
+/// cannot be read now (nothing is saved until it can). Runs in the background.
+fn check_disk(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let session = app.state::<Session>();
+        if !session.is_unlocked() {
+            return;
+        }
+        match session.with_mut(|v| Ok(v.reload()?.map(|changed| DiskChange { listing: v.listing(), changed }))) {
+            Ok(Some(change)) => {
+                let _ = app.emit("database-changed", change);
+            }
+            Ok(None) => {}
+            Err(message) if session.is_unlocked() => {
+                let _ = app.emit("database-error", message);
+            }
+            Err(_) => {} // locked meanwhile
+        }
+    });
 }
 
 /// Fetches the listed sites' missing icons in the background, if the user
@@ -167,6 +212,7 @@ fn lock_now(app: &AppHandle) {
     let session = app.state::<Session>();
     if session.is_unlocked() {
         session.set(None);
+        *app.state::<FileWatch>().0.lock().unwrap() = None;
         let _ = app.emit("locked", ());
     }
     clipboard::clear_if_ours();
@@ -358,6 +404,7 @@ pub fn run() {
         .manage(Session::default())
         .manage(Activity::default())
         .manage(Notice::default())
+        .manage(FileWatch::default())
         .invoke_handler(tauri::generate_handler![
             status,
             pick_database,
