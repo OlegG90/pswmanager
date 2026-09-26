@@ -35,8 +35,11 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 ## Database
 
 - One KDBX 4 file, chosen once and remembered. Unlocked with a master password, a key file, or both.
-- The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4
-  (`save_kdbx4` feature).
+- The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1
+  (`save_kdbx4` feature; 4.1 is the only version it writes, so a 4.0 file becomes 4.1 on its first save —
+  KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept.
+- A file whose elements are out of KeePass's order (as older `sic2kdbx` versions wrote) is refused with a
+  message, because keepass-rs would decrypt its protected values in the wrong order.
 - **Nothing is lost on a round trip.** Data the app does not show — attachments, entry history, custom
   attributes, `CustomData` (including the `SafeInCloud` JSON written by `sic2kdbx`), icons, the recycle
   bin, `DeletedObjects` — is written back unchanged.
@@ -112,7 +115,12 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Editing
 
-- Create, edit and delete entries. Delete moves the entry to the recycle bin (as KeePass does).
+- Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
+  the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused —
+  removing an entry with keepass-rs can leave other entries' attachments pointing at the wrong data.
+- Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag and group
+  spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
+  unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
 - Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
   (add / rename / remove, protected or not).
 - Every edit pushes the previous version into the entry's history.
@@ -128,8 +136,9 @@ The file lives in a synced folder (OneDrive, with "Always keep on this device" f
 not talk to any cloud; it keeps the file consistent when another device changes it.
 
 - **Save:** write to a temporary file in the same folder, then rename it over the original atomically, so
-  the sync client never picks up a half-written file. Before each save the previous file is kept as
-  `<name>.kdbx.bak` next to it.
+  the sync client never picks up a half-written file. The new file is opened again with the key before it
+  replaces the old one. Before each save the previous file is kept as `<name>.kdbx.bak` next to it. Saving
+  an entry that did not change does not write the file.
 - **Change detection:** the app remembers the file's hash when it loads or saves it. Before every save, and
   every time the window is shown from the tray, it checks the file on disk. The file is also watched
   (`notify`), so a change that arrives while the app is open is picked up.
@@ -171,7 +180,7 @@ pswm --help | --version
 
 - **Shell:** Tauri 2 (Rust) + WebView2, tray via Tauri's `tray-icon` feature.
 - **Frontend:** plain TypeScript, no framework.
-- **Crates:** `keepass` (`save_kdbx4`), `zeroize`, `notify`, `zxcvbn`, `totp-rs`; an HTTP client for
+- **Crates:** `keepass` (`save_kdbx4`), `zeroize`, `notify`, `zxcvbn`, `totp-lite`; an HTTP client for
   site icons.
 - **Plugins:** single-instance, global-shortcut, autostart, opener, dialog. Clipboard handling is done in
   Rust, so it can set the history-exclusion formats and clear only its own value.

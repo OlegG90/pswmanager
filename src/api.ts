@@ -37,9 +37,58 @@ export interface Listing {
   customIcons: Record<string, string>
 }
 
+/** An entry with every value, as the editor shows and sends it. */
+export interface EntryData {
+  title: string
+  username: string
+  password: string
+  url: string
+  notes: string
+  /** TOTP secret or otpauth:// URI; empty for none. */
+  otp: string
+  tags: string[]
+  group: string[]
+  fields: FieldData[]
+}
+
+/** An additional field with its value, for the editor. */
+export interface FieldData {
+  name: string
+  value: string
+  protected: boolean
+}
+
+export interface Saved {
+  id: string
+  listing: Listing
+}
+
+export interface TotpCode {
+  code: string
+  /** Seconds the code stays valid. */
+  remaining: number
+  period: number
+}
+
+export interface GeneratorOptions {
+  length: number
+  upper: boolean
+  lower: boolean
+  digits: boolean
+  symbols: boolean
+  excludeLookAlikes: boolean
+}
+
+export interface Strength {
+  /** 0 (guessed at once) to 4 (very hard). */
+  score: number
+  crackTime: string
+}
+
 export const PASSWORD = 'Password'
 export const USERNAME = 'UserName'
 export const URL_FIELD = 'URL'
+export const OTP = 'otp'
 
 export const api = {
   status: () => invoke<Status>('status'),
@@ -58,4 +107,13 @@ export const api = {
   /** Tells the backend the window is in use, which postpones the auto-lock. */
   touch: () => invoke<void>('touch'),
   hideWindow: () => invoke<void>('hide_window'),
+  editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
+  /** Creates an entry when `id` is null. */
+  saveEntry: (id: string | null, data: EntryData) => invoke<Saved>('save_entry', { id, data }),
+  deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  groupPaths: () => invoke<string[][]>('group_paths'),
+  totp: (id: string) => invoke<TotpCode | null>('totp', { id }),
+  copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
+  generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
+  passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
 }

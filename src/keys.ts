@@ -4,6 +4,10 @@ export type Action =
   | 'open-url'
   | 'toggle-password'
   | 'lock'
+  | 'copy-totp'
+  | 'new-entry'
+  | 'edit-entry'
+  | 'delete-entry'
   | 'previous'
   | 'next'
   | 'escape'
@@ -36,6 +40,12 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
         return 'toggle-password'
       case 'KeyL':
         return 'lock'
+      case 'KeyT':
+        return 'copy-totp'
+      case 'KeyN':
+        return 'new-entry'
+      case 'KeyE':
+        return 'edit-entry'
       default:
         return null
     }
@@ -47,6 +57,8 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
       return ctx.inSelect ? null : 'next'
     case 'Escape':
       return 'escape'
+    case 'Delete':
+      return ctx.inTextField ? null : 'delete-entry'
   }
   // A printable key typed anywhere outside a text field starts a search.
   return !ctx.inTextField && e.key.length === 1 && e.key !== ' ' ? 'type-to-search' : null

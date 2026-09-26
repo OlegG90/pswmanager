@@ -285,3 +285,166 @@ a {
   padding: 6px 14px;
   border-radius: 4px;
 }
+
+/* TOTP */
+
+.totp {
+  letter-spacing: 0.08em;
+}
+
+.countdown {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+#detail .buttons,
+.editor .buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Editor */
+
+.editor h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.editor h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 16px 0 6px;
+}
+
+.edit-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.edit-row .label {
+  color: var(--muted);
+}
+
+.edit-row .controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.edit-row .controls > input,
+.edit-row .controls > textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 8px;
+  resize: vertical;
+}
+
+input.secret {
+  font-family: Consolas, monospace;
+}
+
+/* The editor has its own Show buttons. */
+input::-ms-reveal {
+  display: none;
+}
+
+#detail .buttons.confirm {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.strength {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.strength .bar {
+  width: 80px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.strength[data-score='0'] .bar,
+.strength[data-score='1'] .bar {
+  background: linear-gradient(90deg, var(--danger) 30%, var(--line) 30%);
+}
+
+.strength[data-score='2'] .bar {
+  background: linear-gradient(90deg, #c9a227 60%, var(--line) 60%);
+}
+
+.strength[data-score='3'] .bar,
+.strength[data-score='4'] .bar {
+  background: #3c9a5f;
+}
+
+.generator {
+  margin: 4px 0 8px 108px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.generator .options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.generator input[type='number'] {
+  width: 60px;
+}
+
+.generator .preview {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: Consolas, monospace;
+  user-select: none;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.field-row textarea {
+  resize: none;
+  overflow: hidden;
+  font-family: Consolas, monospace;
+}
+
+.field-row textarea.masked {
+  -webkit-text-security: disc;
+}
+
+.editor .error {
+  color: var(--danger);
+}
