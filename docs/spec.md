@@ -75,7 +75,7 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 |---|---|
 | global hotkey (default `Ctrl+Alt+P`, configurable) | Show / hide the window |
 | type anywhere | Search |
-| `↑` / `↓`, `Enter` | Move in the list, open entry |
+| `↑` / `↓` | Move in the list (the selected entry shows on the right) |
 | `Ctrl+B` | Copy user name |
 | `Ctrl+C` | Copy password |
 | `Ctrl+T` | Copy TOTP code |

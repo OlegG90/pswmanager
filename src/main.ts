@@ -117,10 +117,12 @@ function fillFilter() {
   }
 }
 
+/** Filter options carry their kind before the first colon: `group:Work`, `tag:Favorite`. */
 function currentFilter(): Filter {
-  const value = filterSelect.value
-  if (value.startsWith('group:')) return { kind: 'group', path: value.slice(6) }
-  if (value.startsWith('tag:')) return { kind: 'tag', tag: value.slice(4) }
+  const [kind, ...rest] = filterSelect.value.split(':')
+  const value = rest.join(':')
+  if (kind === 'group') return { kind, path: value }
+  if (kind === 'tag') return { kind, tag: value }
   return { kind: 'all' }
 }
 
@@ -261,6 +263,14 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
   return div
 }
 
+/** How a field is labelled; the standard ones only appear here when protected. */
+const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', Notes: 'Notes', otp: 'TOTP' }
+const labelOf = (field: string) => LABELS[field] ?? field
+
+/** True when the entry has a value in `field` that can be copied. */
+const hasField = (entry: EntryDetail, field: string) =>
+  (field === USERNAME && !!entry.username) || entry.fields.some((f) => f.name === field)
+
 function renderDetail() {
   const entry = current
   if (!entry) return
@@ -281,7 +291,7 @@ function renderDetail() {
   }
   for (const field of entry.fields) {
     if (field.protected) {
-      rows.push(secretRow(field.name, field.name))
+      rows.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
       rows.push(row(field.name, field.value, button('Copy', 'Copy', () => copy(field.name, field.name))))
     }
@@ -346,7 +356,7 @@ $('lock-button').addEventListener('click', lock)
 function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
-      if (current?.username) copy(USERNAME, 'User name')
+      if (current && hasField(current, USERNAME)) copy(USERNAME, 'User name')
       break
     case 'copy-password':
       if (current?.hasPassword) copy(PASSWORD, 'Password')
@@ -384,9 +394,10 @@ document.addEventListener('keydown', (e) => {
   if (vault.hidden) return
   const target = e.target as HTMLElement
   const inTextField = target instanceof HTMLInputElement && target.type !== 'button'
+  const inSelect = target instanceof HTMLSelectElement
   const fieldSelection = target instanceof HTMLInputElement && target.selectionStart !== target.selectionEnd
   const hasSelection = fieldSelection || !!document.getSelection()?.toString()
-  const action = actionFor(e, { inTextField, hasSelection })
+  const action = actionFor(e, { inTextField, inSelect, hasSelection })
   if (action) perform(action, e)
 })
 

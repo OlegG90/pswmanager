@@ -21,14 +21,14 @@ function inFilter(entry: Entry, filter: Filter): boolean {
   }
 }
 
-/** Entries matching every word of the query (title, user name, URL, tags,
- *  group and notes; never passwords), within the filter. */
+/** Entries matching every word of the query (title, user name, URL, tags and
+ *  notes; never passwords), within the filter. */
 export function search(entries: Entry[], query: string, filter: Filter = { kind: 'all' }): Entry[] {
   const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean)
   return entries.filter((e) => {
     if (!inFilter(e, filter)) return false
     if (words.length === 0) return true
-    const text = [e.title, e.username, e.url, groupPath(e), ...e.tags, e.notes].join('\n').toLocaleLowerCase()
+    const text = [e.title, e.username, e.url, ...e.tags, e.notes].join('\n').toLocaleLowerCase()
     return words.every((w) => text.includes(w))
   })
 }

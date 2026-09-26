@@ -8,8 +8,8 @@ const press = (key: string, ctrlKey = false, code = `Key${key.toUpperCase()}`) =
   altKey: false,
   metaKey: false,
 })
-const outside: KeyContext = { inTextField: false, hasSelection: false }
-const inSearch: KeyContext = { inTextField: true, hasSelection: false }
+const outside: KeyContext = { inTextField: false, inSelect: false, hasSelection: false }
+const inSearch: KeyContext = { ...outside, inTextField: true }
 
 describe('actionFor', () => {
   it('maps the entry shortcuts', () => {
@@ -28,7 +28,11 @@ describe('actionFor', () => {
   })
 
   it('leaves Ctrl+C to the browser when text is selected', () => {
-    expect(actionFor(press('c', true), { inTextField: true, hasSelection: true })).toBeNull()
+    expect(actionFor(press('c', true), { ...inSearch, hasSelection: true })).toBeNull()
+  })
+
+  it('leaves the arrow keys to a focused drop-down', () => {
+    expect(actionFor(press('ArrowDown'), { ...outside, inSelect: true })).toBeNull()
   })
 
   it('starts a search when typing outside a text field', () => {

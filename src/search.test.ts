@@ -27,7 +27,8 @@ describe('search', () => {
   it('matches every word anywhere except secrets, ignoring case', () => {
     expect(titles(search(entries, ''))).toEqual(['Mail', 'Bank', 'Router'])
     expect(titles(search(entries, 'EXAMPLE'))).toEqual(['Mail', 'Bank'])
-    expect(titles(search(entries, 'home pin'))).toEqual(['Bank'])
+    expect(titles(search(entries, 'bank pin'))).toEqual(['Bank'])
+    expect(titles(search(entries, 'home'))).toEqual([])
     expect(titles(search(entries, 'favorite'))).toEqual(['Mail'])
     expect(titles(search(entries, 'nothing'))).toEqual([])
   })

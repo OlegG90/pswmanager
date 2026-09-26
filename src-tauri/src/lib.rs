@@ -5,7 +5,7 @@ mod store;
 mod vault;
 
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -18,7 +18,8 @@ use zeroize::Zeroizing;
 
 const DEFAULT_WIDTH: f64 = 900.0;
 const DEFAULT_HEIGHT: f64 = 600.0;
-const DEFAULT_CLEAR_SECONDS: u64 = 20;
+/// Seconds before a copied value is cleared: the default and the allowed range.
+const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
 
 /// The unlocked database, if any. Locking drops it, and with it every
 /// decrypted value.
@@ -30,6 +31,14 @@ impl Session {
         let vault = self.0.lock().unwrap();
         let vault = vault.as_ref().ok_or("The database is locked")?;
         f(vault).ok_or_else(|| "That entry is no longer in the database".into())
+    }
+
+    fn set(&self, vault: Option<Vault>) {
+        *self.0.lock().unwrap() = vault;
+    }
+
+    fn is_unlocked(&self) -> bool {
+        self.0.lock().unwrap().is_some()
     }
 }
 
@@ -45,7 +54,7 @@ struct Status {
 fn status(store: State<Store>, session: State<Session>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
     let (database, key_file) = store.read(|s| (shown(&s.database), shown(&s.key_file)));
-    Status { database, key_file, unlocked: session.0.lock().unwrap().is_some() }
+    Status { database, key_file, unlocked: session.is_unlocked() }
 }
 
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
@@ -89,7 +98,7 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     if setting_bool(&store, "downloadIcons", true) {
         fetch_icons(app, vault.hosts(), icons::cache_dir(store.dir()));
     }
-    *session.0.lock().unwrap() = Some(vault);
+    session.set(Some(vault));
     Ok(listing)
 }
 
@@ -105,7 +114,7 @@ fn fetch_icons(app: AppHandle, hosts: Vec<String>, dir: PathBuf) {
 
 #[tauri::command]
 fn lock(session: State<Session>) {
-    *session.0.lock().unwrap() = None;
+    session.set(None);
     clipboard::clear_if_ours();
 }
 
@@ -133,7 +142,8 @@ fn copy_field(store: State<Store>, session: State<Session>, id: String, field: S
     if value.is_empty() {
         return Err(format!("{field} is empty"));
     }
-    let seconds = store.read(|s| s.settings.get("clearClipboard").and_then(Value::as_u64)).unwrap_or(DEFAULT_CLEAR_SECONDS);
+    let (default, min, max) = CLEAR_SECONDS;
+    let seconds = store.read(|s| s.settings.get("clearClipboard").and_then(Value::as_u64)).unwrap_or(default).clamp(min, max);
     clipboard::copy(value, Duration::from_secs(seconds))?;
     Ok(seconds)
 }
@@ -141,26 +151,14 @@ fn copy_field(store: State<Store>, session: State<Session>, id: String, field: S
 /// Opens the entry's URL in the default browser (web addresses only).
 #[tauri::command(async)]
 fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), String> {
-    let url = session.with(|v| v.field(&id, "URL"))?;
-    icons::host_of(&url).ok_or("The entry has no web address")?;
-    let url = if url.contains("://") { url.to_string() } else { format!("https://{}", url.trim()) };
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    let url = session.with(|v| Some(v.web_url(&id)))?.ok_or("The entry has no web address")?;
+    app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 
 /// A cached site icon as a `data:` URL, or nothing yet.
 #[tauri::command(async)]
 fn icon(store: State<Store>, host: String) -> Option<String> {
     icons::Cache::new(icons::cache_dir(store.dir())).get(&host).and_then(|bytes| icons::data_url(&bytes))
-}
-
-#[tauri::command]
-fn get_settings(store: State<Store>) -> Map<String, Value> {
-    store.read(|s| s.settings.clone())
-}
-
-#[tauri::command(async)]
-fn update_settings(store: State<Store>, changes: Map<String, Value>) -> Result<(), String> {
-    store.update(|s| s.settings.extend(changes)).map_err(|e| e.to_string())
 }
 
 fn setting_bool(store: &Store, name: &str, default: bool) -> bool {
@@ -223,8 +221,6 @@ pub fn run() {
             copy_field,
             open_url,
             icon,
-            get_settings,
-            update_settings,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { .. } = event {

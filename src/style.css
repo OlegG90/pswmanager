@@ -243,8 +243,11 @@ button:focus-visible,
   user-select: text;
 }
 
+/* A revealed secret is copied with Copy / Ctrl+C only, so it is never
+   selectable: a browser copy would skip the clipboard clearing. */
 .row .value.secret {
   font-family: Consolas, monospace;
+  user-select: none;
 }
 
 .row .actions {

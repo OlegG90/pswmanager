@@ -13,9 +13,10 @@ const PAGE_LIMIT: u64 = 512 * 1024;
 const ICON_LIMIT: u64 = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The host of an entry's URL, if it is a web address. A URL without a
-/// scheme (`example.com/login`, as SafeInCloud stores them) counts as https.
-pub fn host_of(url: &str) -> Option<String> {
+/// An entry's URL as a web address on a named site. A URL without a scheme
+/// (`example.com/login`, as SafeInCloud stores them) counts as https. Bare
+/// words ("router", "localhost") and IP addresses are not sites.
+pub fn web_url(url: &str) -> Option<Url> {
     let url = url.trim();
     if url.is_empty() || url.chars().any(char::is_whitespace) {
         return None;
@@ -25,12 +26,24 @@ pub fn host_of(url: &str) -> Option<String> {
         Err(url::ParseError::RelativeUrlWithoutBase) => Url::parse(&format!("https://{url}")).ok()?,
         Err(_) => return None,
     };
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return None;
-    }
-    let host = parsed.host_str()?.trim_end_matches('.').to_ascii_lowercase();
-    // A bare word ("router", "localhost") is not a site with an icon.
-    (host.contains('.') && is_safe_host(&host)).then_some(host)
+    let is_site = matches!(parsed.host(), Some(url::Host::Domain(d)) if d.trim_end_matches('.').contains('.'));
+    (matches!(parsed.scheme(), "http" | "https") && is_site).then_some(parsed)
+}
+
+/// The site of an entry's URL, for its icon.
+pub fn host_of(url: &str) -> Option<String> {
+    let host = web_url(url)?.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    is_safe_host(&host).then_some(host)
+}
+
+/// True for an https address on `host` itself, a subdomain of it, or a parent
+/// domain (`www.example.com` -> `example.com`): the site, not someone else.
+fn on_site(url: &Url, host: &str) -> bool {
+    let Some(other) = url.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()) else { return false };
+    let related = other == host
+        || other.ends_with(&format!(".{host}"))
+        || (other.contains('.') && host.ends_with(&format!(".{other}")));
+    url.scheme() == "https" && related
 }
 
 /// Hosts become file names, so only plain host characters are allowed.
@@ -64,9 +77,10 @@ pub fn data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
-/// Candidate icon URLs declared by a page, best first: icons with a declared
-/// size of 32px or more, then Apple touch icons, then the rest.
-pub fn icon_links(html: &str, base: &Url) -> Vec<Url> {
+/// Candidate icon URLs a page on `host` declares on its own site, best first:
+/// icons with a declared size of 32px or more, then Apple touch icons, then
+/// the rest.
+pub fn icon_links(html: &str, base: &Url, host: &str) -> Vec<Url> {
     let mut found: Vec<(u8, Url)> = Vec::new();
     let lower = html.to_ascii_lowercase();
     let mut rest = 0;
@@ -80,7 +94,7 @@ pub fn icon_links(html: &str, base: &Url) -> Vec<Url> {
             continue;
         }
         let Ok(url) = base.join(href.trim()) else { continue };
-        if !matches!(url.scheme(), "http" | "https") {
+        if !on_site(&url, host) {
             continue;
         }
         let big = attr(tag, "sizes").is_some_and(|s| largest_size(&s) >= 32);
@@ -188,22 +202,25 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-/// Asks the site itself: the icons its start page declares, then
-/// `/favicon.ico`. Only the host is sent — nothing from the entry.
+/// Asks the site itself, over https: the icons its start page declares on the
+/// same site, then `/favicon.ico`. Only the host is sent — nothing from the
+/// entry — and whatever a redirect off the site returns is dropped.
 fn fetch_icon(agent: &ureq::Agent, host: &str) -> Option<Vec<u8>> {
-    let start = Url::parse(&format!("https://{host}/")).ok()?;
-    let mut candidates = Vec::new();
-    if let Ok(mut page) = agent.get(start.as_str()).call() {
-        let base = Url::parse(&ureq::ResponseExt::get_uri(&page).to_string()).unwrap_or(start.clone());
-        if let Ok(html) = page.body_mut().with_config().limit(PAGE_LIMIT).read_to_string() {
-            candidates = icon_links(&html, &base);
+    let get = |url: &Url, limit: u64| -> Option<(Url, Vec<u8>)> {
+        let mut response = agent.get(url.as_str()).call().ok()?;
+        let landed = Url::parse(&ureq::ResponseExt::get_uri(&response).to_string()).ok()?;
+        if !on_site(&landed, host) {
+            return None;
         }
-    }
+        Some((landed, response.body_mut().with_config().limit(limit).read_to_vec().ok()?))
+    };
+    let start = Url::parse(&format!("https://{host}/")).ok()?;
+    let mut candidates = match get(&start, PAGE_LIMIT) {
+        Some((base, html)) => icon_links(&String::from_utf8_lossy(&html), &base, host),
+        None => Vec::new(),
+    };
     candidates.push(start.join("/favicon.ico").ok()?);
-    candidates.into_iter().find_map(|url| {
-        let bytes = agent.get(url.as_str()).call().ok()?.body_mut().with_config().limit(ICON_LIMIT).read_to_vec().ok()?;
-        sniff(&bytes).is_some().then_some(bytes)
-    })
+    candidates.into_iter().find_map(|url| get(&url, ICON_LIMIT).map(|(_, bytes)| bytes).filter(|b| sniff(b).is_some()))
 }
 
 /// Where the cache lives: `icons` beside the state file.
@@ -221,9 +238,30 @@ mod tests {
         assert_eq!(host_of("example.com").as_deref(), Some("example.com"));
         assert_eq!(host_of("example.com/path").as_deref(), Some("example.com"));
         assert_eq!(host_of("http://user:pw@example.org:8080/").as_deref(), Some("example.org"));
-        for not_a_site in ["", "router", "ftp://example.com", "mailto:me@example.com", "10 0 0 1", "http://localhost/"] {
+        let not_sites =
+            ["", "router", "ftp://example.com", "mailto:me@example.com", "10 0 0 1", "http://localhost/", "192.168.1.1", "https://[::1]/"];
+        for not_a_site in not_sites {
             assert_eq!(host_of(not_a_site), None, "{not_a_site}");
         }
+    }
+
+    #[test]
+    fn web_urls_are_normalised() {
+        let url = web_url(" example.com/?next=http://x ").unwrap();
+        assert_eq!(url.as_str(), "https://example.com/?next=http://x");
+        assert_eq!(web_url("http://example.com").unwrap().as_str(), "http://example.com/");
+    }
+
+    #[test]
+    fn only_the_site_itself_counts() {
+        let on = |url: &str| on_site(&Url::parse(url).unwrap(), "www.example.com");
+        assert!(on("https://www.example.com/i.png"));
+        assert!(on("https://static.www.example.com/i.png"));
+        assert!(on("https://example.com/i.png"));
+        assert!(!on("http://www.example.com/i.png"));
+        assert!(!on("https://cdn.example.net/i.png"));
+        assert!(!on("https://notexample.com/i.png"));
+        assert!(!on("https://com/i.png"));
     }
 
     #[test]
@@ -246,9 +284,11 @@ mod tests {
             <LINK REL="shortcut icon" HREF="/favicon.ico">
             <link rel=apple-touch-icon href=touch.png>
             <link href='//cdn.example.com/i/64.png' sizes='16x16 64x64' rel='icon'>
+            <link rel="icon" href="https://favicons.example.net/example.com">
+            <link rel="icon" href="http://example.com/plain.ico">
             <link rel="icon" href="javascript:alert(1)">
         </head></html>"#;
-        let urls: Vec<String> = icon_links(html, &base).iter().map(Url::to_string).collect();
+        let urls: Vec<String> = icon_links(html, &base, "example.com").iter().map(Url::to_string).collect();
         assert_eq!(
             urls,
             ["https://cdn.example.com/i/64.png", "https://example.com/app/touch.png", "https://example.com/favicon.ico"]

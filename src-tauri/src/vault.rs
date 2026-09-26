@@ -2,7 +2,7 @@
 //! summaries without secrets, and a secret only when asked for one field.
 
 use crate::icons;
-use keepass::db::{fields, EntryId, EntryRef, GroupId};
+use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
@@ -83,8 +83,8 @@ impl Vault {
 
     /// All entries the user works with: not in the recycle bin, not templates.
     fn visible_entries(&self) -> impl Iterator<Item = EntryRef<'_>> {
-        let hidden: HashSet<GroupId> = self.hidden_groups();
-        self.db.iter_all_entries().filter(move |e| !ancestors(e).iter().any(|g| hidden.contains(g)))
+        let hidden = self.hidden_groups();
+        self.db.iter_all_entries().filter(move |e| !is_in(e, &hidden))
     }
 
     fn hidden_groups(&self) -> HashSet<GroupId> {
@@ -119,7 +119,7 @@ impl Vault {
 
     /// The distinct sites of all entries, for fetching their icons.
     pub fn hosts(&self) -> Vec<String> {
-        let mut hosts: Vec<String> = self.visible_entries().filter_map(|e| icons::host_of(e.get_url()?)).collect();
+        let mut hosts: Vec<String> = self.visible_entries().filter_map(|e| summary(&e).host).collect();
         hosts.sort();
         hosts.dedup();
         hosts
@@ -127,14 +127,18 @@ impl Vault {
 
     pub fn detail(&self, id: &str) -> Option<EntryDetail> {
         let entry = self.entry(id)?;
+        // Additional attributes, plus a user name, URL or notes marked protected
+        // (the summary leaves those out).
         let mut fields: Vec<Field> = entry
             .fields
             .iter()
-            .filter(|(name, _)| !fields::KNOWN_FIELDS.contains(&name.as_str()))
-            .map(|(name, value)| Field {
-                name: name.clone(),
-                protected: value.is_protected(),
-                value: (!value.is_protected()).then(|| value.get().clone()),
+            .filter(|(name, value)| {
+                !fields::KNOWN_FIELDS.contains(&name.as_str())
+                    || (is_secret(name, value) && ![fields::TITLE, fields::PASSWORD].contains(&name.as_str()))
+            })
+            .map(|(name, value)| {
+                let secret = is_secret(name, value);
+                Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()) }
             })
             .collect();
         fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -148,13 +152,28 @@ impl Vault {
         entry.fields.get(name).map(|v| Zeroizing::new(v.get().clone()))
     }
 
+    /// The entry's URL as a web address, if it is one.
+    pub fn web_url(&self, id: &str) -> Option<url::Url> {
+        icons::web_url(&self.field(id, fields::URL)?)
+    }
+
     /// A visible entry by id; entries in the recycle bin are not reachable.
     fn entry(&self, id: &str) -> Option<EntryRef<'_>> {
         let id = EntryId::from(Uuid::parse_str(id).ok()?);
         let entry = self.db.entry(id)?;
-        let hidden = self.hidden_groups();
-        (!ancestors(&entry).iter().any(|g| hidden.contains(g))).then_some(entry)
+        (!is_in(&entry, &self.hidden_groups())).then_some(entry)
     }
+}
+
+/// True when the entry sits in one of `groups`, at any depth.
+fn is_in(entry: &EntryRef<'_>, groups: &HashSet<GroupId>) -> bool {
+    ancestors(entry).iter().any(|g| groups.contains(g))
+}
+
+/// Values that only leave the backend on request: protected fields, and the
+/// TOTP secret even when a client stored it unprotected.
+fn is_secret(name: &str, value: &Value<String>) -> bool {
+    value.is_protected() || name == fields::OTP
 }
 
 /// The ids of the groups above an entry, nearest first, ending with the root.
@@ -170,14 +189,18 @@ fn ancestors(entry: &EntryRef<'_>) -> Vec<GroupId> {
 }
 
 fn summary(e: &EntryRef<'_>) -> EntrySummary {
-    let text = |name: &str| e.get(name).unwrap_or_default().to_string();
+    // A protected user name, URL or notes stays out, like the password.
+    let text = |name: &str| match e.fields.get(name) {
+        Some(value) if !is_secret(name, value) => value.get().clone(),
+        _ => String::new(),
+    };
     let url = text(fields::URL);
     let mut chain = ancestors(e);
     chain.pop(); // the root group
     let group = chain.iter().rev().filter_map(|&id| e.database().group(id).map(|g| g.name.clone())).collect();
     EntrySummary {
         id: e.id().uuid().to_string(),
-        title: text(fields::TITLE),
+        title: e.get_title().unwrap_or_default().to_string(),
         username: text(fields::USERNAME),
         host: icons::host_of(&url),
         url,
@@ -202,7 +225,6 @@ fn open_error(e: &DatabaseOpenError) -> String {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use keepass::db::Value;
 
     /// A small database like the ones `sic2kdbx` writes.
     pub fn sample() -> Database {
@@ -294,5 +316,50 @@ pub mod tests {
         assert_eq!(detail.summary.tags, ["Tag"]);
         assert_eq!(detail.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["Extra", "Secret"]);
         assert_eq!(vault.field(&id, "Secret").unwrap().as_str(), "hidden");
+    }
+
+    #[test]
+    fn protected_standard_fields_and_totp_stay_in_the_backend() {
+        let mut db = Database::new();
+        db.root_mut().add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "Bank");
+            e.set_protected(fields::USERNAME, "client-42");
+            e.set_protected(fields::URL, "bank.example.com");
+            e.set_unprotected(fields::OTP, "otpauth://totp/Bank?secret=JBSWY3DP");
+        });
+        let vault = Vault::from_database(db);
+        let listing = vault.listing();
+        let json = serde_json::to_string(&listing.entries).unwrap();
+        assert!(!json.contains("client-42") && !json.contains("bank.example") && !json.contains("JBSWY3DP"), "{json}");
+        let id = &listing.entries[0].id;
+        let detail = vault.detail(id).unwrap();
+        let names: Vec<(&str, bool)> = detail.fields.iter().map(|f| (f.name.as_str(), f.protected)).collect();
+        assert_eq!(names, [("otp", true), ("URL", true), ("UserName", true)]);
+        assert!(detail.fields.iter().all(|f| f.value.is_none()));
+        assert_eq!(vault.field(id, fields::USERNAME).unwrap().as_str(), "client-42");
+        assert_eq!(vault.web_url(id).unwrap().as_str(), "https://bank.example.com/");
+    }
+
+    #[test]
+    fn an_entry_icon_is_used_only_when_it_is_an_image() {
+        let mut db = Database::new();
+        let mut root = db.root_mut();
+        root.add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "a");
+            e.set_unprotected(fields::URL, "example.com");
+            e.set_icon_custom_new(b"\x89PNG\r\n\x1a\n....".to_vec());
+        });
+        root.add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "b");
+            e.set_unprotected(fields::URL, "example.org");
+            e.set_icon_custom_new(b"not an image".to_vec());
+        });
+        let listing = Vault::from_database(db).listing();
+        let (a, b) = (&listing.entries[0], &listing.entries[1]);
+        let key = a.custom_icon.as_ref().unwrap();
+        assert!(listing.custom_icons[key].starts_with("data:image/png;base64,"));
+        assert_eq!(listing.custom_icons.len(), 1);
+        // No usable icon of its own: the site's icon (or the default) is shown instead.
+        assert_eq!((b.custom_icon.as_deref(), b.host.as_deref()), (None, Some("example.org")));
     }
 }

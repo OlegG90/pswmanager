@@ -21,6 +21,8 @@ export interface KeyInfo {
 export interface KeyContext {
   /** Focus is in a text field (search or password). */
   inTextField: boolean
+  /** Focus is in a drop-down, which needs the arrow keys itself. */
+  inSelect: boolean
   /** Text is selected on the page or in a field: Ctrl+C copies that instead. */
   hasSelection: boolean
 }
@@ -46,9 +48,9 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
   }
   switch (e.key) {
     case 'ArrowUp':
-      return 'previous'
+      return ctx.inSelect ? null : 'previous'
     case 'ArrowDown':
-      return 'next'
+      return ctx.inSelect ? null : 'next'
     case 'Escape':
       return 'escape'
   }
