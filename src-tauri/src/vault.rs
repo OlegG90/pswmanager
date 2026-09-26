@@ -213,7 +213,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     }
 }
 
-const UNORDERED: &str = "This database stores entry fields in an unusual order, which PswManager cannot read \
+const UNORDERED: &str = "This database stores its elements in an unusual order, which PswManager cannot read \
      safely. Open it in KeePassXC and save it once, or convert it again with the current sic2kdbx.";
 
 fn open_error(e: &DatabaseOpenError) -> String {
@@ -223,7 +223,8 @@ fn open_error(e: &DatabaseOpenError) -> String {
         DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}"),
         DatabaseOpenError::UnsupportedVersion => "This database version is not supported".into(),
         // keepass-rs reads a strict element order; a file with an entry's
-        // fields or a group's children out of order (older sic2kdbx) fails here.
+        // fields or a group's children out of order (older sic2kdbx) fails here
+        // rather than having its protected values decrypted in the wrong order.
         other if other.to_string().contains("duplicate field") => UNORDERED.into(),
         other => format!("Cannot open the database: {other}"),
     }
@@ -317,8 +318,9 @@ pub mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
     }
 
-    /// Protected values are decrypted in the order they appear in the file, so
-    /// a wrong parsing order shows up as wrong secrets, not as an error.
+    /// Protected values share one keystream in file order; reading them in any
+    /// other order gives wrong secrets, not an error. The fixtures are made by
+    /// `scripts/make-fixtures.py`.
     #[test]
     fn reads_the_secrets_sic2kdbx_writes() {
         let vault = Vault::open(&fixture("sic2kdbx.kdbx"), Some("test"), None).unwrap();

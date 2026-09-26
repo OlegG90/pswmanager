@@ -322,9 +322,10 @@ def add_card(kp, group, card, keep_empty=True):
 
 # The element order KeePass writes. pykeepass appends new elements at the end,
 # so a custom field lands after <AutoType> and a group's entries and subgroups
-# mix. KeePass and KeePassXC read that, but readers that decrypt protected
-# values while parsing a strict schema (keepass-rs) either refuse the file or,
-# worse, decrypt the values in the wrong order and get garbage.
+# mix. KeePass and KeePassXC read that, but keepass-rs parses a strict schema
+# and then decrypts protected values in its own fixed order (an entry's
+# strings, then its history), which only matches the file's keystream when
+# the elements are where KeePass puts them.
 ENTRY_ORDER = ["UUID", "IconID", "CustomIconUUID", "ForegroundColor", "BackgroundColor", "OverrideURL",
                "QualityCheck", "Tags", "PreviousParentGroup", "Times", "String", "Binary", "AutoType",
                "CustomData", "History"]
@@ -336,9 +337,9 @@ GROUP_ORDER = ["UUID", "Name", "Notes", "IconID", "CustomIconUUID", "Times", "Is
 def canonical_order(kp):
     """Sorts the children of every entry (history included) and group into
     KeePass's order; elements of the same kind keep their relative order."""
-    for tag, order in (("Entry", ENTRY_ORDER), ("Group", GROUP_ORDER)):
+    for tag, order, first_child in (("Entry", ENTRY_ORDER, "History"), ("Group", GROUP_ORDER, "Entry")):
         # Unknown elements go before the entry's history / the group's children.
-        unknown = len(order) - 1.5
+        unknown = order.index(first_child) - 0.5
         for element in kp.tree.iter(tag):
             children = list(element)
             children.sort(key=lambda c: order.index(c.tag) if c.tag in order else unknown)
