@@ -40,6 +40,8 @@ function showStatus(status: Status) {
   $('database-path').classList.toggle('muted', !status.database)
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
+  $('notice').textContent = status.notice ?? ''
+  $('notice').hidden = !status.notice
 }
 
 function showUnlock(status: Status) {
@@ -89,8 +91,13 @@ function showVault(next: Listing) {
   searchInput.focus()
 }
 
-async function lock() {
-  await api.lock()
+/** Asks the backend to lock; it answers with the `locked` event. */
+function lock() {
+  api.lock().catch((e) => notify(String(e)))
+}
+
+/** Forgets everything shown and returns to the unlock screen. */
+async function showLocked() {
   listing = EMPTY
   shown = []
   selectedId = null
@@ -311,6 +318,11 @@ searchInput.addEventListener('input', refresh)
 filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 
+/** Esc with nothing left to close: back to the tray. */
+function hideWindow() {
+  api.hideWindow().catch((e) => notify(String(e)))
+}
+
 function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
@@ -339,8 +351,10 @@ function perform(action: Action, e: KeyboardEvent) {
       if (searchInput.value) {
         searchInput.value = ''
         refresh()
+        searchInput.focus()
+      } else {
+        hideWindow()
       }
-      searchInput.focus()
       break
     case 'type-to-search':
       searchInput.focus()
@@ -350,7 +364,10 @@ function perform(action: Action, e: KeyboardEvent) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (vault.hidden) return
+  if (vault.hidden) {
+    if (e.key === 'Escape') hideWindow()
+    return
+  }
   const target = e.target as HTMLElement
   const inTextField = target instanceof HTMLInputElement && target.type !== 'button'
   const inSelect = target instanceof HTMLSelectElement
@@ -361,6 +378,23 @@ document.addEventListener('keydown', (e) => {
 })
 
 // ---------------------------------------------------------------- start
+
+/** Reports use of the window at most every few seconds; the backend locks
+ *  after the configured time without any. */
+let lastTouch = 0
+function reportActivity() {
+  const now = Date.now()
+  if (vault.hidden || now - lastTouch < 5000) return
+  lastTouch = now
+  api.touch().catch(() => {})
+}
+// Pointer movement alone does not count: hovering over the window is not using it.
+for (const type of ['keydown', 'pointerdown', 'wheel']) {
+  document.addEventListener(type, reportActivity, { passive: true, capture: true })
+}
+
+listen('locked', showLocked)
+listen('window-shown', () => (vault.hidden ? passwordInput : searchInput).focus())
 
 listen<string>('icon-ready', (e) => {
   siteIcons.delete(e.payload)

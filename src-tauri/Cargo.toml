@@ -27,13 +27,16 @@ keepass = { version = "0.15", features = ["save_kdbx4"] }
 quick-xml = { version = "0.42", features = ["overlapped-lists"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2.7.3"
+tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-opener = "2.5.5"
+tauri-plugin-single-instance = "2.4.5"
 ureq = { version = "3.2.1", default-features = false, features = ["native-tls", "gzip"] }
 url = "2"
 uuid = "1"
-windows-sys = { version = "0.61.2", features = ["Win32_System_DataExchange"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_RemoteDesktop", "Win32_UI_WindowsAndMessaging"] }
 zeroize = "1.8.2"
 
 [profile.release]
