@@ -13,7 +13,8 @@ use activity::Activity;
 use serde::Serialize;
 use settings::Settings;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use store::Store;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -24,6 +25,12 @@ use zeroize::Zeroizing;
 
 /// Passed by the "Start with Windows" entry: start in the tray, locked.
 const AUTOSTART_ARG: &str = "--autostart";
+/// How often the inactivity check runs.
+const CHECK_EVERY: Duration = Duration::from_secs(10);
+
+fn is_autostart<S: AsRef<str>>(mut args: impl Iterator<Item = S>) -> bool {
+    args.any(|arg| arg.as_ref() == AUTOSTART_ARG)
+}
 
 /// The unlocked database, if any. Locking drops it, and with it every
 /// decrypted value.
@@ -49,7 +56,7 @@ impl Session {
 /// Something the user should know that happened before the window could say
 /// it (the global hotkey could not be registered).
 #[derive(Default)]
-struct Notice(Mutex<Option<String>>);
+struct Notice(OnceLock<String>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,7 +71,7 @@ struct Status {
 fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
     let (database, key_file) = store.read(|s| (shown(&s.database), shown(&s.key_file)));
-    let notice = notice.0.lock().unwrap().clone();
+    let notice = notice.0.get().cloned();
     Status { database, key_file, unlocked: session.is_unlocked(), notice }
 }
 
@@ -202,7 +209,7 @@ fn icon(store: State<Store>, host: String) -> Option<String> {
 /// Locks once the database has been left alone for `lockAfterMinutes`.
 fn watch_inactivity(app: AppHandle) {
     std::thread::spawn(move || loop {
-        std::thread::sleep(activity::CHECK_EVERY);
+        std::thread::sleep(CHECK_EVERY);
         if !app.state::<Session>().is_unlocked() {
             continue;
         }
@@ -219,21 +226,30 @@ fn register_hotkey(app: &AppHandle) {
     let hotkey = Settings::of(&app.state()).hotkey();
     let registered = app.global_shortcut().on_shortcut(hotkey.as_str(), |app, _, event| {
         if event.state == ShortcutState::Pressed {
-            window::toggle(app);
+            window::toggle(app, true);
         }
     });
     if let Err(e) = registered {
-        *app.state::<Notice>().0.lock().unwrap() = Some(format!("The hotkey {hotkey} is not available: {e}"));
+        let _ = app.state::<Notice>().0.set(format!("The hotkey {hotkey} is not available: {e}"));
     }
 }
 
+/// Locks when Windows locks or the session is disconnected (`lockOnSessionLock`).
+fn lock_on_session_lock(app: AppHandle) {
+    session_watch::watch(move || {
+        if Settings::of(&app.state()).lock_on_session_lock() {
+            lock_now(&app);
+        }
+    });
+}
+
 pub fn run() {
-    let autostarted = std::env::args().skip(1).any(|arg| arg == AUTOSTART_ARG);
+    let autostarted = is_autostart(std::env::args().skip(1));
     tauri::Builder::default()
         // Must come first: a second launch hands over to this process and exits.
         // A second "Start with Windows" launch leaves the running app as it is.
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !args.iter().any(|arg| arg == AUTOSTART_ARG) {
+            if !is_autostart(args.iter()) {
                 window::show(app);
             }
         }))
@@ -274,12 +290,7 @@ pub fn run() {
             tray::create(handle)?;
             register_hotkey(handle);
             watch_inactivity(handle.clone());
-            let on_leave = handle.clone();
-            session_watch::watch(move || {
-                if Settings::of(&on_leave.state()).lock_on_session_lock() {
-                    lock_now(&on_leave);
-                }
-            });
+            lock_on_session_lock(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())

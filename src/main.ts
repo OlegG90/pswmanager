@@ -318,6 +318,11 @@ searchInput.addEventListener('input', refresh)
 filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 
+/** Esc with nothing left to close: back to the tray. */
+function hideWindow() {
+  api.hideWindow().catch((e) => notify(String(e)))
+}
+
 function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
@@ -348,7 +353,7 @@ function perform(action: Action, e: KeyboardEvent) {
         refresh()
         searchInput.focus()
       } else {
-        api.hideWindow().catch((e) => notify(String(e)))
+        hideWindow()
       }
       break
     case 'type-to-search':
@@ -360,7 +365,7 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (vault.hidden) {
-    if (e.key === 'Escape') api.hideWindow().catch(() => {})
+    if (e.key === 'Escape') hideWindow()
     return
   }
   const target = e.target as HTMLElement

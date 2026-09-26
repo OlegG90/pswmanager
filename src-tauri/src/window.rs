@@ -61,29 +61,17 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
-/// The hotkey: show the window, or hide it when it is already in front.
-pub fn toggle(app: &AppHandle) {
+/// Shows the window, or hides it when it is already shown. The hotkey hides
+/// only a window that has the focus (`need_focus`); a tray click takes the
+/// focus itself, so it hides any shown window.
+pub fn toggle(app: &AppHandle, need_focus: bool) {
     let Some(window) = main_window(app) else { return };
-    if is_shown(&window) && window.is_focused().unwrap_or(false) {
+    let shown = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+    if shown && (!need_focus || window.is_focused().unwrap_or(false)) {
         hide(app);
     } else {
         show(app);
     }
-}
-
-/// A tray click: clicking the icon takes the focus from the window, so a shown
-/// window is hidden whether it had the focus or not.
-pub fn toggle_from_tray(app: &AppHandle) {
-    let Some(window) = main_window(app) else { return };
-    if is_shown(&window) {
-        hide(app);
-    } else {
-        show(app);
-    }
-}
-
-fn is_shown(window: &WebviewWindow) -> bool {
-    window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
 }
 
 pub fn quit(app: &AppHandle) {

@@ -35,7 +35,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                window::toggle_from_tray(tray.app_handle());
+                window::toggle(tray.app_handle(), false);
             }
         });
     if let Some(icon) = app.default_window_icon() {

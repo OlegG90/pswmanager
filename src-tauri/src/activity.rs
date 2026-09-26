@@ -1,11 +1,7 @@
-//! Locking after inactivity: the window reports use, a background check locks
-//! once the database has been left alone for the configured time.
+//! When the user last did something in the app, for locking after inactivity.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-
-/// How often the inactivity check runs.
-pub const CHECK_EVERY: Duration = Duration::from_secs(10);
 
 /// When the user last did something in the app.
 pub struct Activity(Mutex<Instant>);
