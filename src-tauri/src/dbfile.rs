@@ -33,17 +33,29 @@ impl DbFile {
 
     /// Writes `db` over the file. Refuses when the file changed since it was
     /// read (merging comes later), never leaves a half-written file, checks
-    /// the new file opens with the key before it replaces the old one, and
-    /// keeps the old one as `<name>.bak`.
+    /// the new file reads back as exactly `db` before it replaces the old one,
+    /// and keeps the old one as `<name>.bak`.
     pub fn save(&mut self, db: &Database) -> Result<(), String> {
-        let current = fs::read(&self.path).map_err(|e| format!("Cannot read the database file: {e}"))?;
-        if hash(&current) != self.hash {
-            return Err(CHANGED_ON_DISK.into());
-        }
+        let unchanged = |current: &[u8]| {
+            if hash(current) == self.hash {
+                Ok(())
+            } else {
+                Err(CHANGED_ON_DISK.to_string())
+            }
+        };
+        let read = || fs::read(&self.path).map_err(|e| format!("Cannot read the database file: {e}"));
+        unchanged(&read()?)?;
         let mut bytes = Vec::new();
         db.save(&mut bytes, self.key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
-        Database::parse(&bytes, self.key.clone())
+        let reread = Database::parse(&bytes, self.key.clone())
             .map_err(|e| format!("The new file did not open again ({e}); nothing was saved"))?;
+        if reread != *db {
+            return Err("The new file did not read back the same; nothing was saved".into());
+        }
+        // Writing and checking takes seconds (the key is derived twice): look
+        // again, so a change a sync client brought in meanwhile is not lost.
+        let current = read()?;
+        unchanged(&current)?;
 
         let tmp = self.sibling(".pswm-tmp");
         let written = (|| {

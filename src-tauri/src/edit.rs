@@ -68,12 +68,22 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 /// edit that changes nothing leaves the entry and its history alone.
 /// `hidden` are the groups entries cannot be put in (recycle bin, templates).
 pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &HashSet<GroupId>) -> Result<EntryId, String> {
-    let otp = match data.otp.trim() {
-        "" => None,
-        value => Some(otp::normalize(value, &data.title)?),
+    let existing = id.map(|id| db.entry(id).ok_or("That entry is no longer in the database")).transpose()?;
+    // A TOTP value the entry already has is kept as it is, even one this app
+    // cannot read; a new one must work and is stored as a URI.
+    let otp = match (data.otp.trim(), existing.as_ref().and_then(|e| e.get(fields::OTP))) {
+        ("", _) => None,
+        (_, Some(current)) if current == data.otp => Some(data.otp.clone()),
+        (value, _) => Some(otp::normalize(value, &data.title)?),
     };
-    let group = group_at(db, &data.group, hidden)?;
-    let tags: Vec<String> = data.tags.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    // Group paths are names, which need not be unique or tidy: an entry whose
+    // path did not change stays in its own group.
+    let current_group = existing.as_ref().map(|e| e.parent().id()).filter(|g| path_of(db, *g) == data.group);
+    let tags: Vec<String> = data.tags.iter().filter(|t| !t.trim().is_empty()).cloned().collect();
+    let group = match current_group {
+        Some(group) => group,
+        None => group_at(db, &data.group, hidden)?,
+    };
 
     let Some(id) = id else {
         let wanted = wanted_fields(db, None, data, otp)?;
@@ -84,7 +94,7 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         return Ok(entry.id());
     };
 
-    let entry = db.entry(id).ok_or("That entry is no longer in the database")?;
+    let entry = db.entry(id).expect("checked above");
     let wanted = wanted_fields(db, Some(&entry), data, otp)?;
     let moved = entry.parent().id() != group;
     if entry.fields == wanted && entry.tags == tags && !moved {
@@ -106,7 +116,8 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
 }
 
 /// The entry's fields as the editor wants them, each keeping whether it was
-/// protected; the password and the TOTP secret are always protected.
+/// protected; a new password or TOTP secret is protected. Names are compared
+/// exactly, as KeePass does.
 fn wanted_fields(
     db: &Database,
     entry: Option<&EntryRef<'_>>,
@@ -115,14 +126,14 @@ fn wanted_fields(
 ) -> Result<HashMap<String, Value<String>>, String> {
     let mut names = HashSet::new();
     for field in &data.fields {
-        let name = field.name.trim();
-        if name.is_empty() {
+        let name = field.name.as_str();
+        if name.trim().is_empty() {
             return Err("A field needs a name".into());
         }
-        if STANDARD.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+        if STANDARD.contains(&name) {
             return Err(format!("\"{name}\" is a standard field; use its own input"));
         }
-        if !names.insert(name.to_lowercase()) {
+        if !names.insert(name) {
             return Err(format!("There are two fields named \"{name}\""));
         }
     }
@@ -144,14 +155,15 @@ fn wanted_fields(
         if value.is_empty() && entry.is_some() && !existed {
             continue;
         }
-        let protected = name == fields::PASSWORD || was_protected(name).unwrap_or(protect_by_default);
+        let protected = was_protected(name).unwrap_or(protect_by_default);
         wanted.insert(name.to_string(), value_of(value, protected));
     }
     if let Some(otp) = otp {
-        wanted.insert(fields::OTP.to_string(), Value::protected(otp));
+        let protected = was_protected(fields::OTP).unwrap_or(true);
+        wanted.insert(fields::OTP.to_string(), value_of(&otp, protected));
     }
     for field in &data.fields {
-        wanted.insert(field.name.trim().to_string(), value_of(&field.value, field.protected));
+        wanted.insert(field.name.clone(), value_of(&field.value, field.protected));
     }
     Ok(wanted)
 }
@@ -164,10 +176,25 @@ fn value_of(value: &str, protected: bool) -> Value<String> {
     }
 }
 
-/// The group at `path` below the root, created where missing.
+/// A group's names from the top, without the root group.
+pub fn path_of(db: &Database, group: GroupId) -> Vec<String> {
+    let mut path = Vec::new();
+    let mut next = Some(group);
+    while let Some(group) = next.and_then(|id| db.group(id)) {
+        next = group.parent().map(|p| p.id());
+        if next.is_some() {
+            path.push(group.name.clone());
+        }
+    }
+    path.reverse();
+    path
+}
+
+/// The group at `path` below the root (the first of same-named siblings),
+/// created where missing.
 fn group_at(db: &mut Database, path: &[String], hidden: &HashSet<GroupId>) -> Result<GroupId, String> {
     let mut id = db.root().id();
-    for name in path.iter().map(|n| n.trim()).filter(|n| !n.is_empty()) {
+    for name in path.iter().map(String::as_str).filter(|n| !n.is_empty()) {
         let existing = db.group(id).and_then(|g| g.groups().find(|c| c.name == name).map(|c| c.id()));
         id = match existing {
             Some(child) => child,
@@ -207,12 +234,13 @@ fn trim_history(db: &mut Database, id: EntryId) {
 }
 
 /// Moves the entry to the recycle bin, creating the bin if the database has
-/// none. A database that turned the bin off deletes the entry for good.
+/// none. A database that turned the bin off is refused: removing an entry
+/// with keepass-rs can leave other entries' attachments pointing at the
+/// wrong data.
 pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     db.entry(id).ok_or("That entry is no longer in the database")?;
     if db.meta.recyclebin_enabled == Some(false) {
-        db.entry_mut(id).expect("checked above").track_changes().remove();
-        return Ok(());
+        return Err("This database has its recycle bin turned off; turn it on (in KeePassXC) to delete entries".into());
     }
     let bin = match db.meta.recyclebin_uuid.map(GroupId::from).filter(|g| db.group(*g).is_some()) {
         Some(bin) => bin,
@@ -264,7 +292,7 @@ mod tests {
         let mut db = Database::new();
         let input = with("Mail", |d| {
             d.group = vec!["Work".into(), "Mail".into()];
-            d.tags = vec![" a ".into(), "".into()];
+            d.tags = vec!["a".into(), " ".into()];
         });
         let id = apply(&mut db, None, &input, &HashSet::new()).unwrap();
         let entry = db.entry(id).unwrap();
@@ -324,7 +352,7 @@ mod tests {
     fn field_names_are_checked() {
         let mut db = Database::new();
         let field = |name: &str| FieldData { name: name.into(), value: "v".into(), protected: false };
-        for fields in [vec![field("")], vec![field("password")], vec![field("A"), field("a")]] {
+        for fields in [vec![field(" ")], vec![field("Password")], vec![field("A"), field("A")]] {
             assert!(apply(&mut db, None, &with("x", |d| d.fields = fields), &HashSet::new()).is_err());
         }
     }
@@ -357,12 +385,48 @@ mod tests {
     }
 
     #[test]
-    fn deleting_without_a_recycle_bin_removes_for_good() {
+    fn deleting_without_a_recycle_bin_is_refused() {
         let mut db = Database::new();
         db.meta.recyclebin_enabled = Some(false);
         let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
-        recycle(&mut db, id).unwrap();
-        assert!(db.entry(id).is_none());
-        assert!(db.deleted_objects.contains_key(&id.uuid()));
+        assert!(recycle(&mut db, id).is_err());
+        assert!(db.entry(id).is_some());
+    }
+
+    #[test]
+    fn an_entry_stays_in_its_group_when_the_path_is_unchanged() {
+        let mut db = Database::new();
+        let mut root = db.root_mut();
+        for name in ["Mail", "Mail", "TCP/IP", " spaced "] {
+            root.add_group().name = name.into();
+        }
+        let groups: Vec<GroupId> = db.root().groups().map(|g| g.id()).collect();
+        for group in groups {
+            let id = db.group_mut(group).unwrap().add_entry().edit(|e| e.set_unprotected(fields::TITLE, "t")).id();
+            let mut changed = read(&db.entry(id).unwrap(), path_of(&db, group));
+            changed.password = "new".into();
+            apply(&mut db, Some(id), &changed, &HashSet::new()).unwrap();
+            assert_eq!(db.entry(id).unwrap().parent().id(), group);
+        }
+        assert_eq!(db.root().groups().count(), 4);
+    }
+
+    #[test]
+    fn values_the_editor_did_not_touch_stay_as_they_were() {
+        let mut db = Database::new();
+        let id = db
+            .root_mut()
+            .add_entry()
+            .edit(|e| {
+                e.set_unprotected(fields::TITLE, "t");
+                e.set_unprotected(fields::PASSWORD, "plain");
+                e.set_unprotected(fields::OTP, "otpauth://hotp/x?secret=JBSWY3DP&counter=1");
+                e.set_unprotected("OTP", "a field, not the standard one");
+            })
+            .id();
+        let before = db.clone();
+        let same = read(&db.entry(id).unwrap(), vec![]);
+        apply(&mut db, Some(id), &same, &HashSet::new()).unwrap();
+        assert_eq!(db, before);
     }
 }

@@ -1,6 +1,6 @@
 import { api, type EntryData, type GeneratorOptions, type Saved } from './api'
 import { el } from './dom'
-import { formatGroup, formatTags, parseGroup, parseTags } from './entry-text'
+import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -149,6 +149,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
 
   // ------------------------------------------------ additional fields
 
+  /** The field each row started from, to keep values the form only reformatted. */
+  const originals = new WeakMap<HTMLElement, EntryData['fields'][number]>()
   const fieldRow = (field = { name: '', value: '', protected: false }) => {
     const name = input(field.name, { placeholder: 'Name', className: 'name' })
     // A textarea keeps line breaks (an <input> drops them); a protected value
@@ -166,6 +168,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     mask()
     const row = el('div', { className: 'field-row' }, name, value, el('label', {}, protect, 'Protected'),
       el('button', { type: 'button', textContent: '×', title: 'Remove', onclick: () => row.remove() }))
+    originals.set(row, field)
     return row
   }
   fieldList.append(...data.fields.map(fieldRow))
@@ -180,19 +183,25 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     error.hidden = false
   }
 
+  const trimmedLine = (text: string) => singleLine(text).trim()
   const collect = (): EntryData => ({
-    title: title.value,
-    username: username.value,
-    password: password.value,
-    url: url.value.trim(),
-    notes: notes.value,
-    otp: otp.value.trim(),
-    tags: parseTags(tags.value),
-    group: parseGroup(group.value),
+    title: keep(data.title, title.value, singleLine),
+    username: keep(data.username, username.value, singleLine),
+    password: keep(data.password, password.value, singleLine),
+    url: keep(data.url, url.value.trim(), trimmedLine),
+    notes: keep(data.notes, notes.value, textareaLines),
+    otp: keep(data.otp, otp.value.trim(), trimmedLine),
+    tags: keep(data.tags, parseTags(tags.value), (t) => parseTags(formatTags(t))),
+    group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map((r) => {
       const [name, protect] = r.querySelectorAll('input')
       const value = r.querySelector('textarea')!
-      return { name: name.value.trim(), value: value.value, protected: protect.checked }
+      const original = originals.get(r)!
+      return {
+        name: keep(original.name, name.value.trim(), trimmedLine),
+        value: keep(original.value, value.value, textareaLines),
+        protected: protect.checked,
+      }
     }),
   })
 
@@ -202,19 +211,30 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     saving = true
     try {
       const saved = await api.saveEntry(options.id, collect())
+      // Locking while the save ran closed this editor: the vault is gone.
+      if (active !== self) return
       active = null
       options.onSaved(saved)
     } catch (e) {
-      showError(String(e))
+      if (active === self) showError(String(e))
     } finally {
       saving = false
     }
   }
+  let warned = false
   const close = () => {
+    // Esc also closes pop-ups (the group list, an input method), so changes
+    // are only thrown away on a second Esc.
+    if (!warned && JSON.stringify(collect()) !== untouched) {
+      warned = true
+      showError('Unsaved changes: press Esc again to discard them.')
+      return
+    }
     active = null
     options.onClose()
   }
-  active = { save, close }
+  const self = { save, close }
+  active = self
 
   const form = el(
     'form',
@@ -239,5 +259,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       el('button', { type: 'button', textContent: 'Cancel', title: 'Cancel (Esc)', onclick: close })),
   )
   container.replaceChildren(form)
+  const untouched = JSON.stringify(collect())
   title.focus()
 }

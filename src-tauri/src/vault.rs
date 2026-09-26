@@ -200,25 +200,15 @@ impl Vault {
     /// Every group entries can go in, as paths, for the editor.
     pub fn group_paths(&self) -> Vec<Vec<String>> {
         let hidden = self.hidden_groups();
+        let in_hidden = |group: GroupId| {
+            std::iter::successors(Some(group), |g| self.db.group(*g).and_then(|g| g.parent().map(|p| p.id())))
+                .any(|g| hidden.contains(&g))
+        };
         let mut paths: Vec<Vec<String>> = self
             .db
             .iter_all_groups()
-            .filter(|g| g.parent().is_some())
-            .filter_map(|g| {
-                let mut path = Vec::new();
-                let mut id = Some(g.id());
-                while let Some(group) = id.and_then(|id| self.db.group(id)) {
-                    if hidden.contains(&group.id()) {
-                        return None;
-                    }
-                    id = group.parent().map(|p| p.id());
-                    if id.is_some() {
-                        path.push(group.name.clone());
-                    }
-                }
-                path.reverse();
-                Some(path)
-            })
+            .filter(|g| g.parent().is_some() && !in_hidden(g.id()))
+            .map(|g| edit::path_of(&self.db, g.id()))
             .collect();
         paths.sort_by_key(|p| p.iter().map(|n| n.to_lowercase()).collect::<Vec<_>>());
         paths
@@ -233,9 +223,7 @@ impl Vault {
 
 /// Group names from the top, without the root group.
 fn group_path(entry: &EntryRef<'_>) -> Vec<String> {
-    let mut chain = ancestors(entry);
-    chain.pop(); // the root group
-    chain.iter().rev().filter_map(|&id| entry.database().group(id).map(|g| g.name.clone())).collect()
+    edit::path_of(entry.database(), entry.parent().id())
 }
 
 /// True when the entry sits in one of `groups`, at any depth.

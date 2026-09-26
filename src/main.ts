@@ -304,7 +304,8 @@ function renderDetail() {
 
 let totpTimer: number | undefined
 
-function stopTotp() {
+function stopTotp(timer = totpTimer) {
+  if (timer !== totpTimer) return // an older row's timer, already replaced
   clearInterval(totpTimer)
   totpTimer = undefined
 }
@@ -317,25 +318,31 @@ function totpRow(id: string): HTMLDivElement {
   let remaining = 0
   const show = (code: string) => value.replaceChildren(code, el('span', { className: 'countdown' }, `${remaining} s`))
   let code = ''
+  let fetching = false
   const tick = async () => {
+    if (fetching) return
     if (remaining <= 0) {
+      fetching = true
       try {
         const next = await api.totp(id)
-        if (!next) return stopTotp()
+        if (!next) return stopTotp(timer)
         code = `${next.code.slice(0, next.code.length / 2)} ${next.code.slice(next.code.length / 2)}`
         remaining = next.remaining
       } catch (e) {
-        stopTotp()
+        stopTotp(timer)
         value.textContent = String(e)
         return
+      } finally {
+        fetching = false
       }
     }
     show(code)
     remaining--
   }
   stopTotp()
+  const timer = window.setInterval(tick, 1000)
+  totpTimer = timer
   tick()
-  totpTimer = window.setInterval(tick, 1000)
   return div
 }
 
@@ -357,8 +364,12 @@ function groupForNew(): string[] {
   return filter.kind === 'group' ? parseGroup(filter.path) : []
 }
 
+/** Set while the editor loads, so a second Ctrl+E does not open another. */
+let openingEditor = false
+
 function startEditor(id: string | null) {
-  if (isEditing()) return
+  if (isEditing() || openingEditor) return
+  openingEditor = true
   stopTotp()
   openEditor(detail, {
     id,
@@ -368,7 +379,9 @@ function startEditor(id: string | null) {
       current = null
       select(selectedId)
     },
-  }).catch((e) => notify(String(e)))
+  })
+    .catch((e) => notify(String(e)))
+    .finally(() => (openingEditor = false))
 }
 
 function editEntry() {

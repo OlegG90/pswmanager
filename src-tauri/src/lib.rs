@@ -77,7 +77,7 @@ struct Status {
     notice: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
     let (database, key_file) = store.read(|s| (shown(&s.database), shown(&s.key_file)));
@@ -149,7 +149,9 @@ fn fetch_icons(app: &AppHandle, listing: &Listing) {
     });
 }
 
-#[tauri::command]
+/// Async like the rest: a save in progress holds the session, and waiting
+/// for it must not freeze the window.
+#[tauri::command(async)]
 fn lock(app: AppHandle) {
     lock_now(&app);
 }

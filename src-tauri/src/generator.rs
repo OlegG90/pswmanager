@@ -40,7 +40,7 @@ pub fn generate(options: &Options) -> Result<Zeroizing<String>, String> {
         return Err("Choose at least one kind of character".into());
     }
     let all: Vec<char> = sets.concat();
-    let mut chars = sets.iter().map(|set| Ok(set[random_below(set.len())?])).collect::<Result<Vec<char>, String>>()?;
+    let mut chars = Zeroizing::new(sets.iter().map(|set| Ok(set[random_below(set.len())?])).collect::<Result<Vec<char>, String>>()?);
     while chars.len() < length {
         chars.push(all[random_below(all.len())?]);
     }
@@ -48,7 +48,7 @@ pub fn generate(options: &Options) -> Result<Zeroizing<String>, String> {
     for i in (1..chars.len()).rev() {
         chars.swap(i, random_below(i + 1)?);
     }
-    Ok(Zeroizing::new(chars.into_iter().collect()))
+    Ok(Zeroizing::new(chars.iter().collect()))
 }
 
 /// A uniform random number in `0..n`, without modulo bias.

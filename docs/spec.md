@@ -116,8 +116,11 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 ## Editing
 
 - Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
-  the recycle bin (as KeePass does; created if missing, and a database with the bin turned off deletes for
-  good).
+  the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused —
+  removing an entry with keepass-rs can leave other entries' attachments pointing at the wrong data.
+- Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag and group
+  spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
+  unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
 - Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
   (add / rename / remove, protected or not).
 - Every edit pushes the previous version into the entry's history.
