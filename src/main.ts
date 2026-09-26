@@ -373,13 +373,14 @@ function editEntry() {
   if (current) startEditor(current.id)
 }
 
-/** Shows a listing the backend sent after a change, then says what happened. */
-function applyListing(next: Listing, message: string) {
+/** Shows a listing the backend sent after a change, then says what happened.
+ *  The open entry is fetched again. */
+function applyListing(next: Listing, message: string, focusSearch = true) {
   listing = next
   fillFilter()
   current = null
   refresh()
-  searchInput.focus()
+  if (focusSearch) searchInput.focus()
   notify(message)
 }
 
@@ -441,13 +442,9 @@ function notify(message: string, seconds = 3) {
 /** The file changed on disk and was read again: show the new state in place. */
 function showDiskChange({ listing: next, changed }: DiskChange) {
   if (vault.hidden) return
-  listing = next
-  fillFilter()
-  // The open entry is fetched again: it may have changed, gone, or its group been renamed.
-  current = null
-  refresh()
+  // Focus stays where the user left it.
+  applyListing(next, 'Updated from another device', false)
   changedElsewhere(changed)
-  notify('Updated from another device')
 }
 
 // ---------------------------------------------------------------- keys

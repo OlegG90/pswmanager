@@ -24,7 +24,8 @@ export const textareaLines = (text: string) => text.replace(/\r\n?/g, '\n')
  * What to save for a value the editor showed as `original` and now holds as
  * `edited`: the original when the only difference is what showing it did
  * (dropped line breaks, trimmed spaces, tidied tags), so an untouched entry
- * saves unchanged.
+ * saves unchanged. The backend's three-way merge relies on this: a value that
+ * only looked edited would overwrite another device's change to it.
  */
 export function keep<T>(original: T, edited: T, shown: (value: T) => T): T {
   return JSON.stringify(shown(original)) === JSON.stringify(edited) ? original : edited

@@ -73,32 +73,14 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 /// (where the editor's change wins; the other version goes to history).
 pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (EntryData, Vec<String>) {
     let mut conflicts = Vec::new();
-    let mut pick = |name: &str, current: &String, base: &String, edited: &String| -> String {
-        if edited == base {
-            return current.clone();
-        }
-        if current != base && current != edited {
-            conflicts.push(name.to_string());
-        }
-        edited.clone()
-    };
-    let title = pick("Title", &current.title, &base.title, &edited.title);
-    let username = pick("User name", &current.username, &base.username, &edited.username);
-    let password = pick("Password", &current.password, &base.password, &edited.password);
-    let url = pick("URL", &current.url, &base.url, &edited.url);
-    let notes = pick("Notes", &current.notes, &base.notes, &edited.notes);
-    let otp = pick("TOTP", &current.otp, &base.otp, &edited.otp);
-    let mut pick_list = |name: &str, current: &Vec<String>, base: &Vec<String>, edited: &Vec<String>| -> Vec<String> {
-        if edited == base {
-            return current.clone();
-        }
-        if current != base && current != edited {
-            conflicts.push(name.to_string());
-        }
-        edited.clone()
-    };
-    let tags = pick_list("Tags", &current.tags, &base.tags, &edited.tags);
-    let group = pick_list("Group", &current.group, &base.group, &edited.group);
+    let title = pick(&mut conflicts, "Title", &current.title, &base.title, &edited.title);
+    let username = pick(&mut conflicts, "User name", &current.username, &base.username, &edited.username);
+    let password = pick(&mut conflicts, "Password", &current.password, &base.password, &edited.password);
+    let url = pick(&mut conflicts, "URL", &current.url, &base.url, &edited.url);
+    let notes = pick(&mut conflicts, "Notes", &current.notes, &base.notes, &edited.notes);
+    let otp = pick(&mut conflicts, "TOTP", &current.otp, &base.otp, &edited.otp);
+    let tags = pick(&mut conflicts, "Tags", &current.tags, &base.tags, &edited.tags);
+    let group = pick(&mut conflicts, "Group", &current.group, &base.group, &edited.group);
 
     // Additional fields, by name: removed, added or changed in the editor
     // apply; the rest are as they are now.
@@ -128,6 +110,23 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
     }
     let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields };
     (merged, conflicts)
+}
+
+/// One value in a three-way merge: the edit if it changed it, what is there
+/// now otherwise; a value both changed differently is noted in `conflicts`.
+fn pick<T: PartialEq + Clone>(conflicts: &mut Vec<String>, name: &str, current: &T, base: &T, edited: &T) -> T {
+    if edited == base {
+        return current.clone();
+    }
+    if current != base && current != edited {
+        conflicts.push(name.to_string());
+    }
+    edited.clone()
+}
+
+/// The groups entries do not live in: the recycle bin and the templates.
+pub fn hidden_groups(db: &Database) -> HashSet<GroupId> {
+    [db.meta.recyclebin_uuid, db.meta.entry_templates_group].into_iter().flatten().map(GroupId::from).collect()
 }
 
 /// Creates the entry (`id` is `None`) or changes it, and returns its id. An
@@ -320,8 +319,7 @@ fn trim_history(db: &mut Database, id: EntryId) {
 /// move — including one to the recycle bin — is kept too. Returns the ids of
 /// the entries it kept.
 pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
-    let hidden: HashSet<GroupId> =
-        [theirs.meta.recyclebin_uuid, theirs.meta.entry_templates_group].into_iter().flatten().map(GroupId::from).collect();
+    let hidden = hidden_groups(theirs);
     let our_bin = ours.meta.recyclebin_uuid.map(GroupId::from);
     let mut kept = Vec::new();
     for e in ours.iter_all_entries() {
@@ -337,7 +335,7 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
                     continue;
                 }
                 let their_place = path_of(theirs, t.parent().id());
-                let mut data = if newer_content { read(&e, their_place.clone()) } else { read(&t, their_place.clone()) };
+                let mut data = read(if newer_content { &e } else { &t }, their_place);
                 if newer_place && !binned {
                     data.group = path_of(ours, e.parent().id());
                 }

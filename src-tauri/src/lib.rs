@@ -169,16 +169,17 @@ fn check_disk(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let session = app.state::<Session>();
+        // A lock meanwhile makes any error moot.
+        let report = |message: String| {
+            if session.is_unlocked() {
+                let _ = app.emit("database-error", message);
+            }
+        };
         let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
         let read = match since.read_changed() {
             Ok(Some(read)) => read,
             Ok(None) => return,
-            Err(message) => {
-                if session.is_unlocked() {
-                    let _ = app.emit("database-error", message);
-                }
-                return;
-            }
+            Err(message) => return report(message),
         };
         let adopted = session.with_mut(|v| {
             let Some(changed) = v.adopt(&since, read) else { return Ok(None) };
@@ -191,10 +192,7 @@ fn check_disk(app: &AppHandle) {
                 let _ = app.emit("database-changed", change);
             }
             Ok(None) => {}
-            Err(message) if session.is_unlocked() => {
-                let _ = app.emit("database-error", message);
-            }
-            Err(_) => {} // locked meanwhile
+            Err(message) => report(message),
         }
     });
 }

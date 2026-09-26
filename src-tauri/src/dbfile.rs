@@ -169,13 +169,13 @@ fn icon_pool(db: &Database) -> Vec<Vec<u8>> {
     data
 }
 
-/// An icon as the file keeps it: a built-in number or custom image data.
-fn icon_of(icon: Option<&Icon>, custom: Option<CustomIconRef<'_>>) -> (Option<usize>, Option<Vec<u8>>) {
-    let builtin = match icon {
+/// Borrowed where it can be: this runs over every entry and version on each save.
+fn same_icon(a: (Option<&Icon>, Option<CustomIconRef<'_>>), b: (Option<&Icon>, Option<CustomIconRef<'_>>)) -> bool {
+    let builtin = |icon: Option<&Icon>| match icon {
         Some(Icon::BuiltIn(n)) => Some(*n),
         _ => None,
     };
-    (builtin, custom.map(|c| c.data.clone()))
+    builtin(a.0) == builtin(b.0) && a.1.as_ref().map(|c| c.data.as_slice()) == b.1.as_ref().map(|c| c.data.as_slice())
 }
 
 fn same_group(a: &GroupRef<'_>, b: &GroupRef<'_>) -> bool {
@@ -189,7 +189,7 @@ fn same_group(a: &GroupRef<'_>, b: &GroupRef<'_>) -> bool {
         && a.default_autotype_sequence == b.default_autotype_sequence
         && a.enable_autotype == b.enable_autotype
         && a.enable_searching == b.enable_searching
-        && icon_of(a.icon(), a.custom_icon()) == icon_of(b.icon(), b.custom_icon())
+        && same_icon((a.icon(), a.custom_icon()), (b.icon(), b.custom_icon()))
 }
 
 fn same_history(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
@@ -205,7 +205,7 @@ fn same_history(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
 fn same_version(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
     let attachments = |e: &EntryRef<'_>| {
         let mut all: Vec<(String, Vec<u8>)> = e.attachments_named().map(|(n, att)| (n.to_string(), att.data.get().clone())).collect();
-        all.sort();
+        all.sort_unstable_by(|x, y| x.0.cmp(&y.0));
         all
     };
     a.fields == b.fields
@@ -217,7 +217,7 @@ fn same_version(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
         && a.background_color == b.background_color
         && a.override_url == b.override_url
         && a.quality_check == b.quality_check
-        && icon_of(a.icon(), a.custom_icon()) == icon_of(b.icon(), b.custom_icon())
+        && same_icon((a.icon(), a.custom_icon()), (b.icon(), b.custom_icon()))
         && attachments(a) == attachments(b)
 }
 

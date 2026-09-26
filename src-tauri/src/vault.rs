@@ -94,9 +94,7 @@ impl Vault {
     }
 
     fn hidden_groups(&self) -> HashSet<GroupId> {
-        let meta = &self.db.meta;
-        let ids = [meta.recyclebin_uuid, meta.entry_templates_group];
-        ids.into_iter().flatten().map(GroupId::from).collect()
+        edit::hidden_groups(&self.db)
     }
 
     pub fn listing(&self) -> Listing {
