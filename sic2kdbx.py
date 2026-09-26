@@ -133,8 +133,8 @@ def parse_sic(path):
                 try:
                     data = base64.b64decode("".join(child.text.split()), validate=True)
                 except ValueError:
-                    print(f"Попередження: пошкоджене вкладення <{child.tag}> у картці "
-                          f"«{c.get('title')}» пропущено", file=sys.stderr)
+                    print(f"Warning: damaged <{child.tag}> attachment in card "
+                          f"\"{c.get('title')}\" skipped", file=sys.stderr)
                     continue
                 name = child.get("name") or f"{child.tag}{_sniff_extension(data)}"
                 name = _unique(name, names)
@@ -365,44 +365,44 @@ def _read_password(args):
     if args.keyfile and args.no_password:
         return None
     while True:
-        first = getpass.getpass("Майстер-пароль нової бази: ")
+        first = getpass.getpass("Master password for the new database: ")
         if not first:
-            print("Пароль не може бути порожнім.", file=sys.stderr)
+            print("The password cannot be empty.", file=sys.stderr)
             continue
-        if first == getpass.getpass("Повторіть пароль: "):
+        if first == getpass.getpass("Repeat the password: "):
             return first
-        print("Паролі не збігаються, спробуйте ще раз.", file=sys.stderr)
+        print("The passwords do not match, try again.", file=sys.stderr)
 
 
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="SafeInCloud XML -> KeePass KDBX 4")
-    ap.add_argument("input", help="файл експорту SafeInCloud (.xml)")
-    ap.add_argument("output", help="нова база KeePass (.kdbx)")
-    ap.add_argument("--keyfile", help="додатковий файл-ключ")
+    ap.add_argument("input", help="SafeInCloud export file (.xml)")
+    ap.add_argument("output", help="new KeePass database (.kdbx)")
+    ap.add_argument("--keyfile", help="an additional key file")
     ap.add_argument("--no-password", action="store_true",
-                    help="лише файл-ключ, без майстер-пароля (потрібен --keyfile)")
+                    help="key file only, no master password (needs --keyfile)")
     ap.add_argument("--skip-deleted", action="store_true",
-                    help="не переносити видалені картки (інакше вони йдуть у Кошик)")
+                    help="leave deleted cards out (otherwise they go to the recycle bin)")
     ap.add_argument("--drop-empty", action="store_true",
-                    help="не переносити порожні поля карток (крім шаблонів)")
-    ap.add_argument("--force", action="store_true", help="перезаписати наявний output")
+                    help="leave empty card fields out (except in templates)")
+    ap.add_argument("--force", action="store_true", help="overwrite an existing output")
     args = ap.parse_args(argv)
 
     if os.path.exists(args.output) and not args.force:
-        ap.error(f"{args.output} вже існує (додайте --force для перезапису)")
+        ap.error(f"{args.output} already exists (add --force to overwrite it)")
     if args.no_password and not args.keyfile:
-        ap.error("--no-password потребує --keyfile")
+        ap.error("--no-password needs --keyfile")
 
     cards = parse_sic(args.input)
     password = _read_password(args)
     stats = convert(cards, args.output, password, args.keyfile,
                     skip_deleted=args.skip_deleted, keep_empty=not args.drop_empty)
-    print(f"Готово: {args.output}")
-    print(f"  записів: {stats['entries']} (у Кошику: {stats['deleted']}, "
-          f"шаблонів: {stats['templates']}), пропущено: {stats['skipped']}, "
-          f"вкладень: {stats['attachments']}")
+    print(f"Done: {args.output}")
+    print(f"  entries: {stats['entries']} (in the recycle bin: {stats['deleted']}, "
+          f"templates: {stats['templates']}), skipped: {stats['skipped']}, "
+          f"attachments: {stats['attachments']}")
 
 
 if __name__ == "__main__":
