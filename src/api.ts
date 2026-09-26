@@ -68,6 +68,8 @@ export interface DiskChange {
 export interface Saved {
   id: string
   listing: Listing
+  /** Fields another device also changed; this edit replaced them. */
+  conflicts: string[]
 }
 
 export interface TotpCode {
@@ -116,7 +118,10 @@ export const api = {
   hideWindow: () => invoke<void>('hide_window'),
   editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
   /** Creates an entry when `id` is null. */
-  saveEntry: (id: string | null, data: EntryData) => invoke<Saved>('save_entry', { id, data }),
+  /** Creates an entry when `id` is null. `base` is the entry as the editor
+   *  opened it: only what changed against it is saved. */
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData) =>
+    invoke<Saved>('save_entry', { id, base, data }),
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
   groupPaths: () => invoke<string[][]>('group_paths'),
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),

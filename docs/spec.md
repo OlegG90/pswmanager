@@ -147,15 +147,25 @@ not talk to any cloud; it keeps the file consistent when another device changes 
   one being saved. Instead of merging two databases, it **makes each change on the file as it is now**:
   - the file is read again if it changed (and again if it changes while saving — up to three tries);
   - the change is applied on top: other devices' changes to other entries are kept as they are;
-  - where both changed the same entry, this change is the newer one and wins; the other version goes into
-    the entry's history, so nothing is lost;
+  - the editor sends the entry as it opened it along with the edit, and only the fields the edit changed
+    are applied — what another device changed in the same entry meanwhile (another field, its group, a
+    renamed group) stays;
+  - where both changed the same field, this change is the newer one and wins; the other version goes into
+    the entry's history, so nothing is lost, and the window says which fields;
   - an entry deleted elsewhere (recycle bin or `DeletedObjects`) and edited here comes back with its id —
     the edit is newer than the deletion; deleting an entry already gone elsewhere does nothing;
   - nothing is ever removed from the file, so keepass-rs's attachment renumbering on removal never applies.
+- **An older file coming back** (a sync client restores a stale copy, or a conflict copy wins): when the
+  file is read again, entries changed here later than in the file (`LastModificationTime`), newer moves,
+  and entries missing from it without a deletion recorded at or after this device's change are kept and
+  written back — the same rule as KeePass's merge: the newer version wins, the other goes to history.
+- Reading the file again (deriving the key) happens without holding the database, so the window, tray and
+  hotkey stay responsive while a sync client delivers a change.
 - An entry open in the editor is never replaced silently: if another device changed it, the editor says so,
   and saving keeps this version with the other one in history.
-- A file that cannot be read (wrong key, corrupt, mid-sync) is never overwritten; the app shows the error,
-  keeps the in-memory data, and saves again once the file can be read.
+- A file that cannot be read (wrong key, corrupt, mid-sync) is never overwritten; the app shows the error
+  and keeps the in-memory data; saving works again once the file can be read (the next change is read
+  when the sync client finishes).
 - Saving checks that the new file reads back with the same content before it replaces the old one. (Old
   versions in history are compared by what the file keeps of them: keepass-rs also remembers in memory
   which group each was made in, which the file does not store.)

@@ -2,7 +2,7 @@
 //! summaries without secrets, a secret only when asked for one field, and a
 //! whole entry only while it is being edited.
 
-use crate::dbfile::{DbFile, SaveError};
+use crate::dbfile::{DbFile, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
@@ -18,6 +18,9 @@ pub struct Vault {
     db: Database,
     /// The file it came from; `None` only in tests that never save.
     file: Option<DbFile>,
+    /// `db` holds changes the file lacks (kept from an older file that was
+    /// read back); the next [Vault::change] writes them even if it changes nothing.
+    unsaved: bool,
 }
 
 /// What the list shows about an entry. No password, no protected field.
@@ -76,12 +79,12 @@ impl Vault {
             key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
         }
         let (db, file) = DbFile::open(path, key)?;
-        Ok(Vault { db, file: Some(file) })
+        Ok(Vault { db, file: Some(file), unsaved: false })
     }
 
     #[cfg(test)]
     pub fn from_database(db: Database) -> Vault {
-        Vault { db, file: None }
+        Vault { db, file: None, unsaved: false }
     }
 
     /// All entries the user works with: not in the recycle bin, not templates.
@@ -151,7 +154,6 @@ impl Vault {
         icons::web_url(&self.field(id, fields::URL)?)
     }
 
-
     /// A visible entry by id; entries in the recycle bin are not reachable.
     fn entry(&self, id: &str) -> Option<EntryRef<'_>> {
         let id = EntryId::from(Uuid::parse_str(id).ok()?);
@@ -166,11 +168,26 @@ impl Vault {
     }
 
     /// Creates (`id` is `None`) or changes an entry and saves the file.
-    /// Returns the entry's id. Nothing changes when saving fails.
-    pub fn save_entry(&mut self, id: Option<&str>, data: &EntryData) -> Result<String, String> {
+    /// `base` is the entry as the editor opened it: only what the editor
+    /// changed against it is applied, so changes another device made since
+    /// stay. Returns the entry's id and the fields both changed (the
+    /// editor's version won). Nothing changes when saving fails.
+    pub fn save_entry(&mut self, id: Option<&str>, base: Option<&EntryData>, data: &EntryData) -> Result<(String, Vec<String>), String> {
         let id = id.map(parse_id).transpose()?;
-        let id = self.change(|db, hidden| edit::apply(db, id, data, hidden))?;
-        Ok(id.uuid().to_string())
+        let (id, conflicts) = self.change(|db, hidden| {
+            let current = id.and_then(|id| db.entry(id));
+            if current.as_ref().is_some_and(|e| is_template(e)) {
+                return Err(NOT_FOUND.into());
+            }
+            match (current, base) {
+                (Some(entry), Some(base)) => {
+                    let (merged, conflicts) = edit::merge3(&edit::read(&entry, group_path(&entry)), base, data);
+                    Ok((edit::apply(db, id, &merged, hidden)?, conflicts))
+                }
+                _ => Ok((edit::apply(db, id, data, hidden)?, Vec::new())),
+            }
+        })?;
+        Ok((id.uuid().to_string(), conflicts))
     }
 
     /// Moves an entry to the recycle bin and saves the file. An entry already
@@ -187,11 +204,35 @@ impl Vault {
     /// written: it becomes the database, and the ids of the entries that
     /// differ are returned (added, changed, moved or gone).
     pub fn reload(&mut self) -> Result<Option<Vec<String>>, String> {
-        let Some(file) = self.file.as_mut() else { return Ok(None) };
-        let Some(db) = file.reload()? else { return Ok(None) };
+        let Some(since) = self.snapshot() else { return Ok(None) };
+        Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)))
+    }
+
+    /// For reading the file again without holding the vault: see [Vault::adopt].
+    pub fn snapshot(&self) -> Option<Snapshot> {
+        self.file.as_ref().map(DbFile::snapshot)
+    }
+
+    /// Takes a changed file read since `since`, keeping this device's changes
+    /// it lacks (an older file came back); those are written by the next
+    /// change or [Vault::save_pending]. Returns the ids of the entries that
+    /// differ from before, or `None` when the file was read or written since.
+    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
+        let mut db = self.file.as_mut()?.adopt(since, read)?;
+        if !edit::keep_newer(&mut db, &self.db).is_empty() {
+            self.unsaved = true;
+        }
         let changed = changed_entries(&self.db, &db);
         self.db = db;
-        Ok(Some(changed))
+        Some(changed)
+    }
+
+    /// Writes changes kept from an older file, if any.
+    pub fn save_pending(&mut self) -> Result<(), String> {
+        if self.unsaved {
+            self.change(|_, _| Ok(()))?;
+        }
+        Ok(())
     }
 
     /// Makes a change and saves it. The change is made on the file as it is
@@ -206,12 +247,13 @@ impl Vault {
             self.reload()?;
             let mut db = self.db.clone();
             let result = change(&mut db, &self.hidden_groups())?;
-            if db == self.db {
+            if db == self.db && !self.unsaved {
                 return Ok(result);
             }
             match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
                 Ok(()) => {
                     self.db = db;
+                    self.unsaved = false;
                     return Ok(result);
                 }
                 Err(SaveError::Changed) => continue,
@@ -239,6 +281,12 @@ impl Vault {
         let Some(value) = self.field(id, fields::OTP) else { return Ok(None) };
         otp::Totp::parse(&value).map(|totp| Some(totp.code_now()))
     }
+}
+
+/// Templates are not entries the user edits (they are hidden from the list).
+fn is_template(entry: &EntryRef<'_>) -> bool {
+    let templates = entry.database().meta.entry_templates_group.map(GroupId::from);
+    templates.is_some_and(|t| is_in(entry, &HashSet::from([t])))
 }
 
 fn parse_id(id: &str) -> Result<EntryId, String> {
@@ -495,7 +543,7 @@ pub mod tests {
 
         let mut data = vault.edit_data(&id).unwrap();
         data.password = "changed".into();
-        vault.save_entry(Some(&id), &data).unwrap();
+        vault.save_entry(Some(&id), None, &data).unwrap();
 
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let entry = reopened.db.entry(old.id()).unwrap();
@@ -515,7 +563,7 @@ pub mod tests {
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let id = vault.listing().entries[0].id.clone();
         let data = vault.edit_data(&id).unwrap();
-        vault.save_entry(Some(&id), &data).unwrap();
+        vault.save_entry(Some(&id), None, &data).unwrap();
         assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
     }
 
@@ -574,7 +622,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "from this PC".into();
-        vault.save_entry(Some(&mail), &data).unwrap();
+        vault.save_entry(Some(&mail), None, &data).unwrap();
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let titles: Vec<String> = reopened.listing().entries.into_iter().map(|e| e.title).collect();
@@ -588,12 +636,14 @@ pub mod tests {
         let path = dir.path().join("sic2kdbx.kdbx");
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let mail = id_of(&vault, "Mail");
-        let mut data = vault.edit_data(&mail.uuid().to_string()).unwrap(); // the editor opens
+        let base = vault.edit_data(&mail.uuid().to_string()).unwrap(); // the editor opens
         elsewhere(&path, |db| {
             db.entry_mut(mail).unwrap().track_changes().set_protected(fields::PASSWORD, "from the phone");
         });
+        let mut data = base.clone();
         data.password = "from this PC".into();
-        vault.save_entry(Some(&mail.uuid().to_string()), &data).unwrap();
+        let (_, conflicts) = vault.save_entry(Some(&mail.uuid().to_string()), Some(&base), &data).unwrap();
+        assert_eq!(conflicts, ["Password"]);
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let entry = reopened.db.entry(mail).unwrap();
@@ -613,7 +663,7 @@ pub mod tests {
             let bin = db.recycle_bin().unwrap().id();
             db.entry_mut(mail).unwrap().move_to(bin).unwrap();
         });
-        vault.save_entry(Some(&mail.uuid().to_string()), &data).unwrap();
+        vault.save_entry(Some(&mail.uuid().to_string()), None, &data).unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert!(reopened.detail(&mail.uuid().to_string()).is_some());
     }
@@ -635,6 +685,25 @@ pub mod tests {
     }
 
     #[test]
+    fn a_saved_change_survives_an_older_file_coming_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        let mut data = vault.edit_data(&mail).unwrap();
+        data.password = "saved here".into();
+        vault.save_entry(Some(&mail), None, &data).unwrap();
+
+        std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
+        vault.reload().unwrap();
+        assert_eq!(vault.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+        vault.save_pending().unwrap();
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+    }
+
+    #[test]
     fn nothing_is_saved_while_the_file_cannot_be_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sic2kdbx.kdbx");
@@ -643,7 +712,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "x".into();
-        assert!(vault.save_entry(Some(&mail), &data).unwrap_err().contains("cannot be read now"));
+        assert!(vault.save_entry(Some(&mail), None, &data).unwrap_err().contains("cannot be read now"));
         assert_eq!(std::fs::read(&path).unwrap(), b"half-synced");
     }
 
@@ -655,10 +724,37 @@ pub mod tests {
         let mut data = vault.edit_data(&router).unwrap();
         data.group = vec!["Elsewhere".into()];
         data.password = "and changed".into();
-        vault.save_entry(Some(&router), &data).unwrap();
+        vault.save_entry(Some(&router), None, &data).unwrap();
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let detail = reopened.detail(&router).unwrap();
         assert_eq!(detail.summary.group, ["Elsewhere"]);
         assert_eq!(reopened.field(&router, fields::PASSWORD).unwrap().as_str(), "and changed");
+    }
+
+    #[test]
+    fn a_stale_editor_keeps_the_fields_it_did_not_touch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let router = id_of(&vault, "Router");
+        let base = vault.edit_data(&router.uuid().to_string()).unwrap(); // the editor opens
+        elsewhere(&path, |db| {
+            db.entry_mut(router).unwrap().track_changes().set_unprotected(fields::USERNAME, "changed on the phone");
+            let mut root = db.root_mut();
+            let mut job = root.add_group();
+            job.name = "Job".into();
+            let job = job.id();
+            db.entry_mut(router).unwrap().move_to(job).unwrap();
+        });
+        let mut data = base.clone();
+        data.password = "changed on the PC".into();
+        let (_, conflicts) = vault.save_entry(Some(&router.uuid().to_string()), Some(&base), &data).unwrap();
+        assert!(conflicts.is_empty());
+
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        let id = router.uuid().to_string();
+        assert_eq!(reopened.field(&id, fields::USERNAME).unwrap().as_str(), "changed on the phone");
+        assert_eq!(reopened.field(&id, fields::PASSWORD).unwrap().as_str(), "changed on the PC");
+        assert_eq!(reopened.detail(&id).unwrap().summary.group, ["Job"]);
     }
 }

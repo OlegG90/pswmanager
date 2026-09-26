@@ -2,6 +2,7 @@
 //! file is always either the old version or the complete new one.
 
 use keepass::config::DatabaseVersion;
+use keepass::db::{CustomIconRef, EntryRef, GroupRef, Icon};
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
@@ -44,19 +45,26 @@ impl DbFile {
     }
 
     /// The file as it is now, if it changed since it was last read or written
-    /// (another device, a sync client). A file that cannot be read — the key
-    /// changed elsewhere, or a sync client is half-way through writing it — is
-    /// an error, and the next save refuses until it can be read.
+    /// (another device, a sync client); see [Snapshot::read_changed].
+    #[cfg(test)]
     pub fn reload(&mut self) -> Result<Option<Database>, String> {
-        let bytes = fs::read(&self.path).map_err(|e| format!("Cannot read the database file: {e}"))?;
-        let now = hash(&bytes);
-        if now == self.hash {
-            return Ok(None);
-        }
-        let db = Database::parse(&bytes, self.key.clone())
-            .map_err(|e| format!("The database file changed on disk and cannot be read now: {}", open_error(&e)))?;
-        self.hash = now;
-        Ok(Some(db))
+        let since = self.snapshot();
+        Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)))
+    }
+
+    /// What reading the file again needs, so the slow part (deriving the key)
+    /// can run without holding anything; see [Snapshot::read_changed].
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot { path: self.path.clone(), key: self.key.clone(), hash: self.hash }
+    }
+
+    /// Takes a file read with [Snapshot::read_changed], unless the file was
+    /// read or written again since the snapshot (then that is newer).
+    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Database> {
+        (self.hash == since.hash).then(|| {
+            self.hash = read.hash;
+            read.db
+        })
     }
 
     /// Writes `db` over the file. Refuses when the file changed since it was
@@ -108,34 +116,94 @@ impl DbFile {
     }
 }
 
-/// True when two databases hold the same data. Old versions in an entry's
-/// history are compared by what the file keeps of them — values, tags,
-/// times, custom data, icon and attachment contents — because keepass-rs
-/// also remembers in memory which group each version was made in, which the
-/// file does not store: after a move, a database never equals its own
-/// saved-and-read copy.
-fn same_content(a: &Database, b: &Database) -> bool {
-    let without_history = |db: &Database| {
-        let mut db = db.clone();
-        db.foreach_entry_mut(|mut e| e.history = None);
-        db
-    };
-    if without_history(a) != without_history(b) {
-        return false;
-    }
-    a.iter_all_entries().all(|x| {
-        let Some(y) = b.entry(x.id()) else { return false };
-        let count = |e: &keepass::db::EntryRef<'_>| e.history.as_ref().map_or(0, |h| h.get_entries().len());
-        count(&x) == count(&y)
-            && (0..count(&x)).all(|i| match (x.historical(i), y.historical(i)) {
-                (Some(old_x), Some(old_y)) => same_version(&old_x, &old_y),
-                _ => false,
-            })
-    })
+/// A database file as it was when the snapshot was taken, with its key.
+pub struct Snapshot {
+    path: PathBuf,
+    key: DatabaseKey,
+    hash: [u8; 32],
 }
 
-fn same_version(a: &keepass::db::EntryRef<'_>, b: &keepass::db::EntryRef<'_>) -> bool {
-    let attachments = |e: &keepass::db::EntryRef<'_>| {
+/// A changed file, read and decrypted.
+pub struct Read {
+    db: Database,
+    hash: [u8; 32],
+}
+
+impl Snapshot {
+    /// The file as it is now, if it changed since the snapshot. A file that
+    /// cannot be read — the key changed elsewhere, or a sync client is half-way
+    /// through writing it — is an error; saving refuses until it can be read.
+    pub fn read_changed(&self) -> Result<Option<Read>, String> {
+        let bytes = fs::read(&self.path).map_err(|e| format!("Cannot read the database file: {e}"))?;
+        let now = hash(&bytes);
+        if now == self.hash {
+            return Ok(None);
+        }
+        let db = Database::parse(&bytes, self.key.clone())
+            .map_err(|e| format!("The database file changed on disk and cannot be read now: {}", open_error(&e)))?;
+        Ok(Some(Read { db, hash: now }))
+    }
+}
+
+/// True when two databases hold the same data — everything a KDBX file
+/// stores, compared field by field. `Database`'s own equality cannot be used:
+/// keepass-rs also keeps in-memory bookkeeping the file does not store (the
+/// group each history version was made in, custom-icon back-references per
+/// history index), which an edit leaves different from a saved-and-read copy.
+fn same_content(a: &Database, b: &Database) -> bool {
+    a.config == b.config
+        && a.meta == b.meta
+        && a.deleted_objects == b.deleted_objects
+        && a.num_groups() == b.num_groups()
+        && a.num_entries() == b.num_entries()
+        && icon_pool(a) == icon_pool(b)
+        && a.iter_all_groups().all(|g| b.group(g.id()).is_some_and(|h| same_group(&g, &h)))
+        && a.iter_all_entries().all(|e| {
+            b.entry(e.id()).is_some_and(|f| e.parent().id() == f.parent().id() && same_version(&e, &f) && same_history(&e, &f))
+        })
+}
+
+fn icon_pool(db: &Database) -> Vec<Vec<u8>> {
+    let mut data: Vec<Vec<u8>> = db.iter_all_custom_icons().map(|i| i.data.clone()).collect();
+    data.sort();
+    data
+}
+
+/// An icon as the file keeps it: a built-in number or custom image data.
+fn icon_of(icon: Option<&Icon>, custom: Option<CustomIconRef<'_>>) -> (Option<usize>, Option<Vec<u8>>) {
+    let builtin = match icon {
+        Some(Icon::BuiltIn(n)) => Some(*n),
+        _ => None,
+    };
+    (builtin, custom.map(|c| c.data.clone()))
+}
+
+fn same_group(a: &GroupRef<'_>, b: &GroupRef<'_>) -> bool {
+    a.parent().map(|p| p.id()) == b.parent().map(|p| p.id())
+        && a.name == b.name
+        && a.notes == b.notes
+        && a.tags == b.tags
+        && a.times == b.times
+        && a.custom_data == b.custom_data
+        && a.is_expanded == b.is_expanded
+        && a.default_autotype_sequence == b.default_autotype_sequence
+        && a.enable_autotype == b.enable_autotype
+        && a.enable_searching == b.enable_searching
+        && icon_of(a.icon(), a.custom_icon()) == icon_of(b.icon(), b.custom_icon())
+}
+
+fn same_history(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
+    let count = |e: &EntryRef<'_>| e.history.as_ref().map_or(0, |h| h.get_entries().len());
+    count(a) == count(b)
+        && (0..count(a)).all(|i| match (a.historical(i), b.historical(i)) {
+            (Some(x), Some(y)) => same_version(&x, &y),
+            _ => false,
+        })
+}
+
+/// One version of an entry: everything but its place and history.
+fn same_version(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
+    let attachments = |e: &EntryRef<'_>| {
         let mut all: Vec<(String, Vec<u8>)> = e.attachments_named().map(|(n, att)| (n.to_string(), att.data.get().clone())).collect();
         all.sort();
         all
@@ -144,7 +212,12 @@ fn same_version(a: &keepass::db::EntryRef<'_>, b: &keepass::db::EntryRef<'_>) ->
         && a.tags == b.tags
         && a.times == b.times
         && a.custom_data == b.custom_data
-        && a.icon() == b.icon()
+        && a.autotype == b.autotype
+        && a.foreground_color == b.foreground_color
+        && a.background_color == b.background_color
+        && a.override_url == b.override_url
+        && a.quality_check == b.quality_check
+        && icon_of(a.icon(), a.custom_icon()) == icon_of(b.icon(), b.custom_icon())
         && attachments(a) == attachments(b)
 }
 
@@ -194,6 +267,19 @@ pub mod tests {
         assert!(!dir.path().join("t.kdbx.pswm-tmp").exists());
         // The next save starts from the file this one wrote.
         file.save(&mut db).unwrap();
+    }
+
+    #[test]
+    fn an_edited_entry_with_its_own_icon_saves() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut start = Database::new();
+        start.root_mut().add_entry().set_icon_custom_new(vec![0x89, b'P', b'N', b'G', 0, 0]);
+        let (mut db, mut file) = saved(dir.path(), &start);
+        let id = db.iter_all_entries().next().unwrap().id();
+        db.entry_mut(id).unwrap().track_changes().set_unprotected("Title", "edited");
+        file.save(&mut db).unwrap();
+        let (reopened, _) = DbFile::open(&dir.path().join("t.kdbx"), key()).unwrap();
+        assert!(same_content(&reopened, &db));
     }
 
     #[test]

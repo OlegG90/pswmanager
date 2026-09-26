@@ -227,7 +227,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(options.id, collect())
+      const saved = await api.saveEntry(options.id, options.id ? data : null, collect())
       // Locking while the save ran closed this editor: the vault is gone.
       if (active !== self) return
       active = null

@@ -66,6 +66,70 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
     }
 }
 
+/// The entry as it is now (`current`, perhaps changed on another device since
+/// the editor opened it as `base`) with the editor's own changes (`edited`
+/// against `base`) applied on top: what the editor did not touch stays as it
+/// is now. Returns the result and the names of fields both sides changed
+/// (where the editor's change wins; the other version goes to history).
+pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (EntryData, Vec<String>) {
+    let mut conflicts = Vec::new();
+    let mut pick = |name: &str, current: &String, base: &String, edited: &String| -> String {
+        if edited == base {
+            return current.clone();
+        }
+        if current != base && current != edited {
+            conflicts.push(name.to_string());
+        }
+        edited.clone()
+    };
+    let title = pick("Title", &current.title, &base.title, &edited.title);
+    let username = pick("User name", &current.username, &base.username, &edited.username);
+    let password = pick("Password", &current.password, &base.password, &edited.password);
+    let url = pick("URL", &current.url, &base.url, &edited.url);
+    let notes = pick("Notes", &current.notes, &base.notes, &edited.notes);
+    let otp = pick("TOTP", &current.otp, &base.otp, &edited.otp);
+    let mut pick_list = |name: &str, current: &Vec<String>, base: &Vec<String>, edited: &Vec<String>| -> Vec<String> {
+        if edited == base {
+            return current.clone();
+        }
+        if current != base && current != edited {
+            conflicts.push(name.to_string());
+        }
+        edited.clone()
+    };
+    let tags = pick_list("Tags", &current.tags, &base.tags, &edited.tags);
+    let group = pick_list("Group", &current.group, &base.group, &edited.group);
+
+    // Additional fields, by name: removed, added or changed in the editor
+    // apply; the rest are as they are now.
+    let find = |list: &[FieldData], name: &str| list.iter().find(|f| f.name == name).cloned();
+    let mut fields: Vec<FieldData> = current.fields.clone();
+    for old in &base.fields {
+        if find(&edited.fields, &old.name).is_none() {
+            if find(&current.fields, &old.name).is_some_and(|now| now != *old) {
+                conflicts.push(old.name.clone());
+            }
+            fields.retain(|f| f.name != old.name);
+        }
+    }
+    for new in &edited.fields {
+        let before = find(&base.fields, &new.name);
+        if before.as_ref() == Some(new) {
+            continue;
+        }
+        let now = find(&current.fields, &new.name);
+        if now != before && now.as_ref() != Some(new) {
+            conflicts.push(new.name.clone());
+        }
+        match fields.iter_mut().find(|f| f.name == new.name) {
+            Some(field) => *field = new.clone(),
+            None => fields.push(new.clone()),
+        }
+    }
+    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields };
+    (merged, conflicts)
+}
+
 /// Creates the entry (`id` is `None`) or changes it, and returns its id. An
 /// edit that changes nothing leaves the entry and its history alone. An entry
 /// deleted elsewhere since the editor opened comes back with its id: this
@@ -248,6 +312,56 @@ fn trim_history(db: &mut Database, id: EntryId) {
     entry.history = Some(trimmed);
 }
 
+/// Keeps what this device changed that a file read from disk does not have —
+/// it came back older (a sync client delivered a stale copy, or a conflict
+/// copy won). Every entry of `ours` changed later than in `theirs`, or missing
+/// there with no deletion recorded at or after our change, is applied to
+/// `theirs` (which keeps its own version in the entry's history); a newer
+/// move — including one to the recycle bin — is kept too. Returns the ids of
+/// the entries it kept.
+pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
+    let hidden: HashSet<GroupId> =
+        [theirs.meta.recyclebin_uuid, theirs.meta.entry_templates_group].into_iter().flatten().map(GroupId::from).collect();
+    let our_bin = ours.meta.recyclebin_uuid.map(GroupId::from);
+    let mut kept = Vec::new();
+    for e in ours.iter_all_entries() {
+        let id = e.id();
+        let binned = our_bin.is_some_and(|bin| ancestors(ours, e.parent().id()).contains(&bin));
+        // What to write: our content if it is newer, their content otherwise;
+        // our place if the move is newer, their place otherwise.
+        let (data, to_bin) = match theirs.entry(id) {
+            Some(t) => {
+                let newer_content = e.times.last_modification > t.times.last_modification;
+                let newer_place = e.times.location_changed > t.times.location_changed;
+                if !newer_content && !newer_place {
+                    continue;
+                }
+                let their_place = path_of(theirs, t.parent().id());
+                let mut data = if newer_content { read(&e, their_place.clone()) } else { read(&t, their_place.clone()) };
+                if newer_place && !binned {
+                    data.group = path_of(ours, e.parent().id());
+                }
+                (data, newer_place && binned)
+            }
+            None => {
+                let deleted_after = theirs.deleted_objects.get(&id.uuid()).is_some_and(|at| at.is_none() || *at >= e.times.last_modification);
+                if deleted_after || binned {
+                    continue;
+                }
+                (read(&e, path_of(ours, e.parent().id())), false)
+            }
+        };
+        let before = theirs.entry(id).map(|t| (*t).clone());
+        if apply(theirs, Some(id), &data, &hidden).is_err() || (to_bin && recycle(theirs, id).is_err()) {
+            continue; // e.g. a TOTP value this app cannot read: their version stays
+        }
+        if theirs.entry(id).map(|t| (*t).clone()) != before {
+            kept.push(id);
+        }
+    }
+    kept
+}
+
 /// Moves the entry to the recycle bin, creating the bin if the database has
 /// none. A database that turned the bin off is refused: removing an entry
 /// with keepass-rs can leave other entries' attachments pointing at the
@@ -410,6 +524,75 @@ mod tests {
         assert_eq!(apply(&mut db, Some(id), &edited, &HashSet::new()).unwrap(), id);
         assert_eq!(db.entry(id).unwrap().get_password(), Some("newer"));
         assert!(!db.deleted_objects.contains_key(&id.uuid()));
+    }
+
+    fn field(name: &str, value: &str) -> FieldData {
+        FieldData { name: name.into(), value: value.into(), protected: false }
+    }
+
+    #[test]
+    fn merge3_keeps_what_the_editor_did_not_touch() {
+        let base = with("x", |d| {
+            d.group = vec!["Work".into()];
+            d.fields = vec![field("PIN", "1"), field("Old", "o")];
+        });
+        // Another device changed the user name, moved the entry and added a field.
+        let current = with("x", |d| {
+            d.username = "phone".into();
+            d.group = vec!["Job".into()];
+            d.fields = vec![field("PIN", "1"), field("Old", "o"), field("Phone", "p")];
+        });
+        // The editor changed the password and removed a field.
+        let edited = with("x", |d| {
+            d.password = "pc".into();
+            d.group = vec!["Work".into()];
+            d.fields = vec![field("PIN", "1")];
+        });
+        let (merged, conflicts) = merge3(&current, &base, &edited);
+        assert_eq!((merged.username.as_str(), merged.password.as_str()), ("phone", "pc"));
+        assert_eq!(merged.group, ["Job"]);
+        assert_eq!(merged.fields, [field("PIN", "1"), field("Phone", "p")]);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn merge3_reports_what_both_changed() {
+        let base = with("x", |d| d.fields = vec![field("PIN", "1")]);
+        let current = with("x", |d| {
+            d.password = "phone".into();
+            d.fields = vec![field("PIN", "2")];
+        });
+        let edited = with("x", |d| {
+            d.password = "pc".into();
+            d.fields = vec![field("PIN", "3")];
+        });
+        let (merged, conflicts) = merge3(&current, &base, &edited);
+        assert_eq!(merged.password, "pc");
+        assert_eq!(merged.fields, [field("PIN", "3")]);
+        assert_eq!(conflicts, ["Password", "PIN"]);
+    }
+
+    #[test]
+    fn keep_newer_restores_what_an_older_file_lacks() {
+        let mut theirs = Database::new();
+        let old = apply(&mut theirs, None, &data("old"), &HashSet::new()).unwrap();
+        let removed = apply(&mut theirs, None, &data("removed there"), &HashSet::new()).unwrap();
+        let mut ours = theirs.clone();
+        // Changed and created here; the older file has neither.
+        apply(&mut ours, Some(old), &with("old", |d| d.password = "newer".into()), &HashSet::new()).unwrap();
+        let created = apply(&mut ours, None, &data("new here"), &HashSet::new()).unwrap();
+        // Deleted there after our last change to it.
+        theirs.root_mut().entry_mut(removed).unwrap().track_changes().remove();
+        // Times have one-second precision: make their copy of `old` clearly older.
+        theirs.entry_mut(old).unwrap().times.last_modification = Some(Times::epoch());
+
+        let kept = keep_newer(&mut theirs, &ours);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(theirs.entry(old).unwrap().get_password(), Some("newer"));
+        assert_eq!(theirs.entry(created).unwrap().get_title(), Some("new here"));
+        assert!(theirs.entry(removed).is_none());
+        // Nothing newer the second time.
+        assert!(keep_newer(&mut theirs, &ours).is_empty());
     }
 
     #[test]

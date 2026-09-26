@@ -146,7 +146,9 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
 /// watcher (a folder that cannot be watched) the window-shown check remains.
 fn watch_database(app: &AppHandle, database: &std::path::Path) {
     let on_change = app.clone();
-    let watcher = file_watch::watch(database, move || check_disk(&on_change)).ok();
+    let watcher = file_watch::watch(database, move || check_disk(&on_change))
+        .map_err(|e| eprintln!("Cannot watch the database folder: {e}"))
+        .ok();
     *app.state::<FileWatch>().0.lock().unwrap() = watcher;
 }
 
@@ -160,16 +162,32 @@ struct DiskChange {
 
 /// Reads the database file again if it changed on disk, and tells the window:
 /// `database-changed` with the new listing, or `database-error` when the file
-/// cannot be read now (nothing is saved until it can). Runs in the background.
+/// cannot be read now (nothing is saved until it can). Runs in the background;
+/// the slow part (deriving the key) runs without holding the vault, so the
+/// window, tray and hotkey stay responsive.
 fn check_disk(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let session = app.state::<Session>();
-        if !session.is_unlocked() {
-            return;
-        }
-        match session.with_mut(|v| Ok(v.reload()?.map(|changed| DiskChange { listing: v.listing(), changed }))) {
+        let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
+        let read = match since.read_changed() {
+            Ok(Some(read)) => read,
+            Ok(None) => return,
+            Err(message) => {
+                if session.is_unlocked() {
+                    let _ = app.emit("database-error", message);
+                }
+                return;
+            }
+        };
+        let adopted = session.with_mut(|v| {
+            let Some(changed) = v.adopt(&since, read) else { return Ok(None) };
+            v.save_pending()?;
+            Ok(Some(DiskChange { listing: v.listing(), changed }))
+        });
+        match adopted {
             Ok(Some(change)) => {
+                fetch_icons(&app, &change.listing);
                 let _ = app.emit("database-changed", change);
             }
             Ok(None) => {}
@@ -277,15 +295,23 @@ fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> 
 struct Saved {
     id: String,
     listing: Listing,
+    /// Fields another device also changed; this edit replaced them.
+    conflicts: Vec<String>,
 }
 
 /// Creates (no `id`) or changes an entry, saves the file and returns the new
 /// listing with the entry's id.
 #[tauri::command(async)]
-fn save_entry(app: AppHandle, session: State<Session>, id: Option<String>, data: EntryData) -> Result<Saved, String> {
+fn save_entry(
+    app: AppHandle,
+    session: State<Session>,
+    id: Option<String>,
+    base: Option<EntryData>,
+    data: EntryData,
+) -> Result<Saved, String> {
     let saved = session.with_mut(|v| {
-        let id = v.save_entry(id.as_deref(), &data)?;
-        Ok(Saved { id, listing: v.listing() })
+        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data)?;
+        Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
     fetch_icons(&app, &saved.listing);
     Ok(saved)

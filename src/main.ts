@@ -385,7 +385,8 @@ function applyListing(next: Listing, message: string) {
 
 function afterSave(saved: Saved) {
   selectedId = saved.id
-  applyListing(saved.listing, 'Saved')
+  const replaced = saved.conflicts.join(', ')
+  applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
 }
 
 /** Del / the Delete button: asks first. */
@@ -393,7 +394,8 @@ async function deleteEntry() {
   const entry = current
   if (!entry || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
-  if (!yes || current?.id !== entry.id) return searchInput.focus()
+  // An update from another device may refresh the view meanwhile; the choice still stands.
+  if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
   } catch (e) {
@@ -441,8 +443,8 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   if (vault.hidden) return
   listing = next
   fillFilter()
-  // The open entry is fetched again if it changed (or was deleted).
-  if (current && changed.includes(current.id)) current = null
+  // The open entry is fetched again: it may have changed, gone, or its group been renamed.
+  current = null
   refresh()
   changedElsewhere(changed)
   notify('Updated from another device')
