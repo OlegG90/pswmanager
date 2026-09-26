@@ -1,7 +1,11 @@
 mod activity;
 mod clipboard;
 mod data_dir;
+mod dbfile;
+mod edit;
+mod generator;
 mod icons;
+mod otp;
 mod session_watch;
 mod settings;
 mod store;

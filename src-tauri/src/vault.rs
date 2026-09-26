@@ -1,9 +1,12 @@
 //! The unlocked database. Everything decrypted stays here: the frontend gets
-//! summaries without secrets, and a secret only when asked for one field.
+//! summaries without secrets, a secret only when asked for one field, and a
+//! whole entry only while it is being edited.
 
-use crate::icons;
+use crate::dbfile::DbFile;
+use crate::edit::{self, EntryData};
+use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
-use keepass::error::{DatabaseKeyError, DatabaseOpenError};
+use keepass::config::DatabaseVersion;
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -14,6 +17,8 @@ use zeroize::Zeroizing;
 
 pub struct Vault {
     db: Database,
+    /// The file it came from; `None` only in tests that never save.
+    file: Option<DbFile>,
 }
 
 /// What the list shows about an entry. No password, no protected field.
@@ -71,14 +76,13 @@ impl Vault {
             let mut file = File::open(key_file).map_err(|e| format!("Cannot read the key file: {e}"))?;
             key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
         }
-        let mut file = File::open(path).map_err(|e| format!("Cannot open the database: {e}"))?;
-        let db = Database::open(&mut file, key).map_err(|e| open_error(&e))?;
-        Ok(Vault { db })
+        let (db, file) = DbFile::open(path, key)?;
+        Ok(Vault { db, file: Some(file) })
     }
 
     #[cfg(test)]
     pub fn from_database(db: Database) -> Vault {
-        Vault { db }
+        Vault { db, file: None }
     }
 
     /// All entries the user works with: not in the recycle bin, not templates.
@@ -154,6 +158,81 @@ impl Vault {
         let entry = self.db.entry(id)?;
         (!is_in(&entry, &self.hidden_groups())).then_some(entry)
     }
+
+    /// The entry with every value, for the editor.
+    pub fn edit_data(&self, id: &str) -> Option<EntryData> {
+        let entry = self.entry(id)?;
+        Some(edit::read(&entry, group_path(&entry)))
+    }
+
+    /// Creates (`id` is `None`) or changes an entry and saves the file.
+    /// Returns the entry's id. Nothing changes when saving fails.
+    pub fn save_entry(&mut self, id: Option<&str>, data: &EntryData) -> Result<String, String> {
+        let id = id.map(|id| self.entry(id).map(|e| e.id()).ok_or("That entry is no longer in the database")).transpose()?;
+        let hidden = self.hidden_groups();
+        let mut db = self.db.clone();
+        let id = edit::apply(&mut db, id, data, &hidden)?;
+        self.commit(db)?;
+        Ok(id.uuid().to_string())
+    }
+
+    /// Moves an entry to the recycle bin and saves the file.
+    pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
+        let id = self.entry(id).map(|e| e.id()).ok_or("That entry is no longer in the database")?;
+        let mut db = self.db.clone();
+        edit::recycle(&mut db, id)?;
+        self.commit(db)
+    }
+
+    /// Saves `db` and makes it the current database, or keeps the old one.
+    /// The file is written as KDBX 4.1, the only version keepass-rs writes;
+    /// the cipher and key derivation stay as they were.
+    fn commit(&mut self, mut db: Database) -> Result<(), String> {
+        db.config.version = DatabaseVersion::KDB4(1);
+        self.file.as_mut().ok_or("This database cannot be saved")?.save(&db)?;
+        self.db = db;
+        Ok(())
+    }
+
+    /// Every group entries can go in, as paths, for the editor.
+    pub fn group_paths(&self) -> Vec<Vec<String>> {
+        let hidden = self.hidden_groups();
+        let mut paths: Vec<Vec<String>> = self
+            .db
+            .iter_all_groups()
+            .filter(|g| g.parent().is_some())
+            .filter_map(|g| {
+                let mut path = Vec::new();
+                let mut id = Some(g.id());
+                while let Some(group) = id.and_then(|id| self.db.group(id)) {
+                    if hidden.contains(&group.id()) {
+                        return None;
+                    }
+                    id = group.parent().map(|p| p.id());
+                    if id.is_some() {
+                        path.push(group.name.clone());
+                    }
+                }
+                path.reverse();
+                Some(path)
+            })
+            .collect();
+        paths.sort_by_key(|p| p.iter().map(|n| n.to_lowercase()).collect::<Vec<_>>());
+        paths
+    }
+
+    /// The entry's current TOTP code, if it has a usable secret.
+    pub fn totp(&self, id: &str) -> Option<Result<otp::Code, String>> {
+        let value = self.field(id, fields::OTP)?;
+        Some(otp::Totp::parse(&value).map(|totp| totp.code_now()))
+    }
+}
+
+/// Group names from the top, without the root group.
+fn group_path(entry: &EntryRef<'_>) -> Vec<String> {
+    let mut chain = ancestors(entry);
+    chain.pop(); // the root group
+    chain.iter().rev().filter_map(|&id| entry.database().group(id).map(|g| g.name.clone())).collect()
 }
 
 /// True when the entry sits in one of `groups`, at any depth.
@@ -196,9 +275,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         _ => String::new(),
     };
     let url = text(fields::URL);
-    let mut chain = ancestors(e);
-    chain.pop(); // the root group
-    let group = chain.iter().rev().filter_map(|&id| e.database().group(id).map(|g| g.name.clone())).collect();
+    let group = group_path(e);
     EntrySummary {
         id: e.id().uuid().to_string(),
         title: text(fields::TITLE),
@@ -210,23 +287,6 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         notes: text(fields::NOTES),
         custom_icon: e.custom_icon().map(|icon| icon.id().to_string()),
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
-    }
-}
-
-const UNORDERED: &str = "This database stores its elements in an unusual order, which PswManager cannot read \
-     safely. Open it in KeePassXC and save it once, or convert it again with the current sic2kdbx.";
-
-fn open_error(e: &DatabaseOpenError) -> String {
-    match e {
-        DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => "Wrong password or key file".into(),
-        DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => "Enter the password or choose a key file".into(),
-        DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}"),
-        DatabaseOpenError::UnsupportedVersion => "This database version is not supported".into(),
-        // keepass-rs reads a strict element order; a file with an entry's
-        // fields or a group's children out of order (older sic2kdbx) fails here
-        // rather than having its protected values decrypted in the wrong order.
-        other if other.to_string().contains("duplicate field") => UNORDERED.into(),
-        other => format!("Cannot open the database: {other}"),
     }
 }
 
@@ -314,7 +374,7 @@ pub mod tests {
         assert_eq!(Vault::open(&path, None, None).err().unwrap(), "Enter the password or choose a key file");
     }
 
-    fn fixture(name: &str) -> std::path::PathBuf {
+    fn fixture_path(name: &str) -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
     }
 
@@ -323,7 +383,7 @@ pub mod tests {
     /// `scripts/make-fixtures.py`.
     #[test]
     fn reads_the_secrets_sic2kdbx_writes() {
-        let vault = Vault::open(&fixture("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        let vault = Vault::open(&fixture_path("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let router = vault.listing().entries.into_iter().find(|e| e.title == "Router").unwrap();
         assert_eq!(router.tags, ["NET", "Old", "Favorite"]);
         assert_eq!(vault.field(&router.id, fields::PASSWORD).unwrap().as_str(), "new-pass");
@@ -336,8 +396,8 @@ pub mod tests {
 
     #[test]
     fn refuses_a_file_it_cannot_read_safely() {
-        let refused = Vault::open(&fixture("unordered.kdbx"), Some("test"), None);
-        assert_eq!(refused.err().unwrap(), UNORDERED);
+        let refused = Vault::open(&fixture_path("unordered.kdbx"), Some("test"), None);
+        assert_eq!(refused.err().unwrap(), crate::dbfile::UNORDERED);
     }
 
     #[test]
@@ -383,5 +443,77 @@ pub mod tests {
         assert_eq!(listing.custom_icons.len(), 1);
         // No usable icon of its own: the site's icon (or the default) is shown instead.
         assert_eq!((b.custom_icon.as_deref(), b.host.as_deref()), (None, Some("example.org")));
+    }
+
+    /// A fixture copied to a temporary folder, opened with its password.
+    fn fixture(name: &str, dir: &Path) -> Vault {
+        let path = dir.join(name);
+        std::fs::copy(fixture_path(name), &path).unwrap();
+        Vault::open(&path, Some("test"), None).unwrap()
+    }
+
+    #[test]
+    fn saving_keeps_everything_the_app_does_not_show() {
+        for name in ["sic2kdbx.kdbx"] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut vault = fixture(name, dir.path());
+            let mut before = vault.db.clone();
+            vault.commit(before.clone()).unwrap();
+            let reopened = Vault::open(&dir.path().join(name), Some("test"), None).unwrap();
+            before.config.version = DatabaseVersion::KDB4(1);
+            assert_eq!(reopened.db, before, "{name}");
+        }
+    }
+
+    #[test]
+    fn editing_an_entry_keeps_its_attachments_history_and_custom_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let id = vault.listing().entries.iter().find(|e| e.title == "Router").unwrap().id.clone();
+        let old = vault.db.entry(EntryId::from(Uuid::parse_str(&id).unwrap())).unwrap().clone();
+
+        let mut data = vault.edit_data(&id).unwrap();
+        data.password = "changed".into();
+        vault.save_entry(Some(&id), &data).unwrap();
+
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        let entry = reopened.db.entry(old.id()).unwrap();
+        assert_eq!(entry.get_password(), Some("changed"));
+        assert_eq!(entry.attachments().count(), 2);
+        assert_eq!(entry.custom_data, old.custom_data);
+        assert_eq!(entry.history.as_ref().unwrap().get_entries().len(), old.history.as_ref().unwrap().get_entries().len() + 1);
+        assert_eq!(entry.get(fields::OTP), old.get(fields::OTP));
+        // Templates and the recycle bin stay where they were.
+        assert_eq!(reopened.listing().entries.len(), 3);
+        assert!(std::fs::metadata(dir.path().join("sic2kdbx.kdbx.bak")).is_ok());
+    }
+
+    #[test]
+    fn deleting_saves_and_hides_the_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let id = vault.listing().entries[0].id.clone();
+        vault.delete_entry(&id).unwrap();
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert!(reopened.detail(&id).is_none());
+        assert_eq!(reopened.listing().entries.len(), 2);
+    }
+
+    #[test]
+    fn totp_codes_come_from_the_otp_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = fixture("sic2kdbx.kdbx", dir.path());
+        let router = vault.listing().entries.iter().find(|e| e.title == "Router").unwrap().id.clone();
+        let code = vault.totp(&router).unwrap().unwrap();
+        assert_eq!((code.code.len(), code.period), (6, 30));
+        let mail = vault.listing().entries.iter().find(|e| e.title == "Mail").unwrap().id.clone();
+        assert!(vault.totp(&mail).is_none());
+    }
+
+    #[test]
+    fn group_paths_leave_out_the_bin_and_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = fixture("sic2kdbx.kdbx", dir.path());
+        assert_eq!(vault.group_paths(), [vec!["NET".to_string()], vec!["Work; Home, X".to_string()]]);
     }
 }
