@@ -169,9 +169,12 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const strength = el('div', { className: 'strength' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
 
+  // Under the heading, and scrolled to: at the bottom of a long form the
+  // message ended up out of sight.
   const showError = (message: string) => {
     error.textContent = message
     error.hidden = false
+    error.scrollIntoView({ block: 'nearest' })
   }
 
   let strengthTimer: number | undefined
@@ -245,6 +248,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
     el('h2', {}, options.id ? 'Edit entry' : 'New entry'),
+    error,
     row('Title', title),
     row('User name', username),
     row('Password', password, showHide(password), generator.open),
@@ -258,7 +262,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     el('h3', {}, 'Fields'),
     fieldList,
     button('Add field', 'Add a field', () => fieldList.append(fieldRow())),
-    error,
     el('div', { className: 'buttons' },
       el('button', { type: 'submit', className: 'primary', textContent: 'Save', title: 'Save (Ctrl+S)' }),
       button('Cancel', 'Cancel (Esc)', close)),
