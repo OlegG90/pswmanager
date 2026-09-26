@@ -348,7 +348,7 @@ function perform(action: Action, e: KeyboardEvent) {
         refresh()
         searchInput.focus()
       } else {
-        api.hideWindow()
+        api.hideWindow().catch((e) => notify(String(e)))
       }
       break
     case 'type-to-search':
@@ -360,7 +360,7 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (vault.hidden) {
-    if (e.key === 'Escape') api.hideWindow()
+    if (e.key === 'Escape') api.hideWindow().catch(() => {})
     return
   }
   const target = e.target as HTMLElement
@@ -381,9 +381,10 @@ function reportActivity() {
   const now = Date.now()
   if (vault.hidden || now - lastTouch < 5000) return
   lastTouch = now
-  api.touch()
+  api.touch().catch(() => {})
 }
-for (const type of ['keydown', 'pointerdown', 'pointermove', 'wheel']) {
+// Pointer movement alone does not count: hovering over the window is not using it.
+for (const type of ['keydown', 'pointerdown', 'wheel']) {
   document.addEventListener(type, reportActivity, { passive: true, capture: true })
 }
 

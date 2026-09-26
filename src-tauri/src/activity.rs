@@ -4,8 +4,6 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-pub const DEFAULT_MINUTES: u64 = 5;
-const MINUTES_RANGE: (u64, u64) = (1, 60);
 /// How often the inactivity check runs.
 pub const CHECK_EVERY: Duration = Duration::from_secs(10);
 
@@ -28,27 +26,9 @@ impl Activity {
     }
 }
 
-/// The lock timeout for the `lockAfterMinutes` setting: 0 means never, other
-/// values are kept within 1–60 minutes.
-pub fn timeout(minutes: Option<u64>) -> Option<Duration> {
-    let (min, max) = MINUTES_RANGE;
-    match minutes.unwrap_or(DEFAULT_MINUTES) {
-        0 => None,
-        m => Some(Duration::from_secs(m.clamp(min, max) * 60)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn timeout_follows_the_setting_within_limits() {
-        assert_eq!(timeout(None), Some(Duration::from_secs(5 * 60)));
-        assert_eq!(timeout(Some(0)), None);
-        assert_eq!(timeout(Some(15)), Some(Duration::from_secs(15 * 60)));
-        assert_eq!(timeout(Some(1000)), Some(Duration::from_secs(60 * 60)));
-    }
 
     #[test]
     fn touching_resets_the_idle_time() {
