@@ -32,6 +32,10 @@ The script asks for the master password twice. Options: `--keyfile`, `--no-passw
 `--skip-deleted` (leave deleted cards out; by default they go to the recycle bin), `--drop-empty` (leave
 empty fields out, except in templates), `--force`.
 
+Elements are written in the order KeePass uses. Databases converted before that change store some
+fields out of order; PswManager refuses them rather than risk misreading protected values. Convert again,
+or open and save once in KeePassXC.
+
 `;` and `,` in label names become spaces in tags (KeePass separates tags with them); the group name keeps
 the original. Damaged attachments are skipped with a warning.
 

@@ -3153,7 +3153,6 @@ dependencies = [
  "arboard",
  "base64 0.23.1",
  "keepass",
- "quick-xml",
  "serde",
  "serde_json",
  "tauri",
