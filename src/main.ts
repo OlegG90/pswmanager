@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
 import { button, el } from './dom'
 import { closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { ask, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
@@ -32,8 +33,6 @@ const siteIcons = new Map<string, string | null>()
 let shown: Entry[] = []
 let selectedId: string | null = null
 let current: EntryDetail | null = null
-/** The current entry is asking whether to move it to the recycle bin. */
-let confirmingDelete = false
 /** Values revealed in the current entry, by field name. */
 const revealed = new Map<string, string>()
 
@@ -196,10 +195,7 @@ function listItem(entry: Entry): HTMLLIElement {
 function select(id: string | null) {
   if (isEditing()) return // the editor stays until it is saved or cancelled
   const same = id === selectedId
-  if (!same) {
-    revealed.clear()
-    confirmingDelete = false
-  }
+  if (!same) revealed.clear()
   selectedId = id
   for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
     const on = li.dataset.id === id
@@ -284,18 +280,12 @@ function renderDetail() {
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
   if (meta) rows.push(el('p', { className: 'meta' }, meta))
-  const confirm = el('button', { type: 'button', className: 'primary', textContent: 'Move to the recycle bin', onclick: deleteNow })
   rows.push(
-    confirmingDelete
-      ? el('div', { className: 'buttons confirm' },
-          el('span', {}, `Move "${entry.title || '(no title)'}" to the recycle bin?`), confirm,
-          button('Cancel', 'Cancel (Esc)', cancelDelete))
-      : el('div', { className: 'buttons' },
-          button('Edit', 'Edit (Ctrl+E)', editEntry),
-          button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
+    el('div', { className: 'buttons' },
+      button('Edit', 'Edit (Ctrl+E)', editEntry),
+      button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
   )
   detail.replaceChildren(...rows)
-  if (confirmingDelete) confirm.focus()
 }
 
 // ---------------------------------------------------------------- TOTP
@@ -395,24 +385,14 @@ function afterSave(saved: Saved) {
   applyListing(saved.listing, 'Saved')
 }
 
-/** Del / the Delete button: asks first, in the entry view. */
-function deleteEntry() {
-  if (!current || isEditing()) return
-  confirmingDelete = true
-  renderDetail()
-}
-
-function cancelDelete() {
-  confirmingDelete = false
-  renderDetail()
-  searchInput.focus()
-}
-
-async function deleteNow() {
-  if (!current) return
-  confirmingDelete = false
+/** Del / the Delete button: asks first. */
+async function deleteEntry() {
+  const entry = current
+  if (!entry || isEditing()) return
+  const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
+  if (!yes || current?.id !== entry.id) return searchInput.focus()
   try {
-    applyListing(await api.deleteEntry(current.id), 'Moved to the recycle bin')
+    applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
   } catch (e) {
     notify(String(e))
   }
@@ -501,9 +481,7 @@ function perform(action: Action, e: KeyboardEvent) {
       move(1)
       break
     case 'escape':
-      if (confirmingDelete) {
-        cancelDelete()
-      } else if (searchInput.value) {
+      if (searchInput.value) {
         searchInput.value = ''
         refresh()
         searchInput.focus()
@@ -519,6 +497,7 @@ function perform(action: Action, e: KeyboardEvent) {
 }
 
 document.addEventListener('keydown', (e) => {
+  if (isAsking()) return // the question on screen has the keys
   if (vault.hidden) {
     if (e.key === 'Escape') hideWindow()
     return

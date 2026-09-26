@@ -1,6 +1,7 @@
 import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved } from './api'
 import { button, el } from './dom'
 import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
+import { ask } from './modal'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -25,7 +26,7 @@ let generatorOptions: GeneratorOptions = {
 }
 
 /** The open editor, from the moment it starts loading. */
-let active: { save: () => void; close: () => void } | null = null
+let active: { save: () => void; close: () => void | Promise<void> } | null = null
 
 export const isEditing = () => active !== null
 
@@ -169,9 +170,12 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const strength = el('div', { className: 'strength' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
 
+  // Under the heading, and scrolled to: at the bottom of a long form the
+  // message ended up out of sight.
   const showError = (message: string) => {
     error.textContent = message
     error.hidden = false
+    error.scrollIntoView({ block: 'nearest' })
   }
 
   let strengthTimer: number | undefined
@@ -224,14 +228,10 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       saving = false
     }
   }
-  let warned = false
-  const close = () => {
-    // Esc also closes pop-ups (the group list, an input method), so changes
-    // are only thrown away on a second Esc.
-    if (!warned && JSON.stringify(collect()) !== untouched) {
-      warned = true
-      showError('Unsaved changes: press Esc again to discard them.')
-      return
+  const close = async () => {
+    if (JSON.stringify(collect()) !== untouched) {
+      const discard = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
+      if (!discard || active !== self) return
     }
     active = null
     options.onClose()
@@ -245,6 +245,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
     el('h2', {}, options.id ? 'Edit entry' : 'New entry'),
+    error,
     row('Title', title),
     row('User name', username),
     row('Password', password, showHide(password), generator.open),
@@ -258,7 +259,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     el('h3', {}, 'Fields'),
     fieldList,
     button('Add field', 'Add a field', () => fieldList.append(fieldRow())),
-    error,
     el('div', { className: 'buttons' },
       el('button', { type: 'submit', className: 'primary', textContent: 'Save', title: 'Save (Ctrl+S)' }),
       button('Cancel', 'Cancel (Esc)', close)),
