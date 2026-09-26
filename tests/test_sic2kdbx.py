@@ -145,6 +145,8 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(self.entry(kp, "Gone").group.name, kp.recyclebin_group.name)
         tpl = self.entry(kp, "Car template")
         self.assertEqual(tpl.group.name, "Templates")
+        marked = kp.tree.find("Meta/EntryTemplatesGroup").text
+        self.assertEqual(marked, base64.b64encode(tpl.group.uuid.bytes).decode())
         self.assertIn("VIN", tpl.custom_properties)  # empty value is kept in templates
         self.assertEqual((stats["entries"], stats["deleted"]), (5, 1))
 

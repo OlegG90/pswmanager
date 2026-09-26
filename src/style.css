@@ -1,0 +1,283 @@
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --text: #1d1f23;
+  --muted: #6b7079;
+  --line: #dcdfe4;
+  --accent: #2f5d8a;
+  --selected: #dce7f3;
+  --danger: #b3261e;
+  color-scheme: light dark;
+  font: 14px/1.4 'Segoe UI', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1f22;
+    --panel: #26282c;
+    --text: #e4e6ea;
+    --muted: #9aa0a9;
+    --line: #3a3d42;
+    --accent: #7fb0e0;
+    --selected: #2f3d4d;
+    --danger: #f2b8b5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--muted);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+input,
+select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+input:focus,
+select:focus,
+button:focus-visible,
+#list:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Unlock */
+
+#unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 90vw);
+  margin: 12vh auto 0;
+}
+
+#unlock h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.file-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+#unlock-error {
+  color: var(--danger);
+  margin: 0;
+}
+
+/* Vault */
+
+#vault {
+  display: grid;
+  grid-template: auto 1fr / minmax(220px, 38%) 1fr;
+  height: 100%;
+}
+
+#toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+#search {
+  flex: 1;
+}
+
+#filter {
+  max-width: 30%;
+}
+
+#list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+
+#list li {
+  display: grid;
+  grid-template: auto auto / 24px 1fr;
+  column-gap: 10px;
+  padding: 6px 10px;
+  cursor: default;
+  border-bottom: 1px solid var(--line);
+}
+
+#list li[aria-selected='true'] {
+  background: var(--selected);
+}
+
+/* Site icons are drawn for light pages; a light tile keeps dark ones visible. */
+@media (prefers-color-scheme: dark) {
+  .icon.site {
+    background: #f4f5f7;
+    border-radius: 4px;
+    padding: 2px;
+  }
+}
+
+#list .icon {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.title,
+.subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#list .empty {
+  display: block;
+  color: var(--muted);
+  border: 0;
+}
+
+#detail {
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+#detail h2 {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+#detail h2 .icon {
+  width: 32px;
+  height: 32px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.row .label {
+  color: var(--muted);
+}
+
+.row .value {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+/* A revealed secret is copied with Copy / Ctrl+C only, so it is never
+   selectable: a browser copy would skip the clipboard clearing. */
+.row .value.secret {
+  font-family: Consolas, monospace;
+  user-select: none;
+}
+
+.row .actions {
+  display: flex;
+  gap: 4px;
+}
+
+.notes {
+  white-space: pre-wrap;
+  user-select: text;
+  margin: 12px 0 0;
+}
+
+.meta {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+a {
+  color: var(--accent);
+}
+
+#toast {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 6px 14px;
+  border-radius: 4px;
+}

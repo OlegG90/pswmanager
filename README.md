@@ -3,6 +3,20 @@
 A minimal tray password manager for Windows on top of a KeePass (KDBX 4) file — in development.
 See [docs/spec.md](docs/spec.md) for the MVP specification.
 
+## Development
+
+Requires Node.js, Rust (MSVC toolchain) and Visual Studio Build Tools with the C++ workload.
+
+```
+npm install
+npx tauri dev            # dev mode
+npm test                 # frontend (vitest) and backend unit tests
+npm run build            # this machine's architecture: src-tauri/target/release/pswm.exe
+```
+
+The app icon is generated from [src-tauri/icons/app-icon.svg](src-tauri/icons/app-icon.svg) with
+`npx tauri icon src-tauri/icons/app-icon.svg -o src-tauri/icons` (then delete the non-Windows files).
+
 ## sic2kdbx — SafeInCloud XML → KeePass (KDBX 4)
 
 Офлайн-конвертер експорту SafeInCloud у базу KeePass, яку відкривають KeePassXC (ПК) і KeePassDX (Android).

@@ -349,6 +349,12 @@ def convert(cards, output, password, keyfile=None, skip_deleted=False, keep_empt
         stats["attachments"] += len(card.attachments)
         stats["entries"] += 1
 
+    if TEMPLATES_GROUP in groups:
+        # Mark it as KeePass's templates group, so clients keep templates out of the entry list.
+        uuid = groups[TEMPLATES_GROUP].uuid
+        kp.tree.find("Meta/EntryTemplatesGroup").text = base64.b64encode(uuid.bytes).decode()
+        kp.tree.find("Meta/EntryTemplatesGroupChanged").text = kp._encode_time(datetime.now(timezone.utc))
+
     kp.save()
     return stats
 
