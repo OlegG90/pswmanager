@@ -1,5 +1,8 @@
 # PswManager
 
+A minimal tray password manager for Windows on top of a KeePass (KDBX 4) file — in development.
+See [docs/spec.md](docs/spec.md) for the MVP specification.
+
 ## sic2kdbx — SafeInCloud XML → KeePass (KDBX 4)
 
 Офлайн-конвертер експорту SafeInCloud у базу KeePass, яку відкривають KeePassXC (ПК) і KeePassDX (Android).
