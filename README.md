@@ -19,7 +19,8 @@ The app icon is generated from [src-tauri/icons/app-icon.svg](src-tauri/icons/ap
 
 ## sic2kdbx — SafeInCloud XML → KeePass (KDBX 4)
 
-Офлайн-конвертер експорту SafeInCloud у базу KeePass, яку відкривають KeePassXC (ПК) і KeePassDX (Android).
+An offline converter from a SafeInCloud export to a KeePass database, which opens in PswManager,
+KeePassXC and Keepass2Android. It is a one-off migration tool, not part of the app.
 
 ```
 python -m venv .venv
@@ -27,22 +28,25 @@ python -m venv .venv
 .venv\Scripts\python sic2kdbx.py export.xml base.kdbx
 ```
 
-Скрипт двічі запитає майстер-пароль. Опції: `--keyfile`, `--no-password` (лише файл-ключ), `--skip-deleted` (не переносити видалені картки; за замовчуванням вони йдуть у Кошик), `--drop-empty` (не переносити порожні поля, крім шаблонів), `--force`.
+The script asks for the master password twice. Options: `--keyfile`, `--no-password` (key file only),
+`--skip-deleted` (leave deleted cards out; by default they go to the recycle bin), `--drop-empty` (leave
+empty fields out, except in templates), `--force`.
 
-Символи `;` і `,` у назвах міток замінюються пробілом у тегах (KeePass ними розділяє теги); назва групи лишається оригінальною. Пошкоджені вкладення пропускаються з попередженням.
+`;` and `,` in label names become spaces in tags (KeePass separates tags with them); the group name keeps
+the original. Damaged attachments are skipped with a warning.
 
 | SafeInCloud | KDBX |
 |---|---|
-| перше поле login (або e-mail) / password / website / OTP | UserName / Password / URL / otp |
-| інші поля | додаткові атрибути; password, pin, secret — захищені |
+| first login (or e-mail) / password / website / OTP field | UserName / Password / URL / otp |
+| other fields | additional attributes; password, pin and secret ones are protected |
 | notes | Notes |
-| мітки | теги; перша мітка — група |
-| image, file | вкладення |
-| історія полів | історія запису |
-| шаблони | група Templates |
-| позначка «зірка» | тег Favorite |
-| типи полів, порядок, символ, колір | CustomData `SafeInCloud` (JSON) |
+| labels | tags; the first label is the group |
+| image, file | attachments |
+| field history | entry history |
+| templates | the Templates group, marked as KeePass's templates group |
+| star | the Favorite tag |
+| field types, order, symbol, colour | CustomData `SafeInCloud` (JSON) |
 
-Тести: `.venv\Scripts\python -m unittest discover -s tests`
+Tests: `.venv\Scripts\python -m unittest discover -s tests`
 
-Після конвертації видаліть XML-експорт: у ньому паролі відкритим текстом.
+After converting, delete the XML export: it holds the passwords in plain text.
