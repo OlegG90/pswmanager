@@ -320,6 +320,31 @@ def add_card(kp, group, card, keep_empty=True):
     return entry
 
 
+# The element order KeePass writes. pykeepass appends new elements at the end,
+# so a custom field lands after <AutoType> and a group's entries and subgroups
+# mix. KeePass and KeePassXC read that, but readers that decrypt protected
+# values while parsing a strict schema (keepass-rs) either refuse the file or,
+# worse, decrypt the values in the wrong order and get garbage.
+ENTRY_ORDER = ["UUID", "IconID", "CustomIconUUID", "ForegroundColor", "BackgroundColor", "OverrideURL",
+               "QualityCheck", "Tags", "PreviousParentGroup", "Times", "String", "Binary", "AutoType",
+               "CustomData", "History"]
+GROUP_ORDER = ["UUID", "Name", "Notes", "IconID", "CustomIconUUID", "Times", "IsExpanded",
+               "DefaultAutoTypeSequence", "EnableAutoType", "EnableSearching", "LastTopVisibleEntry",
+               "PreviousParentGroup", "Tags", "CustomData", "Entry", "Group"]
+
+
+def canonical_order(kp):
+    """Sorts the children of every entry (history included) and group into
+    KeePass's order; elements of the same kind keep their relative order."""
+    for tag, order in (("Entry", ENTRY_ORDER), ("Group", GROUP_ORDER)):
+        # Unknown elements go before the entry's history / the group's children.
+        unknown = len(order) - 1.5
+        for element in kp.tree.iter(tag):
+            children = list(element)
+            children.sort(key=lambda c: order.index(c.tag) if c.tag in order else unknown)
+            element[:] = children
+
+
 def convert(cards, output, password, keyfile=None, skip_deleted=False, keep_empty=True):
     kp = create_database(output, password=password, keyfile=keyfile)
     kp.database_name = "SafeInCloud import"
@@ -355,6 +380,7 @@ def convert(cards, output, password, keyfile=None, skip_deleted=False, keep_empt
         kp.tree.find("Meta/EntryTemplatesGroup").text = base64.b64encode(uuid.bytes).decode()
         kp.tree.find("Meta/EntryTemplatesGroupChanged").text = kp._encode_time(datetime.now(timezone.utc))
 
+    canonical_order(kp)
     kp.save()
     return stats
 

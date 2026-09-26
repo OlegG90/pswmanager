@@ -140,6 +140,14 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(data["symbol"], "server")
         self.assertEqual(data["fields"][0], {"name": "Host IP", "type": "text", "key": "Host IP"})
 
+    def test_elements_are_in_keepass_order(self):
+        _, kp = self.convert()
+        for tag, order in (("Entry", sic2kdbx.ENTRY_ORDER), ("Group", sic2kdbx.GROUP_ORDER)):
+            for element in kp.tree.iter(tag):
+                tags = [c.tag for c in element]
+                ranks = [order.index(t) for t in tags if t in order]
+                self.assertEqual(ranks, sorted(ranks), tags)
+
     def test_deleted_and_templates(self):
         stats, kp = self.convert()
         self.assertEqual(self.entry(kp, "Gone").group.name, kp.recyclebin_group.name)

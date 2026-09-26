@@ -213,12 +213,18 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     }
 }
 
+const UNORDERED: &str = "This database stores entry fields in an unusual order, which PswManager cannot read \
+     safely. Open it in KeePassXC and save it once, or convert it again with the current sic2kdbx.";
+
 fn open_error(e: &DatabaseOpenError) -> String {
     match e {
         DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => "Wrong password or key file".into(),
         DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => "Enter the password or choose a key file".into(),
         DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}"),
         DatabaseOpenError::UnsupportedVersion => "This database version is not supported".into(),
+        // keepass-rs reads a strict element order; a file with an entry's
+        // fields or a group's children out of order (older sic2kdbx) fails here.
+        other if other.to_string().contains("duplicate field") => UNORDERED.into(),
         other => format!("Cannot open the database: {other}"),
     }
 }
@@ -307,15 +313,29 @@ pub mod tests {
         assert_eq!(Vault::open(&path, None, None).err().unwrap(), "Enter the password or choose a key file");
     }
 
+    fn fixture(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+    }
+
+    /// Protected values are decrypted in the order they appear in the file, so
+    /// a wrong parsing order shows up as wrong secrets, not as an error.
     #[test]
-    fn opens_fields_that_are_not_contiguous() {
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pykeepass.kdbx");
-        let vault = Vault::open(&fixture, Some("test"), None).unwrap();
-        let id = vault.listing().entries[0].id.clone();
-        let detail = vault.detail(&id).unwrap();
-        assert_eq!(detail.summary.tags, ["Tag"]);
-        assert_eq!(detail.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["Extra", "Secret"]);
-        assert_eq!(vault.field(&id, "Secret").unwrap().as_str(), "hidden");
+    fn reads_the_secrets_sic2kdbx_writes() {
+        let vault = Vault::open(&fixture("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        let router = vault.listing().entries.into_iter().find(|e| e.title == "Router").unwrap();
+        assert_eq!(router.tags, ["NET", "Old", "Favorite"]);
+        assert_eq!(vault.field(&router.id, fields::PASSWORD).unwrap().as_str(), "new-pass");
+        assert_eq!(vault.field(&router.id, "PIN").unwrap().as_str(), "1234");
+        assert_eq!(vault.field(&router.id, fields::OTP).unwrap().as_str(), "otpauth://totp/Router?secret=JBSWY3DP");
+        let entry = vault.db.entry(EntryId::from(Uuid::parse_str(&router.id).unwrap())).unwrap();
+        let old = &entry.history.as_ref().unwrap().get_entries()[0];
+        assert_eq!(old.get_password(), Some("old-pass"));
+    }
+
+    #[test]
+    fn refuses_a_file_it_cannot_read_safely() {
+        let refused = Vault::open(&fixture("unordered.kdbx"), Some("test"), None);
+        assert_eq!(refused.err().unwrap(), UNORDERED);
     }
 
     #[test]
