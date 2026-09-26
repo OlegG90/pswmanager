@@ -1,7 +1,10 @@
+mod activity;
 mod clipboard;
 mod data_dir;
 mod icons;
+mod session_watch;
 mod store;
+mod tray;
 mod vault;
 
 use serde::Serialize;
@@ -10,14 +13,19 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{Store, WindowGeometry};
+use activity::Activity;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 use vault::{EntryDetail, Listing, Vault};
 use zeroize::Zeroizing;
 
 const DEFAULT_WIDTH: f64 = 900.0;
 const DEFAULT_HEIGHT: f64 = 600.0;
+const DEFAULT_HOTKEY: &str = "Ctrl+Alt+P";
+/// Passed by the "Start with Windows" entry: start in the tray, locked.
+const AUTOSTART_ARG: &str = "--autostart";
 /// Seconds before a copied value is cleared.
 const CLEAR_SECONDS_DEFAULT: u64 = 20;
 const CLEAR_SECONDS_RANGE: (u64, u64) = (5, 120);
@@ -43,19 +51,26 @@ impl Session {
     }
 }
 
+/// Something the user should know that happened before the window could say
+/// it (the global hotkey could not be registered).
+#[derive(Default)]
+struct Notice(Mutex<Option<String>>);
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Status {
     database: Option<String>,
     key_file: Option<String>,
     unlocked: bool,
+    notice: Option<String>,
 }
 
 #[tauri::command]
-fn status(store: State<Store>, session: State<Session>) -> Status {
+fn status(app: AppHandle, store: State<Store>, session: State<Session>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
     let (database, key_file) = store.read(|s| (shown(&s.database), shown(&s.key_file)));
-    Status { database, key_file, unlocked: session.is_unlocked() }
+    let notice = app.state::<Notice>().0.lock().unwrap().clone();
+    Status { database, key_file, unlocked: session.is_unlocked(), notice }
 }
 
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
@@ -67,26 +82,26 @@ fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathB
 }
 
 /// Records a change to the chosen files and returns the new status.
-fn choose(store: State<Store>, session: State<Session>, change: impl FnOnce(&mut store::State)) -> Result<Status, String> {
-    store.update(change).map_err(|e| e.to_string())?;
-    Ok(status(store, session))
+fn choose(app: AppHandle, change: impl FnOnce(&mut store::State)) -> Result<Status, String> {
+    app.state::<Store>().update(change).map_err(|e| e.to_string())?;
+    Ok(status(app.clone(), app.state(), app.state()))
 }
 
 #[tauri::command(async)]
-fn pick_database(window: Window, store: State<Store>, session: State<Session>) -> Result<Status, String> {
+fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "KeePass database", &["kdbx"])?;
-    choose(store, session, |s| s.database = picked.or(s.database.take()))
+    choose(app, |s| s.database = picked.or(s.database.take()))
 }
 
 #[tauri::command(async)]
-fn pick_key_file(window: Window, store: State<Store>, session: State<Session>) -> Result<Status, String> {
+fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "Key file", &[])?;
-    choose(store, session, |s| s.key_file = picked.or(s.key_file.take()))
+    choose(app, |s| s.key_file = picked.or(s.key_file.take()))
 }
 
 #[tauri::command(async)]
-fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    choose(store, session, |s| s.key_file = None)
+fn clear_key_file(app: AppHandle) -> Result<Status, String> {
+    choose(app, |s| s.key_file = None)
 }
 
 #[tauri::command(async)]
@@ -101,9 +116,10 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
         let mut hosts: Vec<String> = listing.entries.iter().filter_map(|e| e.host.clone()).collect();
         hosts.sort();
         hosts.dedup();
-        fetch_icons(app, hosts, store.dir().to_path_buf());
+        fetch_icons(app.clone(), hosts, store.dir().to_path_buf());
     }
     session.set(Some(vault));
+    app.state::<Activity>().touch();
     Ok(listing)
 }
 
@@ -118,9 +134,31 @@ fn fetch_icons(app: AppHandle, hosts: Vec<String>, data_dir: PathBuf) {
 }
 
 #[tauri::command]
-fn lock(session: State<Session>) {
-    session.set(None);
+fn lock(app: AppHandle) {
+    lock_now(&app);
+}
+
+/// Drops the database and every decrypted value, clears our clipboard copy,
+/// and tells the window to show the unlock screen.
+fn lock_now(app: &AppHandle) {
+    let session = app.state::<Session>();
+    if session.is_unlocked() {
+        session.set(None);
+        let _ = app.emit("locked", ());
+    }
     clipboard::clear_if_ours();
+}
+
+/// The window reports use, which keeps the database unlocked.
+#[tauri::command]
+fn touch(activity: State<Activity>) {
+    activity.touch();
+}
+
+/// Esc with nothing left to close: back to the tray.
+#[tauri::command]
+fn hide_window(app: AppHandle) {
+    hide(&app);
 }
 
 #[tauri::command(async)]
@@ -171,7 +209,78 @@ fn setting<T>(store: &Store, name: &str, read: impl FnOnce(&Value) -> Option<T>)
     store.read(|s| s.settings.get(name).and_then(read))
 }
 
-fn open_window(app: &AppHandle) -> tauri::Result<()> {
+fn show_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    let _ = app.emit("window-shown", ());
+}
+
+/// Hides the window to the tray, remembering where it was.
+fn hide(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    if window.is_visible().unwrap_or(false) {
+        let _ = remember_geometry(&window);
+    }
+    let _ = window.hide();
+    if setting(&app.state::<Store>(), "lockWhenHidden", Value::as_bool).unwrap_or(false) {
+        lock_now(app);
+    }
+}
+
+/// Tray click and global hotkey: show the window, or hide it when it is
+/// already in front.
+fn toggle_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let in_front = window.is_visible().unwrap_or(false)
+        && !window.is_minimized().unwrap_or(false)
+        && window.is_focused().unwrap_or(false);
+    if in_front {
+        hide(app);
+    } else {
+        show_window(app);
+    }
+}
+
+fn quit(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = remember_geometry(&window);
+        }
+    }
+    lock_now(app);
+    app.exit(0);
+}
+
+/// Locks once the database has been left alone for `lockAfterMinutes`.
+fn watch_inactivity(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(activity::CHECK_EVERY);
+        let minutes = setting(&app.state::<Store>(), "lockAfterMinutes", Value::as_u64);
+        let idle = app.state::<Activity>().idle_for();
+        if activity::timeout(minutes).is_some_and(|limit| idle >= limit) {
+            lock_now(&app);
+        }
+    });
+}
+
+/// Registers the show / hide hotkey from the `hotkey` setting. A key taken by
+/// another app is reported on the unlock screen instead of failing the start.
+fn register_hotkey(app: &AppHandle) {
+    let hotkey = setting(&app.state::<Store>(), "hotkey", |v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| DEFAULT_HOTKEY.to_string());
+    let registered = app.global_shortcut().on_shortcut(hotkey.as_str(), |app, _, event| {
+        if event.state == ShortcutState::Pressed {
+            toggle_window(app);
+        }
+    });
+    if let Err(e) = registered {
+        *app.state::<Notice>().0.lock().unwrap() = Some(format!("The hotkey {hotkey} is not available: {e}"));
+    }
+}
+
+fn open_window(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     let geometry = app.state::<Store>().read(|s| s.window.clone());
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("PswManager")
@@ -185,7 +294,10 @@ fn open_window(app: &AppHandle) -> tauri::Result<()> {
     if geometry.is_some() && !is_on_screen(&window)? {
         window.center()?;
     }
-    window.show()
+    if visible {
+        window.show()?;
+    }
+    Ok(())
 }
 
 /// A saved position can point at a monitor that is no longer connected.
@@ -194,7 +306,7 @@ fn is_on_screen(window: &tauri::WebviewWindow) -> tauri::Result<bool> {
     Ok(window.monitor_from_point(pos.x.into(), pos.y.into())?.is_some())
 }
 
-fn remember_geometry(window: &Window) -> tauri::Result<()> {
+fn remember_geometry(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let maximized = window.is_maximized()?;
     let scale = window.scale_factor()?;
     let pos = window.outer_position()?.to_logical::<f64>(scale);
@@ -210,10 +322,17 @@ fn remember_geometry(window: &Window) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    let autostarted = std::env::args().skip(1).any(|arg| arg == AUTOSTART_ARG);
     tauri::Builder::default()
+        // Must come first: a second launch hands over to this process and exits.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| show_window(app)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().arg(AUTOSTART_ARG).build())
         .manage(Session::default())
+        .manage(Activity::default())
+        .manage(Notice::default())
         .invoke_handler(tauri::generate_handler![
             status,
             pick_database,
@@ -227,16 +346,29 @@ pub fn run() {
             copy_field,
             open_url,
             icon,
+            touch,
+            hide_window,
         ])
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
-                let _ = remember_geometry(window);
-                clipboard::clear_if_ours();
+            // Closing the window only hides it; Quit is in the tray menu.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                hide(window.app_handle());
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             app.manage(Store::load(data_dir::resolve_state_file()));
-            open_window(app.handle())?;
+            let handle = app.handle();
+            open_window(handle, !autostarted)?;
+            tray::create(handle)?;
+            register_hotkey(handle);
+            watch_inactivity(handle.clone());
+            let on_leave = handle.clone();
+            session_watch::watch(move || {
+                if setting(&on_leave.state::<Store>(), "lockOnSessionLock", Value::as_bool).unwrap_or(true) {
+                    lock_now(&on_leave);
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

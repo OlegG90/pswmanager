@@ -89,8 +89,11 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 ## Tray
 
 - The app lives in the notification area. Left click shows / hides the window.
-- Menu: Show, Lock, Settings, Quit.
-- Optional start with Windows (off by default); it starts hidden in the tray, locked.
+- Menu: Show, Lock, Start with Windows (a check mark), Settings, Quit.
+- Optional start with Windows (off by default); it starts hidden in the tray, locked. The entry it adds
+  under `HKCU\…\Run` launches `pswm --autostart`.
+- The global hotkey shows the window, or hides it when it is already in front. A hotkey another app has
+  taken is reported on the unlock screen.
 - Single instance: launching `pswm` again brings the running window forward.
 
 ## Security behaviour

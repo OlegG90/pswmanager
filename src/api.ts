@@ -4,6 +4,8 @@ export interface Status {
   database: string | null
   keyFile: string | null
   unlocked: boolean
+  /** Something to tell the user, such as a hotkey that could not be registered. */
+  notice: string | null
 }
 
 export interface Entry {
@@ -53,4 +55,7 @@ export const api = {
   copy: (id: string, field: string) => invoke<number>('copy_field', { id, field }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   icon: (host: string) => invoke<string | null>('icon', { host }),
+  /** Tells the backend the window is in use, which postpones the auto-lock. */
+  touch: () => invoke<void>('touch'),
+  hideWindow: () => invoke<void>('hide_window'),
 }
