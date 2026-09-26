@@ -3,6 +3,9 @@ __pycache__/
 # real exports and databases never go to git
 data/
 *.kdbx
+# what saving leaves beside a database: the previous version and an interrupted write
+*.kdbx.bak
+*.pswm-tmp
 *.xml
 !tests/**/*.xml
 
