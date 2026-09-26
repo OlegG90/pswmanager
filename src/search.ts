@@ -2,7 +2,7 @@ import type { Entry } from './api'
 
 export type Filter = { kind: 'all' } | { kind: 'group'; path: string } | { kind: 'tag'; tag: string }
 
-export const GROUP_SEPARATOR = ' / '
+const GROUP_SEPARATOR = ' / '
 
 export function groupPath(entry: Entry): string {
   return entry.group.join(GROUP_SEPARATOR)

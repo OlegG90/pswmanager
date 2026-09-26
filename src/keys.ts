@@ -9,14 +9,8 @@ export type Action =
   | 'escape'
   | 'type-to-search'
 
-export interface KeyInfo {
-  key: string
-  /** The physical key: shortcuts follow it, so they work in any keyboard layout. */
-  code: string
-  ctrlKey: boolean
-  altKey: boolean
-  metaKey: boolean
-}
+/** `code` is the physical key: shortcuts follow it, so they work in any keyboard layout. */
+export type KeyInfo = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'>
 
 export interface KeyContext {
   /** Focus is in a text field (search or password). */

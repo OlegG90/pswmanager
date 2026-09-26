@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { api, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Status } from './api'
+import { el } from './dom'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 
@@ -22,7 +23,8 @@ const DEFAULT_ICON =
       `<circle cx="9" cy="12" r="3.2" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 12h7m-2 0v3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
   )
 
-let listing: Listing = { entries: [], customIcons: {} }
+const EMPTY: Listing = { entries: [], customIcons: {} }
+let listing = EMPTY
 /** Site icons by host: a data URL, null when the cache has none (yet). */
 const siteIcons = new Map<string, string | null>()
 let shown: Entry[] = []
@@ -89,7 +91,7 @@ function showVault(next: Listing) {
 
 async function lock() {
   await api.lock()
-  listing = { entries: [], customIcons: {} }
+  listing = EMPTY
   shown = []
   selectedId = null
   current = null
@@ -101,20 +103,13 @@ async function lock() {
 
 function fillFilter() {
   const { groups, tags } = filterChoices(listing.entries)
-  const option = (value: string, label: string) => new Option(label, value)
-  filterSelect.replaceChildren(option('all', 'All entries'))
-  if (groups.length) {
-    const g = document.createElement('optgroup')
-    g.label = 'Groups'
-    g.append(...groups.map((path) => option(`group:${path}`, path)))
-    filterSelect.append(g)
-  }
-  if (tags.length) {
-    const t = document.createElement('optgroup')
-    t.label = 'Tags'
-    t.append(...tags.map((tag) => option(`tag:${tag}`, tag)))
-    filterSelect.append(t)
-  }
+  const section = (label: string, kind: string, values: string[]) =>
+    values.length ? [el('optgroup', { label }, ...values.map((v) => new Option(v, `${kind}:${v}`)))] : []
+  filterSelect.replaceChildren(
+    new Option('All entries', 'all'),
+    ...section('Groups', 'group', groups),
+    ...section('Tags', 'tag', tags),
+  )
 }
 
 /** Filter options carry their kind before the first colon: `group:Work`, `tag:Favorite`. */
@@ -131,10 +126,7 @@ function refresh() {
   shown = search(listing.entries, searchInput.value, currentFilter())
   list.replaceChildren(...shown.map(listItem))
   if (shown.length === 0) {
-    const empty = document.createElement('li')
-    empty.className = 'empty'
-    empty.textContent = listing.entries.length ? 'Nothing found' : 'The database is empty'
-    list.append(empty)
+    list.append(el('li', { className: 'empty' }, listing.entries.length ? 'Nothing found' : 'The database is empty'))
   }
   select(shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null))
 }
@@ -150,9 +142,7 @@ function iconFor(entry: Entry): string {
 }
 
 function iconImage(entry: Entry): HTMLImageElement {
-  const img = document.createElement('img')
-  img.className = 'icon'
-  img.alt = ''
+  const img = el('img', { className: 'icon', alt: '' })
   setIcon(img, iconFor(entry))
   if (entry.host && !entry.customIcon) img.dataset.host = entry.host
   img.onerror = () => {
@@ -178,28 +168,29 @@ async function loadSiteIcon(host: string) {
 }
 
 function listItem(entry: Entry): HTMLLIElement {
-  const li = document.createElement('li')
-  li.role = 'option'
+  const li = el(
+    'li',
+    { role: 'option' },
+    iconImage(entry),
+    el('div', { className: 'title' }, entry.title || '(no title)'),
+    el('div', { className: 'subtitle' }, entry.username || entry.host || groupPath(entry)),
+  )
   li.dataset.id = entry.id
-  const title = document.createElement('div')
-  title.className = 'title'
-  title.textContent = entry.title || '(no title)'
-  const subtitle = document.createElement('div')
-  subtitle.className = 'subtitle'
-  subtitle.textContent = entry.username || entry.host || groupPath(entry)
-  li.append(iconImage(entry), title, subtitle)
   li.addEventListener('mousedown', () => select(entry.id))
   return li
 }
 
 function select(id: string | null) {
-  if (id !== selectedId) revealed.clear()
+  const same = id === selectedId
+  if (!same) revealed.clear()
   selectedId = id
   for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
     const on = li.dataset.id === id
     li.setAttribute('aria-selected', String(on))
     if (on) li.scrollIntoView({ block: 'nearest' })
   }
+  // A new search that keeps the same entry keeps its view as it is.
+  if (same && current?.id === id) return
   if (!id) {
     current = null
     detail.replaceChildren()
@@ -225,90 +216,57 @@ function move(step: number) {
 // ---------------------------------------------------------------- detail
 
 function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement('button')
-  b.type = 'button'
-  b.textContent = label
-  b.title = title
-  b.addEventListener('click', onClick)
-  return b
+  return el('button', { type: 'button', title, onclick: onClick }, label)
 }
 
-function row(label: string, value: Node | string, ...actions: HTMLButtonElement[]): HTMLDivElement {
-  const div = document.createElement('div')
-  div.className = 'row'
-  const l = document.createElement('span')
-  l.className = 'label'
-  l.textContent = label
-  const v = document.createElement('span')
-  v.className = 'value'
-  v.append(value)
-  const a = document.createElement('span')
-  a.className = 'actions'
-  a.append(...actions)
-  div.append(l, v, a)
-  return div
+function row(label: string, value: string, actions: HTMLButtonElement[], valueClass = ''): HTMLDivElement {
+  return el(
+    'div',
+    { className: 'row' },
+    el('span', { className: 'label' }, label),
+    el('span', { className: `value ${valueClass}` }, value),
+    el('span', { className: 'actions' }, ...actions),
+  )
 }
 
 /** A protected value: masked until revealed. `keys` names the password's shortcuts. */
 function secretRow(label: string, field: string, keys?: { reveal: string; copy: string }): HTMLDivElement {
   const value = revealed.get(field)
   const hint = (key?: string) => (key ? ` (${key})` : '')
-  const div = row(
-    label,
-    value ?? '••••••••',
+  const actions = [
     button(value === undefined ? 'Show' : 'Hide', `Show / hide${hint(keys?.reveal)}`, () => toggleReveal(field)),
     button('Copy', `Copy${hint(keys?.copy)}`, () => copy(field, label)),
-  )
-  div.querySelector('.value')!.classList.add('secret')
-  return div
+  ]
+  return row(label, value ?? '••••••••', actions, 'secret')
 }
 
 /** How a field is labelled; the standard ones only appear here when protected. */
-const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', Notes: 'Notes', otp: 'TOTP' }
+const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', otp: 'TOTP' }
 const labelOf = (field: string) => LABELS[field] ?? field
-
-/** True when the entry has a value in `field` that can be copied. */
-const hasField = (entry: EntryDetail, field: string) =>
-  (field === USERNAME && !!entry.username) || entry.fields.some((f) => f.name === field)
 
 function renderDetail() {
   const entry = current
   if (!entry) return
-  const heading = document.createElement('h2')
-  const title = document.createElement('span')
-  title.textContent = entry.title || '(no title)'
-  heading.append(iconImage(entry), title)
-
-  const rows: Node[] = [heading]
+  const rows: Node[] = [el('h2', {}, iconImage(entry), el('span', {}, entry.title || '(no title)'))]
   if (entry.username) {
-    rows.push(row('User name', entry.username, button('Copy', 'Copy (Ctrl+B)', () => copy(USERNAME, 'User name'))))
+    rows.push(row('User name', entry.username, [button('Copy', 'Copy (Ctrl+B)', () => copy(USERNAME, 'User name'))]))
   }
   if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
     const actions = [button('Copy', 'Copy', () => copy(URL_FIELD, 'URL'))]
     if (entry.host) actions.unshift(button('Open', 'Open in the browser (Ctrl+U)', openUrl))
-    rows.push(row('URL', entry.url, ...actions))
+    rows.push(row('URL', entry.url, actions))
   }
   for (const field of entry.fields) {
     if (field.protected) {
       rows.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
-      rows.push(row(field.name, field.value, button('Copy', 'Copy', () => copy(field.name, field.name))))
+      rows.push(row(field.name, field.value, [button('Copy', 'Copy', () => copy(field.name, field.name))]))
     }
   }
-  if (entry.notes) {
-    const notes = document.createElement('p')
-    notes.className = 'notes'
-    notes.textContent = entry.notes
-    rows.push(notes)
-  }
+  if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
-  if (meta) {
-    const p = document.createElement('p')
-    p.className = 'meta'
-    p.textContent = meta
-    rows.push(p)
-  }
+  if (meta) rows.push(el('p', { className: 'meta' }, meta))
   detail.replaceChildren(...rows)
 }
 
@@ -356,7 +314,8 @@ $('lock-button').addEventListener('click', lock)
 function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
-      if (current && hasField(current, USERNAME)) copy(USERNAME, 'User name')
+      // A protected user name is among the fields instead.
+      if (current?.username || current?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
       break
     case 'copy-password':
       if (current?.hasPassword) copy(PASSWORD, 'Password')

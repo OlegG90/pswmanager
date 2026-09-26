@@ -4,6 +4,7 @@
 use base64::Engine;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use url::Url;
 
@@ -12,6 +13,7 @@ const RETRY_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const PAGE_LIMIT: u64 = 512 * 1024;
 const ICON_LIMIT: u64 = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
+const PARALLEL_FETCHES: usize = 6;
 
 /// An entry's URL as a web address on a named site. A URL without a scheme
 /// (`example.com/login`, as SafeInCloud stores them) counts as https. Bare
@@ -32,14 +34,14 @@ pub fn web_url(url: &str) -> Option<Url> {
 
 /// The site of an entry's URL, for its icon.
 pub fn host_of(url: &str) -> Option<String> {
-    let host = web_url(url)?.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    let host = web_url(url)?.host_str()?.trim_end_matches('.').to_string();
     is_safe_host(&host).then_some(host)
 }
 
 /// True for an https address on `host` itself, a subdomain of it, or a parent
 /// domain (`www.example.com` -> `example.com`): the site, not someone else.
 fn on_site(url: &Url, host: &str) -> bool {
-    let Some(other) = url.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()) else { return false };
+    let Some(other) = url.host_str().map(|h| h.trim_end_matches('.')) else { return false };
     let related = other == host
         || other.ends_with(&format!(".{host}"))
         || (other.contains('.') && host.ends_with(&format!(".{other}")));
@@ -56,17 +58,15 @@ fn is_safe_host(host: &str) -> bool {
 
 /// The image type of `bytes`, from their signature; `None` for anything that
 /// is not an image (an HTML error page served as favicon.ico, for example).
-pub fn sniff(bytes: &[u8]) -> Option<&'static str> {
-    let text_start = || String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).trim_start().to_ascii_lowercase();
+fn sniff(bytes: &[u8]) -> Option<&'static str> {
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).trim_start().to_ascii_lowercase();
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
         [0, 0, 1, 0, ..] => Some("image/x-icon"),
         [b'G', b'I', b'F', b'8', ..] => Some("image/gif"),
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
-        _ if text_start().starts_with("<svg") || (text_start().starts_with("<?xml") && text_start().contains("<svg")) => {
-            Some("image/svg+xml")
-        }
+        _ if text.starts_with("<svg") || (text.starts_with("<?xml") && text.contains("<svg")) => Some("image/svg+xml"),
         _ => None,
     }
 }
@@ -80,7 +80,7 @@ pub fn data_url(bytes: &[u8]) -> Option<String> {
 /// Candidate icon URLs a page on `host` declares on its own site, best first:
 /// icons with a declared size of 32px or more, then Apple touch icons, then
 /// the rest.
-pub fn icon_links(html: &str, base: &Url, host: &str) -> Vec<Url> {
+fn icon_links(html: &str, base: &Url, host: &str) -> Vec<Url> {
     let mut found: Vec<(u8, Url)> = Vec::new();
     let lower = html.to_ascii_lowercase();
     let mut rest = 0;
@@ -146,8 +146,9 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new(dir: PathBuf) -> Self {
-        Cache { dir }
+    /// The cache in `icons` beside the state file.
+    pub fn in_data_dir(data_dir: &Path) -> Self {
+        Cache { dir: data_dir.join("icons") }
     }
 
     pub fn get(&self, host: &str) -> Option<Vec<u8>> {
@@ -177,19 +178,25 @@ impl Cache {
         }
     }
 
-    /// Fetches the icons of `hosts` that are not settled yet, calling
-    /// `ready(host)` for each one that arrived. Blocking; run it on a thread.
-    pub fn fetch_missing(&self, hosts: impl IntoIterator<Item = String>, mut ready: impl FnMut(&str)) {
+    /// Fetches the icons of `hosts` that are not settled yet, a few sites at a
+    /// time so one slow site does not hold up the rest, calling `ready(host)`
+    /// for each icon that arrived. Blocking; run it on a thread.
+    pub fn fetch_missing(&self, hosts: Vec<String>, ready: impl Fn(&str) + Sync) {
+        let now = SystemTime::now();
+        let queue = Mutex::new(hosts.into_iter().filter(|h| is_safe_host(h) && !self.is_settled(h, now)));
         let agent = agent();
-        for host in hosts {
-            if !is_safe_host(&host) || self.is_settled(&host, SystemTime::now()) {
-                continue;
+        std::thread::scope(|scope| {
+            for _ in 0..PARALLEL_FETCHES {
+                scope.spawn(|| {
+                    while let Some(host) = queue.lock().unwrap().next() {
+                        let icon = fetch_icon(&agent, &host);
+                        if self.put(&host, icon.as_deref()).is_ok() && icon.is_some() {
+                            ready(&host);
+                        }
+                    }
+                });
             }
-            let icon = fetch_icon(&agent, &host);
-            if self.put(&host, icon.as_deref()).is_ok() && icon.is_some() {
-                ready(&host);
-            }
-        }
+        });
     }
 }
 
@@ -221,11 +228,6 @@ fn fetch_icon(agent: &ureq::Agent, host: &str) -> Option<Vec<u8>> {
     };
     candidates.push(start.join("/favicon.ico").ok()?);
     candidates.into_iter().find_map(|url| get(&url, ICON_LIMIT).map(|(_, bytes)| bytes).filter(|b| sniff(b).is_some()))
-}
-
-/// Where the cache lives: `icons` beside the state file.
-pub fn cache_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("icons")
 }
 
 #[cfg(test)]
@@ -305,7 +307,7 @@ mod tests {
     #[test]
     fn cache_keeps_icons_and_remembers_misses() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = Cache::new(dir.path().join("icons"));
+        let cache = Cache::in_data_dir(dir.path());
         let now = SystemTime::now();
         assert!(!cache.is_settled("example.com", now));
         cache.put("example.com", None).unwrap();

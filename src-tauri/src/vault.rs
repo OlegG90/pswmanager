@@ -100,8 +100,11 @@ impl Vault {
             .map(|e| {
                 let summary = summary(&e);
                 if let (Some(key), Some(icon)) = (&summary.custom_icon, e.custom_icon()) {
-                    if let Some(url) = icons::data_url(&icon.data) {
-                        custom_icons.insert(key.clone(), url);
+                    // Entries often share one icon: encode it once.
+                    if !custom_icons.contains_key(key) {
+                        if let Some(url) = icons::data_url(&icon.data) {
+                            custom_icons.insert(key.clone(), url);
+                        }
                     }
                 }
                 summary
@@ -117,25 +120,13 @@ impl Vault {
         Listing { entries, custom_icons }
     }
 
-    /// The distinct sites of all entries, for fetching their icons.
-    pub fn hosts(&self) -> Vec<String> {
-        let mut hosts: Vec<String> = self.visible_entries().filter_map(|e| summary(&e).host).collect();
-        hosts.sort();
-        hosts.dedup();
-        hosts
-    }
-
     pub fn detail(&self, id: &str) -> Option<EntryDetail> {
         let entry = self.entry(id)?;
-        // Additional attributes, plus a user name, URL or notes marked protected
-        // (the summary leaves those out).
+        // Everything the summary does not carry, except the password (which has its own row).
         let mut fields: Vec<Field> = entry
             .fields
             .iter()
-            .filter(|(name, value)| {
-                !fields::KNOWN_FIELDS.contains(&name.as_str())
-                    || (is_secret(name, value) && ![fields::TITLE, fields::PASSWORD].contains(&name.as_str()))
-            })
+            .filter(|(name, value)| !in_summary(name, value) && name.as_str() != fields::PASSWORD)
             .map(|(name, value)| {
                 let secret = is_secret(name, value);
                 Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()) }
@@ -170,10 +161,21 @@ fn is_in(entry: &EntryRef<'_>, groups: &HashSet<GroupId>) -> bool {
     ancestors(entry).iter().any(|g| groups.contains(g))
 }
 
-/// Values that only leave the backend on request: protected fields, and the
-/// TOTP secret even when a client stored it unprotected.
+/// Values that only leave the backend on request: protected fields, and TOTP
+/// secrets even when a client stored them unprotected (KeePassXC's `otp`,
+/// KeePass's `TimeOtp-Secret*` / `HmacOtp-Secret*`, KeeTrayTOTP's `TOTP Seed`).
 fn is_secret(name: &str, value: &Value<String>) -> bool {
-    value.is_protected() || name == fields::OTP
+    value.is_protected()
+        || name == fields::OTP
+        || name == "TOTP Seed"
+        || name.starts_with("TimeOtp-Secret")
+        || name.starts_with("HmacOtp-Secret")
+}
+
+/// The one rule for what the summary carries: a standard field that is not a
+/// secret. Everything else is listed in the detail, masked if secret.
+fn in_summary(name: &str, value: &Value<String>) -> bool {
+    fields::KNOWN_FIELDS.contains(&name) && !is_secret(name, value)
 }
 
 /// The ids of the groups above an entry, nearest first, ending with the root.
@@ -189,9 +191,8 @@ fn ancestors(entry: &EntryRef<'_>) -> Vec<GroupId> {
 }
 
 fn summary(e: &EntryRef<'_>) -> EntrySummary {
-    // A protected user name, URL or notes stays out, like the password.
     let text = |name: &str| match e.fields.get(name) {
-        Some(value) if !is_secret(name, value) => value.get().clone(),
+        Some(value) if in_summary(name, value) => value.get().clone(),
         _ => String::new(),
     };
     let url = text(fields::URL);
@@ -200,7 +201,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     let group = chain.iter().rev().filter_map(|&id| e.database().group(id).map(|g| g.name.clone())).collect();
     EntrySummary {
         id: e.id().uuid().to_string(),
-        title: e.get_title().unwrap_or_default().to_string(),
+        title: text(fields::TITLE),
         username: text(fields::USERNAME),
         host: icons::host_of(&url),
         url,
@@ -266,7 +267,6 @@ pub mod tests {
         assert!(mail.has_password);
         let json = serde_json::to_string(&listing.entries).unwrap();
         assert!(!json.contains("s3cret") && !json.contains("1234"), "{json}");
-        assert_eq!(vault.hosts(), ["example.com"]);
     }
 
     #[test]

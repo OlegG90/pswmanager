@@ -6,7 +6,7 @@ mod vault;
 
 use serde::Serialize;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 use store::{Store, WindowGeometry};
@@ -18,8 +18,9 @@ use zeroize::Zeroizing;
 
 const DEFAULT_WIDTH: f64 = 900.0;
 const DEFAULT_HEIGHT: f64 = 600.0;
-/// Seconds before a copied value is cleared: the default and the allowed range.
-const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
+/// Seconds before a copied value is cleared.
+const CLEAR_SECONDS_DEFAULT: u64 = 20;
+const CLEAR_SECONDS_RANGE: (u64, u64) = (5, 120);
 
 /// The unlocked database, if any. Locking drops it, and with it every
 /// decrypted value.
@@ -65,26 +66,27 @@ fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathB
     dialog.blocking_pick_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()
 }
 
+/// Records a change to the chosen files and returns the new status.
+fn choose(store: State<Store>, session: State<Session>, change: impl FnOnce(&mut store::State)) -> Result<Status, String> {
+    store.update(change).map_err(|e| e.to_string())?;
+    Ok(status(store, session))
+}
+
 #[tauri::command(async)]
 fn pick_database(window: Window, store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    if let Some(path) = pick(&window, "KeePass database", &["kdbx"])? {
-        store.update(|s| s.database = Some(path)).map_err(|e| e.to_string())?;
-    }
-    Ok(status(store, session))
+    let picked = pick(&window, "KeePass database", &["kdbx"])?;
+    choose(store, session, |s| s.database = picked.or(s.database.take()))
 }
 
 #[tauri::command(async)]
 fn pick_key_file(window: Window, store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    if let Some(path) = pick(&window, "Key file", &[])? {
-        store.update(|s| s.key_file = Some(path)).map_err(|e| e.to_string())?;
-    }
-    Ok(status(store, session))
+    let picked = pick(&window, "Key file", &[])?;
+    choose(store, session, |s| s.key_file = picked.or(s.key_file.take()))
 }
 
 #[tauri::command(async)]
 fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    store.update(|s| s.key_file = None).map_err(|e| e.to_string())?;
-    Ok(status(store, session))
+    choose(store, session, |s| s.key_file = None)
 }
 
 #[tauri::command(async)]
@@ -95,8 +97,11 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     let password = (!password.is_empty()).then_some(password.as_str());
     let vault = Vault::open(&database, password, key_file.as_deref())?;
     let listing = vault.listing();
-    if setting_bool(&store, "downloadIcons", true) {
-        fetch_icons(app, vault.hosts(), icons::cache_dir(store.dir()));
+    if setting(&store, "downloadIcons", Value::as_bool).unwrap_or(true) {
+        let mut hosts: Vec<String> = listing.entries.iter().filter_map(|e| e.host.clone()).collect();
+        hosts.sort();
+        hosts.dedup();
+        fetch_icons(app, hosts, store.dir().to_path_buf());
     }
     session.set(Some(vault));
     Ok(listing)
@@ -104,9 +109,9 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
 
 /// Fetches missing site icons in the background and tells the window about
 /// each one that arrives.
-fn fetch_icons(app: AppHandle, hosts: Vec<String>, dir: PathBuf) {
+fn fetch_icons(app: AppHandle, hosts: Vec<String>, data_dir: PathBuf) {
     std::thread::spawn(move || {
-        icons::Cache::new(dir).fetch_missing(hosts, |host| {
+        icons::Cache::in_data_dir(&data_dir).fetch_missing(hosts, |host| {
             let _ = app.emit("icon-ready", host);
         });
     });
@@ -142,8 +147,8 @@ fn copy_field(store: State<Store>, session: State<Session>, id: String, field: S
     if value.is_empty() {
         return Err(format!("{field} is empty"));
     }
-    let (default, min, max) = CLEAR_SECONDS;
-    let seconds = store.read(|s| s.settings.get("clearClipboard").and_then(Value::as_u64)).unwrap_or(default).clamp(min, max);
+    let (min, max) = CLEAR_SECONDS_RANGE;
+    let seconds = setting(&store, "clearClipboard", Value::as_u64).unwrap_or(CLEAR_SECONDS_DEFAULT).clamp(min, max);
     clipboard::copy(value, Duration::from_secs(seconds))?;
     Ok(seconds)
 }
@@ -158,11 +163,12 @@ fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), S
 /// A cached site icon as a `data:` URL, or nothing yet.
 #[tauri::command(async)]
 fn icon(store: State<Store>, host: String) -> Option<String> {
-    icons::Cache::new(icons::cache_dir(store.dir())).get(&host).and_then(|bytes| icons::data_url(&bytes))
+    icons::Cache::in_data_dir(store.dir()).get(&host).and_then(|bytes| icons::data_url(&bytes))
 }
 
-fn setting_bool(store: &Store, name: &str, default: bool) -> bool {
-    store.read(|s| s.settings.get(name).and_then(Value::as_bool)).unwrap_or(default)
+/// A setting from the state file, if it is set and of the expected type.
+fn setting<T>(store: &Store, name: &str, read: impl FnOnce(&Value) -> Option<T>) -> Option<T> {
+    store.read(|s| s.settings.get(name).and_then(read))
 }
 
 fn open_window(app: &AppHandle) -> tauri::Result<()> {
@@ -229,7 +235,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            app.manage(Store::load(data_dir::resolve_state_file(None::<&Path>)));
+            app.manage(Store::load(data_dir::resolve_state_file()));
             open_window(app.handle())?;
             Ok(())
         })
