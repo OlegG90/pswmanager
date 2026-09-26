@@ -1,11 +1,10 @@
 import type { Entry } from './api'
+import { formatGroup } from './entry-text'
 
 export type Filter = { kind: 'all' } | { kind: 'group'; path: string } | { kind: 'tag'; tag: string }
 
-const GROUP_SEPARATOR = ' / '
-
 export function groupPath(entry: Entry): string {
-  return entry.group.join(GROUP_SEPARATOR)
+  return formatGroup(entry.group)
 }
 
 function inFilter(entry: Entry, filter: Filter): boolean {
@@ -14,7 +13,7 @@ function inFilter(entry: Entry, filter: Filter): boolean {
       return true
     case 'group': {
       const path = groupPath(entry)
-      return path === filter.path || path.startsWith(filter.path + GROUP_SEPARATOR)
+      return path === filter.path || path.startsWith(formatGroup([filter.path, '']))
     }
     case 'tag':
       return entry.tags.includes(filter.tag)
@@ -38,7 +37,7 @@ export function filterChoices(entries: Entry[]): { groups: string[]; tags: strin
   const groups = new Set<string>()
   const tags = new Set<string>()
   for (const e of entries) {
-    e.group.forEach((_, i) => groups.add(e.group.slice(0, i + 1).join(GROUP_SEPARATOR)))
+    e.group.forEach((_, i) => groups.add(formatGroup(e.group.slice(0, i + 1))))
     e.tags.forEach((t) => tags.add(t))
   }
   const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b))

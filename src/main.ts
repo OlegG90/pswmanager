@@ -1,6 +1,8 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Status } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
 import { el } from './dom'
+import { closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 
@@ -30,6 +32,8 @@ const siteIcons = new Map<string, string | null>()
 let shown: Entry[] = []
 let selectedId: string | null = null
 let current: EntryDetail | null = null
+/** The current entry is asking whether to move it to the recycle bin. */
+let confirmingDelete = false
 /** Values revealed in the current entry, by field name. */
 const revealed = new Map<string, string>()
 
@@ -98,6 +102,8 @@ function lock() {
 
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
+  closeEditor()
+  stopTotp()
   listing = EMPTY
   shown = []
   selectedId = null
@@ -188,8 +194,12 @@ function listItem(entry: Entry): HTMLLIElement {
 }
 
 function select(id: string | null) {
+  if (isEditing()) return // the editor stays until it is saved or cancelled
   const same = id === selectedId
-  if (!same) revealed.clear()
+  if (!same) {
+    revealed.clear()
+    confirmingDelete = false
+  }
   selectedId = id
   for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
     const on = li.dataset.id === id
@@ -198,6 +208,7 @@ function select(id: string | null) {
   }
   // A new search that keeps the same entry keeps its view as it is.
   if (same && current?.id === id) return
+  stopTotp()
   if (!id) {
     current = null
     detail.replaceChildren()
@@ -264,7 +275,8 @@ function renderDetail() {
     if (entry.host) actions.unshift(button('Open', 'Open in the browser (Ctrl+U)', openUrl))
     rows.push(row('URL', entry.url, actions))
   }
-  for (const field of entry.fields) {
+  if (entry.fields.some((f) => f.name === OTP)) rows.push(totpRow(entry.id))
+  for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
       rows.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
@@ -274,7 +286,131 @@ function renderDetail() {
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
   if (meta) rows.push(el('p', { className: 'meta' }, meta))
+  const confirm = el('button', { type: 'button', className: 'primary', textContent: 'Move to the recycle bin', onclick: deleteNow })
+  rows.push(
+    confirmingDelete
+      ? el('div', { className: 'buttons confirm' },
+          el('span', {}, `Move "${entry.title || '(no title)'}" to the recycle bin?`), confirm,
+          button('Cancel', 'Cancel (Esc)', cancelDelete))
+      : el('div', { className: 'buttons' },
+          button('Edit', 'Edit (Ctrl+E)', editEntry),
+          button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
+  )
   detail.replaceChildren(...rows)
+  if (confirmingDelete) confirm.focus()
+}
+
+// ---------------------------------------------------------------- TOTP
+
+let totpTimer: number | undefined
+
+function stopTotp() {
+  clearInterval(totpTimer)
+  totpTimer = undefined
+}
+
+/** The current code with its countdown; a new code is fetched when it runs out. */
+function totpRow(id: string): HTMLDivElement {
+  const value = el('span', { className: 'value secret totp' }, '…')
+  const div = el('div', { className: 'row' }, el('span', { className: 'label' }, 'TOTP'), value,
+    el('span', { className: 'actions' }, button('Copy', 'Copy (Ctrl+T)', copyTotp)))
+  let remaining = 0
+  const show = (code: string) => value.replaceChildren(code, el('span', { className: 'countdown' }, `${remaining} s`))
+  let code = ''
+  const tick = async () => {
+    if (remaining <= 0) {
+      try {
+        const next = await api.totp(id)
+        if (!next) return stopTotp()
+        code = `${next.code.slice(0, next.code.length / 2)} ${next.code.slice(next.code.length / 2)}`
+        remaining = next.remaining
+      } catch (e) {
+        stopTotp()
+        value.textContent = String(e)
+        return
+      }
+    }
+    show(code)
+    remaining--
+  }
+  stopTotp()
+  tick()
+  totpTimer = window.setInterval(tick, 1000)
+  return div
+}
+
+async function copyTotp() {
+  if (!current) return
+  try {
+    const seconds = await api.copyTotp(current.id)
+    notify(`TOTP code copied · clears in ${seconds} s`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+// ---------------------------------------------------------------- editing
+
+/** New entries go into the group the list is filtered to. */
+function groupForNew(): string[] {
+  const filter = currentFilter()
+  return filter.kind === 'group' ? parseGroup(filter.path) : []
+}
+
+function startEditor(id: string | null) {
+  if (isEditing()) return
+  stopTotp()
+  openEditor(detail, {
+    id,
+    group: groupForNew(),
+    onSaved: afterSave,
+    onClose: () => {
+      current = null
+      select(selectedId)
+    },
+  }).catch((e) => notify(String(e)))
+}
+
+function editEntry() {
+  if (current) startEditor(current.id)
+}
+
+function afterSave(saved: Saved) {
+  listing = saved.listing
+  fillFilter()
+  current = null
+  selectedId = saved.id
+  refresh()
+  notify('Saved')
+  searchInput.focus()
+}
+
+/** Del / the Delete button: asks first, in the entry view. */
+function deleteEntry() {
+  if (!current || isEditing()) return
+  confirmingDelete = true
+  renderDetail()
+}
+
+function cancelDelete() {
+  confirmingDelete = false
+  renderDetail()
+  searchInput.focus()
+}
+
+async function deleteNow() {
+  if (!current) return
+  confirmingDelete = false
+  try {
+    listing = await api.deleteEntry(current.id)
+    fillFilter()
+    current = null
+    refresh()
+    searchInput.focus()
+    notify('Moved to the recycle bin')
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 async function toggleReveal(field: string) {
@@ -341,6 +477,18 @@ function perform(action: Action, e: KeyboardEvent) {
     case 'lock':
       lock()
       break
+    case 'copy-totp':
+      if (current?.fields.some((f) => f.name === OTP)) copyTotp()
+      break
+    case 'new-entry':
+      startEditor(null)
+      break
+    case 'edit-entry':
+      editEntry()
+      break
+    case 'delete-entry':
+      deleteEntry()
+      break
     case 'previous':
       move(-1)
       break
@@ -348,7 +496,9 @@ function perform(action: Action, e: KeyboardEvent) {
       move(1)
       break
     case 'escape':
-      if (searchInput.value) {
+      if (confirmingDelete) {
+        cancelDelete()
+      } else if (searchInput.value) {
         searchInput.value = ''
         refresh()
         searchInput.focus()
@@ -366,6 +516,11 @@ function perform(action: Action, e: KeyboardEvent) {
 document.addEventListener('keydown', (e) => {
   if (vault.hidden) {
     if (e.key === 'Escape') hideWindow()
+    return
+  }
+  if (isEditing()) {
+    // The form keeps its keys; only save, cancel and lock work on top.
+    if (!editorKey(e) && e.ctrlKey && e.code === 'KeyL') lock()
     return
   }
   const target = e.target as HTMLElement

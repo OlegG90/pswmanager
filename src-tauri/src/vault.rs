@@ -172,7 +172,10 @@ impl Vault {
         let hidden = self.hidden_groups();
         let mut db = self.db.clone();
         let id = edit::apply(&mut db, id, data, &hidden)?;
-        self.commit(db)?;
+        // An untouched entry does not rewrite the file (and wake the sync client).
+        if db != self.db {
+            self.commit(db)?;
+        }
         Ok(id.uuid().to_string())
     }
 
@@ -486,6 +489,16 @@ pub mod tests {
         // Templates and the recycle bin stay where they were.
         assert_eq!(reopened.listing().entries.len(), 3);
         assert!(std::fs::metadata(dir.path().join("sic2kdbx.kdbx.bak")).is_ok());
+    }
+
+    #[test]
+    fn saving_an_untouched_entry_leaves_the_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let id = vault.listing().entries[0].id.clone();
+        let data = vault.edit_data(&id).unwrap();
+        vault.save_entry(Some(&id), &data).unwrap();
+        assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
     }
 
     #[test]
