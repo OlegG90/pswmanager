@@ -48,7 +48,14 @@ export interface EntryData {
   otp: string
   tags: string[]
   group: string[]
-  fields: { name: string; value: string; protected: boolean }[]
+  fields: FieldData[]
+}
+
+/** An additional field with its value, for the editor. */
+export interface FieldData {
+  name: string
+  value: string
+  protected: boolean
 }
 
 export interface Saved {

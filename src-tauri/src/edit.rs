@@ -12,6 +12,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 const DEFAULT_HISTORY_ITEMS: usize = 10;
 const RECYCLE_BIN_ICON: usize = 43;
 
+pub const NOT_FOUND: &str = "That entry is no longer in the database";
+
 /// Everything the editor shows and sends back, secrets included: while an
 /// entry is being edited its values are in the window anyway.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -68,7 +70,8 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 /// edit that changes nothing leaves the entry and its history alone.
 /// `hidden` are the groups entries cannot be put in (recycle bin, templates).
 pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &HashSet<GroupId>) -> Result<EntryId, String> {
-    let existing = id.map(|id| db.entry(id).ok_or("That entry is no longer in the database")).transpose()?;
+    check_field_names(&data.fields)?;
+    let existing = id.map(|id| db.entry(id).ok_or(NOT_FOUND)).transpose()?;
     // A TOTP value the entry already has is kept as it is, even one this app
     // cannot read; a new one must work and is stored as a URI.
     let otp = match (data.otp.trim(), existing.as_ref().and_then(|e| e.get(fields::OTP))) {
@@ -115,18 +118,11 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
     Ok(id)
 }
 
-/// The entry's fields as the editor wants them, each keeping whether it was
-/// protected; a new password or TOTP secret is protected. Names are compared
-/// exactly, as KeePass does.
-fn wanted_fields(
-    db: &Database,
-    entry: Option<&EntryRef<'_>>,
-    data: &EntryData,
-    otp: Option<String>,
-) -> Result<HashMap<String, Value<String>>, String> {
+/// Additional fields need a name that is neither a standard field's nor
+/// taken; names are compared exactly, as KeePass does.
+fn check_field_names(fields: &[FieldData]) -> Result<(), String> {
     let mut names = HashSet::new();
-    for field in &data.fields {
-        let name = field.name.as_str();
+    for name in fields.iter().map(|f| f.name.as_str()) {
         if name.trim().is_empty() {
             return Err("A field needs a name".into());
         }
@@ -137,7 +133,17 @@ fn wanted_fields(
             return Err(format!("There are two fields named \"{name}\""));
         }
     }
+    Ok(())
+}
 
+/// The entry's fields as the editor wants them, each keeping whether it was
+/// protected; a new password or TOTP secret is protected.
+fn wanted_fields(
+    db: &Database,
+    entry: Option<&EntryRef<'_>>,
+    data: &EntryData,
+    otp: Option<String>,
+) -> Result<HashMap<String, Value<String>>, String> {
     let protection = db.meta.memory_protection.as_ref();
     let was_protected = |name: &str| entry.and_then(|e| e.fields.get(name)).map(Value::is_protected);
     let standard = [
@@ -176,18 +182,16 @@ fn value_of(value: &str, protected: bool) -> Value<String> {
     }
 }
 
+/// `group` and the groups above it, nearest first, ending with the root.
+pub fn ancestors(db: &Database, group: GroupId) -> Vec<GroupId> {
+    std::iter::successors(Some(group), |id| db.group(*id).and_then(|g| g.parent().map(|p| p.id()))).collect()
+}
+
 /// A group's names from the top, without the root group.
 pub fn path_of(db: &Database, group: GroupId) -> Vec<String> {
-    let mut path = Vec::new();
-    let mut next = Some(group);
-    while let Some(group) = next.and_then(|id| db.group(id)) {
-        next = group.parent().map(|p| p.id());
-        if next.is_some() {
-            path.push(group.name.clone());
-        }
-    }
-    path.reverse();
-    path
+    let mut chain = ancestors(db, group);
+    chain.pop(); // the root group
+    chain.iter().rev().filter_map(|id| db.group(*id).map(|g| g.name.clone())).collect()
 }
 
 /// The group at `path` below the root (the first of same-named siblings),
@@ -238,11 +242,11 @@ fn trim_history(db: &mut Database, id: EntryId) {
 /// with keepass-rs can leave other entries' attachments pointing at the
 /// wrong data.
 pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
-    db.entry(id).ok_or("That entry is no longer in the database")?;
+    db.entry(id).ok_or(NOT_FOUND)?;
     if db.meta.recyclebin_enabled == Some(false) {
         return Err("This database has its recycle bin turned off; turn it on (in KeePassXC) to delete entries".into());
     }
-    let bin = match db.meta.recyclebin_uuid.map(GroupId::from).filter(|g| db.group(*g).is_some()) {
+    let bin = match db.recycle_bin().map(|g| g.id()) {
         Some(bin) => bin,
         None => {
             let mut root = db.root_mut();

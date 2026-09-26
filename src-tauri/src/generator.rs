@@ -9,7 +9,8 @@ const DIGITS: &str = "0123456789";
 const SYMBOLS: &str = "!#$%&()*+,-./:;<=>?@[]^_{|}~";
 /// Characters that are easy to mistake for one another.
 const LOOK_ALIKES: &str = "Il1|O0o";
-pub const LENGTH_RANGE: (usize, usize) = (8, 64);
+/// Also the limits of the length input in the editor.
+const LENGTH_RANGE: (usize, usize) = (8, 64);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

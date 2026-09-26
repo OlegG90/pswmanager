@@ -3,10 +3,9 @@
 //! whole entry only while it is being edited.
 
 use crate::dbfile::DbFile;
-use crate::edit::{self, EntryData};
+use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
-use keepass::config::DatabaseVersion;
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -152,6 +151,10 @@ impl Vault {
         icons::web_url(&self.field(id, fields::URL)?)
     }
 
+    fn entry_id(&self, id: &str) -> Result<EntryId, String> {
+        self.entry(id).map(|e| e.id()).ok_or_else(|| NOT_FOUND.into())
+    }
+
     /// A visible entry by id; entries in the recycle bin are not reachable.
     fn entry(&self, id: &str) -> Option<EntryRef<'_>> {
         let id = EntryId::from(Uuid::parse_str(id).ok()?);
@@ -168,7 +171,7 @@ impl Vault {
     /// Creates (`id` is `None`) or changes an entry and saves the file.
     /// Returns the entry's id. Nothing changes when saving fails.
     pub fn save_entry(&mut self, id: Option<&str>, data: &EntryData) -> Result<String, String> {
-        let id = id.map(|id| self.entry(id).map(|e| e.id()).ok_or("That entry is no longer in the database")).transpose()?;
+        let id = id.map(|id| self.entry_id(id)).transpose()?;
         let hidden = self.hidden_groups();
         let mut db = self.db.clone();
         let id = edit::apply(&mut db, id, data, &hidden)?;
@@ -181,18 +184,15 @@ impl Vault {
 
     /// Moves an entry to the recycle bin and saves the file.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
-        let id = self.entry(id).map(|e| e.id()).ok_or("That entry is no longer in the database")?;
+        let id = self.entry_id(id)?;
         let mut db = self.db.clone();
         edit::recycle(&mut db, id)?;
         self.commit(db)
     }
 
     /// Saves `db` and makes it the current database, or keeps the old one.
-    /// The file is written as KDBX 4.1, the only version keepass-rs writes;
-    /// the cipher and key derivation stay as they were.
     fn commit(&mut self, mut db: Database) -> Result<(), String> {
-        db.config.version = DatabaseVersion::KDB4(1);
-        self.file.as_mut().ok_or("This database cannot be saved")?.save(&db)?;
+        self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db)?;
         self.db = db;
         Ok(())
     }
@@ -200,24 +200,20 @@ impl Vault {
     /// Every group entries can go in, as paths, for the editor.
     pub fn group_paths(&self) -> Vec<Vec<String>> {
         let hidden = self.hidden_groups();
-        let in_hidden = |group: GroupId| {
-            std::iter::successors(Some(group), |g| self.db.group(*g).and_then(|g| g.parent().map(|p| p.id())))
-                .any(|g| hidden.contains(&g))
-        };
         let mut paths: Vec<Vec<String>> = self
             .db
             .iter_all_groups()
-            .filter(|g| g.parent().is_some() && !in_hidden(g.id()))
+            .filter(|g| g.parent().is_some() && !edit::ancestors(&self.db, g.id()).iter().any(|a| hidden.contains(a)))
             .map(|g| edit::path_of(&self.db, g.id()))
             .collect();
         paths.sort_by_key(|p| p.iter().map(|n| n.to_lowercase()).collect::<Vec<_>>());
         paths
     }
 
-    /// The entry's current TOTP code, if it has a usable secret.
-    pub fn totp(&self, id: &str) -> Option<Result<otp::Code, String>> {
-        let value = self.field(id, fields::OTP)?;
-        Some(otp::Totp::parse(&value).map(|totp| totp.code_now()))
+    /// The entry's current TOTP code, or `None` when it has no secret.
+    pub fn totp(&self, id: &str) -> Result<Option<otp::Code>, String> {
+        let Some(value) = self.field(id, fields::OTP) else { return Ok(None) };
+        otp::Totp::parse(&value).map(|totp| Some(totp.code_now()))
     }
 }
 
@@ -228,7 +224,7 @@ fn group_path(entry: &EntryRef<'_>) -> Vec<String> {
 
 /// True when the entry sits in one of `groups`, at any depth.
 fn is_in(entry: &EntryRef<'_>, groups: &HashSet<GroupId>) -> bool {
-    ancestors(entry).iter().any(|g| groups.contains(g))
+    edit::ancestors(entry.database(), entry.parent().id()).iter().any(|g| groups.contains(g))
 }
 
 /// Values that only leave the backend on request: protected fields, and TOTP
@@ -246,18 +242,6 @@ fn is_secret(name: &str, value: &Value<String>) -> bool {
 /// secret. Everything else is listed in the detail, masked if secret.
 fn in_summary(name: &str, value: &Value<String>) -> bool {
     fields::KNOWN_FIELDS.contains(&name) && !is_secret(name, value)
-}
-
-/// The ids of the groups above an entry, nearest first, ending with the root.
-fn ancestors(entry: &EntryRef<'_>) -> Vec<GroupId> {
-    let db = entry.database();
-    let mut ids = Vec::new();
-    let mut next = Some(entry.parent().id());
-    while let Some(id) = next {
-        ids.push(id);
-        next = db.group(id).and_then(|g| g.parent().map(|p| p.id()));
-    }
-    ids
 }
 
 fn summary(e: &EntryRef<'_>) -> EntrySummary {
@@ -445,15 +429,16 @@ pub mod tests {
 
     #[test]
     fn saving_keeps_everything_the_app_does_not_show() {
-        for name in ["sic2kdbx.kdbx"] {
-            let dir = tempfile::tempdir().unwrap();
-            let mut vault = fixture(name, dir.path());
-            let mut before = vault.db.clone();
-            vault.commit(before.clone()).unwrap();
-            let reopened = Vault::open(&dir.path().join(name), Some("test"), None).unwrap();
-            before.config.version = DatabaseVersion::KDB4(1);
-            assert_eq!(reopened.db, before, "{name}");
-        }
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let before = vault.db.clone();
+        vault.commit(before.clone()).unwrap();
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.db, vault.db);
+        // Everything but the format version, which saving moves to 4.1.
+        let mut expected = before;
+        expected.config.version = vault.db.config.version.clone();
+        assert_eq!(reopened.db, expected);
     }
 
     #[test]
@@ -508,7 +493,7 @@ pub mod tests {
         let code = vault.totp(&router).unwrap().unwrap();
         assert_eq!((code.code.len(), code.period), (6, 30));
         let mail = vault.listing().entries.iter().find(|e| e.title == "Mail").unwrap().id.clone();
-        assert!(vault.totp(&mail).is_none());
+        assert!(vault.totp(&mail).unwrap().is_none());
     }
 
     #[test]

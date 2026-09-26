@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
-import { el } from './dom'
+import { button, el } from './dom'
 import { closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -233,10 +233,6 @@ function move(step: number) {
 
 // ---------------------------------------------------------------- detail
 
-function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
-  return el('button', { type: 'button', title, onclick: onClick }, label)
-}
-
 function row(label: string, value: string, actions: HTMLButtonElement[], valueClass = ''): HTMLDivElement {
   return el(
     'div',
@@ -259,7 +255,9 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
 }
 
 /** How a field is labelled; the standard ones only appear here when protected. */
-const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', otp: 'TOTP' }
+const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', [OTP]: 'TOTP' }
+
+const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
 const labelOf = (field: string) => LABELS[field] ?? field
 
 function renderDetail() {
@@ -275,7 +273,7 @@ function renderDetail() {
     if (entry.host) actions.unshift(button('Open', 'Open in the browser (Ctrl+U)', openUrl))
     rows.push(row('URL', entry.url, actions))
   }
-  if (entry.fields.some((f) => f.name === OTP)) rows.push(totpRow(entry.id))
+  if (hasTotp(entry)) rows.push(totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
       rows.push(secretRow(labelOf(field.name), field.name))
@@ -364,12 +362,8 @@ function groupForNew(): string[] {
   return filter.kind === 'group' ? parseGroup(filter.path) : []
 }
 
-/** Set while the editor loads, so a second Ctrl+E does not open another. */
-let openingEditor = false
-
 function startEditor(id: string | null) {
-  if (isEditing() || openingEditor) return
-  openingEditor = true
+  if (isEditing()) return
   stopTotp()
   openEditor(detail, {
     id,
@@ -379,23 +373,26 @@ function startEditor(id: string | null) {
       current = null
       select(selectedId)
     },
-  })
-    .catch((e) => notify(String(e)))
-    .finally(() => (openingEditor = false))
+  }).catch((e) => notify(String(e)))
 }
 
 function editEntry() {
   if (current) startEditor(current.id)
 }
 
-function afterSave(saved: Saved) {
-  listing = saved.listing
+/** Shows a listing the backend sent after a change, then says what happened. */
+function applyListing(next: Listing, message: string) {
+  listing = next
   fillFilter()
   current = null
-  selectedId = saved.id
   refresh()
-  notify('Saved')
   searchInput.focus()
+  notify(message)
+}
+
+function afterSave(saved: Saved) {
+  selectedId = saved.id
+  applyListing(saved.listing, 'Saved')
 }
 
 /** Del / the Delete button: asks first, in the entry view. */
@@ -415,12 +412,7 @@ async function deleteNow() {
   if (!current) return
   confirmingDelete = false
   try {
-    listing = await api.deleteEntry(current.id)
-    fillFilter()
-    current = null
-    refresh()
-    searchInput.focus()
-    notify('Moved to the recycle bin')
+    applyListing(await api.deleteEntry(current.id), 'Moved to the recycle bin')
   } catch (e) {
     notify(String(e))
   }
@@ -491,7 +483,7 @@ function perform(action: Action, e: KeyboardEvent) {
       lock()
       break
     case 'copy-totp':
-      if (current?.fields.some((f) => f.name === OTP)) copyTotp()
+      if (current && hasTotp(current)) copyTotp()
       break
     case 'new-entry':
       startEditor(null)

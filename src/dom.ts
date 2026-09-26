@@ -4,3 +4,8 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: object 
   node.append(...children)
   return node
 }
+
+/** A plain button (never a form's submit button). */
+export function button(label: string, title: string, onClick: () => void, className = ''): HTMLButtonElement {
+  return el('button', { type: 'button', title, className, onclick: onClick }, label)
+}

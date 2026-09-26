@@ -46,7 +46,12 @@ impl Session {
     fn with<R>(&self, f: impl FnOnce(&Vault) -> Option<R>) -> Result<R, String> {
         let vault = self.0.lock().unwrap();
         let vault = vault.as_ref().ok_or("The database is locked")?;
-        f(vault).ok_or_else(|| "That entry is no longer in the database".into())
+        f(vault).ok_or_else(|| edit::NOT_FOUND.into())
+    }
+
+    /// Like `with`, for reads that can only fail because the database is locked.
+    fn read<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
+        self.0.lock().unwrap().as_ref().map(f).ok_or_else(|| "The database is locked".into())
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut Vault) -> Result<R, String>) -> Result<R, String> {
@@ -181,7 +186,7 @@ fn hide_window(app: AppHandle) {
 
 #[tauri::command(async)]
 fn listing(session: State<Session>) -> Result<Listing, String> {
-    session.with(|v| Some(v.listing()))
+    session.read(Vault::listing)
 }
 
 #[tauri::command(async)]
@@ -251,19 +256,19 @@ fn delete_entry(session: State<Session>, id: String) -> Result<Listing, String> 
 
 #[tauri::command(async)]
 fn group_paths(session: State<Session>) -> Result<Vec<Vec<String>>, String> {
-    session.with(|v| Some(v.group_paths()))
+    session.read(Vault::group_paths)
 }
 
 /// The entry's current TOTP code, or nothing when it has no secret.
 #[tauri::command(async)]
 fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String> {
-    session.with(|v| Some(v.totp(&id)))?.transpose()
+    session.read(|v| v.totp(&id))?
 }
 
 /// Copies the current TOTP code; returns the seconds until the clipboard is cleared.
 #[tauri::command(async)]
 fn copy_totp(store: State<Store>, session: State<Session>, id: String) -> Result<u64, String> {
-    let code = session.with(|v| Some(v.totp(&id)))?.ok_or("The entry has no TOTP secret")??;
+    let code = session.read(|v| v.totp(&id))??.ok_or("The entry has no TOTP secret")?;
     let clear_after = Settings::of(&store).clear_clipboard_after();
     clipboard::copy(Zeroizing::new(code.code), clear_after)?;
     Ok(clear_after.as_secs())

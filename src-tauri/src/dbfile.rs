@@ -1,6 +1,7 @@
 //! The database file on disk: opened once with its key, and saved so that the
 //! file is always either the old version or the complete new one.
 
+use keepass::config::DatabaseVersion;
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
@@ -34,8 +35,12 @@ impl DbFile {
     /// Writes `db` over the file. Refuses when the file changed since it was
     /// read (merging comes later), never leaves a half-written file, checks
     /// the new file reads back as exactly `db` before it replaces the old one,
-    /// and keeps the old one as `<name>.bak`.
-    pub fn save(&mut self, db: &Database) -> Result<(), String> {
+    /// and keeps the old one as `<name>.bak`. The file is written as KDBX 4.1,
+    /// the only version keepass-rs writes, and `db` says so afterwards; the
+    /// cipher and key derivation stay as they were.
+    pub fn save(&mut self, db: &mut Database) -> Result<(), String> {
+        db.config.version = DatabaseVersion::KDB4(1);
+        let db = &*db;
         let unchanged = |current: &[u8]| {
             if hash(current) == self.hash {
                 Ok(())
@@ -119,26 +124,26 @@ pub mod tests {
         let (mut db, mut file) = saved(dir.path(), &Database::new());
         let before = fs::read(dir.path().join("t.kdbx")).unwrap();
         db.root_mut().add_entry().set_unprotected("Title", "New");
-        file.save(&db).unwrap();
+        file.save(&mut db).unwrap();
 
         let (reopened, _) = DbFile::open(&dir.path().join("t.kdbx"), key()).unwrap();
         assert_eq!(reopened.num_entries(), 1);
         assert_eq!(fs::read(dir.path().join("t.kdbx.bak")).unwrap(), before);
         assert!(!dir.path().join("t.kdbx.pswm-tmp").exists());
         // The next save starts from the file this one wrote.
-        file.save(&db).unwrap();
+        file.save(&mut db).unwrap();
     }
 
     #[test]
     fn refuses_to_overwrite_a_file_changed_elsewhere() {
         let dir = tempfile::tempdir().unwrap();
-        let (db, mut file) = saved(dir.path(), &Database::new());
+        let (mut db, mut file) = saved(dir.path(), &Database::new());
         let mut other = Database::new();
         other.root_mut().add_entry();
         other.save(&mut File::create(dir.path().join("t.kdbx")).unwrap(), key()).unwrap();
         let theirs = fs::read(dir.path().join("t.kdbx")).unwrap();
 
-        assert_eq!(file.save(&db).unwrap_err(), CHANGED_ON_DISK);
+        assert_eq!(file.save(&mut db).unwrap_err(), CHANGED_ON_DISK);
         assert_eq!(fs::read(dir.path().join("t.kdbx")).unwrap(), theirs);
     }
 
