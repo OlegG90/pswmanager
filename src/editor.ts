@@ -26,7 +26,12 @@ let generatorOptions: GeneratorOptions = {
 }
 
 /** The open editor, from the moment it starts loading. */
-let active: { save: () => void; close: () => void | Promise<void> } | null = null
+let active: {
+  save: () => void
+  close: () => void | Promise<void>
+  /** The entries another device just changed. */
+  changedElsewhere?: (ids: string[]) => void
+} | null = null
 
 export const isEditing = () => active !== null
 
@@ -48,6 +53,11 @@ export function editorKey(e: KeyboardEvent): boolean {
 
 export function closeEditor() {
   active = null
+}
+
+/** Tells the editor that another device changed these entries. */
+export function changedElsewhere(ids: string[]) {
+  active?.changedElsewhere?.(ids)
 }
 
 const input = (value: string, props: object = {}) => el('input', { value, spellcheck: false, ...props })
@@ -217,7 +227,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(options.id, collect())
+      const saved = await api.saveEntry(options.id, options.id ? data : null, collect())
       // Locking while the save ran closed this editor: the vault is gone.
       if (active !== self) return
       active = null
@@ -236,7 +246,14 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     active = null
     options.onClose()
   }
-  const self = { save, close }
+  // Saving still works: this edit is applied to the file as it is now, wins
+  // where both changed the entry, and the other version goes to its history.
+  const changed = (ids: string[]) => {
+    if (options.id && ids.includes(options.id)) {
+      showError('This entry was just changed on another device. Saving keeps your version; the other one goes to the entry\'s history.')
+    }
+  }
+  const self = { save, close, changedElsewhere: changed }
   active = self
 
   const row = (label: string, ...controls: Node[]) =>

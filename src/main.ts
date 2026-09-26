@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
 import { button, el } from './dom'
-import { closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { ask, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -113,7 +113,9 @@ async function showLocked() {
   showUnlock(await api.status())
 }
 
+/** Fills the filter menu from the listing, keeping the choice while it still exists. */
 function fillFilter() {
+  const chosen = filterSelect.value
   const { groups, tags } = filterChoices(listing.entries)
   const section = (label: string, kind: string, values: string[]) =>
     values.length ? [el('optgroup', { label }, ...values.map((v) => new Option(v, `${kind}:${v}`)))] : []
@@ -122,6 +124,7 @@ function fillFilter() {
     ...section('Groups', 'group', groups),
     ...section('Tags', 'tag', tags),
   )
+  filterSelect.value = [...filterSelect.options].some((o) => o.value === chosen) ? chosen : 'all'
 }
 
 /** Filter options carry their kind before the first colon: `group:Work`, `tag:Favorite`. */
@@ -370,19 +373,21 @@ function editEntry() {
   if (current) startEditor(current.id)
 }
 
-/** Shows a listing the backend sent after a change, then says what happened. */
-function applyListing(next: Listing, message: string) {
+/** Shows a listing the backend sent after a change, then says what happened.
+ *  The open entry is fetched again. */
+function applyListing(next: Listing, message: string, focusSearch = true) {
   listing = next
   fillFilter()
   current = null
   refresh()
-  searchInput.focus()
+  if (focusSearch) searchInput.focus()
   notify(message)
 }
 
 function afterSave(saved: Saved) {
   selectedId = saved.id
-  applyListing(saved.listing, 'Saved')
+  const replaced = saved.conflicts.join(', ')
+  applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
 }
 
 /** Del / the Delete button: asks first. */
@@ -390,7 +395,8 @@ async function deleteEntry() {
   const entry = current
   if (!entry || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
-  if (!yes || current?.id !== entry.id) return searchInput.focus()
+  // An update from another device may refresh the view meanwhile; the choice still stands.
+  if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
   } catch (e) {
@@ -426,11 +432,19 @@ function openUrl() {
 }
 
 let toastTimer: number | undefined
-function notify(message: string) {
+function notify(message: string, seconds = 3) {
   toast.textContent = message
   toast.hidden = false
   clearTimeout(toastTimer)
-  toastTimer = window.setTimeout(() => (toast.hidden = true), 3000)
+  toastTimer = window.setTimeout(() => (toast.hidden = true), seconds * 1000)
+}
+
+/** The file changed on disk and was read again: show the new state in place. */
+function showDiskChange({ listing: next, changed }: DiskChange) {
+  if (vault.hidden) return
+  // Focus stays where the user left it.
+  applyListing(next, 'Updated from another device', false)
+  changedElsewhere(changed)
 }
 
 // ---------------------------------------------------------------- keys
@@ -533,6 +547,8 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 }
 
 listen('locked', showLocked)
+listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
+listen<string>('database-error', (e) => notify(e.payload, 10))
 listen('window-shown', () => (vault.hidden ? passwordInput : searchInput).focus())
 
 listen<string>('icon-ready', (e) => {
