@@ -9,6 +9,7 @@ mod file_watch;
 mod generator;
 mod health;
 mod icons;
+mod opened;
 mod otp;
 mod remote;
 mod session_watch;
@@ -392,6 +393,7 @@ fn lock_now(app: &AppHandle) {
         sync::request(app);
     }
     clipboard::clear_if_ours();
+    opened::clean(&opened::folder());
 }
 
 /// The window reports use, which keeps the database unlocked.
@@ -477,6 +479,106 @@ fn save_entry(
         sync::upload_soon(&app);
     }
     Ok(saved)
+}
+
+/// Saves one of the entry's files where the user chooses. The content goes
+/// from the database to the file without passing through the frontend.
+/// False when the user cancelled.
+#[tauri::command(async)]
+fn save_attachment(window: Window, session: State<Session>, id: String, name: String) -> Result<bool, String> {
+    let data = session.with(|v| v.attachment(&id, &name))?;
+    // A name is a file name, but other clients may store a path.
+    let file_name = name.rsplit(['/', '\\']).next().unwrap_or(&name);
+    let chosen = window.dialog().file().set_parent(&window).set_file_name(file_name).blocking_save_file();
+    let Some(path) = chosen.map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(false) };
+    std::fs::write(&path, &*data).map_err(|e| format!("Cannot save the file: {e}"))?;
+    Ok(true)
+}
+
+/// Opens one of the entry's files in the app Windows uses for its type,
+/// from a read-only copy that is deleted when the database locks.
+#[tauri::command(async)]
+fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<(), String> {
+    if opened::is_runnable(&name) {
+        return Err("Programs and scripts are not opened from the database; save the file to run it".into());
+    }
+    let data = session.with(|v| v.attachment(&id, &name))?;
+    let path = opened::write(&opened::folder(), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Attached {
+    /// The name the file got in the entry.
+    name: String,
+    listing: Listing,
+}
+
+/// A file the user picked to attach: its name and content.
+type Picked = (String, Zeroizing<Vec<u8>>);
+
+/// A file the user picks to attach; nothing when cancelled.
+fn pick_attachment(window: &Window) -> Result<Option<Picked>, String> {
+    let Some(path) = pick(window, "", &[])? else { return Ok(None) };
+    let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len();
+    if size > edit::MAX_ATTACHMENT as u64 {
+        return Err(edit::too_big());
+    }
+    let data = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some((name, data)))
+}
+
+/// Replaces the content of one of the entry's files with a file the user
+/// picks (the entry's history keeps the old content), saves the database
+/// and returns the new listing; nothing when the user cancelled.
+#[tauri::command(async)]
+fn replace_attachment(app: AppHandle, window: Window, session: State<Session>, id: String, name: String) -> Result<Option<Listing>, String> {
+    let Some((_, data)) = pick_attachment(&window)? else { return Ok(None) };
+    let listing = session.with_mut(|v| {
+        v.replace_attachment(&id, &name, &data)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(Some(listing))
+}
+
+/// Attaches a file the user picks to an entry and saves the database; the
+/// content never passes through the frontend. Nothing when the user cancelled.
+#[tauri::command(async)]
+fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: String) -> Result<Option<Attached>, String> {
+    let Some((name, data)) = pick_attachment(&window)? else { return Ok(None) };
+    let attached = session.with_mut(|v| {
+        let name = v.attach(&id, &name, &data)?;
+        Ok(Attached { name, listing: v.listing() })
+    })?;
+    sync::upload_soon(&app);
+    Ok(Some(attached))
+}
+
+/// Removes a file from an entry (the entry's history keeps it), saves the
+/// database and returns the new listing.
+#[tauri::command(async)]
+fn remove_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.detach(&id, &name)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
+/// Renames a file of an entry (the entry's history keeps the old name),
+/// saves the database and returns the new name with the new listing.
+#[tauri::command(async)]
+fn rename_attachment(app: AppHandle, session: State<Session>, id: String, from: String, to: String) -> Result<Attached, String> {
+    let renamed = session.with_mut(|v| {
+        let name = v.rename_attachment(&id, &from, &to)?;
+        Ok(Attached { name, listing: v.listing() })
+    })?;
+    sync::upload_soon(&app);
+    Ok(renamed)
 }
 
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
@@ -656,6 +758,12 @@ pub fn run() {
             edit_entry,
             save_entry,
             delete_entry,
+            save_attachment,
+            open_attachment,
+            attach_file,
+            remove_attachment,
+            rename_attachment,
+            replace_attachment,
             group_paths,
             totp,
             copy_totp,
@@ -674,6 +782,7 @@ pub fn run() {
         })
         .setup(move |app| {
             app.manage(Store::load(data_dir::resolve_state_file()));
+            opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
             window::open(handle, !autostarted)?;
             tray::create(handle)?;

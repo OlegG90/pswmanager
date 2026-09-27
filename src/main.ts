@@ -1,9 +1,10 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
-import { ask, isAsking } from './modal'
-import { parseGroup } from './entry-text'
+import { menuButton } from './menu'
+import { ask, askText, isAsking } from './modal'
+import { formatSize, parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 import { renderSettings } from './settings'
@@ -320,12 +321,34 @@ function renderDetail() {
     }
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
+  if (entry.attachments.length) {
+    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
+  }
   rows.push(
     el('div', { className: 'buttons' },
       button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
+      button('Attach file…', 'Attach a file to this entry', attachFile),
       button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
   )
   detail.replaceChildren(...rows)
+}
+
+/** An attached file: its name and size; the content is only ever saved to disk. */
+function fileRow(file: Attachment): HTMLDivElement {
+  return el(
+    'div',
+    { className: 'row file' },
+    el('span', { className: 'value' }, file.name),
+    el('span', { className: 'size' }, formatSize(file.size)),
+    el('span', { className: 'actions' },
+      button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
+      menuButton(`More for ${file.name}`, [
+        { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) },
+        { label: 'Replace…', title: 'Replace with another file (its history keeps this one)', action: () => replaceAttachment(file.name) },
+        { label: 'Rename…', title: 'Rename (its history keeps the old name)', action: () => renameAttachment(file.name) },
+        { label: 'Remove…', title: 'Remove from this entry (its history keeps the file)', action: () => removeAttachment(file.name), danger: true },
+      ])),
+  )
 }
 
 // ---------------------------------------------------------------- TOTP
@@ -437,6 +460,75 @@ async function deleteEntry() {
   if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function attachFile() {
+  const entry = current
+  if (!entry || isEditing()) return
+  try {
+    const attached = await api.attachFile(entry.id)
+    if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function replaceAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  try {
+    const listing = await api.replaceAttachment(entry.id, name)
+    if (listing) applyListing(listing, `Replaced ${name} · the previous one is in the entry's history`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function renameAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  // The name without its extension is selected, as Explorer does.
+  const dot = name.lastIndexOf('.')
+  const to = await askText(`Rename "${name}" to:`, name, 'Rename', dot > 0 ? dot : name.length)
+  if (to === null || to.trim() === name || selectedId !== entry.id) return
+  try {
+    const renamed = await api.renameAttachment(entry.id, name, to)
+    applyListing(renamed.listing, `Renamed to ${renamed.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+/** Asks first, like deleting an entry. */
+async function removeAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  const yes = await ask(`Remove "${name}" from "${entry.title || '(no title)'}"? The entry's history keeps it.`, 'Remove')
+  if (!yes || selectedId !== entry.id) return
+  try {
+    applyListing(await api.removeAttachment(entry.id, name), `Removed ${name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function openAttachment(name: string) {
+  if (!current) return
+  try {
+    await api.openAttachment(current.id, name)
+    notify(`Opened a read-only copy of ${name} · deleted when the database locks`, 5)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function saveAttachment(name: string) {
+  if (!current) return
+  try {
+    if (await api.saveAttachment(current.id, name)) notify(`Saved ${name}`)
   } catch (e) {
     notify(String(e))
   }

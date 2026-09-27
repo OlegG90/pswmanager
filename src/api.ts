@@ -49,8 +49,23 @@ export interface Field {
   protected: boolean
 }
 
+/** A file attached to an entry; its content stays in the backend. */
+export interface Attachment {
+  name: string
+  /** In bytes. */
+  size: number
+}
+
 export interface EntryDetail extends Entry {
   fields: Field[]
+  attachments: Attachment[]
+}
+
+/** After attaching a file. */
+export interface Attached {
+  /** The name the file got: a name the entry already uses gets a number. */
+  name: string
+  listing: Listing
 }
 
 export interface Listing {
@@ -183,6 +198,20 @@ export const api = {
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData) =>
     invoke<Saved>('save_entry', { id, base, data }),
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  /** Asks where to save the file and writes it there; false when cancelled. */
+  saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
+  /** Opens the file in the app Windows uses for its type, from a read-only
+   *  copy deleted when the database locks. */
+  openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
+  /** Asks for a file and attaches it to the entry; null when cancelled. */
+  attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
+  /** Asks for a file and makes its content the entry's file `name`; its
+   *  history keeps the old content. Null when cancelled. */
+  replaceAttachment: (id: string, name: string) => invoke<Listing | null>('replace_attachment', { id, name }),
+  /** Renames the entry's file; its history keeps the old name. */
+  renameAttachment: (id: string, from: string, to: string) => invoke<Attached>('rename_attachment', { id, from, to }),
+  /** Removes the file from the entry; its history keeps it. */
+  removeAttachment: (id: string, name: string) => invoke<Listing>('remove_attachment', { id, name }),
   groupPaths: () => invoke<string[][]>('group_paths'),
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),

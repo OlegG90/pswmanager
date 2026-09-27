@@ -52,12 +52,21 @@ pub struct Field {
     pub protected: bool,
 }
 
+/// A file attached to an entry: its name and size, never its content.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub name: String,
+    pub size: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryDetail {
     #[serde(flatten)]
     pub summary: EntrySummary,
     pub fields: Vec<Field>,
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,7 +152,16 @@ impl Vault {
             })
             .collect();
         fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        Some(EntryDetail { summary: summary(&entry), fields })
+        let mut attachments: Vec<Attachment> =
+            entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
+        attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Some(EntryDetail { summary: summary(&entry), fields, attachments })
+    }
+
+    /// The content of one of the entry's files, for saving it to disk.
+    pub fn attachment(&self, id: &str, name: &str) -> Option<Zeroizing<Vec<u8>>> {
+        let entry = self.entry(id)?;
+        entry.attachment_by_name(name).map(|a| Zeroizing::new(a.data.get().clone()))
     }
 
     /// One field's value, protected or not (`Password`, `UserName`, `URL` or
@@ -192,6 +210,35 @@ impl Vault {
             }
         })?;
         Ok((id.uuid().to_string(), conflicts))
+    }
+
+    /// Attaches a file to an entry and saves the file; returns the name the
+    /// file got (see [edit::attach]).
+    pub fn attach(&mut self, id: &str, name: &str, data: &[u8]) -> Result<String, String> {
+        let id = parse_id(id)?;
+        // Templates and the recycle bin are among the hidden groups.
+        self.change(|db, hidden| edit::attach(db, id, name, data, hidden))
+    }
+
+    /// Removes a file from an entry and saves the file; the entry's history
+    /// keeps it (see [edit::detach]).
+    pub fn detach(&mut self, id: &str, name: &str) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::detach(db, id, name, hidden))
+    }
+
+    /// Renames one of an entry's files and saves the file; returns the new
+    /// name (see [edit::rename_attachment]).
+    pub fn rename_attachment(&mut self, id: &str, from: &str, to: &str) -> Result<String, String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::rename_attachment(db, id, from, to, hidden))
+    }
+
+    /// Gives one of an entry's files new content and saves the file (see
+    /// [edit::replace_attachment]).
+    pub fn replace_attachment(&mut self, id: &str, name: &str, data: &[u8]) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::replace_attachment(db, id, name, data, hidden))
     }
 
     /// Moves an entry to the recycle bin and saves the file. An entry already
@@ -589,6 +636,82 @@ pub mod tests {
         // Templates and the recycle bin stay where they were.
         assert_eq!(reopened.listing().entries.len(), 3);
         assert!(std::fs::metadata(dir.path().join("sic2kdbx.kdbx.bak")).is_ok());
+    }
+
+    #[test]
+    fn attaching_a_file_saves_it_and_keeps_the_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let all_files = |v: &Vault| {
+            let mut all: Vec<(String, String, Vec<u8>)> = v
+                .db
+                .iter_all_entries()
+                .flat_map(|e| {
+                    let title = e.get_title().unwrap_or_default().to_string();
+                    e.attachments_named().map(|(n, a)| (title.clone(), n.to_string(), a.data.get().clone())).collect::<Vec<_>>()
+                })
+                .collect();
+            all.sort();
+            all
+        };
+        let before = all_files(&vault);
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        assert!(vault.detail(&mail).unwrap().attachments.is_empty());
+
+        assert_eq!(vault.attach(&mail, "key.txt", b"recovery codes").unwrap(), "key.txt");
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.detail(&mail).unwrap().attachments, [Attachment { name: "key.txt".into(), size: 14 }]);
+        assert_eq!(reopened.attachment(&mail, "key.txt").unwrap().as_slice(), b"recovery codes");
+        assert!(reopened.attachment(&mail, "other.txt").is_none());
+        let mut expected = before;
+        expected.push(("Mail".into(), "key.txt".into(), b"recovery codes".to_vec()));
+        expected.sort();
+        assert_eq!(all_files(&reopened), expected);
+        // The router's files are listed, by name.
+        let router = id_of(&reopened, "Router").uuid().to_string();
+        assert_eq!(reopened.detail(&router).unwrap().attachments.len(), 2);
+    }
+
+    #[test]
+    fn removing_a_file_keeps_it_in_history_and_the_other_files_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let router = id_of(&vault, "Router");
+        let id = router.uuid().to_string();
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        // A file after the router's in the database, so removing one of the
+        // router's would misnumber it if the database let go of it.
+        vault.attach(&mail, "later.txt", b"attached later").unwrap();
+        let files = |v: &Vault, id: EntryId| {
+            let mut all: Vec<(String, Vec<u8>)> =
+                v.db.entry(id).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect();
+            all.sort();
+            all
+        };
+        let before = files(&vault, router);
+        let (gone, kept) = (before[0].clone(), before[1].clone());
+
+        vault.detach(&id, &gone.0).unwrap();
+        vault.detach(&id, "no such file").unwrap();
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(files(&reopened, router), [kept]);
+        assert_eq!(reopened.detail(&id).unwrap().attachments.len(), 1);
+        assert_eq!(reopened.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
+        let previous = reopened.db.entry(router).unwrap().historical(0).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect::<Vec<_>>();
+        assert!(previous.contains(&gone), "{previous:?}");
+        // Attaching and renaming after a removal still number the files right.
+        let mut reopened = reopened;
+        reopened.attach(&id, "new.txt", b"new").unwrap();
+        assert_eq!(reopened.rename_attachment(&mail, "later.txt", "renamed.txt").unwrap(), "renamed.txt");
+        let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(again.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
+        assert_eq!(again.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"attached later");
+        assert!(again.attachment(&mail, "later.txt").is_none());
+        let mut again = again;
+        again.replace_attachment(&mail, "renamed.txt", b"replaced").unwrap();
+        let last = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(last.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"replaced");
+        assert_eq!(last.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
     }
 
     #[test]
