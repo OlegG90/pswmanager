@@ -13,6 +13,8 @@ const LOCK_AFTER_MINUTES: (u64, u64, u64) = (5, 1, 60);
 const SYNC_EVERY_MINUTES: (u64, u64, u64) = (5, 1, 60);
 /// Seconds before a copied value is cleared.
 const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
+/// Light or dark, or as Windows is set (`system`, the default).
+const THEMES: [&str; 3] = ["system", "light", "dark"];
 
 pub struct Settings<'a>(&'a Store);
 
@@ -53,6 +55,21 @@ impl<'a> Settings<'a> {
         self.get("downloadIcons", Value::as_bool).unwrap_or(true)
     }
 
+    /// `system`, `light` or `dark`.
+    pub fn theme(&self) -> &'static str {
+        let chosen = self.get("theme", |v| v.as_str().map(str::to_string));
+        THEMES.into_iter().find(|t| chosen.as_deref() == Some(*t)).unwrap_or(THEMES[0])
+    }
+
+    /// The window's theme; `None` follows Windows.
+    pub fn window_theme(&self) -> Option<tauri::Theme> {
+        match self.theme() {
+            "light" => Some(tauri::Theme::Light),
+            "dark" => Some(tauri::Theme::Dark),
+            _ => None,
+        }
+    }
+
     /// Every setting as it is in effect, for the settings screen.
     pub fn view(&self) -> View {
         let in_minutes = |d: Option<Duration>| d.map_or(0, |d| d.as_secs() / 60);
@@ -63,6 +80,7 @@ impl<'a> Settings<'a> {
             clear_clipboard: self.clear_clipboard_after().as_secs(),
             sync_every_minutes: in_minutes(self.sync_every()),
             download_icons: self.download_icons(),
+            theme: self.theme(),
             hotkey: self.hotkey(),
         }
     }
@@ -92,6 +110,7 @@ pub struct View {
     /// 0 means never.
     pub sync_every_minutes: u64,
     pub download_icons: bool,
+    pub theme: &'static str,
     pub hotkey: String,
 }
 
@@ -104,6 +123,7 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
         "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" => value.is_boolean(),
+        "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
         _ => return Err(format!("There is no setting {name}")),
     };
     if ok {
@@ -198,5 +218,9 @@ mod tests {
         assert!(store.read(|s| s.settings.is_empty()));
         settings.set("syncEveryMinutes", 0.into()).unwrap();
         assert_eq!(settings.sync_every(), None);
+        assert!(settings.set("theme", "blue".into()).is_err());
+        assert_eq!((settings.theme(), settings.window_theme()), ("system", None));
+        settings.set("theme", "dark".into()).unwrap();
+        assert_eq!(settings.window_theme(), Some(tauri::Theme::Dark));
     }
 }

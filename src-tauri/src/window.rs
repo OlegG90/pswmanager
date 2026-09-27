@@ -17,6 +17,7 @@ static MAXIMIZE_ON_SHOW: AtomicBool = AtomicBool::new(false);
 pub fn open(app: &AppHandle, visible: bool) -> tauri::Result<()> {
     let geometry = app.state::<Store>().read(|s| s.window.clone());
     let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::default())
+        .theme(Settings::of(&app.state()).window_theme())
         .title("PswManager")
         .min_inner_size(520.0, 360.0)
         .visible(false);
@@ -51,6 +52,14 @@ pub fn show(app: &AppHandle) {
     let _ = app.emit("window-shown", ());
     // Another device may have changed the file while the window was away.
     crate::check_disk(app);
+}
+
+/// Applies the theme setting. The window passes it on to the page, whose
+/// light and dark looks follow `prefers-color-scheme`.
+pub fn apply_theme(app: &AppHandle) {
+    if let Some(window) = main_window(app) {
+        let _ = window.set_theme(Settings::of(&app.state()).window_theme());
+    }
 }
 
 /// Hides the window to the tray, remembering where it was.
