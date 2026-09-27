@@ -1,4 +1,5 @@
 mod activity;
+mod cli;
 mod clipboard;
 mod credentials;
 mod data_dir;
@@ -23,7 +24,7 @@ mod window;
 use activity::Activity;
 use serde::Serialize;
 use settings::Settings;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use remote::Remote as _;
@@ -36,14 +37,8 @@ use edit::EntryData;
 use vault::{EntryDetail, Listing, Vault};
 use zeroize::Zeroizing;
 
-/// Passed by the "Start with Windows" entry: start in the tray, locked.
-const AUTOSTART_ARG: &str = "--autostart";
 /// How often the inactivity check runs.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
-
-fn is_autostart<S: AsRef<str>>(mut args: impl Iterator<Item = S>) -> bool {
-    args.any(|arg| arg.as_ref() == AUTOSTART_ARG)
-}
 
 /// The unlocked database, if any. Locking drops it, and with it every
 /// decrypted value.
@@ -157,11 +152,26 @@ fn left(app: &AppHandle, left: Option<remote::Location>) {
 fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
     can_switch(&app)?;
     let Some(picked) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    left(&app, current_location(&app.state()));
-    choose(app, |s| {
-        s.database = Some(picked);
+    open_local_file(&app, picked)
+}
+
+/// Makes `path` the database, as a local file.
+fn open_local_file(app: &AppHandle, path: PathBuf) -> Result<Status, String> {
+    left(app, current_location(&app.state()));
+    choose(app.clone(), |s| {
+        s.database = Some(path);
         s.remote = None;
     })
+}
+
+/// A database named on the command line (at start, or by a second launch),
+/// opened when the app may switch to it.
+fn open_from_command_line(app: &AppHandle, path: PathBuf) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    can_switch(app)?;
+    open_local_file(app, path).map(drop)
 }
 
 /// The database becomes a file in a folder (a LAN share, a NAS), synced
@@ -718,19 +728,38 @@ fn lock_on_session_lock(app: AppHandle) {
 }
 
 pub fn run() {
-    let autostarted = is_autostart(std::env::args().skip(1));
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let options = match cli::parse(std::env::args().skip(1), &cwd) {
+        Ok(cli::Command::Run(options)) => options,
+        Ok(cli::Command::Help) => return cli::print(cli::USAGE),
+        Ok(cli::Command::Version) => return cli::print(&format!("PswManager {}", env!("CARGO_PKG_VERSION"))),
+        Err(message) => {
+            cli::print(&format!("{message}\n\n{}", cli::USAGE));
+            std::process::exit(2);
+        }
+    };
+    let state_file = options.data_dir.as_deref().map_or_else(data_dir::resolve_state_file, data_dir::in_folder);
     tauri::Builder::default()
         // Must come first: a second launch hands over to this process and exits.
         // A second "Start with Windows" launch leaves the running app as it is.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
-            if !is_autostart(args.iter()) {
-                window::show(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let Ok(cli::Command::Run(second)) = cli::parse(args.into_iter().skip(1), Path::new(&cwd)) else { return };
+            if second.autostart {
+                return;
+            }
+            window::show(app);
+            if let Some(database) = second.database {
+                // The window is up: tell it what happened.
+                let _ = match open_from_command_line(app, database) {
+                    Ok(()) => app.emit("status-changed", ()),
+                    Err(message) => app.emit("notice", message),
+                };
             }
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_autostart::Builder::new().arg(AUTOSTART_ARG).build())
+        .plugin(tauri_plugin_autostart::Builder::new().arg(cli::AUTOSTART).build())
         .manage(Session::default())
         .manage(Activity::default())
         .manage(Notice::default())
@@ -784,10 +813,16 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            app.manage(Store::load(data_dir::resolve_state_file()));
+            app.manage(Store::load(state_file));
             opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
-            window::open(handle, !autostarted)?;
+            if let Some(database) = options.database {
+                // The window is not up yet: the unlock screen shows the reason.
+                if let Err(message) = open_from_command_line(handle, database) {
+                    let _ = handle.state::<Notice>().0.set(message);
+                }
+            }
+            window::open(handle, !options.autostart)?;
             tray::create(handle)?;
             register_hotkey(handle);
             watch_inactivity(handle.clone());

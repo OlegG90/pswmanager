@@ -309,9 +309,13 @@ pswm --help | --version
 
 | Option | Meaning |
 |---|---|
-| `<file.kdbx>` | Open this database instead of the remembered one |
+| `<file.kdbx>` | Open this database (as a local file, not synced); it is remembered like one chosen in the window |
 | `--data-dir <path>` | Use an explicit data location |
 | `--help` / `--version` | Print to the console the exe was launched from |
+
+A second launch with a file hands it to the running app, which opens it when it is locked (and not
+waiting to sync changes); otherwise the window says why not. An unknown option prints the usage and exits
+with code 2.
 
 ## State
 

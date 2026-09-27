@@ -826,6 +826,17 @@ listen('window-shown', () => {
   else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else passwordInput.focus()
 })
+// A database named on the command line of a second launch was chosen.
+listen('status-changed', async () => {
+  if (!unlocked) showUnlock(await api.status())
+})
+listen<string>('notice', (e) => {
+  if (unlocked) notify(e.payload, 10)
+  else {
+    unlockError.textContent = e.payload
+    unlockError.hidden = false
+  }
+})
 listen('open-settings', () => {
   if (!isAsking()) openSettings()
 })
