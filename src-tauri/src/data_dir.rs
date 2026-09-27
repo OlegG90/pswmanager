@@ -15,6 +15,11 @@ pub fn state_file(exe_dir: Option<&Path>, app_data: Option<&Path>) -> PathBuf {
     }
 }
 
+/// The state file in a folder given on the command line (`--data-dir`).
+pub fn in_folder(dir: &Path) -> PathBuf {
+    dir.join(FILE_NAME)
+}
+
 /// Resolves the state file: next to the running exe or in %APPDATA%.
 pub fn resolve_state_file() -> PathBuf {
     let exe_dir = std::env::current_exe()
