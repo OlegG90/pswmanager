@@ -229,6 +229,13 @@ impl Vault {
         self.change(|db, hidden| edit::rename_attachment(db, id, from, to, hidden))
     }
 
+    /// Gives one of an entry's files new content and saves the file (see
+    /// [edit::replace_attachment]).
+    pub fn replace_attachment(&mut self, id: &str, name: &str, data: &[u8]) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::replace_attachment(db, id, name, data, hidden))
+    }
+
     /// Moves an entry to the recycle bin and saves the file. An entry already
     /// gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
@@ -695,6 +702,11 @@ pub mod tests {
         assert_eq!(again.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
         assert_eq!(again.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"attached later");
         assert!(again.attachment(&mail, "later.txt").is_none());
+        let mut again = again;
+        again.replace_attachment(&mail, "renamed.txt", b"replaced").unwrap();
+        let last = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(last.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"replaced");
+        assert_eq!(last.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
     }
 
     #[test]

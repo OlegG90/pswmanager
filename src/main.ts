@@ -346,6 +346,7 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'actions' },
       button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
       button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name)),
+      button('Replace…', 'Replace with another file (its history keeps this one)', () => replaceAttachment(file.name)),
       button('Rename', 'Rename (its history keeps the old name)', () => renameAttachment(file.name)),
       button('Remove', 'Remove from this entry (its history keeps the file)', () => removeAttachment(file.name))),
   )
@@ -470,6 +471,17 @@ async function attachFile() {
   try {
     const attached = await api.attachFile(entry.id)
     if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function replaceAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  try {
+    const listing = await api.replaceAttachment(entry.id, name)
+    if (listing) applyListing(listing, `Replaced ${name} · the previous one is in the entry's history`)
   } catch (e) {
     notify(String(e))
   }

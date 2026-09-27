@@ -190,6 +190,9 @@ export const api = {
   openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
   /** Asks for a file and attaches it to the entry; null when cancelled. */
   attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
+  /** Asks for a file and makes its content the entry's file `name`; its
+   *  history keeps the old content. Null when cancelled. */
+  replaceAttachment: (id: string, name: string) => invoke<Listing | null>('replace_attachment', { id, name }),
   /** Renames the entry's file; its history keeps the old name. */
   renameAttachment: (id: string, from: string, to: string) => invoke<Attached>('rename_attachment', { id, from, to }),
   /** Removes the file from the entry; its history keeps it. */

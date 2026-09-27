@@ -13,7 +13,7 @@ prototypes, not app code: nothing here is built or shipped.
 
 What the app takes from it so far: the look of the unlock screen, vault, entry view, editor and
 generator, and the settings screen. The entry view's attachments (a section under the notes, listing
-each file with its size, **Open**, **Save…**, **Rename** and **Remove**, and **Attach file…** beside Edit) are not in the handoff; they
+each file with its size, **Open**, **Save…**, **Replace…**, **Rename** and **Remove**, and **Attach file…** beside Edit) are not in the handoff; they
 follow the view's own rows and the editor's section headings. Not built: the first-run screen, password
 health (out of scope, see `docs/spec.md`) and reordering additional fields. The app uses system fonts
 instead of the design

@@ -507,17 +507,40 @@ struct Attached {
     listing: Listing,
 }
 
-/// Attaches a file the user picks to an entry and saves the database; the
-/// content never passes through the frontend. Nothing when the user cancelled.
-#[tauri::command(async)]
-fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: String) -> Result<Option<Attached>, String> {
-    let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
+/// A file the user picked to attach: its name and content.
+type Picked = (String, Zeroizing<Vec<u8>>);
+
+/// A file the user picks to attach; nothing when cancelled.
+fn pick_attachment(window: &Window) -> Result<Option<Picked>, String> {
+    let Some(path) = pick(window, "", &[])? else { return Ok(None) };
     let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len();
     if size > edit::MAX_ATTACHMENT as u64 {
         return Err(edit::too_big());
     }
     let data = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Some((name, data)))
+}
+
+/// Replaces the content of one of the entry's files with a file the user
+/// picks (the entry's history keeps the old content), saves the database
+/// and returns the new listing; nothing when the user cancelled.
+#[tauri::command(async)]
+fn replace_attachment(app: AppHandle, window: Window, session: State<Session>, id: String, name: String) -> Result<Option<Listing>, String> {
+    let Some((_, data)) = pick_attachment(&window)? else { return Ok(None) };
+    let listing = session.with_mut(|v| {
+        v.replace_attachment(&id, &name, &data)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(Some(listing))
+}
+
+/// Attaches a file the user picks to an entry and saves the database; the
+/// content never passes through the frontend. Nothing when the user cancelled.
+#[tauri::command(async)]
+fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: String) -> Result<Option<Attached>, String> {
+    let Some((name, data)) = pick_attachment(&window)? else { return Ok(None) };
     let attached = session.with_mut(|v| {
         let name = v.attach(&id, &name, &data)?;
         Ok(Attached { name, listing: v.listing() })
@@ -726,6 +749,7 @@ pub fn run() {
             attach_file,
             remove_attachment,
             rename_attachment,
+            replace_attachment,
             group_paths,
             totp,
             copy_totp,

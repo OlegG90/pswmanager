@@ -255,9 +255,7 @@ pub fn detach(db: &mut Database, id: EntryId, name: &str, hidden: &HashSet<Group
 }
 
 /// Renames the entry's file `from` to `to` and returns the new name; the
-/// previous version, with the old name, goes to history. keepass-rs cannot
-/// rename a file, so the entry lets go of it (history keeps it) and gets
-/// the same content under the new name.
+/// previous version, with the old name, goes to history.
 pub fn rename_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, hidden: &HashSet<GroupId>) -> Result<String, String> {
     let to = to.trim();
     let entry = db.entry(id).ok_or(NOT_FOUND)?;
@@ -274,12 +272,40 @@ pub fn rename_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, h
     if entry.attachment_by_name(to).is_some() {
         return Err(format!("The entry already has a file named \"{to}\""));
     }
-    let before = (*entry).clone();
+    swap_attachment(db, id, from, to, data);
+    Ok(to.to_string())
+}
+
+/// Gives the entry's file `name` new content; the previous version, with the
+/// old content, goes to history. Content that did not change changes nothing.
+pub fn replace_attachment(db: &mut Database, id: EntryId, name: &str, data: &[u8], hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let entry = db.entry(id).ok_or(NOT_FOUND)?;
+    if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
+        return Err(NOT_FOUND.into());
+    }
+    if data.len() > MAX_ATTACHMENT {
+        return Err(too_big());
+    }
+    let old = entry.attachment_by_name(name).ok_or("That file is no longer in the entry")?;
+    if old.data.get() == data {
+        return Ok(());
+    }
+    // Protected in memory as it was.
+    let data = if old.data.is_protected() { Value::protected(data.to_vec()) } else { Value::unprotected(data.to_vec()) };
+    swap_attachment(db, id, name, name, data);
+    Ok(())
+}
+
+/// Replaces the entry's file `from` with `data` named `to`, the previous
+/// version filed into history. keepass-rs can neither rename a file nor
+/// change its content, so the entry lets go of the file (history keeps it,
+/// see [drop_attachments]) and gets the content under the name anew.
+fn swap_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, data: Value<Vec<u8>>) {
+    let before = (*db.entry(id).expect("checked by the caller")).clone();
     drop_attachments(db, id, &[from.to_string()]);
-    db.entry_mut(id).expect("checked above").add_attachment(to, data);
+    db.entry_mut(id).expect("checked by the caller").add_attachment(to, data);
     file_in_history(db, id, before);
     trim_history(db, id);
-    Ok(to.to_string())
 }
 
 /// Takes files off the entry's current version, leaving them in the
@@ -907,6 +933,25 @@ mod tests {
         assert!(rename(&mut db, "c.txt", " ").is_err());
         assert!(rename(&mut db, "a.txt", "d.txt").is_err());
         assert_eq!(rename(&mut db, "c.txt", "c.txt").unwrap(), "c.txt");
+        assert_eq!(db, before);
+    }
+
+    #[test]
+    fn replacing_keeps_the_old_content_in_history() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
+        attach(&mut db, id, "a.txt", b"old", &HashSet::new()).unwrap();
+        attach(&mut db, id, "b.txt", b"b", &HashSet::new()).unwrap();
+        replace_attachment(&mut db, id, "a.txt", b"new", &HashSet::new()).unwrap();
+        assert_eq!(files(&db, id), [("a.txt".to_string(), b"new".to_vec()), ("b.txt".to_string(), b"b".to_vec())]);
+        let entry = db.entry(id).unwrap();
+        assert_eq!(entry.historical(0).unwrap().attachment_by_name("a.txt").unwrap().data.get(), b"old");
+        assert!(db.entry(id).unwrap().attachment_by_name("a.txt").unwrap().data.is_protected());
+        // The same content, a file that is gone, a file too big: nothing changes.
+        let before = db.clone();
+        replace_attachment(&mut db, id, "a.txt", b"new", &HashSet::new()).unwrap();
+        assert!(replace_attachment(&mut db, id, "gone.txt", b"x", &HashSet::new()).is_err());
+        assert!(replace_attachment(&mut db, id, "a.txt", &vec![0; MAX_ATTACHMENT + 1], &HashSet::new()).is_err());
         assert_eq!(db, before);
     }
 
