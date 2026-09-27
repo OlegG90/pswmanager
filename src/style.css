@@ -928,6 +928,55 @@ input[type='range']:focus-visible {
   height: 34px;
 }
 
+/* Tags as chips, with the input for a new one after them. */
+.tag-input {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  padding: 3px 4px;
+  background: var(--color-field);
+  cursor: text;
+}
+
+.tag-input:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.tag-chips {
+  display: contents;
+  border: 0;
+}
+
+.tag-input .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 8px;
+  border-color: var(--color-accent-200);
+  background: var(--color-accent-100);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.tag-input .tag button {
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  line-height: 1.2;
+}
+
+.tag-input input {
+  flex: 1;
+  min-width: 90px;
+  border: 0;
+  outline: none;
+  background: transparent;
+}
+
 input.secret {
   font-family: var(--font-mono);
 }

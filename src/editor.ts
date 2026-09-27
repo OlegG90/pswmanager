@@ -2,6 +2,7 @@ import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved 
 import { button, el } from './dom'
 import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
 import { ask } from './modal'
+import { tagInput } from './tag-input'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -12,6 +13,8 @@ export interface EditorOptions {
   onClose: () => void
   /** Starts in the password field (to change it) instead of the title. */
   focusPassword?: boolean
+  /** The database's tags, offered when adding one. */
+  knownTags: string[]
 }
 
 const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [] }
@@ -195,7 +198,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const otp = input(data.otp, { type: 'password', className: 'secret', placeholder: 'Secret or otpauth:// URI' })
   const group = input(formatGroup(data.group), { placeholder: 'Top level' })
   group.setAttribute('list', 'group-list')
-  const tags = input(formatTags(data.tags), { placeholder: 'Separated by commas' })
+  const tags = tagInput(data.tags, options.knownTags)
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
   const error = el('p', { className: 'error', hidden: true })
   const strength = el('div', { className: 'strength' })
@@ -240,7 +243,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     url: keep(data.url, url.value.trim(), trimmedLine),
     notes: keep(data.notes, notes.value, textareaLines),
     otp: keep(data.otp, otp.value.trim(), trimmedLine),
-    tags: keep(data.tags, parseTags(tags.value), (t) => parseTags(formatTags(t))),
+    tags: keep(data.tags, tags.value(), (t) => parseTags(formatTags(t))),
     group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
   })
@@ -294,7 +297,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('URL', url),
     row('TOTP', otp, showHide(otp)),
     row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
-    row('Tags', tags),
+    row('Tags', tags.element),
     row('Notes', notes),
     el('h3', {}, 'Additional fields'),
     fieldList,

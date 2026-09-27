@@ -142,6 +142,8 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
   unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
 - Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
   (add / rename / remove, protected or not).
+- Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
+  database's other tags offered.
 - **Attachments:** in the entry view a file can be added to an entry, replaced, renamed or removed (up to
   20 MB — the whole database is synced on every change); the change is saved at once, with the previous
   version in history, like an edit. A name the entry already uses gets a number (`scan (2).pdf`) rather
