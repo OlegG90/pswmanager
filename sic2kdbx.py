@@ -11,7 +11,8 @@ Works fully offline. Mapping:
   field types, order,
   symbol, color        -> entry CustomData "SafeInCloud" (JSON), for a future app
   labels               -> tags; first label also becomes the group
-  <image>, <file>      -> attachments
+  <image>, <file>      -> attachments (SafeInCloud stores files zlib-compressed;
+                          they are unpacked)
   template cards       -> "Templates" group
   deleted cards        -> Recycle Bin (or skipped with --skip-deleted)
 """
@@ -23,6 +24,7 @@ import json
 import os
 import re
 import sys
+import zlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -98,6 +100,20 @@ FILE_SIGNATURES = {
 }
 
 
+def _unpack(data):
+    """SafeInCloud keeps <file> attachments zlib-compressed (images are stored
+    as they are). Data with a zlib header that unpacks cleanly is unpacked;
+    anything else is kept as it is."""
+    if len(data) < 2 or data[0] & 0x0F != 8 or (data[0] << 8 | data[1]) % 31:
+        return data
+    try:
+        unpacker = zlib.decompressobj()
+        unpacked = unpacker.decompress(data) + unpacker.flush()
+    except zlib.error:
+        return data
+    return unpacked if unpacker.eof and not unpacker.unused_data else data
+
+
 def _sniff_extension(data):
     for magic, ext in FILE_SIGNATURES.items():
         if data.startswith(magic):
@@ -131,7 +147,7 @@ def parse_sic(path):
                 ))
             elif child.tag in ("image", "file") and (child.text or "").strip():
                 try:
-                    data = base64.b64decode("".join(child.text.split()), validate=True)
+                    data = _unpack(base64.b64decode("".join(child.text.split()), validate=True))
                 except ValueError:
                     print(f"Warning: damaged <{child.tag}> attachment in card "
                           f"\"{c.get('title')}\" skipped", file=sys.stderr)
