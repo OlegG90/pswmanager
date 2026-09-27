@@ -1,3 +1,4 @@
+use crate::dbfile::{replace_file, sibling};
 use crate::remote::Location;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -82,13 +83,12 @@ impl Store {
     }
 }
 
-fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Creates the folder if needed, and replaces the file whole.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, bytes)?;
-    fs::rename(&tmp, path)
+    replace_file(path, &sibling(path, ".tmp"), bytes)
 }
 
 #[cfg(test)]

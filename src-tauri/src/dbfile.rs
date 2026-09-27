@@ -7,7 +7,7 @@ use keepass::error::{DatabaseKeyError, DatabaseOpenError};
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// Why a save did not happen.
@@ -35,6 +35,30 @@ pub struct DbFile {
 
 fn hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+/// The same hash as text, as the sync state keeps it.
+pub fn hash_hex(bytes: &[u8]) -> String {
+    hex(&hash(bytes))
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Writes `bytes` to `tmp` (flushed to disk), then renames it over `path`, so
+/// a reader sees either the old file or the whole new one.
+pub fn replace_file(path: &Path, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+    let written = (|| {
+        let mut file = File::create(tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(tmp, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(tmp);
+    }
+    written
 }
 
 impl DbFile {
@@ -108,18 +132,9 @@ impl DbFile {
     /// did not change since it was last read or written.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
         let current = self.check_unchanged()?;
-        let tmp = self.sibling(".pswm-tmp");
-        let written = (|| {
-            let mut file = File::create(&tmp)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            fs::write(self.sibling(".bak"), &current)?;
-            fs::rename(&tmp, &self.path)
-        })();
-        if let Err(e) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(SaveError::Failed(format!("Cannot save the database: {e}")));
-        }
+        fs::write(self.sibling(".bak"), &current)
+            .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))
+            .map_err(|e| SaveError::Failed(format!("Cannot save the database: {e}")))?;
         self.hash = hash(bytes);
         Ok(())
     }

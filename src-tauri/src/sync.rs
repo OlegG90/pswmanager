@@ -2,10 +2,10 @@
 //! compares both with where the last sync left them: an unchanged side takes
 //! the other's file, and when both changed they are merged.
 
-use crate::remote::{hash_hex, Remote, RemoteError};
+use crate::dbfile::{hash_hex, sibling};
+use crate::remote::{Remote, RemoteError};
 use crate::settings::Settings;
 use crate::store::{self, Store};
-use crate::vault::Vault;
 use crate::Session;
 use serde::Serialize;
 use std::fs;
@@ -73,27 +73,27 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             // The remote file is gone: the upload below puts it back.
             update(store, |r| r.revision = None)?;
         } else {
-            let Ok(Some(since)) = session.read(Vault::snapshot) else { return Ok(Some(Outcome::WaitingForUnlock)) };
-            let changed_here = file_hash(&working)? != state.synced;
+            let Ok(Some((since, unsaved))) = session.read(|v| v.snapshot().map(|s| (s, v.has_unsaved()))) else {
+                return Ok(Some(Outcome::WaitingForUnlock));
+            };
+            let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
             let theirs = since.parse(&bytes).map_err(|e| failed(format!("The remote copy cannot be opened: {e}")))?;
-            let taken = match session.with_mut(|v| v.take_remote(&since, theirs, &bytes, changed_here)) {
-                Ok(taken) => taken,
+            outcome = match session.with_mut(|v| v.take_remote(&since, theirs, &bytes, changed_here)) {
+                Ok(Some(taken)) => taken,
+                Ok(None) => return Ok(None),
                 Err(_) if !session.is_unlocked() => return Ok(Some(Outcome::WaitingForUnlock)),
                 Err(message) => return Err(failed(message)),
             };
-            let Some((changed, kept_ours)) = taken else { return Ok(None) };
-            if kept_ours {
+            let merged = matches!(outcome, Outcome::Merged(_));
+            if merged {
                 // What the upload below replaces, in case the merge got it wrong.
-                fs::write(remote_backup(&working), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
-                outcome = Outcome::Merged(changed);
-            } else {
-                outcome = Outcome::Downloaded(changed);
+                fs::write(sibling(&working, ".remote.bak"), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
             }
             update(store, |r| {
                 r.revision = Some(revision);
-                if !kept_ours {
+                if !merged {
                     r.synced = Some(hash_hex(&bytes)); // the working copy is now exactly the remote file
                 }
             })?;
@@ -105,7 +105,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
         Some((now, state)) if now == working => state,
         _ => return Err(failed("Another database was chosen meanwhile")),
     };
-    let bytes = fs::read(&working).map_err(|e| failed(format!("Cannot read the working copy: {e}")))?;
+    let bytes = read_working(&working)?;
     let hash = hash_hex(&bytes);
     if state.revision.is_none() || state.synced.as_ref() != Some(&hash) {
         match remote.upload(&bytes, state.revision.as_deref()) {
@@ -138,15 +138,18 @@ fn update(store: &Store, change: impl FnOnce(&mut store::Remote)) -> Result<(), 
         .map_err(|e| failed(format!("Cannot save the sync state: {e}")))
 }
 
-fn file_hash(path: &Path) -> Result<Option<String>, SyncError> {
-    let bytes = fs::read(path).map_err(|e| failed(format!("Cannot read the working copy: {e}")))?;
-    Ok(Some(hash_hex(&bytes)))
+fn read_working(path: &Path) -> Result<Vec<u8>, SyncError> {
+    fs::read(path).map_err(|e| failed(format!("Cannot read the working copy: {e}")))
+}
+
+fn working_hash(path: &Path) -> Result<String, SyncError> {
+    read_working(path).map(|bytes| hash_hex(&bytes))
 }
 
 /// True when the working copy has changes the remote file lacks (a missing
 /// working copy has none).
 pub fn has_pending(store: &Store) -> bool {
-    synced(store).is_some_and(|(working, state)| fs::read(&working).is_ok_and(|b| state.synced != Some(hash_hex(&b))))
+    synced(store).is_some_and(|(working, state)| working_hash(&working).is_ok_and(|hash| state.synced != Some(hash)))
 }
 
 /// `<data>/sync/<name>.kdbx`: where the working copy of a remote file lives.
@@ -154,15 +157,11 @@ pub fn working_copy_path(store: &Store, file_name: &str) -> PathBuf {
     store.dir().join("sync").join(file_name)
 }
 
-fn remote_backup(working: &Path) -> PathBuf {
-    crate::dbfile::sibling(working, ".remote.bak")
-}
-
 /// Makes `location` the database: its file is downloaded as the working copy.
 pub fn start(store: &Store, location: crate::remote::Location) -> Result<(), String> {
     let (bytes, revision) = location.open().download().map_err(|e| e.message())?;
     let working = working_copy_path(store, &location.file_name());
-    write_new(&working, &bytes)?;
+    store::write_atomically(&working, &bytes).map_err(|e| format!("Cannot write the working copy: {e}"))?;
     let remote = store::Remote { location, revision: Some(revision), synced: Some(hash_hex(&bytes)) };
     store
         .update(|s| {
@@ -180,18 +179,6 @@ pub fn ensure_working_copy(store: &Store) -> Result<(), String> {
         return Ok(());
     }
     start(store, state.location)
-}
-
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let written = (|| {
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        let tmp = crate::dbfile::sibling(path, ".pswm-tmp");
-        fs::write(&tmp, bytes)?;
-        fs::rename(&tmp, path)
-    })();
-    written.map_err(|e| format!("Cannot write the working copy: {e}"))
 }
 
 // ------------------------------------------------------------ in the app
@@ -290,7 +277,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
-    Status { remote: true, busy: false, text, problem }
+    Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
@@ -362,6 +349,7 @@ pub fn is_running(app: &AppHandle) -> bool {
 mod tests {
     use super::*;
     use crate::remote::{Folder, Location};
+    use crate::vault::Vault;
     use keepass::db::fields;
     use keepass::{Database, DatabaseKey};
     use std::fs::File;
@@ -476,7 +464,7 @@ mod tests {
         assert_eq!(s.remote_password("Mail"), "from the PC");
         assert_eq!(s.password_here("Mail"), "from the PC");
         let working = s.store.read(|st| st.database.clone()).unwrap();
-        assert!(remote_backup(&working).exists());
+        assert!(sibling(&working, ".remote.bak").exists());
         assert_eq!(s.sync(), Ok(Outcome::UpToDate));
     }
 

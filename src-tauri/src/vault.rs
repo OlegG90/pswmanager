@@ -4,6 +4,7 @@
 
 use crate::dbfile::{DbFile, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, NOT_FOUND};
+use crate::sync::Outcome;
 use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::{Database, DatabaseKey};
@@ -226,19 +227,17 @@ impl Vault {
     }
 
     /// Takes the remote file `theirs` (opened from `raw`). With `merge` —
-    /// this device changed the working copy since the last sync — this
-    /// device's changes are merged into it and saved; otherwise it replaces the
-    /// working copy byte for byte. Returns the entries that differ from before
-    /// and whether this device's changes were kept (the working copy then has
-    /// what the remote file lacks), or `None` when the working copy was
-    /// written since `since` (sync again).
-    pub fn take_remote(&mut self, since: &Snapshot, mut theirs: Database, raw: &[u8], merge: bool) -> Result<Option<(Vec<String>, bool)>, String> {
+    /// this device has changes since the last sync — they are merged into it
+    /// and saved ([Outcome::Merged]: the working copy then has what the remote
+    /// file lacks); otherwise it replaces the working copy byte for byte
+    /// ([Outcome::Downloaded]). Either carries the entries that differ from
+    /// before. `None` when the working copy was written since `since`.
+    pub fn take_remote(&mut self, since: &Snapshot, mut theirs: Database, raw: &[u8], merge: bool) -> Result<Option<Outcome>, String> {
         let file = self.file.as_mut().ok_or("This database cannot be saved")?;
         if !file.is_at(since) {
             return Ok(None);
         }
-        // Changes kept from an older file but not written yet are changes here too.
-        let kept_ours = (merge || self.unsaved) && !edit::merge(&mut theirs, &self.db).is_empty();
+        let kept_ours = merge && !edit::merge(&mut theirs, &self.db).is_empty();
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
             Ok(()) => {}
@@ -248,7 +247,13 @@ impl Vault {
         let changed = changed_entries(&self.db, &theirs);
         self.db = theirs;
         self.unsaved = false;
-        Ok(Some((changed, kept_ours)))
+        Ok(Some(if kept_ours { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
+    }
+
+    /// True when the database holds changes its file lacks (kept from an
+    /// older file, not written yet).
+    pub fn has_unsaved(&self) -> bool {
+        self.unsaved
     }
 
     /// Writes changes kept from an older file, if any.

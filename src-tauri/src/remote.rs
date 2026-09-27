@@ -1,10 +1,10 @@
 //! Where a synced database lives besides this PC: a store the app reads and
 //! writes whole files in, each version marked by a revision.
 
+use crate::dbfile::{hash_hex, hex, replace_file, sibling};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::fs::{self, File};
-use std::io::{ErrorKind, Write};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 /// Why talking to a store failed.
@@ -81,10 +81,6 @@ impl Location {
     }
 }
 
-pub fn hash_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// A file in a folder; its revision is the hash of its content.
 pub struct Folder {
     pub path: PathBuf,
@@ -126,17 +122,9 @@ impl Remote for Folder {
         // Named for this upload only: another device may be uploading too.
         let mut unique = [0u8; 8];
         getrandom::fill(&mut unique).map_err(|e| RemoteError::Failed(format!("No random numbers: {e}")))?;
-        let tmp = crate::dbfile::sibling(&self.path, &format!(".{}.pswm-tmp", hash_hex(&unique)[..16].to_owned()));
-        let written = (|| {
-            let mut file = File::create(&tmp)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            fs::rename(&tmp, &self.path)
-        })();
-        if let Err(e) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(RemoteError::Offline(format!("Cannot write {}: {e}", self.path.display())));
-        }
+        let tmp = sibling(&self.path, &format!(".{}.pswm-tmp", hex(&unique)));
+        replace_file(&self.path, &tmp, bytes)
+            .map_err(|e| RemoteError::Offline(format!("Cannot write {}: {e}", self.path.display())))?;
         Ok(hash_hex(bytes))
     }
 }
