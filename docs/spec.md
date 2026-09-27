@@ -42,9 +42,9 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
   KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept.
 - A file whose elements are out of KeePass's order (as older `sic2kdbx` versions wrote) is refused with a
   message, because keepass-rs would decrypt its protected values in the wrong order.
-- **Nothing is lost on a round trip.** Data the app does not show — attachments, entry history, custom
+- **Nothing is lost on a round trip.** Data the app does not show or change — entry history, custom
   attributes, `CustomData` (including the `SafeInCloud` JSON written by `sic2kdbx`), icons, the recycle
-  bin, `DeletedObjects` — is written back unchanged.
+  bin, `DeletedObjects`, and attachments the user did not change — is written back unchanged.
 - The key and every decrypted value stay in the Rust backend. The frontend receives only what it has to
   show; a password reaches the frontend only while it is revealed or being edited. Secrets in Rust are held
   in `zeroize`-on-drop types.
