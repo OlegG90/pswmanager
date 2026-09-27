@@ -6,6 +6,7 @@ import { ask, choose, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
+import { renderSettings } from './settings'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -17,6 +18,7 @@ const searchInput = $<HTMLInputElement>('search')
 const filterSelect = $<HTMLSelectElement>('filter')
 const list = $<HTMLUListElement>('list')
 const detail = $('detail')
+const settingsView = $('settings')
 const toast = $('toast')
 
 const DEFAULT_ICON =
@@ -27,6 +29,9 @@ const DEFAULT_ICON =
   )
 
 const EMPTY: Listing = { entries: [], customIcons: {} }
+let unlocked = false
+/** The settings screen is over the vault or the unlock screen, whichever is current. */
+let settingsOpen = false
 let listing = EMPTY
 /** Site icons by host: a data URL, null when the cache has none (yet). */
 const siteIcons = new Map<string, string | null>()
@@ -53,8 +58,8 @@ function showStatus(status: Status) {
 function showUnlock(status: Status) {
   showStatus(status)
   vault.hidden = true
-  unlockForm.hidden = false
-  passwordInput.focus()
+  unlockForm.hidden = settingsOpen
+  if (!settingsOpen) passwordInput.focus()
 }
 
 async function run(action: () => Promise<void>) {
@@ -117,6 +122,7 @@ unlockForm.addEventListener('submit', (e) => {
 
 function showVault(next: Listing) {
   listing = next
+  unlocked = true
   unlockForm.hidden = true
   vault.hidden = false
   api.syncStatus().then(showSyncStatus, () => {})
@@ -133,6 +139,7 @@ function lock() {
 
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
+  unlocked = false
   closeEditor()
   stopTotp()
   listing = EMPTY
@@ -486,10 +493,37 @@ function showSyncStatus(status: SyncStatus) {
 
 /** The file changed on disk and was read again: show the new state in place. */
 function showDiskChange({ listing: next, changed }: DiskChange) {
-  if (vault.hidden) return
+  if (!unlocked) return
   // Focus stays where the user left it.
   applyListing(next, 'Updated from another device', false)
   changedElsewhere(changed)
+}
+
+// ---------------------------------------------------------------- settings
+
+async function openSettings() {
+  if (settingsOpen) return
+  try {
+    await renderSettings(settingsView, closeSettings, (message) => notify(message, 6))
+  } catch (e) {
+    return notify(String(e))
+  }
+  settingsOpen = true
+  unlockForm.hidden = true
+  vault.hidden = true
+  settingsView.hidden = false
+  settingsView.querySelector('button')?.focus()
+}
+
+/** Back to the vault, or to the unlock screen when locked meanwhile. */
+function closeSettings() {
+  if (!settingsOpen) return
+  settingsOpen = false
+  settingsView.hidden = true
+  settingsView.replaceChildren()
+  vault.hidden = !unlocked
+  unlockForm.hidden = unlocked
+  ;(unlocked ? searchInput : passwordInput).focus()
 }
 
 // ---------------------------------------------------------------- keys
@@ -498,6 +532,7 @@ searchInput.addEventListener('input', refresh)
 filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', () => startEditor(null))
+$('settings-button').addEventListener('click', openSettings)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 
 /** Esc with nothing left to close: back to the tray. */
@@ -550,6 +585,9 @@ function perform(action: Action, e: KeyboardEvent) {
         hideWindow()
       }
       break
+    case 'settings':
+      openSettings()
+      break
     case 'type-to-search':
       searchInput.focus()
       return // the key itself goes on into the search field
@@ -559,8 +597,22 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (isAsking()) return // the question on screen has the keys
-  if (vault.hidden) {
+  if (settingsOpen) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeSettings()
+    } else if (unlocked && e.ctrlKey && e.code === 'KeyL') {
+      e.preventDefault()
+      lock()
+    }
+    return
+  }
+  if (!unlocked) {
     if (e.key === 'Escape') hideWindow()
+    if (e.ctrlKey && e.code === 'Comma') {
+      e.preventDefault()
+      openSettings()
+    }
     return
   }
   if (isEditing()) {
@@ -584,7 +636,7 @@ document.addEventListener('keydown', (e) => {
 let lastTouch = 0
 function reportActivity() {
   const now = Date.now()
-  if (vault.hidden || now - lastTouch < 5000) return
+  if (!unlocked || now - lastTouch < 5000) return
   lastTouch = now
   api.touch().catch(() => {})
 }
@@ -597,7 +649,16 @@ listen('locked', showLocked)
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
-listen('window-shown', () => (vault.hidden ? passwordInput : searchInput).focus())
+listen('window-shown', () => {
+  if (!settingsOpen) (unlocked ? searchInput : passwordInput).focus()
+})
+listen('open-settings', () => {
+  if (!isAsking()) openSettings()
+})
+// Changed from the tray while the screen is open.
+listen('settings-changed', () => {
+  if (settingsOpen) renderSettings(settingsView, closeSettings, (message) => notify(message, 6)).catch((e) => notify(String(e)))
+})
 
 listen<string>('icon-ready', (e) => {
   siteIcons.delete(e.payload)

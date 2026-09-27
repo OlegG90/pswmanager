@@ -2,6 +2,7 @@
 //! default and allowed range in one place.
 
 use crate::store::Store;
+use serde::Serialize;
 use serde_json::Value;
 use std::time::Duration;
 
@@ -50,6 +51,65 @@ impl<'a> Settings<'a> {
 
     pub fn download_icons(&self) -> bool {
         self.get("downloadIcons", Value::as_bool).unwrap_or(true)
+    }
+
+    /// Every setting as it is in effect, for the settings screen.
+    pub fn view(&self) -> View {
+        let in_minutes = |d: Option<Duration>| d.map_or(0, |d| d.as_secs() / 60);
+        View {
+            lock_after_minutes: in_minutes(self.lock_after()),
+            lock_on_session_lock: self.lock_on_session_lock(),
+            lock_when_hidden: self.lock_when_hidden(),
+            clear_clipboard: self.clear_clipboard_after().as_secs(),
+            sync_every_minutes: in_minutes(self.sync_every()),
+            download_icons: self.download_icons(),
+            hotkey: self.hotkey(),
+        }
+    }
+
+    /// Changes one setting from the settings screen. Only the settings the
+    /// screen offers, with a value of the right kind within its limits.
+    pub fn set(&self, name: &str, value: Value) -> Result<(), String> {
+        check(name, &value)?;
+        self.0
+            .update(|s| {
+                s.settings.insert(name.to_string(), value);
+            })
+            .map_err(|e| format!("Could not save the setting: {e}"))
+    }
+}
+
+/// The settings screen's values; "Start with Windows" comes from the
+/// registry instead, and the hotkey is only shown.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct View {
+    /// 0 means never.
+    pub lock_after_minutes: u64,
+    pub lock_on_session_lock: bool,
+    pub lock_when_hidden: bool,
+    pub clear_clipboard: u64,
+    /// 0 means never.
+    pub sync_every_minutes: u64,
+    pub download_icons: bool,
+    pub hotkey: String,
+}
+
+fn check(name: &str, value: &Value) -> Result<(), String> {
+    let within = |(_, min, max): (u64, u64, u64), never: bool| {
+        value.as_u64().is_some_and(|v| (never && v == 0) || (min..=max).contains(&v))
+    };
+    let ok = match name {
+        "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
+        "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
+        "clearClipboard" => within(CLEAR_SECONDS, false),
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" => value.is_boolean(),
+        _ => return Err(format!("There is no setting {name}")),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("{value} is not a valid value for {name}"))
     }
 }
 
@@ -103,5 +163,40 @@ mod tests {
         assert!(!settings.lock_when_hidden());
         assert!(settings.lock_on_session_lock());
         assert_eq!(settings.hotkey(), "Ctrl+Shift+K");
+    }
+
+    #[test]
+    fn view_shows_defaults_until_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let settings = Settings::of(&store);
+        let view = settings.view();
+        assert_eq!((view.lock_after_minutes, view.clear_clipboard, view.sync_every_minutes), (5, 20, 5));
+        assert!(view.lock_on_session_lock && !view.lock_when_hidden && view.download_icons);
+        assert_eq!(view.hotkey, "Ctrl+Alt+P");
+
+        settings.set("lockAfterMinutes", 0.into()).unwrap();
+        settings.set("clearClipboard", 60.into()).unwrap();
+        settings.set("downloadIcons", false.into()).unwrap();
+        let view = Settings::of(&Store::load(dir.path().join("pswm.json"))).view();
+        assert_eq!((view.lock_after_minutes, view.clear_clipboard), (0, 60));
+        assert!(!view.download_icons);
+    }
+
+    #[test]
+    fn set_refuses_unknown_names_and_bad_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let settings = Settings::of(&store);
+        assert!(settings.set("hotkey", "Ctrl+K".into()).is_err());
+        assert!(settings.set("database", "x".into()).is_err());
+        assert!(settings.set("clearClipboard", 0.into()).is_err());
+        assert!(settings.set("clearClipboard", 121.into()).is_err());
+        assert!(settings.set("lockAfterMinutes", 61.into()).is_err());
+        assert!(settings.set("lockAfterMinutes", "5".into()).is_err());
+        assert!(settings.set("lockWhenHidden", 1.into()).is_err());
+        assert!(store.read(|s| s.settings.is_empty()));
+        settings.set("syncEveryMinutes", 0.into()).unwrap();
+        assert_eq!(settings.sync_every(), None);
     }
 }
