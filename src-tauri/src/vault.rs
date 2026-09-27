@@ -52,12 +52,21 @@ pub struct Field {
     pub protected: bool,
 }
 
+/// A file attached to an entry: its name and size, never its content.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub name: String,
+    pub size: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryDetail {
     #[serde(flatten)]
     pub summary: EntrySummary,
     pub fields: Vec<Field>,
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -138,7 +147,16 @@ impl Vault {
             })
             .collect();
         fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        Some(EntryDetail { summary: summary(&entry), fields })
+        let mut attachments: Vec<Attachment> =
+            entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
+        attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        Some(EntryDetail { summary: summary(&entry), fields, attachments })
+    }
+
+    /// The content of one of the entry's files, for saving it to disk.
+    pub fn attachment(&self, id: &str, name: &str) -> Option<Zeroizing<Vec<u8>>> {
+        let entry = self.entry(id)?;
+        entry.attachment_by_name(name).map(|a| Zeroizing::new(a.data.get().clone()))
     }
 
     /// One field's value, protected or not (`Password`, `UserName`, `URL` or
@@ -187,6 +205,14 @@ impl Vault {
             }
         })?;
         Ok((id.uuid().to_string(), conflicts))
+    }
+
+    /// Attaches a file to an entry and saves the file; returns the name the
+    /// file got (see [edit::attach]).
+    pub fn attach(&mut self, id: &str, name: &str, data: &[u8]) -> Result<String, String> {
+        let id = parse_id(id)?;
+        // Templates and the recycle bin are among the hidden groups.
+        self.change(|db, hidden| edit::attach(db, id, name, data, hidden))
     }
 
     /// Moves an entry to the recycle bin and saves the file. An entry already
@@ -584,6 +610,40 @@ pub mod tests {
         // Templates and the recycle bin stay where they were.
         assert_eq!(reopened.listing().entries.len(), 3);
         assert!(std::fs::metadata(dir.path().join("sic2kdbx.kdbx.bak")).is_ok());
+    }
+
+    #[test]
+    fn attaching_a_file_saves_it_and_keeps_the_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let all_files = |v: &Vault| {
+            let mut all: Vec<(String, String, Vec<u8>)> = v
+                .db
+                .iter_all_entries()
+                .flat_map(|e| {
+                    let title = e.get_title().unwrap_or_default().to_string();
+                    e.attachments_named().map(|(n, a)| (title.clone(), n.to_string(), a.data.get().clone())).collect::<Vec<_>>()
+                })
+                .collect();
+            all.sort();
+            all
+        };
+        let before = all_files(&vault);
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        assert!(vault.detail(&mail).unwrap().attachments.is_empty());
+
+        assert_eq!(vault.attach(&mail, "key.txt", b"recovery codes").unwrap(), "key.txt");
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.detail(&mail).unwrap().attachments, [Attachment { name: "key.txt".into(), size: 14 }]);
+        assert_eq!(reopened.attachment(&mail, "key.txt").unwrap().as_slice(), b"recovery codes");
+        assert!(reopened.attachment(&mail, "other.txt").is_none());
+        let mut expected = before;
+        expected.push(("Mail".into(), "key.txt".into(), b"recovery codes".to_vec()));
+        expected.sort();
+        assert_eq!(all_files(&reopened), expected);
+        // The router's files are listed, by name.
+        let router = id_of(&reopened, "Router").uuid().to_string();
+        assert_eq!(reopened.detail(&router).unwrap().attachments.len(), 2);
     }
 
     #[test]

@@ -474,6 +474,47 @@ fn save_entry(
     Ok(saved)
 }
 
+/// Saves one of the entry's files where the user chooses. The content goes
+/// from the database to the file without passing through the frontend.
+/// False when the user cancelled.
+#[tauri::command(async)]
+fn save_attachment(window: Window, session: State<Session>, id: String, name: String) -> Result<bool, String> {
+    let data = session.with(|v| v.attachment(&id, &name))?;
+    // A name is a file name, but other clients may store a path.
+    let file_name = name.rsplit(['/', '\\']).next().unwrap_or(&name);
+    let chosen = window.dialog().file().set_parent(&window).set_file_name(file_name).blocking_save_file();
+    let Some(path) = chosen.map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(false) };
+    std::fs::write(&path, &*data).map_err(|e| format!("Cannot save the file: {e}"))?;
+    Ok(true)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Attached {
+    /// The name the file got in the entry.
+    name: String,
+    listing: Listing,
+}
+
+/// Attaches a file the user picks to an entry and saves the database; the
+/// content never passes through the frontend. Nothing when the user cancelled.
+#[tauri::command(async)]
+fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: String) -> Result<Option<Attached>, String> {
+    let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
+    let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len();
+    if size > edit::MAX_ATTACHMENT as u64 {
+        return Err(edit::too_big());
+    }
+    let data = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let attached = session.with_mut(|v| {
+        let name = v.attach(&id, &name, &data)?;
+        Ok(Attached { name, listing: v.listing() })
+    })?;
+    sync::upload_soon(&app);
+    Ok(Some(attached))
+}
+
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
@@ -645,6 +686,8 @@ pub fn run() {
             edit_entry,
             save_entry,
             delete_entry,
+            save_attachment,
+            attach_file,
             group_paths,
             totp,
             copy_totp,
