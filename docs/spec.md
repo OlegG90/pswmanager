@@ -56,10 +56,10 @@ an opened attachment, Windows Hello unlock, password-health reports, sharing, KD
 - A list of entries on the left, the selected entry on the right. A group / tag filter narrows the list.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes and attached files (name and size). Protected attributes are masked like the
-  password. **Open** opens a file in the app Windows uses for its type, **Save…** writes it where the user
-  chooses, **Replace…** gives it the content of another file, **Rename** renames it, **Remove**
-  takes it off the entry (after a confirmation); **Attach file…** adds one (see *Editing*). A file's content goes between the database and the disk in the backend, never through the
-  webview.
+  password. **Open** next to a file opens it in the app Windows uses for its type; the **⋯** menu beside it
+  has **Save…** (writes it where the user chooses), **Replace…** (gives it the content of another file),
+  **Rename…** and **Remove…** (after a confirmation). **Attach file…** adds one (see *Editing*). A file's
+  content goes between the database and the disk in the backend, never through the webview.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
 

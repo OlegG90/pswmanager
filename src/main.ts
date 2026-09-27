@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { menuButton } from './menu'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatSize, parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -345,10 +346,12 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
       button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
-      button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name)),
-      button('Replace…', 'Replace with another file (its history keeps this one)', () => replaceAttachment(file.name)),
-      button('Rename', 'Rename (its history keeps the old name)', () => renameAttachment(file.name)),
-      button('Remove', 'Remove from this entry (its history keeps the file)', () => removeAttachment(file.name))),
+      menuButton(`More for ${file.name}`, [
+        { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) },
+        { label: 'Replace…', title: 'Replace with another file (its history keeps this one)', action: () => replaceAttachment(file.name) },
+        { label: 'Rename…', title: 'Rename (its history keeps the old name)', action: () => renameAttachment(file.name) },
+        { label: 'Remove…', title: 'Remove from this entry (its history keeps the file)', action: () => removeAttachment(file.name), danger: true },
+      ])),
   )
 }
 

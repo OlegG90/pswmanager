@@ -591,6 +591,58 @@ input[type='range']:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* "⋯": a short list of actions under a quiet button. */
+.menu-wrap {
+  position: relative;
+}
+
+.row .actions button.more {
+  font-family: var(--font-body);
+  letter-spacing: 0.05em;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--color-field);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.menu.up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.row .actions .menu button {
+  text-align: left;
+  color: var(--color-text);
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.row .actions .menu button:hover,
+.row .actions .menu button:focus-visible {
+  background: var(--color-accent-100);
+  outline: none;
+}
+
+.row .actions .menu button.danger {
+  color: var(--color-danger);
+}
+
+.row .actions .menu button.danger:hover,
+.row .actions .menu button.danger:focus-visible {
+  background: var(--color-danger-100);
+}
+
 .notes {
   white-space: pre-wrap;
   text-align: justify;
