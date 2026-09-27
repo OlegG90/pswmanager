@@ -68,9 +68,13 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 - An entry whose URL is an `http(s)` address and whose site has its own icon shows that icon; every
   other entry shows the default icon.
 - Order: a custom icon already stored on the entry in the KDBX file → the site's icon → the default icon.
-- The site's icon is downloaded **directly from that site** (the `<link rel="icon">` of the start page,
-  then `/favicon.ico`), never through a third-party favicon service, so no one else learns the list of
-  sites. Only the host goes over the network — never the path, query, user name or anything from the entry.
+- The site's icon is downloaded **the way a browser opening the site gets it**: the start page (following
+  its redirects, also to another domain), the icons its `<link rel="icon">` declares (wherever the site keeps
+  them, e.g. its CDN), then `/favicon.ico`. Only https addresses on named hosts are fetched (no plain http,
+  no IP addresses). Never through a third-party favicon service, so no one else learns the list of sites.
+  Only the host goes over the network — never the path, query, user name or anything from the entry.
+- Certificates are checked against the Windows trust store. Sites behind a bot check (a "Just a moment…"
+  page) answer no program but a browser and keep the default icon.
 - Downloads run in the background after unlock and never delay the window; a site that fails is retried
   at most once a week.
 - Icons are cached in the data folder (`icons/`, keyed by host), not written into the database, so fetching
