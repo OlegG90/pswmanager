@@ -60,6 +60,8 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
   has **Save…** (writes it where the user chooses), **Replace…** (gives it the content of another file),
   **Rename…** and **Remove…** (after a confirmation). **Attach file…** adds one (see *Editing*). A file's
   content goes between the database and the disk in the backend, never through the webview.
+- Clicking a value in the entry view copies it, as its Copy button does (clipboard clearing included); a
+  mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
 
