@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -34,6 +35,8 @@ pub const SIGN_IN_AGAIN: &str = "Sign in to Dropbox again";
 
 /// The current access token and when it runs out; it lives only in memory.
 static ACCESS: Mutex<Option<(Zeroizing<String>, Instant)>> = Mutex::new(None);
+/// Set to give up waiting for the browser.
+static CANCEL: AtomicBool = AtomicBool::new(false);
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
@@ -47,6 +50,11 @@ fn agent() -> ureq::Agent {
 /// A request that did not get an answer: offline, or Dropbox unreachable.
 fn transport(e: ureq::Error) -> RemoteError {
     RemoteError::Offline(format!("Cannot reach Dropbox: {e}"))
+}
+
+/// Too many requests, or trouble at Dropbox: worth trying again later.
+fn is_temporary(status: u16) -> bool {
+    status == 429 || status >= 500
 }
 
 // ------------------------------------------------------------ signing in
@@ -66,6 +74,7 @@ pub fn sign_in(open: impl FnOnce(&str) -> Result<(), String>) -> Result<(), Stri
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let state = random_text(16);
     let listener = Loopback::bind()?;
+    CANCEL.store(false, Ordering::Relaxed);
     let mut url = Url::parse("https://www.dropbox.com/oauth2/authorize").expect("a valid URL");
     url.query_pairs_mut()
         .append_pair("client_id", APP_KEY)
@@ -92,6 +101,11 @@ pub fn sign_in(open: impl FnOnce(&str) -> Result<(), String>) -> Result<(), Stri
     Ok(())
 }
 
+/// Stops waiting for the browser (the user gave up on signing in).
+pub fn cancel_sign_in() {
+    CANCEL.store(true, Ordering::Relaxed);
+}
+
 pub fn sign_out() {
     credentials::delete(CREDENTIAL);
     *ACCESS.lock().unwrap() = None;
@@ -103,8 +117,10 @@ fn request_tokens(form: &[(&str, &str)]) -> Result<Tokens, RemoteError> {
     let body = Zeroizing::new(response.body_mut().read_to_string().map_err(transport)?);
     match status {
         200 => serde_json::from_str(&body).map_err(|e| RemoteError::Failed(format!("Dropbox answered oddly: {e}"))),
-        // The refresh token was revoked (the app was removed from the account).
+        // The code or the refresh token is no longer valid (the app was
+        // removed from the account, say).
         400 | 401 => Err(RemoteError::SignIn(SIGN_IN_AGAIN.into())),
+        _ if is_temporary(status) => Err(RemoteError::Offline(format!("Dropbox is busy ({status}); trying again later"))),
         _ => Err(RemoteError::Failed(format!("Dropbox sign-in failed ({status})"))),
     }
 }
@@ -154,6 +170,9 @@ impl Loopback {
     fn wait_for_code(&self, state: &str) -> Result<Zeroizing<String>, String> {
         let until = Instant::now() + SIGN_IN_WAIT;
         while Instant::now() < until {
+            if CANCEL.load(Ordering::Relaxed) {
+                return Err("The Dropbox sign-in was cancelled".into());
+            }
             for listener in &self.0 {
                 match listener.accept() {
                     Ok((stream, _)) => {
@@ -227,7 +246,12 @@ impl Answer {
     }
 
     fn failed(&self, what: &str) -> RemoteError {
-        RemoteError::Failed(format!("Dropbox could not {what} ({} {})", self.status, self.error()))
+        let message = format!("Dropbox could not {what} ({} {})", self.status, self.error());
+        if is_temporary(self.status) {
+            RemoteError::Offline(message)
+        } else {
+            RemoteError::Failed(message)
+        }
     }
 }
 
@@ -259,12 +283,12 @@ fn call(url: &str, arg: Option<&Value>, body: Option<(&str, &[u8])>) -> Result<A
     unreachable!("the loop returns")
 }
 
-/// JSON for an HTTP header: Dropbox wants anything beyond ASCII escaped.
+/// JSON for an HTTP header: Dropbox wants DEL and anything beyond ASCII escaped.
 fn header_json(value: &Value) -> String {
     value
         .to_string()
         .encode_utf16()
-        .map(|u| if u < 0x80 { char::from(u as u8).to_string() } else { format!("\\u{u:04x}") })
+        .map(|u| if u < 0x7f { char::from(u as u8).to_string() } else { format!("\\u{u:04x}") })
         .collect()
 }
 
@@ -274,19 +298,21 @@ fn rpc(endpoint: &str, arg: Value) -> Result<Answer, RemoteError> {
 
 /// The `.kdbx` files in the app folder, as paths.
 pub fn list_databases() -> Result<Vec<String>, RemoteError> {
-    let answer = rpc("files/list_folder", json!({ "path": "" }))?;
-    if answer.status != 200 {
-        return Err(answer.failed("list the app folder"));
+    let mut paths = Vec::new();
+    let mut answer = rpc("files/list_folder", json!({ "path": "" }))?;
+    loop {
+        if answer.status != 200 {
+            return Err(answer.failed("list the app folder"));
+        }
+        let page = answer.json()?;
+        let files = page["entries"].as_array().into_iter().flatten().filter(|e| e[".tag"] == "file");
+        let names = files.filter_map(|e| e["path_display"].as_str()).filter(|p| p.to_lowercase().ends_with(".kdbx"));
+        paths.extend(names.map(str::to_string));
+        match page["cursor"].as_str() {
+            Some(cursor) if page["has_more"] == true => answer = rpc("files/list_folder/continue", json!({ "cursor": cursor }))?,
+            _ => break,
+        }
     }
-    let mut paths: Vec<String> = answer.json()?["entries"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|e| e[".tag"] == "file")
-        .filter_map(|e| e["path_display"].as_str())
-        .filter(|p| p.to_lowercase().ends_with(".kdbx"))
-        .map(str::to_string)
-        .collect();
     paths.sort_by_key(|p| p.to_lowercase());
     Ok(paths)
 }
@@ -295,7 +321,13 @@ impl Remote for Dropbox {
     fn revision(&self) -> Result<Option<String>, RemoteError> {
         let answer = rpc("files/get_metadata", json!({ "path": self.path }))?;
         match answer.status {
-            200 => Ok(answer.json()?["rev"].as_str().map(str::to_string)),
+            200 => {
+                let meta = answer.json()?;
+                if meta[".tag"] != "file" {
+                    return Err(RemoteError::Failed(format!("{} in Dropbox is not a file", self.path)));
+                }
+                Ok(meta["rev"].as_str().map(str::to_string))
+            }
             409 if answer.error().starts_with("path/not_found") => Ok(None),
             _ => Err(answer.failed("look at the file")),
         }

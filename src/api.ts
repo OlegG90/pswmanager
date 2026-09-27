@@ -127,6 +127,8 @@ export const api = {
   signInToDropbox: () => invoke<DropboxFiles>('sign_in_to_dropbox'),
   /** Syncs with `path` in the app folder; `null` uploads the local database first. */
   syncWithDropbox: (path: string | null) => invoke<Status>('sync_with_dropbox', { path }),
+  /** Gives up on Dropbox: stops waiting for the browser and signs out, unless already synced with it. */
+  cancelDropbox: () => invoke<void>('cancel_dropbox'),
   syncNow: () => invoke<void>('sync_now'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),

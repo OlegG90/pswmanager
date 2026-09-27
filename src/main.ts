@@ -72,24 +72,29 @@ $('sync-with-folder').addEventListener('click', () => run(async () => showStatus
 $('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
 $('sync-with-dropbox').addEventListener('click', () => run(syncWithDropbox))
 
-/** Signs in to Dropbox in the browser, then asks which file to sync with. */
+$('cancel-sign-in').addEventListener('click', () => api.cancelDropbox())
+
+/** Signs in to Dropbox in the browser, then asks which file to sync with.
+ *  Giving up on the way signs out again. */
 async function syncWithDropbox() {
-  const notice = $('notice')
-  notice.textContent = 'Finish signing in to Dropbox in the browser…'
-  notice.hidden = false
-  let offer
+  const waiting = $('signing-in')
+  waiting.hidden = false
   try {
-    offer = await api.signInToDropbox()
-  } finally {
-    notice.hidden = true
+    const offer = await api.signInToDropbox().finally(() => (waiting.hidden = true))
+    const labels = offer.files.map((path) => `Use ${path}`)
+    const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
+    if (canUpload) labels.push(`Upload ${offer.upload}`)
+    if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
+    const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
+    if (picked === null) {
+      await api.cancelDropbox()
+      return
+    }
+    showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
+  } catch (e) {
+    await api.cancelDropbox()
+    throw e
   }
-  const labels = offer.files.map((path) => `Use ${path}`)
-  const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
-  if (canUpload) labels.push(`Upload ${offer.upload}`)
-  if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
-  const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
-  if (picked === null) return
-  showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
 }
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
