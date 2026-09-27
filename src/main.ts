@@ -343,7 +343,9 @@ function fileRow(file: Attachment): HTMLDivElement {
     { className: 'row file' },
     el('span', { className: 'value' }, file.name),
     el('span', { className: 'size' }, formatSize(file.size)),
-    el('span', { className: 'actions' }, button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name))),
+    el('span', { className: 'actions' },
+      button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name)),
+      button('Remove', 'Remove from this entry (its history keeps the file)', () => removeAttachment(file.name))),
   )
 }
 
@@ -466,6 +468,19 @@ async function attachFile() {
   try {
     const attached = await api.attachFile(entry.id)
     if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+/** Asks first, like deleting an entry. */
+async function removeAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  const yes = await ask(`Remove "${name}" from "${entry.title || '(no title)'}"? The entry's history keeps it.`, 'Remove')
+  if (!yes || selectedId !== entry.id) return
+  try {
+    applyListing(await api.removeAttachment(entry.id, name), `Removed ${name}`)
   } catch (e) {
     notify(String(e))
   }

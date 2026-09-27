@@ -215,6 +215,13 @@ impl Vault {
         self.change(|db, hidden| edit::attach(db, id, name, data, hidden))
     }
 
+    /// Removes a file from an entry and saves the file; the entry's history
+    /// keeps it (see [edit::detach]).
+    pub fn detach(&mut self, id: &str, name: &str) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::detach(db, id, name, hidden))
+    }
+
     /// Moves an entry to the recycle bin and saves the file. An entry already
     /// gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
@@ -644,6 +651,41 @@ pub mod tests {
         // The router's files are listed, by name.
         let router = id_of(&reopened, "Router").uuid().to_string();
         assert_eq!(reopened.detail(&router).unwrap().attachments.len(), 2);
+    }
+
+    #[test]
+    fn removing_a_file_keeps_it_in_history_and_the_other_files_intact() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let router = id_of(&vault, "Router");
+        let id = router.uuid().to_string();
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        // A file after the router's in the database, so removing one of the
+        // router's would misnumber it if the database let go of it.
+        vault.attach(&mail, "later.txt", b"attached later").unwrap();
+        let files = |v: &Vault, id: EntryId| {
+            let mut all: Vec<(String, Vec<u8>)> =
+                v.db.entry(id).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect();
+            all.sort();
+            all
+        };
+        let before = files(&vault, router);
+        let (gone, kept) = (before[0].clone(), before[1].clone());
+
+        vault.detach(&id, &gone.0).unwrap();
+        vault.detach(&id, "no such file").unwrap();
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(files(&reopened, router), [kept]);
+        assert_eq!(reopened.detail(&id).unwrap().attachments.len(), 1);
+        assert_eq!(reopened.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
+        let previous = reopened.db.entry(router).unwrap().historical(0).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect::<Vec<_>>();
+        assert!(previous.contains(&gone), "{previous:?}");
+        // Attaching again after a removal still numbers the files right.
+        let mut reopened = reopened;
+        reopened.attach(&id, "new.txt", b"new").unwrap();
+        let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(again.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
+        assert_eq!(again.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
     }
 
     #[test]

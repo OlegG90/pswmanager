@@ -515,6 +515,18 @@ fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: Stri
     Ok(Some(attached))
 }
 
+/// Removes a file from an entry (the entry's history keeps it), saves the
+/// database and returns the new listing.
+#[tauri::command(async)]
+fn remove_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.detach(&id, &name)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
@@ -688,6 +700,7 @@ pub fn run() {
             delete_entry,
             save_attachment,
             attach_file,
+            remove_attachment,
             group_paths,
             totp,
             copy_totp,

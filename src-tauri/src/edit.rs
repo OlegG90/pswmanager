@@ -236,22 +236,71 @@ fn free_name(entry: &EntryRef<'_>, name: &str) -> String {
     (2..).map(|n| format!("{stem} ({n}){extension}")).find(|n| entry.attachment_by_name(n).is_none()).expect("a free name")
 }
 
-/// Gives `theirs`' entry the files `ours` has that it lacks, each under a
-/// free name. A file counts as there when `theirs` has its content under any
-/// name (a clash may have renamed it). Nothing is removed: this app never
-/// removes a file, so a file only `theirs` has was added elsewhere.
-fn copy_attachments(theirs: &mut Database, ours: &EntryRef<'_>) {
+/// Removes the file `name` from the entry, its previous version (which
+/// keeps the file) filed into the history. Nothing to do when the entry has
+/// no such file (removed elsewhere already).
+pub fn detach(db: &mut Database, id: EntryId, name: &str, hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let entry = db.entry(id).ok_or(NOT_FOUND)?;
+    if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
+        return Err(NOT_FOUND.into());
+    }
+    if entry.attachment_by_name(name).is_none() {
+        return Ok(());
+    }
+    let before = (*entry).clone();
+    drop_attachments(db, id, &[name.to_string()]);
+    file_in_history(db, id, before);
+    trim_history(db, id);
+    Ok(())
+}
+
+/// Takes files off the entry's current version, leaving them in the
+/// database for the versions in history that still have them.
+/// keepass-rs cannot do that: it drops a file from the database as soon as
+/// the current version lets go of it, even while history refers to it, and
+/// the gap misnumbers every later file when the database is saved. So the
+/// files are removed on a copy of the database and only the entry is taken
+/// from it: it refers to the same files as before, minus these.
+fn drop_attachments(db: &mut Database, id: EntryId, names: &[String]) {
+    let mut scratch = db.clone();
+    {
+        let mut entry = scratch.entry_mut(id).expect("checked by the caller");
+        for name in names {
+            entry.remove_attachment_by_name(name);
+        }
+    }
+    let updated = (*scratch.entry(id).expect("checked by the caller")).clone();
+    *db.entry_mut(id).expect("checked by the caller") = updated;
+}
+
+/// Files `before` into the entry's history, as a tracked edit does.
+fn file_in_history(db: &mut Database, id: EntryId, before: Entry) {
+    let mut entry = db.entry_mut(id).expect("checked by the caller");
+    entry.history.get_or_insert_default().add_entry(before);
+    entry.times.last_modification = Some(Times::now());
+}
+
+/// Gives `theirs`' entry the files of `ours`, the newer version: files it
+/// lacks are added, and files `ours` does not have leave its current version
+/// (they stay in history). Returns true when anything changed.
+fn take_attachments(theirs: &mut Database, ours: &EntryRef<'_>) -> bool {
     let id = ours.id();
-    let Some(t) = theirs.entry(id) else { return };
-    let missing: Vec<(String, Value<Vec<u8>>)> = ours
-        .attachments_named()
-        .filter(|(_, a)| !t.attachments().any(|b| b.data.get() == a.data.get()))
-        .map(|(name, a)| (name.to_string(), a.data.clone()))
-        .collect();
+    let Some(t) = theirs.entry(id) else { return false };
+    let wanted: Vec<(String, Value<Vec<u8>>)> = ours.attachments_named().map(|(name, a)| (name.to_string(), a.data.clone())).collect();
+    let has = |files: &[(String, Value<Vec<u8>>)], name: &str, data: &[u8]| files.iter().any(|(n, d)| n == name && d.get() == data);
+    let extra: Vec<String> =
+        t.attachments_named().filter(|(name, a)| !has(&wanted, name, a.data.get())).map(|(name, _)| name.to_string()).collect();
+    let missing: Vec<(String, Value<Vec<u8>>)> =
+        wanted.into_iter().filter(|(name, data)| t.attachment_by_name(name).is_none_or(|a| a.data.get() != data.get())).collect();
+    if extra.is_empty() && missing.is_empty() {
+        return false;
+    }
+    drop_attachments(theirs, id, &extra);
+    // Every name is free now: a file by that name with other content was extra.
     for (name, data) in missing {
-        let name = free_name(&theirs.entry(id).expect("checked above"), &name);
         theirs.entry_mut(id).expect("checked above").add_attachment(name, data);
     }
+    true
 }
 
 /// Additional fields need a name that is neither a standard field's nor
@@ -419,11 +468,17 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
             }
         };
         let before = theirs.entry(id).map(|t| (*t).clone());
+        let versions = |db: &Database| db.entry(id).and_then(|t| t.history.as_ref().map(|h| h.get_entries().len())).unwrap_or(0);
+        let versions_before = versions(theirs);
         if apply(theirs, Some(id), &data, &hidden).is_err() || (to_bin && recycle(theirs, id).is_err()) {
             continue; // e.g. a TOTP value this app cannot read: their version stays
         }
-        if our_content {
-            copy_attachments(theirs, &e);
+        if our_content && take_attachments(theirs, &e) {
+            // Their version goes to history, unless changing the fields already put it there.
+            if let Some(before) = before.clone().filter(|_| versions(theirs) == versions_before) {
+                file_in_history(theirs, id, before);
+                trim_history(theirs, id);
+            }
         }
         if theirs.entry(id).map(|t| (*t).clone()) != before {
             kept.push(id);
@@ -458,8 +513,8 @@ pub fn merge(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
 /// history) that `theirs` has neither as its current content nor in history,
 /// newest first. Versions are told apart by their modification time; a
 /// version is stored with the entry's own icon and attachments (keepass-rs
-/// cannot give an old version other files; a file attached here is kept by
-/// [keep_newer] when this device's version is the newer one).
+/// cannot give an old version other files; this device's files are taken by
+/// [keep_newer] when its version is the newer one).
 fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     let mut joined = Vec::new();
     for e in ours.iter_all_entries() {
@@ -776,27 +831,55 @@ mod tests {
     }
 
     #[test]
-    fn keep_newer_keeps_files_attached_here() {
+    fn keep_newer_takes_the_files_of_the_newer_version() {
         let mut theirs = Database::new();
         let old = apply(&mut theirs, None, &data("old"), &HashSet::new()).unwrap();
         attach(&mut theirs, old, "both.txt", b"same", &HashSet::new()).unwrap();
+        attach(&mut theirs, old, "removed here.txt", b"gone", &HashSet::new()).unwrap();
         let mut ours = theirs.clone();
         attach(&mut ours, old, "here.txt", b"new here", &HashSet::new()).unwrap();
         attach(&mut ours, old, "clash.txt", b"ours", &HashSet::new()).unwrap();
+        detach(&mut ours, old, "removed here.txt", &HashSet::new()).unwrap();
         let created = apply(&mut ours, None, &data("new here"), &HashSet::new()).unwrap();
         attach(&mut ours, created, "new.txt", b"with the entry", &HashSet::new()).unwrap();
-        // Added elsewhere, earlier: stays.
+        // Changed elsewhere, earlier: this device's version is newer.
         attach(&mut theirs, old, "there.txt", b"from the phone", &HashSet::new()).unwrap();
         attach(&mut theirs, old, "clash.txt", b"theirs", &HashSet::new()).unwrap();
         theirs.entry_mut(old).unwrap().times.last_modification = Some(Times::epoch());
+        let their_versions = history_len(&theirs, old);
 
         assert_eq!(keep_newer(&mut theirs, &ours).len(), 2);
-        let names = |db: &Database, id| files(db, id).into_iter().map(|(n, d)| format!("{n}={}", String::from_utf8(d).unwrap())).collect::<Vec<_>>();
-        assert_eq!(names(&theirs, old), ["both.txt=same", "clash (2).txt=ours", "clash.txt=theirs", "here.txt=new here", "there.txt=from the phone"]);
-        assert_eq!(names(&theirs, created), ["new.txt=with the entry"]);
-        // Nothing newer the second time, and no file twice.
+        let names = |files: Vec<(String, Vec<u8>)>| files.into_iter().map(|(n, d)| format!("{n}={}", String::from_utf8(d).unwrap())).collect::<Vec<_>>();
+        assert_eq!(names(files(&theirs, old)), ["both.txt=same", "clash.txt=ours", "here.txt=new here"]);
+        assert_eq!(names(files(&theirs, created)), ["new.txt=with the entry"]);
+        // Their version, with its files, is in history.
+        assert_eq!(history_len(&theirs, old), their_versions + 1);
+        let previous = theirs.entry(old).unwrap().historical(0).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect::<Vec<_>>();
+        let mut previous = names(previous);
+        previous.sort();
+        assert_eq!(previous, ["both.txt=same", "clash.txt=theirs", "removed here.txt=gone", "there.txt=from the phone"]);
+        // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
-        assert_eq!(files(&theirs, old).len(), 5);
+    }
+
+    #[test]
+    fn detaching_keeps_the_file_for_history() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
+        attach(&mut db, id, "a.txt", b"a", &HashSet::new()).unwrap();
+        attach(&mut db, id, "b.txt", b"b", &HashSet::new()).unwrap();
+        let pool = db.num_attachments();
+        detach(&mut db, id, "a.txt", &HashSet::new()).unwrap();
+        assert_eq!(files(&db, id), [("b.txt".to_string(), b"b".to_vec())]);
+        assert_eq!(db.num_attachments(), pool);
+        assert_eq!(db.entry(id).unwrap().historical(0).unwrap().attachments().count(), 2);
+        assert_eq!(history_len(&db, id), 3);
+        // A file already gone changes nothing; one in the bin is out of reach.
+        let before = db.clone();
+        detach(&mut db, id, "a.txt", &HashSet::new()).unwrap();
+        assert_eq!(db, before);
+        let group = db.entry(id).unwrap().parent().id();
+        assert!(detach(&mut db, id, "b.txt", &HashSet::from([group])).is_err());
     }
 
     #[test]
