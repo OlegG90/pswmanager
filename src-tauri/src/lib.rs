@@ -527,6 +527,18 @@ fn remove_attachment(app: AppHandle, session: State<Session>, id: String, name: 
     Ok(listing)
 }
 
+/// Renames a file of an entry (the entry's history keeps the old name),
+/// saves the database and returns the new name with the new listing.
+#[tauri::command(async)]
+fn rename_attachment(app: AppHandle, session: State<Session>, id: String, from: String, to: String) -> Result<Attached, String> {
+    let renamed = session.with_mut(|v| {
+        let name = v.rename_attachment(&id, &from, &to)?;
+        Ok(Attached { name, listing: v.listing() })
+    })?;
+    sync::upload_soon(&app);
+    Ok(renamed)
+}
+
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
@@ -701,6 +713,7 @@ pub fn run() {
             save_attachment,
             attach_file,
             remove_attachment,
+            rename_attachment,
             group_paths,
             totp,
             copy_totp,

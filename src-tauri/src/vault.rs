@@ -222,6 +222,13 @@ impl Vault {
         self.change(|db, hidden| edit::detach(db, id, name, hidden))
     }
 
+    /// Renames one of an entry's files and saves the file; returns the new
+    /// name (see [edit::rename_attachment]).
+    pub fn rename_attachment(&mut self, id: &str, from: &str, to: &str) -> Result<String, String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::rename_attachment(db, id, from, to, hidden))
+    }
+
     /// Moves an entry to the recycle bin and saves the file. An entry already
     /// gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
@@ -680,12 +687,14 @@ pub mod tests {
         assert_eq!(reopened.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
         let previous = reopened.db.entry(router).unwrap().historical(0).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect::<Vec<_>>();
         assert!(previous.contains(&gone), "{previous:?}");
-        // Attaching again after a removal still numbers the files right.
+        // Attaching and renaming after a removal still number the files right.
         let mut reopened = reopened;
         reopened.attach(&id, "new.txt", b"new").unwrap();
+        assert_eq!(reopened.rename_attachment(&mail, "later.txt", "renamed.txt").unwrap(), "renamed.txt");
         let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(again.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
-        assert_eq!(again.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
+        assert_eq!(again.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"attached later");
+        assert!(again.attachment(&mail, "later.txt").is_none());
     }
 
     #[test]

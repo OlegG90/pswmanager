@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
-import { ask, choose, isAsking } from './modal'
+import { ask, askText, choose, isAsking } from './modal'
 import { formatSize, parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
@@ -345,6 +345,7 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
       button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name)),
+      button('Rename', 'Rename (its history keeps the old name)', () => renameAttachment(file.name)),
       button('Remove', 'Remove from this entry (its history keeps the file)', () => removeAttachment(file.name))),
   )
 }
@@ -468,6 +469,21 @@ async function attachFile() {
   try {
     const attached = await api.attachFile(entry.id)
     if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function renameAttachment(name: string) {
+  const entry = current
+  if (!entry || isEditing()) return
+  // The name without its extension is selected, as Explorer does.
+  const dot = name.lastIndexOf('.')
+  const to = await askText(`Rename "${name}" to:`, name, 'Rename', dot > 0 ? dot : name.length)
+  if (to === null || to.trim() === name || selectedId !== entry.id) return
+  try {
+    const renamed = await api.renameAttachment(entry.id, name, to)
+    applyListing(renamed.listing, `Renamed to ${renamed.name}`)
   } catch (e) {
     notify(String(e))
   }

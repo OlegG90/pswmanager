@@ -254,6 +254,34 @@ pub fn detach(db: &mut Database, id: EntryId, name: &str, hidden: &HashSet<Group
     Ok(())
 }
 
+/// Renames the entry's file `from` to `to` and returns the new name; the
+/// previous version, with the old name, goes to history. keepass-rs cannot
+/// rename a file, so the entry lets go of it (history keeps it) and gets
+/// the same content under the new name.
+pub fn rename_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, hidden: &HashSet<GroupId>) -> Result<String, String> {
+    let to = to.trim();
+    let entry = db.entry(id).ok_or(NOT_FOUND)?;
+    if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
+        return Err(NOT_FOUND.into());
+    }
+    let data = entry.attachment_by_name(from).ok_or("That file is no longer in the entry")?.data.clone();
+    if to == from {
+        return Ok(to.to_string());
+    }
+    if to.is_empty() {
+        return Err("A file needs a name".into());
+    }
+    if entry.attachment_by_name(to).is_some() {
+        return Err(format!("The entry already has a file named \"{to}\""));
+    }
+    let before = (*entry).clone();
+    drop_attachments(db, id, &[from.to_string()]);
+    db.entry_mut(id).expect("checked above").add_attachment(to, data);
+    file_in_history(db, id, before);
+    trim_history(db, id);
+    Ok(to.to_string())
+}
+
 /// Takes files off the entry's current version, leaving them in the
 /// database for the versions in history that still have them.
 /// keepass-rs cannot do that: it drops a file from the database as soon as
@@ -860,6 +888,26 @@ mod tests {
         assert_eq!(previous, ["both.txt=same", "clash.txt=theirs", "removed here.txt=gone", "there.txt=from the phone"]);
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn renaming_keeps_the_old_name_in_history() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
+        attach(&mut db, id, "a.txt", b"a", &HashSet::new()).unwrap();
+        attach(&mut db, id, "b.txt", b"b", &HashSet::new()).unwrap();
+        let rename = |db: &mut Database, from: &str, to: &str| rename_attachment(db, id, from, to, &HashSet::new());
+        assert_eq!(rename(&mut db, "a.txt", " c.txt ").unwrap(), "c.txt");
+        assert_eq!(files(&db, id), [("b.txt".to_string(), b"b".to_vec()), ("c.txt".to_string(), b"a".to_vec())]);
+        let previous: Vec<String> = db.entry(id).unwrap().historical(0).unwrap().attachments_named().map(|(n, _)| n.to_string()).collect();
+        assert!(previous.contains(&"a.txt".to_string()), "{previous:?}");
+        // Refused: a name in use, no name, a file that is gone. The same name changes nothing.
+        let before = db.clone();
+        assert!(rename(&mut db, "c.txt", "b.txt").is_err());
+        assert!(rename(&mut db, "c.txt", " ").is_err());
+        assert!(rename(&mut db, "a.txt", "d.txt").is_err());
+        assert_eq!(rename(&mut db, "c.txt", "c.txt").unwrap(), "c.txt");
+        assert_eq!(db, before);
     }
 
     #[test]

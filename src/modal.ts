@@ -12,7 +12,7 @@ export const isAsking = () => document.querySelector('dialog[open]') !== null
 function dialog<T>(
   message: string,
   cancelled: T,
-  build: (answer: (value: T) => void) => { body?: Node[]; buttons?: Node[] },
+  build: (answer: (value: T) => void) => { body?: Node[]; buttons?: Node[]; focus?: HTMLElement },
   cancelLabel = 'Cancel',
 ): Promise<T> {
   return new Promise((resolve) => {
@@ -23,7 +23,7 @@ function dialog<T>(
       resolve(value)
     }
     const cancel = button(cancelLabel, `${cancelLabel} (Esc)`, () => answer(cancelled))
-    const { body = [], buttons = [] } = build(answer)
+    const { body = [], buttons = [], focus = cancel } = build(answer)
     box.append(el('p', {}, message), ...body, el('div', { className: 'buttons' }, ...buttons, cancel))
     // Esc closes a modal dialog by itself; make that the safe answer.
     box.addEventListener('cancel', (e) => {
@@ -32,7 +32,7 @@ function dialog<T>(
     })
     document.body.append(box)
     box.showModal()
-    cancel.focus()
+    focus.focus()
   })
 }
 
@@ -46,4 +46,20 @@ export function choose(message: string, choices: string[]): Promise<number | nul
   return dialog<number | null>(message, null, (answer) => ({
     body: [el('div', { className: 'choices' }, ...choices.map((label, i) => button(label, label, () => answer(i))))],
   }))
+}
+
+/** Asks for a line of text, starting from `value` with `selected` of it
+ *  selected; resolves to the text, or `null` for Cancel. Enter confirms. */
+export function askText(message: string, value: string, confirmLabel: string, selected = value.length): Promise<string | null> {
+  return dialog<string | null>(message, null, (answer) => {
+    const input = el('input', { value, spellcheck: false, className: 'text' })
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        answer(input.value)
+      }
+    })
+    requestAnimationFrame(() => input.setSelectionRange(0, selected))
+    return { body: [input], buttons: [button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')], focus: input }
+  })
 }

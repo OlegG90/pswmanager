@@ -30,8 +30,8 @@ stays out.
 Browser autofill and browser extensions, an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, creating a new database
 (the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
-password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), renaming attachments,
-opening an attachment in another app,
+password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), opening an attachment
+in another app,
 Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Database
@@ -57,8 +57,8 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 - A list of entries on the left, the selected entry on the right. A group / tag filter narrows the list.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes and attached files (name and size). Protected attributes are masked like the
-  password. **Save…** next to a file writes it where the user chooses, **Remove** takes it off the entry
-  (after a confirmation); **Attach file…** adds one (see *Editing*). A file's content goes between the database and the disk in the backend, never through the
+  password. **Save…** next to a file writes it where the user chooses, **Rename** renames it, **Remove**
+  takes it off the entry (after a confirmation); **Attach file…** adds one (see *Editing*). A file's content goes between the database and the disk in the backend, never through the
   webview.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
@@ -129,13 +129,14 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
   unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
 - Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
   (add / rename / remove, protected or not).
-- **Attachments:** a file can be added to or removed from an entry in the entry view (up to 20 MB — the
+- **Attachments:** a file can be added to, renamed in or removed from an entry in the entry view (up to 20 MB — the
   whole database is synced on every change); the change is saved at once, with the previous version in
   history, like an edit. A name the entry already uses gets a number (`scan (2).pdf`) rather than replacing
   the file. A removed file stays in the database for the history version that has it: keepass-rs would drop
   it from the database's file pool, and the gap misnumbers every later file when the database is saved, so
-  the file is removed on a copy of the database and only the entry is taken from it. Renaming files stays
-  with KeePassXC.
+  the file is removed on a copy of the database and only the entry is taken from it. keepass-rs cannot
+  rename a file either: renaming lets the entry go of the file the same way and attaches its content again
+  under the new name (history keeps the old one). A name another file of the entry has is refused.
 - Every edit pushes the previous version into the entry's history.
 - **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,
   exclude look-alike characters. Generated with the OS CSPRNG.

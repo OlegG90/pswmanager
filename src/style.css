@@ -881,6 +881,11 @@ dialog.modal .buttons {
   justify-content: flex-end;
 }
 
+.modal input.text {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
 .modal .choices {
   display: flex;
   flex-direction: column;

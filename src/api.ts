@@ -187,6 +187,8 @@ export const api = {
   saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
   /** Asks for a file and attaches it to the entry; null when cancelled. */
   attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
+  /** Renames the entry's file; its history keeps the old name. */
+  renameAttachment: (id: string, from: string, to: string) => invoke<Attached>('rename_attachment', { id, from, to }),
   /** Removes the file from the entry; its history keeps it. */
   removeAttachment: (id: string, name: string) => invoke<Listing>('remove_attachment', { id, name }),
   groupPaths: () => invoke<string[][]>('group_paths'),
