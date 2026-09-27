@@ -3,11 +3,13 @@ import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChan
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
-import { ask, askText, choose, isAsking } from './modal'
+import { ask, askText, isAsking } from './modal'
 import { formatSize, parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 import { renderSettings } from './settings'
+import { renderChoose } from './choose'
+import { renderHealth } from './health'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -20,6 +22,8 @@ const filterSelect = $<HTMLSelectElement>('filter')
 const list = $<HTMLUListElement>('list')
 const detail = $('detail')
 const settingsView = $('settings')
+const chooseView = $('choose')
+const healthView = $('health')
 const toast = $('toast')
 
 const DEFAULT_ICON =
@@ -33,6 +37,10 @@ const EMPTY: Listing = { entries: [], customIcons: {} }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
+/** The password health report is over the vault. */
+let healthOpen = false
+/** Back from the choose-database screen to the unlock screen; null on the first run. */
+let chooseBack: (() => void) | null = null
 let listing = EMPTY
 /** Site icons by host: a data URL, null when the cache has none (yet). */
 const siteIcons = new Map<string, string | null>()
@@ -44,23 +52,37 @@ const revealed = new Map<string, string>()
 
 // ---------------------------------------------------------------- unlock
 
+const SYNC_KINDS = { folder: 'Synced with a folder', dropbox: 'Synced with Dropbox' }
+
 function showStatus(status: Status) {
   const synced = status.syncedWith
-  $('database-path').textContent = synced ? `Synced with ${synced}` : (status.database ?? 'No database chosen')
-  $('database-path').title = synced ? `Working copy: ${status.database}` : ''
-  $('database-path').classList.toggle('muted', !status.database)
-  $('stop-sync').hidden = !synced
+  $('database-kind').textContent = status.syncKind ? SYNC_KINDS[status.syncKind] : 'Local file'
+  $('database-path').textContent = synced ?? status.database ?? ''
+  $('database-path').title = synced ? `Working copy: ${status.database}` : (status.database ?? '')
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
   $('notice').hidden = !status.notice
 }
 
+/** The unlock screen, or the choose-database screen while there is no database. */
 function showUnlock(status: Status) {
-  showStatus(status)
   vault.hidden = true
+  if (!status.database) return showChoose(status)
+  showStatus(status)
+  chooseBack = null
+  chooseView.hidden = true
+  chooseView.replaceChildren()
   unlockForm.hidden = settingsOpen
   if (!settingsOpen) passwordInput.focus()
+}
+
+function showChoose(status: Status) {
+  const back = () => run(async () => showUnlock(await api.status()))
+  chooseBack = status.database ? back : null
+  unlockForm.hidden = true
+  chooseView.hidden = settingsOpen
+  renderChoose(chooseView, status, { chosen: showUnlock, back })
 }
 
 async function run(action: () => Promise<void>) {
@@ -73,35 +95,7 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-$('pick-database').addEventListener('click', () => run(async () => showStatus(await api.pickDatabase())))
-$('sync-with-folder').addEventListener('click', () => run(async () => showStatus(await api.syncWithFolder())))
-$('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
-$('sync-with-dropbox').addEventListener('click', () => run(syncWithDropbox))
-
-$('cancel-sign-in').addEventListener('click', () => api.cancelDropbox())
-
-/** Signs in to Dropbox in the browser, then asks which file to sync with.
- *  Giving up on the way signs out again. */
-async function syncWithDropbox() {
-  const waiting = $('signing-in')
-  waiting.hidden = false
-  try {
-    const offer = await api.signInToDropbox().finally(() => (waiting.hidden = true))
-    const labels = offer.files.map((path) => `Use ${path}`)
-    const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
-    if (canUpload) labels.push(`Upload ${offer.upload}`)
-    if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
-    const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
-    if (picked === null) {
-      await api.cancelDropbox()
-      return
-    }
-    showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
-  } catch (e) {
-    await api.cancelDropbox()
-    throw e
-  }
-}
+$('change-database').addEventListener('click', () => run(async () => showChoose(await api.status())))
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 
@@ -141,6 +135,7 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
+  closeHealth()
   closeEditor()
   stopTotp()
   listing = EMPTY
@@ -302,7 +297,8 @@ const labelOf = (field: string) => LABELS[field] ?? field
 
 function renderDetail() {
   const entry = current
-  if (!entry) return
+  // An entry fetched just as the editor opened must not draw over it.
+  if (!entry || isEditing()) return
   const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
@@ -419,11 +415,12 @@ function groupForNew(): string[] {
   return filter.kind === 'group' ? parseGroup(filter.path) : []
 }
 
-function startEditor(id: string | null) {
+function startEditor(id: string | null, focusPassword = false) {
   if (isEditing()) return
   stopTotp()
   openEditor(detail, {
     id,
+    focusPassword,
     group: groupForNew(),
     onSaved: afterSave,
     onClose: () => {
@@ -591,6 +588,48 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
+// ---------------------------------------------------------------- password health
+
+async function openHealth() {
+  if (healthOpen || !unlocked || isEditing()) return
+  try {
+    await renderHealth(healthView, { done: closeHealth, fix: changePassword, icon: iconOf })
+  } catch (e) {
+    return notify(String(e))
+  }
+  if (!unlocked) return // locked while checking
+  healthOpen = true
+  vault.hidden = true
+  healthView.hidden = false
+  healthView.querySelector('button')?.focus()
+}
+
+function closeHealth() {
+  if (!healthOpen) return
+  healthOpen = false
+  healthView.hidden = true
+  healthView.replaceChildren()
+  if (unlocked && !settingsOpen) {
+    vault.hidden = false
+    searchInput.focus()
+  }
+}
+
+function iconOf(id: string): HTMLElement {
+  const entry = listing.entries.find((e) => e.id === id)
+  return entry ? iconImage(entry) : el('img', { className: 'icon', alt: '', src: DEFAULT_ICON })
+}
+
+/** "Change password" in the report: the entry, shown in the list, in the editor. */
+function changePassword(id: string) {
+  closeHealth()
+  searchInput.value = ''
+  filterSelect.value = 'all'
+  refresh()
+  select(id)
+  startEditor(id, true)
+}
+
 // ---------------------------------------------------------------- settings
 
 async function openSettings() {
@@ -600,8 +639,10 @@ async function openSettings() {
   } catch (e) {
     return notify(String(e))
   }
+  closeHealth()
   settingsOpen = true
   unlockForm.hidden = true
+  chooseView.hidden = true
   vault.hidden = true
   settingsView.hidden = false
   settingsView.querySelector('button')?.focus()
@@ -613,9 +654,17 @@ function closeSettings() {
   settingsOpen = false
   settingsView.hidden = true
   settingsView.replaceChildren()
-  vault.hidden = !unlocked
-  unlockForm.hidden = unlocked
-  ;(unlocked ? searchInput : passwordInput).focus()
+  if (unlocked) {
+    vault.hidden = false
+    searchInput.focus()
+  } else if (chooseView.childElementCount) {
+    chooseView.hidden = false
+    chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  } else {
+    // Locked while the settings were open: the unlock screen, or the
+    // choose-database screen when there is no database.
+    api.status().then(showUnlock, (e) => notify(String(e)))
+  }
 }
 
 // ---------------------------------------------------------------- keys
@@ -625,6 +674,7 @@ filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', () => startEditor(null))
 $('settings-button').addEventListener('click', openSettings)
+$('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 
 /** Esc with nothing left to close: back to the tray. */
@@ -689,6 +739,16 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (isAsking()) return // the question on screen has the keys
+  if (healthOpen) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeHealth()
+    } else if (e.ctrlKey && e.code === 'KeyL') {
+      e.preventDefault()
+      lock()
+    }
+    return
+  }
   if (settingsOpen) {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -700,7 +760,10 @@ document.addEventListener('keydown', (e) => {
     return
   }
   if (!unlocked) {
-    if (e.key === 'Escape') hideWindow()
+    if (e.key === 'Escape') {
+      if (!chooseView.hidden && chooseBack) chooseBack()
+      else hideWindow()
+    }
     if (e.ctrlKey && e.code === 'Comma') {
       e.preventDefault()
       openSettings()
@@ -742,7 +805,10 @@ listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 listen('window-shown', () => {
-  if (!settingsOpen) (unlocked ? searchInput : passwordInput).focus()
+  if (settingsOpen || healthOpen) return
+  if (unlocked) searchInput.focus()
+  else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  else passwordInput.focus()
 })
 listen('open-settings', () => {
   if (!isAsking()) openSettings()
