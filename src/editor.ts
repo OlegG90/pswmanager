@@ -101,9 +101,13 @@ function generatorPanel(use: (password: string) => void, onError: (message: stri
   // 8–64: the range the backend allows.
   const length = el('input', { type: 'range', min: 8, max: 64, value: String(generatorOptions.length), ariaLabel: 'Length' })
   const lengthValue = el('span', { className: 'length-value' }, String(generatorOptions.length))
+  // How far the track is filled, for the CSS: a range input cannot tell it.
+  const fill = () => length.style.setProperty('--fill', `${((Number(length.value) - 8) / (64 - 8)) * 100}%`)
+  fill()
   length.addEventListener('input', () => {
     generatorOptions = { ...generatorOptions, length: Number(length.value) || 20 }
     lengthValue.textContent = String(generatorOptions.length)
+    fill()
     regenerate()
   })
   const show = (visible: boolean) => {
