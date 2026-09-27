@@ -12,6 +12,7 @@ export type Action =
   | 'next'
   | 'escape'
   | 'type-to-search'
+  | 'settings'
 
 /** `code` is the physical key: shortcuts follow it, so they work in any keyboard layout. */
 export type KeyInfo = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'>
@@ -46,6 +47,8 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
         return 'new-entry'
       case 'KeyE':
         return 'edit-entry'
+      case 'Comma':
+        return 'settings'
       default:
         return null
     }

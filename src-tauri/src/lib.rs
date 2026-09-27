@@ -570,6 +570,35 @@ fn password_strength(password: String) -> Strength {
     }
 }
 
+/// The settings screen's values.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    #[serde(flatten)]
+    settings: settings::View,
+    start_with_windows: bool,
+}
+
+fn settings_view(app: &AppHandle) -> SettingsView {
+    SettingsView { settings: Settings::of(&app.state()).view(), start_with_windows: tray::autostart_enabled(app) }
+}
+
+#[tauri::command(async)]
+fn settings(app: AppHandle) -> SettingsView {
+    settings_view(&app)
+}
+
+/// Changes one setting; it applies at once, since every use reads it anew.
+#[tauri::command(async)]
+fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
+    if name == "startWithWindows" {
+        tray::set_autostart(&app, value.as_bool().ok_or("Start with Windows is on or off")?)?;
+    } else {
+        Settings::of(&app.state()).set(&name, value)?;
+    }
+    Ok(settings_view(&app))
+}
+
 /// A cached site icon as a `data:` URL, or nothing yet.
 #[tauri::command(async)]
 fn icon(store: State<Store>, host: String) -> Option<String> {
@@ -664,6 +693,8 @@ pub fn run() {
             copy_totp,
             generate_password,
             password_strength,
+            settings,
+            set_setting,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.

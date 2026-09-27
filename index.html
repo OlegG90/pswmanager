@@ -48,6 +48,7 @@
         <select id="filter" aria-label="Show"></select>
         <span id="sync-status" class="muted" role="status" hidden></span>
         <button id="sync-button" title="Sync now" hidden>Sync</button>
+        <button id="settings-button" title="Settings (Ctrl+,)">Settings</button>
         <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
       </header>
       <div id="list-pane">
@@ -58,7 +59,9 @@
         <ul id="list" role="listbox" aria-label="Entries" tabindex="0"></ul>
       </div>
       <section id="detail" aria-label="Entry"></section>
-      <div id="toast" role="status" hidden></div>
     </div>
+
+    <div id="settings" hidden></div>
+    <div id="toast" role="status" hidden></div>
   </body>
 </html>
