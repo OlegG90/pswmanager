@@ -712,8 +712,16 @@ input[type='range']:focus-visible {
   user-select: text;
 }
 
-/* A revealed secret is copied with Copy / Ctrl+C only, so it is never
-   selectable: a browser copy would skip the clipboard clearing. */
+.row .value.copyable {
+  cursor: copy;
+}
+
+.row .value.copyable:hover {
+  color: var(--color-accent-700);
+}
+
+/* A revealed secret is copied with a click, Copy or Ctrl+C only, so it is
+   never selectable: a browser copy would skip the clipboard clearing. */
 .row .value.secret {
   font-family: var(--font-mono);
   user-select: none;

@@ -268,25 +268,42 @@ function move(step: number) {
 
 // ---------------------------------------------------------------- detail
 
-function row(label: string, value: string, actions: HTMLButtonElement[], valueClass = ''): HTMLDivElement {
+/** A field's row. Clicking its value does what its Copy button does;
+ *  `copyKey` is the Copy shortcut, for the button's tooltip. */
+function row(
+  label: string,
+  value: string,
+  copyValue: () => void,
+  { actions = [], copyKey, valueClass = '' }: { actions?: HTMLButtonElement[]; copyKey?: string; valueClass?: string } = {},
+): HTMLDivElement {
   return el(
     'div',
     { className: 'row' },
     el('span', { className: 'label' }, label),
-    el('span', { className: `value ${valueClass}` }, value),
-    el('span', { className: 'actions' }, ...actions),
+    copyOnClick(el('span', { className: `value ${valueClass}` }, value), copyValue),
+    el('span', { className: 'actions' }, ...actions, button('Copy', copyKey ? `Copy (${copyKey})` : 'Copy', copyValue)),
   )
+}
+
+/** Makes clicking `value` copy it — unless the click ended selecting part of
+ *  its text, which stays a plain selection. */
+function copyOnClick<T extends HTMLElement>(value: T, copyValue: () => void): T {
+  value.classList.add('copyable')
+  value.title = 'Click to copy'
+  value.addEventListener('click', () => {
+    const selection = document.getSelection()
+    if (selection && !selection.isCollapsed && value.contains(selection.anchorNode)) return
+    copyValue()
+  })
+  return value
 }
 
 /** A protected value: masked until revealed. `keys` names the password's shortcuts. */
 function secretRow(label: string, field: string, keys?: { reveal: string; copy: string }): HTMLDivElement {
   const value = revealed.get(field)
   const hint = (key?: string) => (key ? ` (${key})` : '')
-  const actions = [
-    button(value === undefined ? 'Show' : 'Hide', `Show / hide${hint(keys?.reveal)}`, () => toggleReveal(field)),
-    button('Copy', `Copy${hint(keys?.copy)}`, () => copy(field, label)),
-  ]
-  return row(label, value ?? '••••••••', actions, 'secret')
+  const reveal = button(value === undefined ? 'Show' : 'Hide', `Show / hide${hint(keys?.reveal)}`, () => toggleReveal(field))
+  return row(label, value ?? '••••••••', () => copy(field, label), { actions: [reveal], copyKey: keys?.copy, valueClass: 'secret' })
 }
 
 /** How a field is labelled; the standard ones only appear here when protected. */
@@ -304,20 +321,19 @@ function renderDetail() {
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
   const rows: Node[] = [el('header', {}, iconImage(entry), heading)]
   if (entry.username) {
-    rows.push(row('User name', entry.username, [button('Copy', 'Copy (Ctrl+B)', () => copy(USERNAME, 'User name'))]))
+    rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
   if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
-    const actions = [button('Copy', 'Copy', () => copy(URL_FIELD, 'URL'))]
-    if (entry.host) actions.unshift(button('Open', 'Open in the browser (Ctrl+U)', openUrl))
-    rows.push(row('URL', entry.url, actions))
+    const actions = entry.host ? [button('Open', 'Open in the browser (Ctrl+U)', openUrl)] : []
+    rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   if (hasTotp(entry)) rows.push(totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
       rows.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
-      rows.push(row(field.name, field.value, [button('Copy', 'Copy', () => copy(field.name, field.name))]))
+      rows.push(row(field.name, field.value, () => copy(field.name, field.name)))
     }
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
@@ -363,7 +379,7 @@ function stopTotp(timer = totpTimer) {
 
 /** The current code with its countdown; a new code is fetched when it runs out. */
 function totpRow(id: string): HTMLDivElement {
-  const value = el('span', { className: 'value secret totp' }, '…')
+  const value = copyOnClick(el('span', { className: 'value secret totp' }, '…'), copyTotp)
   const div = el('div', { className: 'row' }, el('span', { className: 'label' }, 'TOTP'), value,
     el('span', { className: 'actions' }, button('Copy', 'Copy (Ctrl+T)', copyTotp)))
   let remaining = 0
