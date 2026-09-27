@@ -1,7 +1,9 @@
 mod activity;
 mod clipboard;
+mod credentials;
 mod data_dir;
 mod dbfile;
+mod dropbox;
 mod edit;
 mod file_watch;
 mod generator;
@@ -22,6 +24,7 @@ use settings::Settings;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use remote::Remote as _;
 use store::Store;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -129,12 +132,26 @@ fn can_switch(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// The store the database is synced with now, if any.
+fn current_location(store: &Store) -> Option<remote::Location> {
+    store.read(|s| s.remote.as_ref().map(|r| r.location.clone()))
+}
+
+/// After a switch: the store left behind is forgotten (a cloud account
+/// signed out). `left` is read before the switch, so a failed one keeps it.
+fn left(app: &AppHandle, left: Option<remote::Location>) {
+    if let Some(location) = left {
+        location.forget();
+    }
+    sync::reset(app);
+}
+
 /// Opens a local file: the app does not sync it.
 #[tauri::command(async)]
 fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
     can_switch(&app)?;
     let Some(picked) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    sync::reset(&app);
+    left(&app, current_location(&app.state()));
     choose(app, |s| {
         s.database = Some(picked);
         s.remote = None;
@@ -147,21 +164,86 @@ fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
 fn sync_with_folder(app: AppHandle, window: Window) -> Result<Status, String> {
     can_switch(&app)?;
     let Some(path) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
+    let before = current_location(&app.state());
     sync::start(&app.state::<Store>(), remote::Location::Folder { path })?;
+    left(&app, before);
+    choose(app, |_| {})
+}
+
+/// The local database a new cloud file can start from, if one is open.
+fn local_database(store: &Store) -> Option<PathBuf> {
+    store.read(|s| if s.remote.is_none() { s.database.clone() } else { None })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DropboxFiles {
+    /// The databases in the app folder, as paths there.
+    files: Vec<String>,
+    /// The local database's name, when it can be uploaded instead.
+    upload: Option<String>,
+}
+
+/// Signs in to Dropbox in the browser, then lists the databases in the app
+/// folder and the local one that could be uploaded instead.
+#[tauri::command(async)]
+fn sign_in_to_dropbox(app: AppHandle) -> Result<DropboxFiles, String> {
+    can_switch(&app)?;
+    dropbox::sign_in(|url| app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))?;
+    let files = dropbox::list_databases().map_err(|e| e.message())?;
+    let upload = local_database(&app.state::<Store>()).map(|p| remote::file_name(&p));
+    Ok(DropboxFiles { files, upload })
+}
+
+/// The user gave up on Dropbox: stops waiting for the browser, and signs out
+/// unless the database is already synced with Dropbox.
+#[tauri::command(async)]
+fn cancel_dropbox(app: AppHandle) {
+    dropbox::cancel_sign_in();
+    if !matches!(current_location(&app.state()), Some(remote::Location::Dropbox { .. })) {
+        dropbox::sign_out();
+    }
+}
+
+/// Syncs with `path` in the Dropbox app folder; without one, the local
+/// database is uploaded there first (never over a file already there).
+#[tauri::command(async)]
+fn sync_with_dropbox(app: AppHandle, path: Option<String>) -> Result<Status, String> {
+    can_switch(&app)?;
+    let store = app.state::<Store>();
+    let path = match path {
+        Some(path) => path,
+        None => {
+            let local = local_database(&store).ok_or("Open a local file first")?;
+            let bytes = std::fs::read(&local).map_err(|e| format!("Cannot read {}: {e}", local.display()))?;
+            let name = remote::file_name(&local);
+            let path = format!("/{name}");
+            match (dropbox::Dropbox { path: path.clone() }).upload(&bytes, None) {
+                Ok(_) => path,
+                Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in Dropbox: choose it instead")),
+                Err(e) => return Err(e.message()),
+            }
+        }
+    };
+    sync::start(&store, remote::Location::Dropbox { path })?;
     sync::reset(&app);
     choose(app, |_| {})
 }
 
-/// Stops syncing: the database becomes the remote file itself, used as a
-/// local file. Refused while this device has changes the remote file lacks.
+/// Stops syncing. A folder's file becomes the database, used as a local
+/// file; a cloud database's working copy moves out of `sync/` into the data
+/// folder and becomes it, and the account is signed out. Refused while this
+/// device has changes the remote file lacks.
 #[tauri::command(async)]
 fn stop_sync(app: AppHandle) -> Result<Status, String> {
     can_switch(&app)?;
-    sync::reset(&app);
+    let store = app.state::<Store>();
+    let Some((working, remote)) = store.read(|s| Some((s.database.clone()?, s.remote.clone()?))) else { return choose(app, |_| {}) };
+    let database = remote.location.detach(&store, &working)?;
+    left(&app, Some(remote.location));
     choose(app, |s| {
-        if let Some(remote) = s.remote.take() {
-            s.database = Some(remote.location.local_path());
-        }
+        s.remote = None;
+        s.database = Some(database);
     })
 }
 
@@ -513,6 +595,9 @@ pub fn run() {
             status,
             pick_database,
             sync_with_folder,
+            sign_in_to_dropbox,
+            sync_with_dropbox,
+            cancel_dropbox,
             stop_sync,
             sync_now,
             sync_status,

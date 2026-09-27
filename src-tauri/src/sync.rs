@@ -36,6 +36,8 @@ pub enum Outcome {
 #[derive(Debug, PartialEq)]
 pub enum SyncError {
     Offline(String),
+    /// The account needs signing in again.
+    SignIn(String),
     Failed(String),
 }
 
@@ -43,6 +45,7 @@ impl From<RemoteError> for SyncError {
     fn from(e: RemoteError) -> Self {
         match e {
             RemoteError::Offline(message) => SyncError::Offline(message),
+            RemoteError::SignIn(message) => SyncError::SignIn(message),
             other => SyncError::Failed(other.message()),
         }
     }
@@ -171,6 +174,19 @@ pub fn start(store: &Store, location: crate::remote::Location) -> Result<(), Str
         .map_err(|e| format!("Cannot save the choice: {e}"))
 }
 
+/// Moves a working copy out of `sync/` into the data folder, under a name
+/// no file there has yet, and returns where it went.
+pub fn keep_as_local(store: &Store, working: &Path) -> Result<PathBuf, String> {
+    let name = working.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "database".into());
+    let target = (1..)
+        .map(|n| if n == 1 { format!("{name}.kdbx") } else { format!("{name} ({n}).kdbx") })
+        .map(|file| store.dir().join(file))
+        .find(|path| !path.exists())
+        .expect("some name is free");
+    fs::rename(working, &target).map_err(|e| format!("Cannot keep the working copy: {e}"))?;
+    Ok(target)
+}
+
 /// Downloads the working copy again when it is missing (deleted, or a new PC
 /// with a copied state file), so unlocking has a file to open.
 pub fn ensure_working_copy(store: &Store) -> Result<(), String> {
@@ -275,6 +291,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Ok(_) => (format!("Synced at {time}"), false),
         Err(SyncError::Offline(message)) if has_pending(&store) => (format!("Offline — changes waiting ({message})"), true),
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
+        Err(SyncError::SignIn(message)) => (message.clone(), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
     Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
@@ -525,6 +542,16 @@ mod tests {
         assert!(matches!(sync(&gone, &s.store, &s.session), Err(SyncError::Offline(_))));
         assert!(has_pending(&s.store));
         assert_eq!(s.sync(), Ok(Outcome::Uploaded));
+    }
+
+    #[test]
+    fn a_working_copy_kept_as_local_leaves_sync_and_takes_a_free_name() {
+        let s = setup();
+        let working = s.store.read(|st| st.database.clone()).unwrap();
+        fs::write(s.store.dir().join("base.kdbx"), b"another").unwrap();
+        let kept = keep_as_local(&s.store, &working).unwrap();
+        assert_eq!(kept, s.store.dir().join("base (2).kdbx"));
+        assert!(!working.exists());
     }
 
     #[test]

@@ -10,6 +10,14 @@ export interface Status {
   notice: string | null
 }
 
+/** After signing in to Dropbox: what the app folder offers. */
+export interface DropboxFiles {
+  /** Databases in the app folder, as paths there. */
+  files: string[]
+  /** The local database's name, when it can be uploaded instead. */
+  upload: string | null
+}
+
 /** What the window shows about syncing with a remote store. */
 export interface SyncStatus {
   /** False for a local file: nothing to show. */
@@ -116,6 +124,11 @@ export const api = {
   pickDatabase: () => invoke<Status>('pick_database'),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
+  signInToDropbox: () => invoke<DropboxFiles>('sign_in_to_dropbox'),
+  /** Syncs with `path` in the app folder; `null` uploads the local database first. */
+  syncWithDropbox: (path: string | null) => invoke<Status>('sync_with_dropbox', { path }),
+  /** Gives up on Dropbox: stops waiting for the browser and signs out, unless already synced with it. */
+  cancelDropbox: () => invoke<void>('cancel_dropbox'),
   syncNow: () => invoke<void>('sync_now'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),

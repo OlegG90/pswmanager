@@ -14,6 +14,7 @@
         <span id="database-path" class="path"></span>
         <button type="button" id="pick-database" title="Open a database file directly; the app does not sync it">Open a local file…</button>
         <button type="button" id="sync-with-folder" title="Sync with a file in a folder, such as a NAS share">Sync with a folder…</button>
+        <button type="button" id="sync-with-dropbox" title="Sign in to Dropbox and sync with a file in its app folder">Sync with Dropbox…</button>
         <button type="button" id="stop-sync" hidden>Stop syncing</button>
       </div>
       <input id="password" type="password" placeholder="Master password" aria-label="Master password" />
@@ -25,6 +26,10 @@
       <button type="submit" id="unlock-button" class="primary">Unlock</button>
       <p id="unlock-error" role="alert" hidden></p>
       <p id="notice" class="muted" hidden></p>
+      <p id="signing-in" class="muted" hidden>
+        Finish signing in to Dropbox in the browser…
+        <button type="button" id="cancel-sign-in">Cancel</button>
+      </p>
     </form>
 
     <div id="vault" hidden>

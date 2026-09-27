@@ -14,6 +14,8 @@ pub enum RemoteError {
     Changed,
     /// The store cannot be reached now; trying again later may work.
     Offline(String),
+    /// The account needs signing in again.
+    SignIn(String),
     Failed(String),
 }
 
@@ -21,7 +23,7 @@ impl RemoteError {
     pub fn message(&self) -> String {
         match self {
             RemoteError::Changed => "The remote file changed meanwhile".into(),
-            RemoteError::Offline(message) | RemoteError::Failed(message) => message.clone(),
+            RemoteError::Offline(message) | RemoteError::SignIn(message) | RemoteError::Failed(message) => message.clone(),
         }
     }
 }
@@ -43,19 +45,23 @@ pub trait Remote: Send + Sync {
 pub enum Location {
     /// A file in a folder: a LAN share, a NAS, another drive.
     Folder { path: PathBuf },
+    /// A file in the app's Dropbox folder, by its path there (`/base.kdbx`).
+    Dropbox { path: String },
 }
 
 impl Location {
     pub fn open(&self) -> Box<dyn Remote> {
         match self {
             Location::Folder { path } => Box::new(Folder { path: path.clone() }),
+            Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
         }
     }
 
     /// The remote file's name, which the working copy takes.
     pub fn file_name(&self) -> String {
         match self {
-            Location::Folder { path } => path.file_name().map_or("database.kdbx".into(), |n| n.to_string_lossy().into_owned()),
+            Location::Folder { path } => file_name(path),
+            Location::Dropbox { path } => file_name(Path::new(path.rsplit('/').next().unwrap_or_default())),
         }
     }
 
@@ -63,13 +69,26 @@ impl Location {
     pub fn describe(&self) -> String {
         match self {
             Location::Folder { path } => path.display().to_string(),
+            Location::Dropbox { path } => format!("Dropbox: {path}"),
         }
     }
 
-    /// The file to open directly once syncing stops.
-    pub fn local_path(&self) -> PathBuf {
+    /// Syncing stops: the file to use as a local database from now on. A
+    /// folder's own file; for a cloud store, the working copy, moved out of
+    /// `sync/` (where syncing again would overwrite it).
+    pub fn detach(&self, store: &crate::store::Store, working: &Path) -> Result<PathBuf, String> {
         match self {
-            Location::Folder { path } => path.clone(),
+            Location::Folder { path } => Ok(path.clone()),
+            Location::Dropbox { .. } => crate::sync::keep_as_local(store, working),
+        }
+    }
+
+    /// The database no longer uses this store: a cloud account is signed out
+    /// (its refresh token removed).
+    pub fn forget(&self) {
+        match self {
+            Location::Folder { .. } => {}
+            Location::Dropbox { .. } => crate::dropbox::sign_out(),
         }
     }
 
@@ -77,8 +96,14 @@ impl Location {
     pub fn name(&self) -> &'static str {
         match self {
             Location::Folder { .. } => "the folder",
+            Location::Dropbox { .. } => "Dropbox",
         }
     }
+}
+
+/// A file's name, or `database.kdbx` for a path without one.
+pub fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "database.kdbx".into())
 }
 
 /// A file in a folder; its revision is the hash of its content.

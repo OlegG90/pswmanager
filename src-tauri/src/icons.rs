@@ -184,7 +184,7 @@ impl Cache {
     pub fn fetch_missing(&self, hosts: Vec<String>, ready: impl Fn(&str) + Sync) {
         let now = SystemTime::now();
         let queue = Mutex::new(hosts.into_iter().filter(|h| is_safe_host(h) && !self.is_settled(h, now)));
-        let agent = agent();
+        let agent = http_agent(TIMEOUT, true);
         std::thread::scope(|scope| {
             for _ in 0..PARALLEL_FETCHES {
                 scope.spawn(|| {
@@ -200,10 +200,12 @@ impl Cache {
     }
 }
 
-fn agent() -> ureq::Agent {
+/// An HTTP client with the OS's TLS (no `ring`, which needs clang on ARM64).
+/// With `status_as_error`, an answer that is not 2xx is an error.
+pub fn http_agent(timeout: Duration, status_as_error: bool) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .http_status_as_error(true)
+        .timeout_global(Some(timeout))
+        .http_status_as_error(status_as_error)
         .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
         .build()
         .into()

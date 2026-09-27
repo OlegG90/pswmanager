@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
-import { ask, isAsking } from './modal'
+import { ask, choose, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
@@ -70,6 +70,32 @@ async function run(action: () => Promise<void>) {
 $('pick-database').addEventListener('click', () => run(async () => showStatus(await api.pickDatabase())))
 $('sync-with-folder').addEventListener('click', () => run(async () => showStatus(await api.syncWithFolder())))
 $('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
+$('sync-with-dropbox').addEventListener('click', () => run(syncWithDropbox))
+
+$('cancel-sign-in').addEventListener('click', () => api.cancelDropbox())
+
+/** Signs in to Dropbox in the browser, then asks which file to sync with.
+ *  Giving up on the way signs out again. */
+async function syncWithDropbox() {
+  const waiting = $('signing-in')
+  waiting.hidden = false
+  try {
+    const offer = await api.signInToDropbox().finally(() => (waiting.hidden = true))
+    const labels = offer.files.map((path) => `Use ${path}`)
+    const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
+    if (canUpload) labels.push(`Upload ${offer.upload}`)
+    if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
+    const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
+    if (picked === null) {
+      await api.cancelDropbox()
+      return
+    }
+    showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
+  } catch (e) {
+    await api.cancelDropbox()
+    throw e
+  }
+}
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 
