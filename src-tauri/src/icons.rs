@@ -139,6 +139,10 @@ fn largest_size(sizes: &str) -> u32 {
         .unwrap_or(0)
 }
 
+/// Written into a `.miss` marker. Markers without it come from versions that
+/// could not check most sites' certificates, and are tried again at once.
+const MISS_MARK: &[u8] = b"2";
+
 /// The icon cache: `<dir>/<host>` holds an icon, `<dir>/<host>.miss` marks a
 /// site that had none.
 pub struct Cache {
@@ -160,8 +164,10 @@ impl Cache {
         if self.dir.join(host).is_file() {
             return true;
         }
-        let missed = fs::metadata(self.dir.join(format!("{host}.miss"))).and_then(|m| m.modified());
-        missed.is_ok_and(|t| now.duration_since(t).unwrap_or_default() < RETRY_AFTER)
+        let marker = self.dir.join(format!("{host}.miss"));
+        let current = fs::read(&marker).is_ok_and(|mark| mark == MISS_MARK);
+        let missed = fs::metadata(&marker).and_then(|m| m.modified());
+        current && missed.is_ok_and(|t| now.duration_since(t).unwrap_or_default() < RETRY_AFTER)
     }
 
     fn put(&self, host: &str, icon: Option<&[u8]>) -> std::io::Result<()> {
@@ -174,7 +180,7 @@ impl Cache {
                 let _ = fs::remove_file(self.dir.join(format!("{host}.miss")));
                 Ok(())
             }
-            None => fs::write(self.dir.join(format!("{host}.miss")), b""),
+            None => fs::write(self.dir.join(format!("{host}.miss")), MISS_MARK),
         }
     }
 
@@ -206,7 +212,13 @@ pub fn http_agent(timeout: Duration, status_as_error: bool) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(status_as_error)
-        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                // Windows' own trust store; the default list is not there without webpki-roots.
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        )
         .build()
         .into()
 }
@@ -306,6 +318,15 @@ mod tests {
         assert_eq!(attr("<link rel>", "rel"), None);
     }
 
+    /// Needs the network: `cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn certificates_are_checked_against_the_windows_store() {
+        let agent = http_agent(TIMEOUT, true);
+        assert!(agent.get("https://github.com/").call().is_ok());
+        assert!(agent.get("https://self-signed.badssl.com/").call().is_err());
+    }
+
     #[test]
     fn cache_keeps_icons_and_remembers_misses() {
         let dir = tempfile::tempdir().unwrap();
@@ -315,9 +336,13 @@ mod tests {
         cache.put("example.com", None).unwrap();
         assert!(cache.is_settled("example.com", now));
         assert!(!cache.is_settled("example.com", now + RETRY_AFTER + Duration::from_secs(1)));
+        // A marker from an older version is tried again at once.
+        fs::write(dir.path().join("icons").join("old.example.com.miss"), b"").unwrap();
+        assert!(!cache.is_settled("old.example.com", now));
         cache.put("example.com", Some(b"\x89PNG....")).unwrap();
         assert_eq!(cache.get("example.com").unwrap(), b"\x89PNG....");
         assert!(!dir.path().join("icons").join("example.com.miss").exists());
         assert_eq!(cache.get("../pswm.json"), None);
     }
 }
+
