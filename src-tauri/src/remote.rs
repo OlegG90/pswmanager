@@ -65,6 +65,14 @@ impl Location {
         }
     }
 
+    /// For the window: what kind of store this is.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Location::Folder { .. } => "folder",
+            Location::Dropbox { .. } => "dropbox",
+        }
+    }
+
     /// For the window: where the database is synced to.
     pub fn describe(&self) -> String {
         match self {

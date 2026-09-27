@@ -305,8 +305,20 @@ input[type='range']:focus-visible {
   border-bottom: 1px solid var(--color-divider);
 }
 
-.file-row.database .path {
-  flex-basis: 100%;
+.file-row.database {
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+.file-row .where {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-row .where .muted {
+  font-size: 12px;
 }
 
 .file-row button {
@@ -357,6 +369,153 @@ input[type='range']:focus-visible {
 #signing-in {
   font-size: 13px;
   margin: 0;
+}
+
+/* Choose the database */
+
+#choose {
+  height: 100%;
+  overflow-y: auto;
+}
+
+#choose > * {
+  width: min(520px, 90vw);
+  margin-inline: auto;
+}
+
+#choose .intro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: min(72px, 8vh);
+}
+
+#choose .kicker {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+
+#choose h1 {
+  font-size: 32px;
+  margin: 0;
+}
+
+#choose .intro p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+#choose .sources {
+  display: flex;
+  flex-direction: column;
+  margin-top: 24px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.source {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  cursor: pointer;
+}
+
+.source:hover {
+  background: var(--color-neutral-200);
+}
+
+.source:has(input:checked) {
+  background: var(--color-accent-100);
+}
+
+/* The radio itself is hidden; .dot draws it. */
+.source input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.source .dot {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  border-radius: 50%;
+  border: 1px solid var(--color-neutral-500);
+}
+
+.source input:checked + .dot {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 4px var(--color-accent-100);
+}
+
+.source input:focus-visible + .dot {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.source .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.source .title {
+  font-family: var(--font-heading);
+  font-size: 17px;
+}
+
+.source .hint {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+#choose .stop,
+#choose .error,
+#choose > p.muted {
+  margin: 14px auto 0;
+  font-size: 13px;
+}
+
+#choose .stop button,
+#choose > p.muted button {
+  margin-left: 6px;
+  font-size: 13px;
+  padding: 3px 10px;
+}
+
+#choose .error {
+  color: var(--color-danger);
+}
+
+#choose .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+  padding-bottom: 48px;
+}
+
+#choose .footer > span {
+  font-size: 12px;
+  max-width: 320px;
+}
+
+#choose .footer .buttons {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+#choose .footer button {
+  padding: 8px 22px;
+  font-size: 16px;
 }
 
 /* Vault */
