@@ -96,7 +96,7 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 
 | Key | Action |
 |---|---|
-| global hotkey (default `Ctrl+Alt+P`, configurable) | Show / hide the window |
+| global hotkey (default `Ctrl+Alt+P`; changed in the settings by pressing the new combination, which needs Ctrl, Alt or Win; one another app holds is refused) | Show / hide the window |
 | type anywhere | Search |
 | `↑` / `↓` | Move in the list (the selected entry shows on the right) |
 | `Ctrl+B` | Copy user name |

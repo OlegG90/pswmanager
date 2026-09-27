@@ -98,7 +98,7 @@ impl<'a> Settings<'a> {
 }
 
 /// The settings screen's values; "Start with Windows" comes from the
-/// registry instead, and the hotkey is only shown.
+/// registry instead.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
@@ -124,6 +124,8 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "clearClipboard" => within(CLEAR_SECONDS, false),
         "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" => value.is_boolean(),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
+        // Checked and registered by the caller before it is kept.
+        "hotkey" => value.as_str().is_some_and(|k| !k.trim().is_empty()),
         _ => return Err(format!("There is no setting {name}")),
     };
     if ok {
@@ -208,7 +210,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::load(dir.path().join("pswm.json"));
         let settings = Settings::of(&store);
-        assert!(settings.set("hotkey", "Ctrl+K".into()).is_err());
+        assert!(settings.set("hotkey", "".into()).is_err());
         assert!(settings.set("database", "x".into()).is_err());
         assert!(settings.set("clearClipboard", 0.into()).is_err());
         assert!(settings.set("clearClipboard", 121.into()).is_err());

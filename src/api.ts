@@ -153,7 +153,7 @@ export interface Settings {
   syncEveryMinutes: number
   downloadIcons: boolean
   theme: Theme
-  /** Shown only: set in the state file. */
+  /** The show / hide hotkey, e.g. `Ctrl+Alt+P`. */
   hotkey: string
   startWithWindows: boolean
 }
@@ -172,7 +172,7 @@ export interface Health {
   old: Finding[]
 }
 
-export type SettingName = Exclude<keyof Settings, 'hotkey'>
+export type SettingName = keyof Settings
 
 export const PASSWORD = 'Password'
 export const USERNAME = 'UserName'
