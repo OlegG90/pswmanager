@@ -172,6 +172,7 @@ function currentFilter(): Filter {
 function refresh() {
   shown = search(listing.entries, searchInput.value, currentFilter())
   list.replaceChildren(...shown.map(listItem))
+  $('entry-count').textContent = `${shown.length} ${shown.length === 1 ? 'entry' : 'entries'}`
   if (shown.length === 0) {
     list.append(el('li', { className: 'empty' }, listing.entries.length ? 'Nothing found' : 'The database is empty'))
   }
@@ -294,7 +295,10 @@ const labelOf = (field: string) => LABELS[field] ?? field
 function renderDetail() {
   const entry = current
   if (!entry) return
-  const rows: Node[] = [el('h2', {}, iconImage(entry), el('span', {}, entry.title || '(no title)'))]
+  const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
+  const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
+  if (meta) heading.append(el('span', { className: 'meta' }, meta))
+  const rows: Node[] = [el('header', {}, iconImage(entry), heading)]
   if (entry.username) {
     rows.push(row('User name', entry.username, [button('Copy', 'Copy (Ctrl+B)', () => copy(USERNAME, 'User name'))]))
   }
@@ -313,11 +317,9 @@ function renderDetail() {
     }
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
-  const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
-  if (meta) rows.push(el('p', { className: 'meta' }, meta))
   rows.push(
     el('div', { className: 'buttons' },
-      button('Edit', 'Edit (Ctrl+E)', editEntry),
+      button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
       button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
   )
   detail.replaceChildren(...rows)
@@ -495,6 +497,7 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
 searchInput.addEventListener('input', refresh)
 filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
+$('new-entry').addEventListener('click', () => startEditor(null))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 
 /** Esc with nothing left to close: back to the tray. */

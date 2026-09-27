@@ -71,6 +71,17 @@ function showHide(target: HTMLInputElement): HTMLButtonElement {
   return toggle
 }
 
+/** A button that stays pressed or not, like a check box. */
+function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void): HTMLButtonElement {
+  const chip = button(label, title, () => {
+    const next = chip.getAttribute('aria-pressed') !== 'true'
+    chip.setAttribute('aria-pressed', String(next))
+    onChange(next)
+  }, 'chip')
+  chip.setAttribute('aria-pressed', String(pressed))
+  return chip
+}
+
 /** The password generator panel; `use` receives the chosen password. */
 function generatorPanel(use: (password: string) => void, onError: (message: string) => void) {
   const preview = el('code', { className: 'preview' })
@@ -82,34 +93,38 @@ function generatorPanel(use: (password: string) => void, onError: (message: stri
       onError(String(e))
     }
   }
-  const option = (key: keyof GeneratorOptions, label: string) => {
-    const box = el('input', { type: 'checkbox', checked: generatorOptions[key] })
-    box.addEventListener('change', () => {
-      generatorOptions = { ...generatorOptions, [key]: box.checked }
+  const option = (key: keyof GeneratorOptions, label: string) =>
+    chip(label, label, generatorOptions[key] as boolean, (on) => {
+      generatorOptions = { ...generatorOptions, [key]: on }
       regenerate()
     })
-    return el('label', {}, box, label)
-  }
   // 8–64: the range the backend allows.
-  const length = el('input', { type: 'number', min: 8, max: 64, value: String(generatorOptions.length) })
+  const length = el('input', { type: 'range', min: 8, max: 64, value: String(generatorOptions.length), ariaLabel: 'Length' })
+  const lengthValue = el('span', { className: 'length-value' }, String(generatorOptions.length))
   length.addEventListener('input', () => {
     generatorOptions = { ...generatorOptions, length: Number(length.value) || 20 }
+    lengthValue.textContent = String(generatorOptions.length)
     regenerate()
   })
+  const show = (visible: boolean) => {
+    panel.hidden = !visible
+    open.setAttribute('aria-pressed', String(visible))
+  }
   const panel = el(
     'div',
     { className: 'generator', hidden: true },
-    el('div', { className: 'options' }, el('label', {}, 'Length ', length), option('upper', 'A–Z'), option('lower', 'a–z'),
-      option('digits', '0–9'), option('symbols', '!#$'), option('excludeLookAlikes', 'No look-alikes')),
-    el('div', { className: 'options' }, preview, button('Again', 'Another password', regenerate),
+    el('div', { className: 'result' }, preview, button('Again', 'Another password', regenerate, 'ghost'),
       button('Use', 'Use this password', () => {
         use(preview.textContent ?? '')
-        panel.hidden = true
+        show(false)
       }, 'primary')),
+    el('div', { className: 'length' }, el('span', { className: 'label' }, 'Length'), length, lengthValue),
+    el('div', { className: 'options' }, option('upper', 'A–Z'), option('lower', 'a–z'),
+      option('digits', '0–9'), option('symbols', '!#$'), option('excludeLookAlikes', 'No look-alikes')),
   )
-  const open = button('Generate…', 'Generate a password', () => {
-    panel.hidden = !panel.hidden
-    if (!panel.hidden) regenerate()
+  const open = chip('Generate', 'Generate a password', false, (on) => {
+    show(on)
+    if (on) regenerate()
   })
   return { panel, open }
 }
@@ -128,24 +143,24 @@ function fieldRow(field: FieldData = { name: '', value: '', protected: false }):
   }
   value.addEventListener('input', fit)
   requestAnimationFrame(fit)
-  const protect = el('input', { type: 'checkbox', checked: field.protected, title: 'Protected' })
-  const mask = () => value.classList.toggle('masked', protect.checked)
-  protect.addEventListener('change', mask)
-  mask()
-  const row = el('div', { className: 'field-row' }, name, value, el('label', {}, protect, 'Protected'),
-    button('×', 'Remove', () => row.remove()))
+  const mask = (on: boolean) => value.classList.toggle('masked', on)
+  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask)
+  mask(field.protected)
+  const row = el('div', { className: 'field-row' }, name, value, protect,
+    button('✕', 'Remove field', () => row.remove(), 'ghost icon'))
   originals.set(row, field)
   return row
 }
 
 function readField(row: HTMLElement): FieldData {
-  const [name, protect] = row.querySelectorAll('input')
+  const name = row.querySelector('input')!
   const value = row.querySelector('textarea')!
+  const protect = row.querySelector('.chip')!
   const original = originals.get(row)!
   return {
     name: keep(original.name, name.value.trim(), (n) => singleLine(n).trim()),
     value: keep(original.value, value.value, textareaLines),
-    protected: protect.checked,
+    protected: protect.getAttribute('aria-pressed') === 'true',
   }
 }
 
@@ -198,7 +213,9 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       }
       const { score, crackTime } = await api.passwordStrength(password.value)
       strength.dataset.score = String(score)
-      strength.replaceChildren(el('span', { className: 'bar' }), `${STRENGTH[score]} · cracked in ${crackTime}`)
+      // At least one bar, so "very weak" still shows as a red mark.
+      const bars = [1, 2, 3, 4].map((i) => el('span', { className: i <= Math.max(score, 1) ? 'bar on' : 'bar' }))
+      strength.replaceChildren(el('span', { className: 'bars' }, ...bars), `${STRENGTH[score]} · cracked in ${crackTime}`)
     }, 200)
   }
   password.addEventListener('input', showStrength)
@@ -273,12 +290,13 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
     row('Tags', tags),
     row('Notes', notes),
-    el('h3', {}, 'Fields'),
+    el('h3', {}, 'Additional fields'),
     fieldList,
-    button('Add field', 'Add a field', () => fieldList.append(fieldRow())),
+    button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'ghost add-field'),
     el('div', { className: 'buttons' },
       el('button', { type: 'submit', className: 'primary', textContent: 'Save', title: 'Save (Ctrl+S)' }),
-      button('Cancel', 'Cancel (Esc)', close)),
+      button('Cancel', 'Cancel (Esc)', close),
+      ...(options.id ? [el('span', { className: 'hint' }, 'Saving keeps the previous version in history.')] : [])),
   )
   container.replaceChildren(form)
   const untouched = JSON.stringify(collect())
