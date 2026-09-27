@@ -1,13 +1,14 @@
-import { api, type SettingName, type Settings, type Status } from './api'
+import { api, type SettingName, type Settings, type Status, type Theme } from './api'
 import { button, el } from './dom'
 
-type Choice = [value: number, label: string]
+type Choice<T = number> = [value: T, label: string]
 
 const minutes = (never: string): Choice[] =>
   [...[1, 5, 15, 30, 60].map((m): Choice => [m, `${m} min`]), [0, never]]
 const LOCK_AFTER = minutes('Never')
 const SYNC_EVERY = minutes('Off')
 const CLEAR_AFTER: Choice[] = [5, 10, 20, 30, 60, 120].map((s) => [s, `${s} s`])
+const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
 
 /** A switch: a button that is on or off. */
 function toggle(label: string, on: boolean, change: (on: boolean) => void): HTMLButtonElement {
@@ -22,6 +23,13 @@ function select(label: string, value: number, choices: Choice[], unit: string, c
   const all = choices.some(([v]) => v === value) ? choices : [...choices, [value, `${value} ${unit}`] as Choice]
   const box = el('select', { ariaLabel: label }, ...all.map(([v, text]) => new Option(text, String(v), false, v === value)))
   box.addEventListener('change', () => change(Number(box.value)))
+  return box
+}
+
+/** A drop-down of named choices. */
+function pick<T extends string>(label: string, value: T, choices: Choice<T>[], change: (value: T) => void) {
+  const box = el('select', { ariaLabel: label }, ...choices.map(([v, text]) => new Option(text, v, false, v === value)))
+  box.addEventListener('change', () => change(box.value as T))
   return box
 }
 
@@ -42,7 +50,7 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
   draw(settings, status)
 
   function draw(s: Settings, status: Status) {
-    const set = (name: SettingName) => async (value: number | boolean) => {
+    const set = (name: SettingName) => async (value: number | boolean | string) => {
       try {
         draw(await api.setSetting(name, value), status)
       } catch (e) {
@@ -63,6 +71,7 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
         row('Clear clipboard after copying', 'Only if it still holds the copied value',
           select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
       group('Window and tray',
+        row('Theme', 'Light or dark, or as Windows is set', pick('Theme', s.theme, THEMES, set('theme'))),
         row('Global hotkey', 'Shows or hides the window', el('span', { className: 'value' }, s.hotkey)),
         row('Start with Windows', 'Starts hidden in the tray, locked',
           toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),

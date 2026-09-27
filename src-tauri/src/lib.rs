@@ -667,6 +667,9 @@ fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result
         tray::set_autostart(&app, value.as_bool().ok_or("Start with Windows is on or off")?)?;
     } else {
         Settings::of(&app.state()).set(&name, value)?;
+        if name == "theme" {
+            window::apply_theme(&app);
+        }
     }
     Ok(settings_view(&app))
 }

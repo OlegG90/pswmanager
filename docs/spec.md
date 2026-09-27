@@ -64,6 +64,7 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
+- Theme: light or dark, or as Windows is set (the default); a setting.
 
 ### Entry icons
 

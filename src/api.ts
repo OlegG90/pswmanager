@@ -131,6 +131,9 @@ export interface Strength {
 }
 
 /** The settings as they are in effect. Minutes of 0 mean never. */
+/** Light or dark, or as Windows is set. */
+export type Theme = 'system' | 'light' | 'dark'
+
 export interface Settings {
   lockAfterMinutes: number
   lockOnSessionLock: boolean
@@ -139,6 +142,7 @@ export interface Settings {
   clearClipboard: number
   syncEveryMinutes: number
   downloadIcons: boolean
+  theme: Theme
   /** Shown only: set in the state file. */
   hotkey: string
   startWithWindows: boolean
@@ -220,5 +224,5 @@ export const api = {
   passwordHealth: () => invoke<Health>('password_health'),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
-  setSetting: (name: SettingName, value: number | boolean) => invoke<Settings>('set_setting', { name, value }),
+  setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),
 }
