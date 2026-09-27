@@ -31,3 +31,31 @@ export function ask(message: string, confirmLabel: string, cancelLabel = 'Cancel
     cancel.focus()
   })
 }
+
+/**
+ * Asks to pick one of `choices` in a modal dialog; resolves to its index, or
+ * `null` for Cancel (which has the focus, and is what Esc gives).
+ */
+export function choose(message: string, choices: string[]): Promise<number | null> {
+  return new Promise((resolve) => {
+    const dialog = el('dialog', { className: 'modal' })
+    const answer = (index: number | null) => {
+      dialog.close()
+      dialog.remove()
+      resolve(index)
+    }
+    const cancel = button('Cancel', 'Cancel (Esc)', () => answer(null))
+    dialog.append(
+      el('p', {}, message),
+      el('div', { className: 'choices' }, ...choices.map((label, i) => button(label, label, () => answer(i)))),
+      el('div', { className: 'buttons' }, cancel),
+    )
+    dialog.addEventListener('cancel', (e) => {
+      e.preventDefault()
+      answer(null)
+    })
+    document.body.append(dialog)
+    dialog.showModal()
+    cancel.focus()
+  })
+}

@@ -104,6 +104,7 @@ button:focus-visible,
 
 .file-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -148,6 +149,17 @@ button:focus-visible,
 
 #filter {
   max-width: 30%;
+}
+
+.modal .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.modal .choices button {
+  text-align: left;
 }
 
 #sync-status {

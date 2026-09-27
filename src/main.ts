@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
-import { ask, isAsking } from './modal'
+import { ask, choose, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
@@ -70,6 +70,27 @@ async function run(action: () => Promise<void>) {
 $('pick-database').addEventListener('click', () => run(async () => showStatus(await api.pickDatabase())))
 $('sync-with-folder').addEventListener('click', () => run(async () => showStatus(await api.syncWithFolder())))
 $('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
+$('sync-with-dropbox').addEventListener('click', () => run(syncWithDropbox))
+
+/** Signs in to Dropbox in the browser, then asks which file to sync with. */
+async function syncWithDropbox() {
+  const notice = $('notice')
+  notice.textContent = 'Finish signing in to Dropbox in the browser…'
+  notice.hidden = false
+  let offer
+  try {
+    offer = await api.signInToDropbox()
+  } finally {
+    notice.hidden = true
+  }
+  const labels = offer.files.map((path) => `Use ${path}`)
+  const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
+  if (canUpload) labels.push(`Upload ${offer.upload}`)
+  if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
+  const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
+  if (picked === null) return
+  showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
+}
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 

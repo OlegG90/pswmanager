@@ -244,11 +244,12 @@ working copy has changed since that sync.
   the state file or logs. **Disconnect** removes it; the working copy stays.
 - Each store gets the narrowest access that still reaches a file Keepass2Android can open: Dropbox — its
   app folder (`Apps/PswManager Sync`); OneDrive and Google Drive — settled with their steps of milestone 6.
-- Setting up: sign in, then either pick the `.kdbx` in the store or upload the current local database to it.
+- Setting up: sign in, then either pick the `.kdbx` in the store or upload the current local database to it
+  (**Sync with Dropbox…** on the unlock screen; an upload never replaces a file already there).
   A LAN folder needs no account: **Sync with a folder…** on the unlock screen picks the file (**Open a local file…**
   opens one without syncing).
 - **Stop syncing** (on the unlock screen) makes the database a local file again (for a LAN folder, the file
-  in it). Choosing another database or stopping is refused while the working copy has changes the remote
+  in it; for a cloud store, the working copy) and signs the account out. Choosing another database or stopping is refused while the working copy has changes the remote
   file lacks — they would be left behind; unlocking syncs them first.
 - Only the stores' own APIs are contacted.
 

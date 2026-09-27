@@ -36,6 +36,8 @@ pub enum Outcome {
 #[derive(Debug, PartialEq)]
 pub enum SyncError {
     Offline(String),
+    /// The account needs signing in again.
+    SignIn(String),
     Failed(String),
 }
 
@@ -43,6 +45,7 @@ impl From<RemoteError> for SyncError {
     fn from(e: RemoteError) -> Self {
         match e {
             RemoteError::Offline(message) => SyncError::Offline(message),
+            RemoteError::SignIn(message) => SyncError::SignIn(message),
             other => SyncError::Failed(other.message()),
         }
     }
@@ -275,6 +278,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Ok(_) => (format!("Synced at {time}"), false),
         Err(SyncError::Offline(message)) if has_pending(&store) => (format!("Offline — changes waiting ({message})"), true),
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
+        Err(SyncError::SignIn(message)) => (message.clone(), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
     Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown

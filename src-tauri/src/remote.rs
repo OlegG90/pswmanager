@@ -14,6 +14,8 @@ pub enum RemoteError {
     Changed,
     /// The store cannot be reached now; trying again later may work.
     Offline(String),
+    /// The account needs signing in again.
+    SignIn(String),
     Failed(String),
 }
 
@@ -21,7 +23,7 @@ impl RemoteError {
     pub fn message(&self) -> String {
         match self {
             RemoteError::Changed => "The remote file changed meanwhile".into(),
-            RemoteError::Offline(message) | RemoteError::Failed(message) => message.clone(),
+            RemoteError::Offline(message) | RemoteError::SignIn(message) | RemoteError::Failed(message) => message.clone(),
         }
     }
 }
@@ -43,33 +45,41 @@ pub trait Remote: Send + Sync {
 pub enum Location {
     /// A file in a folder: a LAN share, a NAS, another drive.
     Folder { path: PathBuf },
+    /// A file in the app's Dropbox folder, by its path there (`/base.kdbx`).
+    Dropbox { path: String },
 }
 
 impl Location {
     pub fn open(&self) -> Box<dyn Remote> {
         match self {
             Location::Folder { path } => Box::new(Folder { path: path.clone() }),
+            Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
         }
     }
 
     /// The remote file's name, which the working copy takes.
     pub fn file_name(&self) -> String {
-        match self {
-            Location::Folder { path } => path.file_name().map_or("database.kdbx".into(), |n| n.to_string_lossy().into_owned()),
-        }
+        let name = match self {
+            Location::Folder { path } => path.file_name().map(|n| n.to_string_lossy().into_owned()),
+            Location::Dropbox { path } => path.rsplit('/').next().map(str::to_string),
+        };
+        name.filter(|n| !n.is_empty()).unwrap_or_else(|| "database.kdbx".into())
     }
 
     /// For the window: where the database is synced to.
     pub fn describe(&self) -> String {
         match self {
             Location::Folder { path } => path.display().to_string(),
+            Location::Dropbox { path } => format!("Dropbox: {path}"),
         }
     }
 
-    /// The file to open directly once syncing stops.
-    pub fn local_path(&self) -> PathBuf {
+    /// The file to open directly once syncing stops; `None` when there is
+    /// none on this PC (the working copy stays the database).
+    pub fn local_path(&self) -> Option<PathBuf> {
         match self {
-            Location::Folder { path } => path.clone(),
+            Location::Folder { path } => Some(path.clone()),
+            Location::Dropbox { .. } => None,
         }
     }
 
@@ -77,6 +87,7 @@ impl Location {
     pub fn name(&self) -> &'static str {
         match self {
             Location::Folder { .. } => "the folder",
+            Location::Dropbox { .. } => "Dropbox",
         }
     }
 }
