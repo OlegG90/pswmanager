@@ -494,6 +494,9 @@ fn save_attachment(window: Window, session: State<Session>, id: String, name: St
 /// from a read-only copy that is deleted when the database locks.
 #[tauri::command(async)]
 fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<(), String> {
+    if opened::is_runnable(&name) {
+        return Err("Programs and scripts are not opened from the database; save the file to run it".into());
+    }
     let data = session.with(|v| v.attachment(&id, &name))?;
     let path = opened::write(&opened::folder(), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))

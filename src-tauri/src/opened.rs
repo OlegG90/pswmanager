@@ -16,6 +16,23 @@ pub fn folder() -> PathBuf {
     std::env::temp_dir().join(FOLDER)
 }
 
+/// File types Windows runs rather than shows: opening one would run code
+/// from the database, and a copy made here carries no "downloaded" mark
+/// that would make Windows warn first. They can still be saved.
+const RUNNABLE: &[&str] = &[
+    "exe", "com", "scr", "pif", "cpl", "msi", "msp", "mst", "msc", "bat", "cmd", "ps1", "psm1", "psd1", "vbs", "vbe",
+    "js", "jse", "wsf", "wsh", "wsc", "hta", "jar", "lnk", "url", "scf", "reg", "inf", "application", "appref-ms",
+    "gadget", "settingcontent-ms", "diagcab", "library-ms", "chm", "dll", "sys", "ocx", "xll", "appx", "msix",
+    "appxbundle", "msixbundle",
+];
+
+/// Whether opening `name` would run it (see [RUNNABLE]).
+pub fn is_runnable(name: &str) -> bool {
+    let name = file_name(name).to_lowercase();
+    // Windows ignores trailing dots and spaces, which file_name drops too.
+    name.rsplit_once('.').is_some_and(|(_, extension)| RUNNABLE.contains(&extension))
+}
+
 /// Writes `data` as `name` in a new subfolder of `folder` (so two files with
 /// one name do not meet, and the other app shows the file's own name) and
 /// returns its path.
@@ -75,6 +92,16 @@ mod tests {
         assert_eq!(file_name("a:b?.txt"), "a_b_.txt");
         assert_eq!(file_name(" . "), "file");
         assert_eq!(file_name("notes."), "notes");
+    }
+
+    #[test]
+    fn programs_and_scripts_are_not_opened() {
+        for name in ["setup.exe", "run.BAT", "x.ps1", "link.lnk", "a.pdf.exe", "b.exe.", "dir\\evil.hta"] {
+            assert!(is_runnable(name), "{name}");
+        }
+        for name in ["scan.pdf", "notes.txt", "photo.jpg", "exe", "backup.cfg", "archive.zip"] {
+            assert!(!is_runnable(name), "{name}");
+        }
     }
 
     #[test]

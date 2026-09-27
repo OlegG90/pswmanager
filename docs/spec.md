@@ -122,7 +122,8 @@ an opened attachment, Windows Hello unlock, password-health reports, sharing, KD
   app needs a file: a read-only copy in a folder of its own (`%TEMP%\pswm-open\<random>\<name>`), which
   is deleted when the database locks, when the app quits and when it starts (after a crash). A copy the other
   app still holds open cannot be deleted on Windows; the next clean-up tries again. Changes made to the copy
-  are not saved back.
+  are not saved back. Programs and scripts (`.exe`, `.bat`, `.ps1`, `.lnk`, `.hta` and the like) are not
+  opened: Windows would run them, without the warning a downloaded file gets. They can still be saved.
 
 ## Editing
 

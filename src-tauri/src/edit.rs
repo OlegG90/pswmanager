@@ -522,14 +522,16 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
             }
         };
         let before = theirs.entry(id).map(|t| (*t).clone());
-        let versions = |db: &Database| db.entry(id).and_then(|t| t.history.as_ref().map(|h| h.get_entries().len())).unwrap_or(0);
-        let versions_before = versions(theirs);
         if apply(theirs, Some(id), &data, &hidden).is_err() || (to_bin && recycle(theirs, id).is_err()) {
             continue; // e.g. a TOTP value this app cannot read: their version stays
         }
+        // Whether `apply` filed their version into history: it does when it
+        // changes the fields or tags (a history already at its limit keeps
+        // its length, so the length cannot tell).
+        let filed = before.as_ref().is_some_and(|b| theirs.entry(id).is_some_and(|t| t.fields != b.fields || t.tags != b.tags));
         if our_content && take_attachments(theirs, &e) {
             // Their version goes to history, unless changing the fields already put it there.
-            if let Some(before) = before.clone().filter(|_| versions(theirs) == versions_before) {
+            if let Some(before) = before.clone().filter(|_| !filed) {
                 file_in_history(theirs, id, before);
                 trim_history(theirs, id);
             }
@@ -843,6 +845,28 @@ mod tests {
         assert!(theirs.entry(removed).is_none());
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn keep_newer_files_their_version_once_when_history_is_full() {
+        let mut theirs = Database::new();
+        theirs.meta.history_max_items = Some(2);
+        let id = apply(&mut theirs, None, &data("x"), &HashSet::new()).unwrap();
+        for n in 0..3 {
+            attach(&mut theirs, id, &format!("{n}.txt"), b"x", &HashSet::new()).unwrap();
+        }
+        assert_eq!(history_len(&theirs, id), 2);
+        let mut ours = theirs.clone();
+        apply(&mut ours, Some(id), &with("x", |d| d.password = "newer".into()), &HashSet::new()).unwrap();
+        attach(&mut ours, id, "new.txt", b"new", &HashSet::new()).unwrap();
+        theirs.entry_mut(id).unwrap().times.last_modification = Some(Times::epoch());
+
+        keep_newer(&mut theirs, &ours);
+        let entry = theirs.entry(id).unwrap();
+        let (newest, next) = (entry.historical(0).unwrap(), entry.historical(1).unwrap());
+        // Their version once, then the one before it: not their version twice.
+        assert_eq!(newest.attachments().count(), 3);
+        assert_eq!(next.attachments().count(), 2);
     }
 
     fn files(db: &Database, id: EntryId) -> Vec<(String, Vec<u8>)> {
