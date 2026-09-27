@@ -8,6 +8,7 @@ import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
+import { renderHealth } from './health'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -21,6 +22,7 @@ const list = $<HTMLUListElement>('list')
 const detail = $('detail')
 const settingsView = $('settings')
 const chooseView = $('choose')
+const healthView = $('health')
 const toast = $('toast')
 
 const DEFAULT_ICON =
@@ -34,6 +36,8 @@ const EMPTY: Listing = { entries: [], customIcons: {} }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
+/** The password health report is over the vault. */
+let healthOpen = false
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
 let listing = EMPTY
@@ -130,6 +134,7 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
+  closeHealth()
   closeEditor()
   stopTotp()
   listing = EMPTY
@@ -291,7 +296,8 @@ const labelOf = (field: string) => LABELS[field] ?? field
 
 function renderDetail() {
   const entry = current
-  if (!entry) return
+  // An entry fetched just as the editor opened must not draw over it.
+  if (!entry || isEditing()) return
   const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
@@ -386,11 +392,12 @@ function groupForNew(): string[] {
   return filter.kind === 'group' ? parseGroup(filter.path) : []
 }
 
-function startEditor(id: string | null) {
+function startEditor(id: string | null, focusPassword = false) {
   if (isEditing()) return
   stopTotp()
   openEditor(detail, {
     id,
+    focusPassword,
     group: groupForNew(),
     onSaved: afterSave,
     onClose: () => {
@@ -489,6 +496,48 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
+// ---------------------------------------------------------------- password health
+
+async function openHealth() {
+  if (healthOpen || !unlocked || isEditing()) return
+  try {
+    await renderHealth(healthView, { done: closeHealth, fix: changePassword, icon: iconOf })
+  } catch (e) {
+    return notify(String(e))
+  }
+  if (!unlocked) return // locked while checking
+  healthOpen = true
+  vault.hidden = true
+  healthView.hidden = false
+  healthView.querySelector('button')?.focus()
+}
+
+function closeHealth() {
+  if (!healthOpen) return
+  healthOpen = false
+  healthView.hidden = true
+  healthView.replaceChildren()
+  if (unlocked && !settingsOpen) {
+    vault.hidden = false
+    searchInput.focus()
+  }
+}
+
+function iconOf(id: string): HTMLElement {
+  const entry = listing.entries.find((e) => e.id === id)
+  return entry ? iconImage(entry) : el('img', { className: 'icon', alt: '', src: DEFAULT_ICON })
+}
+
+/** "Change password" in the report: the entry, shown in the list, in the editor. */
+function changePassword(id: string) {
+  closeHealth()
+  searchInput.value = ''
+  filterSelect.value = 'all'
+  refresh()
+  select(id)
+  startEditor(id, true)
+}
+
 // ---------------------------------------------------------------- settings
 
 async function openSettings() {
@@ -498,6 +547,7 @@ async function openSettings() {
   } catch (e) {
     return notify(String(e))
   }
+  closeHealth()
   settingsOpen = true
   unlockForm.hidden = true
   chooseView.hidden = true
@@ -532,6 +582,7 @@ filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', () => startEditor(null))
 $('settings-button').addEventListener('click', openSettings)
+$('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 
 /** Esc with nothing left to close: back to the tray. */
@@ -596,6 +647,16 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (isAsking()) return // the question on screen has the keys
+  if (healthOpen) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeHealth()
+    } else if (e.ctrlKey && e.code === 'KeyL') {
+      e.preventDefault()
+      lock()
+    }
+    return
+  }
   if (settingsOpen) {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -652,7 +713,7 @@ listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 listen('window-shown', () => {
-  if (settingsOpen) return
+  if (settingsOpen || healthOpen) return
   if (unlocked) searchInput.focus()
   else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else passwordInput.focus()

@@ -10,6 +10,8 @@ export interface EditorOptions {
   group: string[]
   onSaved: (saved: Saved) => void
   onClose: () => void
+  /** Starts in the password field (to change it) instead of the title. */
+  focusPassword?: boolean
 }
 
 const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [] }
@@ -304,5 +306,5 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   )
   container.replaceChildren(form)
   const untouched = JSON.stringify(collect())
-  title.focus()
+  ;(options.focusPassword ? password : title).focus()
 }

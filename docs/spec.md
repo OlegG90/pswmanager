@@ -31,7 +31,7 @@ Browser autofill and browser extensions, an own sync server, a database shared b
 syncs their own), several people editing one file at the same moment, iPad, creating a new database
 (the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
 password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), editing attachments,
-Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
+Windows Hello unlock, sharing, KDBX 3 writing.
 
 ## Database
 
@@ -131,6 +131,18 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 - **Strength indicator** (zxcvbn) next to the password field.
 - **TOTP**: codes are computed from the entry's `otp` attribute (`otpauth://` URI, as `sic2kdbx` and
   KeePassXC write it), with a countdown.
+
+## Password health
+
+- A report, opened from the toolbar, of passwords worth changing among the entries in use (not the
+  recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
+  strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
+  first of these that applies.
+- A password's age runs from when it was last set: the oldest version in the entry's history with the
+  same password, so an edit to anything else does not make it newer.
+- Worked out in the backend on demand: the window gets titles and reasons, never a password, and nothing
+  is sent anywhere or stored.
+- Each listed entry opens in the editor with the password field focused.
 
 ## Saving and synchronisation
 
