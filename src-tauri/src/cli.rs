@@ -58,11 +58,52 @@ pub fn print(text: &str) {
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
-        // SAFETY: no pointers; fails harmlessly when there is no parent console
-        // (or the debug build already has one).
-        unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+        // SAFETY: no pointers; fails when there is no parent console, or when
+        // the debug build already has a console of its own.
+        let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0;
+        println!("{text}");
+        if attached {
+            show_prompt_again();
+        }
     }
+    #[cfg(not(windows))]
     println!("{text}");
+}
+
+/// The shell does not wait for a window app: it printed its prompt before
+/// our text. Pressing Enter for the user draws the prompt again below it —
+/// only when the text went to the console itself, not to a file or a pipe.
+#[cfg(windows)]
+fn show_prompt_again() {
+    use windows_sys::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, WriteConsoleInputW, INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD,
+        KEY_EVENT_RECORD_0, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    const VK_RETURN: u16 = 0x0D;
+    // SAFETY: handles come from the console just attached; the records live
+    // for the call.
+    unsafe {
+        let mut mode = 0;
+        if GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mut mode) == 0 {
+            return; // redirected
+        }
+        let key = |down| INPUT_RECORD {
+            EventType: KEY_EVENT as u16,
+            Event: INPUT_RECORD_0 {
+                KeyEvent: KEY_EVENT_RECORD {
+                    bKeyDown: down,
+                    wRepeatCount: 1,
+                    wVirtualKeyCode: VK_RETURN,
+                    wVirtualScanCode: 0x1C,
+                    uChar: KEY_EVENT_RECORD_0 { UnicodeChar: 0x0D },
+                    dwControlKeyState: 0,
+                },
+            },
+        };
+        let keys = [key(1), key(0)];
+        let mut written = 0;
+        WriteConsoleInputW(GetStdHandle(STD_INPUT_HANDLE), keys.as_ptr(), keys.len() as u32, &mut written);
+    }
 }
 
 #[cfg(test)]
