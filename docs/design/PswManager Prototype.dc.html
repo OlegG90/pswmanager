@@ -228,24 +228,15 @@ input,select,textarea,button{font:inherit;color:inherit}
                 <span style="color:var(--color-neutral-700);padding-top:6px">Notes</span>
                 <textarea value="{{ edNotes }}" onChange="{{ onEdNotes }}" rows="3" style="padding:7px 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;resize:vertical" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)"></textarea>
               </label>
-              <div data-screen-label="05b Reorder fields" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
-                  <h6 style="margin:0;color:var(--color-accent-700)">Additional fields</h6>
-                  <span style="font-size:12px;color:var(--color-neutral-700)">Drag ⋮⋮ or use ↑ ↓ to reorder. The entry view follows this order.</span>
-                </div>
+              <div data-screen-label="05b Additional fields" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+                <h6 style="margin:0;color:var(--color-accent-700)">Additional fields</h6>
                 <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
                   <sc-for list="{{ edAttrs }}" as="a" hint-placeholder-count="2">
-                    <div draggable="{{ a.draggable }}" onDragStart="{{ a.onDragStart }}" onDragOver="{{ a.onDragOver }}" onDrop="{{ a.onDrop }}" onDragEnd="{{ a.onDragEnd }}" style="{{ a.rowStyle }}">
-                      <span title="Drag to reorder" style="cursor:grab;color:var(--color-neutral-600);font-size:16px;letter-spacing:-2px;user-select:none;padding:0 4px">⋮⋮</span>
-                      <span style="font-size:12px;color:var(--color-neutral-600);font-feature-settings:'tnum';width:16px">{{ a.pos }}</span>
+                    <div style="{{ a.rowStyle }}">
                       <input value="{{ a.k }}" onChange="{{ a.onK }}" placeholder="Field name" style="width:150px;height:32px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
                       <input type="{{ a.inputType }}" value="{{ a.v }}" onChange="{{ a.onV }}" placeholder="Value" style="flex:1;min-width:0;height:32px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;font-family:Consolas,ui-monospace,monospace" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
                       <button onClick="{{ a.toggleP }}" title="Protected values are masked like the password" style="{{ a.pStyle }}">Protected</button>
-                      <div style="display:flex">
-                        <button onClick="{{ a.up }}" disabled="{{ a.isFirst }}" title="Move up" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-accent-700)" style-hover="background:var(--color-accent-100)">↑</button>
-                        <button onClick="{{ a.down }}" disabled="{{ a.isLast }}" title="Move down" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-accent-700)" style-hover="background:var(--color-accent-100)">↓</button>
-                        <button onClick="{{ a.remove }}" title="Remove field" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-neutral-700)" style-hover="background:var(--color-neutral-200)">✕</button>
-                      </div>
+                      <button onClick="{{ a.remove }}" title="Remove field" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-neutral-700)" style-hover="background:var(--color-neutral-200)">✕</button>
                     </div>
                   </sc-for>
                   <sc-if value="{{ noAttrs }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 0;font-size:13px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">No additional fields.</div></sc-if>
@@ -348,10 +339,9 @@ const strength = pw => { if (!pw) return 0; let s = 0; if (pw.length >= 12) s++;
 const SLABEL = ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'];
 const tile = (n, sel) => ({ width: n + 'px', height: n + 'px', borderRadius: '4px', border: '1px solid ' + (sel ? 'var(--color-accent)' : 'var(--color-neutral-400)'), color: 'var(--color-accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: n * 0.55 + 'px', flexShrink: 0, background: 'var(--color-bg)' });
 const toggleStyles = on => ({ track: { width: '38px', height: '22px', borderRadius: '11px', border: '1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-neutral-400)'), background: on ? 'var(--color-accent-100)' : 'transparent', position: 'relative', cursor: 'pointer', flexShrink: 0, boxSizing: 'border-box' }, knob: { position: 'absolute', top: '3px', left: on ? '19px' : '3px', width: '14px', height: '14px', borderRadius: '50%', background: on ? 'var(--color-accent)' : 'var(--color-neutral-500)', transition: 'left .15s' } });
-const move = (arr, from, to) => { const a = arr.slice(); const [x] = a.splice(from, 1); a.splice(to, 0, x); return a; };
 
 class Component extends DCLogic {
-  state = { screen: 'onboard', source: 'dropbox', pw: '', err: '', keyFile: false, entries: SEED, sel: 'gh', q: '', filter: 'all', reveal: false, revealAttr: {}, panel: 'view', draft: null, edReveal: false, genOpen: false, gen: { len: 20, upper: true, lower: true, digits: true, symbols: true, noLook: true }, genPw: '', toast: '', confirmDelete: false, synced: '12:04', now: Date.now(), drag: null, over: null, moved: null,
+  state = { screen: 'onboard', source: 'dropbox', pw: '', err: '', keyFile: false, entries: SEED, sel: 'gh', q: '', filter: 'all', reveal: false, revealAttr: {}, panel: 'view', draft: null, edReveal: false, genOpen: false, gen: { len: 20, upper: true, lower: true, digits: true, symbols: true, noLook: true }, genPw: '', toast: '', confirmDelete: false, synced: '12:04', now: Date.now(),
     set: { autoLock: '5 min', winLock: true, trayLock: false, clip: '20 s', autostart: false, icons: true, remoteCheck: '5 min' } };
   componentDidMount() {
     this.tick = setInterval(() => this.setState({ now: Date.now() }), 1000);
@@ -370,13 +360,7 @@ class Component extends DCLogic {
     return entries.filter(e => (filter === 'all' || (filter === 'fav' ? e.tags.includes('Favorite') : e.group === filter)) && (!ql || [e.title, e.user, e.url, e.notes, ...e.tags].join(' ').toLowerCase().includes(ql)));
   }
   select(id) { this.setState({ sel: id, reveal: false, revealAttr: {}, panel: 'view', confirmDelete: false }); }
-  startEdit(e) { this.setState({ panel: 'edit', sel: e ? e.id : this.state.sel, draft: e ? { ...e, attrs: e.attrs.map(a => ({ ...a })) } : { id: 'n' + Date.now(), title: '', user: '', url: '', group: 'Personal', tags: [], pw: this.makePw(), otp: false, notes: '', attrs: [], modified: 'just now', hist: 0, age: 0, isNew: true }, genOpen: !e, edReveal: !e, screen: 'vault', moved: null }); }
-  moveAttr(from, to) {
-    const d = this.state.draft; if (to < 0 || to >= d.attrs.length || from === to) return;
-    const a = d.attrs[from]; this.setState({ draft: { ...d, attrs: move(d.attrs, from, to) }, moved: a.id });
-    clearTimeout(this.mt); this.mt = setTimeout(() => this.setState({ moved: null }), 900);
-    this.flash('Moved “' + (a.k || 'Untitled field') + '” to position ' + (to + 1));
-  }
+  startEdit(e) { this.setState({ panel: 'edit', sel: e ? e.id : this.state.sel, draft: e ? { ...e, attrs: e.attrs.map(a => ({ ...a })) } : { id: 'n' + Date.now(), title: '', user: '', url: '', group: 'Personal', tags: [], pw: this.makePw(), otp: false, notes: '', attrs: [], modified: 'just now', hist: 0, age: 0, isNew: true }, genOpen: !e, edReveal: !e, screen: 'vault' }); }
   setAttr(i, patch) { const d = this.state.draft; this.setState({ draft: { ...d, attrs: d.attrs.map((a, j) => j === i ? { ...a, ...patch } : a) } }); }
   save() {
     const d = this.state.draft; if (!d.title.trim()) return this.flash('Give the entry a title');
@@ -452,17 +436,11 @@ class Component extends DCLogic {
       noAttrs: attrs.length === 0,
       addAttr: () => this.setState({ draft: { ...d, attrs: [...d.attrs, { id: ++AID, k: '', v: '', p: false }] } }),
       edAttrs: attrs.map((a, i) => {
-        const dragging = s.drag === i, over = s.over === i && s.drag !== null && s.drag !== i, hi = s.moved === a.id;
-        return { k: a.k, v: a.v, pos: i + 1, isFirst: i === 0, isLast: i === attrs.length - 1, inputType: a.p ? 'password' : 'text', draggable: true,
+        return { k: a.k, v: a.v, inputType: a.p ? 'password' : 'text',
           pStyle: { ...btn(a.p), fontSize: '12px', padding: '3px 8px' },
-          rowStyle: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 4px', borderBottom: '1px solid var(--color-divider)', boxShadow: over ? (s.drag < i ? 'inset 0 -2px 0 var(--color-accent)' : 'inset 0 2px 0 var(--color-accent)') : 'none', background: hi ? 'var(--color-accent-100)' : dragging ? 'var(--color-neutral-200)' : 'transparent', opacity: dragging ? 0.5 : 1, transition: 'background .4s' },
+          rowStyle: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 4px', borderBottom: '1px solid var(--color-divider)' },
           onK: e => this.setAttr(i, { k: e.target.value }), onV: e => this.setAttr(i, { v: e.target.value }), toggleP: () => this.setAttr(i, { p: !a.p }),
-          up: () => this.moveAttr(i, i - 1), down: () => this.moveAttr(i, i + 1),
-          remove: () => { this.setState({ draft: { ...d, attrs: d.attrs.filter((_, j) => j !== i) } }); this.flash('Removed “' + (a.k || 'Untitled field') + '”'); },
-          onDragStart: e => { e.dataTransfer.effectAllowed = 'move'; this.setState({ drag: i }); },
-          onDragOver: e => { e.preventDefault(); if (this.state.over !== i) this.setState({ over: i }); },
-          onDrop: e => { e.preventDefault(); const from = this.state.drag; this.setState({ drag: null, over: null }); if (from !== null) this.moveAttr(from, i); },
-          onDragEnd: () => this.setState({ drag: null, over: null }) };
+          remove: () => { this.setState({ draft: { ...d, attrs: d.attrs.filter((_, j) => j !== i) } }); this.flash('Removed “' + (a.k || 'Untitled field') + '”'); } };
       }),
       save: () => this.save(), cancelEdit: () => this.setState({ panel: 'view', draft: null, genOpen: false }),
       settingGroups: [
