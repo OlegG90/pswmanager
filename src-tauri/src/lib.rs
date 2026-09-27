@@ -7,9 +7,11 @@ mod file_watch;
 mod generator;
 mod icons;
 mod otp;
+mod remote;
 mod session_watch;
 mod settings;
 mod store;
+mod sync;
 mod tray;
 mod vault;
 mod window;
@@ -82,6 +84,8 @@ struct Notice(OnceLock<String>);
 #[serde(rename_all = "camelCase")]
 struct Status {
     database: Option<String>,
+    /// Where the database is synced to, if anywhere.
+    synced_with: Option<String>,
     key_file: Option<String>,
     unlocked: bool,
     notice: Option<String>,
@@ -90,9 +94,10 @@ struct Status {
 #[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
-    let (database, key_file) = store.read(|s| (shown(&s.database), shown(&s.key_file)));
+    let (database, synced_with, key_file) =
+        store.read(|s| (shown(&s.database), s.remote.as_ref().map(|r| r.location.describe()), shown(&s.key_file)));
     let notice = notice.0.get().cloned();
-    Status { database, key_file, unlocked: session.is_unlocked(), notice }
+    Status { database, synced_with, key_file, unlocked: session.is_unlocked(), notice }
 }
 
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
@@ -109,10 +114,62 @@ fn choose(app: AppHandle, change: impl FnOnce(&mut store::State)) -> Result<Stat
     Ok(status(app.state(), app.state(), app.state()))
 }
 
+/// Another database can be chosen only while locked, and not while this
+/// device has changes the remote file lacks: they would stay behind.
+fn can_switch(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Session>().is_unlocked() {
+        return Err("Lock the database first".into());
+    }
+    if sync::has_pending(&app.state::<Store>()) {
+        return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
+    }
+    Ok(())
+}
+
+/// Opens a local file: the app does not sync it.
 #[tauri::command(async)]
 fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
-    let picked = pick(&window, "KeePass database", &["kdbx"])?;
-    choose(app, |s| s.database = picked.or(s.database.take()))
+    can_switch(&app)?;
+    let Some(picked) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
+    sync::reset(&app);
+    choose(app, |s| {
+        s.database = Some(picked);
+        s.remote = None;
+    })
+}
+
+/// The database becomes a file in a folder (a LAN share, a NAS), synced
+/// through a working copy.
+#[tauri::command(async)]
+fn sync_with_folder(app: AppHandle, window: Window) -> Result<Status, String> {
+    can_switch(&app)?;
+    let Some(path) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
+    sync::start(&app.state::<Store>(), remote::Location::Folder { path })?;
+    sync::reset(&app);
+    choose(app, |_| {})
+}
+
+/// Stops syncing: the database becomes the remote file itself, used as a
+/// local file. Refused while this device has changes the remote file lacks.
+#[tauri::command(async)]
+fn stop_sync(app: AppHandle) -> Result<Status, String> {
+    can_switch(&app)?;
+    sync::reset(&app);
+    choose(app, |s| {
+        if let Some(remote) = s.remote.take() {
+            s.database = Some(remote.location.local_path());
+        }
+    })
+}
+
+#[tauri::command(async)]
+fn sync_now(app: AppHandle) {
+    sync::request(&app);
+}
+
+#[tauri::command]
+fn sync_status(app: AppHandle) -> sync::Status {
+    sync::status(&app)
 }
 
 #[tauri::command(async)]
@@ -129,7 +186,8 @@ fn clear_key_file(app: AppHandle) -> Result<Status, String> {
 #[tauri::command(async)]
 fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
-    let (database, key_file) = store.read(|s| (s.database.clone(), s.key_file.clone()));
+    sync::ensure_working_copy(&store)?;
+    let (database, key_file, synced) = store.read(|s| (s.database.clone(), s.key_file.clone(), s.remote.is_some()));
     let database = database.ok_or("Choose a database first")?;
     let password = (!password.is_empty()).then_some(password.as_str());
     let vault = Vault::open(&database, password, key_file.as_deref())?;
@@ -138,7 +196,12 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     // Touched first, so the inactivity check never sees a fresh vault as idle.
     app.state::<Activity>().touch();
     session.set(Some(vault));
-    watch_database(&app, &database);
+    if synced {
+        // Only this app writes the working copy; the remote file is what changes.
+        sync::request(&app);
+    } else {
+        watch_database(&app, &database);
+    }
     Ok(listing)
 }
 
@@ -184,17 +247,22 @@ fn check_disk(app: &AppHandle) {
         let adopted = session.with_mut(|v| {
             let Some(changed) = v.adopt(&since, read) else { return Ok(None) };
             v.save_pending()?;
-            Ok(Some(DiskChange { listing: v.listing(), changed }))
+            Ok(Some(changed))
         });
         match adopted {
-            Ok(Some(change)) => {
-                fetch_icons(&app, &change.listing);
-                let _ = app.emit("database-changed", change);
-            }
+            Ok(Some(changed)) => show_changes(&app, changed),
             Ok(None) => {}
             Err(message) => report(message),
         }
     });
+}
+
+/// Tells the window the database changed under it (another device's change
+/// arrived): `database-changed` with the new listing.
+fn show_changes(app: &AppHandle, changed: Vec<String>) {
+    let Ok(listing) = app.state::<Session>().read(Vault::listing) else { return }; // locked meanwhile
+    fetch_icons(app, &listing);
+    let _ = app.emit("database-changed", DiskChange { listing, changed });
 }
 
 /// Fetches the listed sites' missing icons in the background, if the user
@@ -230,6 +298,8 @@ fn lock_now(app: &AppHandle) {
         session.set(None);
         *app.state::<FileWatch>().0.lock().unwrap() = None;
         let _ = app.emit("locked", ());
+        // What changed here goes up; a merge waits for the next unlock.
+        sync::request(app);
     }
     clipboard::clear_if_ours();
 }
@@ -312,16 +382,22 @@ fn save_entry(
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
     fetch_icons(&app, &saved.listing);
+    // Tags alone can wait for the next sync (hiding, locking, quitting).
+    if !base.as_ref().is_some_and(|base| edit::only_tags_changed(base, &data)) {
+        sync::upload_soon(&app);
+    }
     Ok(saved)
 }
 
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
-fn delete_entry(session: State<Session>, id: String) -> Result<Listing, String> {
-    session.with_mut(|v| {
+fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
         v.delete_entry(&id)?;
         Ok(v.listing())
-    })
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
 }
 
 #[tauri::command(async)]
@@ -429,9 +505,14 @@ pub fn run() {
         .manage(Activity::default())
         .manage(Notice::default())
         .manage(FileWatch::default())
+        .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,
             pick_database,
+            sync_with_folder,
+            stop_sync,
+            sync_now,
+            sync_status,
             pick_key_file,
             clear_key_file,
             unlock,
@@ -468,6 +549,7 @@ pub fn run() {
             register_hotkey(handle);
             watch_inactivity(handle.clone());
             lock_on_session_lock(handle.clone());
+            sync::start_clock(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())

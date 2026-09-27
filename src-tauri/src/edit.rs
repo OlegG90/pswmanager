@@ -2,7 +2,7 @@
 //! its previous version kept in the entry's history.
 
 use crate::otp;
-use keepass::db::{fields, EntryId, EntryRef, GroupId, History, Times, Value};
+use keepass::db::{fields, Entry, EntryId, EntryRef, GroupId, History, Times, Value};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -360,6 +360,70 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     kept
 }
 
+/// Merges this device's copy of the database (`ours`) into another device's
+/// (`theirs`), both changed since they were last the same: `theirs` keeps
+/// what it changed, gets what `ours` changed later ([keep_newer]), and every
+/// version of an entry that only `ours` had goes into the entry's history —
+/// including this device's edit where the other device's later edit won.
+/// Returns the ids of the entries it changed in `theirs`.
+pub fn merge(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
+    let mut changed = keep_newer(theirs, ours);
+    for id in join_history(theirs, ours) {
+        if !changed.contains(&id) {
+            changed.push(id);
+        }
+    }
+    changed
+}
+
+/// Adds to `theirs`' entries the versions `ours` has (its current one and its
+/// history) that `theirs` has neither as its current content nor in history,
+/// newest first. Versions are told apart by their modification time; a
+/// version is stored with the entry's own icon and attachments, which this
+/// app never changes.
+fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
+    let mut joined = Vec::new();
+    for e in ours.iter_all_entries() {
+        let id = e.id();
+        let Some(t) = theirs.entry(id) else { continue };
+        let history = t.history.as_ref().map(|h| h.get_entries().clone()).unwrap_or_default();
+        let known: Vec<_> = history.iter().map(|v| v.times.last_modification).chain([t.times.last_modification]).collect();
+        let ours_history = e.history.as_ref().map(|h| h.get_entries().as_slice()).unwrap_or_default();
+        let missing: Vec<Entry> = std::iter::once(&*e)
+            .chain(ours_history)
+            .filter(|v| !known.contains(&v.times.last_modification) && (v.fields != t.fields || v.tags != t.tags))
+            .map(|v| {
+                let mut old = (*t).clone();
+                old.fields = v.fields.clone();
+                old.tags = v.tags.clone();
+                old.times = v.times.clone();
+                old
+            })
+            .collect();
+        if missing.is_empty() {
+            continue;
+        }
+        let mut all: Vec<Entry> = history.into_iter().chain(missing).collect();
+        all.sort_by_key(|v| v.times.last_modification); // oldest first
+        let mut joined_history = History::default();
+        for version in all {
+            joined_history.add_entry(version); // adds at the front: newest first
+        }
+        theirs.entry_mut(id).expect("checked above").history = Some(joined_history);
+        trim_history(theirs, id);
+        joined.push(id);
+    }
+    joined
+}
+
+/// True when an edit (`data` against the entry as the editor opened it,
+/// `base`) changed only the tags.
+pub fn only_tags_changed(base: &EntryData, data: &EntryData) -> bool {
+    let mut same_tags = data.clone();
+    same_tags.tags = base.tags.clone();
+    base.tags != data.tags && same_tags == *base
+}
+
 /// Moves the entry to the recycle bin, creating the bin if the database has
 /// none. A database that turned the bin off is refused: removing an entry
 /// with keepass-rs can leave other entries' attachments pointing at the
@@ -591,6 +655,39 @@ mod tests {
         assert!(theirs.entry(removed).is_none());
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn merging_keeps_the_losing_edit_in_history() {
+        let mut ours = Database::new();
+        let both = apply(&mut ours, None, &data("both"), &HashSet::new()).unwrap();
+        let mut theirs = ours.clone();
+        // Edited here first, then on the other device: theirs is newer and wins.
+        apply(&mut ours, Some(both), &with("both", |d| d.password = "here".into()), &HashSet::new()).unwrap();
+        ours.entry_mut(both).unwrap().times.last_modification = Some(Times::epoch());
+        apply(&mut theirs, Some(both), &with("both", |d| d.password = "there".into()), &HashSet::new()).unwrap();
+        let only_there = apply(&mut theirs, None, &data("new there"), &HashSet::new()).unwrap();
+
+        let changed = merge(&mut theirs, &ours);
+        assert_eq!(changed, [both]);
+        let entry = theirs.entry(both).unwrap();
+        assert_eq!(entry.get_password(), Some("there"));
+        let history: Vec<_> = entry.history.as_ref().unwrap().get_entries().iter().map(|v| v.get_password().unwrap().to_string()).collect();
+        assert_eq!(history, ["pw1", "here"]);
+        assert!(theirs.entry(only_there).is_some());
+        // Merging again finds nothing new.
+        assert!(merge(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn a_tags_only_edit_is_told_apart() {
+        let base = data("x");
+        assert!(only_tags_changed(&base, &with("x", |d| d.tags = vec!["a".into()])));
+        assert!(!only_tags_changed(&base, &with("x", |d| {
+            d.tags = vec!["a".into()];
+            d.password = "new".into();
+        })));
+        assert!(!only_tags_changed(&base, &base.clone()));
     }
 
     #[test]

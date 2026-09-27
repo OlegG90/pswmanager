@@ -59,7 +59,9 @@ pub fn hide(app: &AppHandle) {
     remember_geometry(&window);
     let _ = window.hide();
     if Settings::of(&app.state()).lock_when_hidden() {
-        crate::lock_now(app);
+        crate::lock_now(app); // syncs too
+    } else {
+        crate::sync::request(app);
     }
 }
 
@@ -81,6 +83,7 @@ pub fn quit(app: &AppHandle) {
         remember_geometry(&window);
     }
     crate::lock_now(app);
+    crate::sync::finish(app);
     app.exit(0);
 }
 

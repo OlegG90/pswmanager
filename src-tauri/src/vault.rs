@@ -225,6 +225,31 @@ impl Vault {
         Some(changed)
     }
 
+    /// Takes the remote file `theirs` (opened from `raw`). With `merge` —
+    /// this device changed the working copy since the last sync — this
+    /// device's changes are merged into it and saved; otherwise it replaces the
+    /// working copy byte for byte. Returns the entries that differ from before
+    /// and whether this device's changes were kept (the working copy then has
+    /// what the remote file lacks), or `None` when the working copy was
+    /// written since `since` (sync again).
+    pub fn take_remote(&mut self, since: &Snapshot, mut theirs: Database, raw: &[u8], merge: bool) -> Result<Option<(Vec<String>, bool)>, String> {
+        let file = self.file.as_mut().ok_or("This database cannot be saved")?;
+        if !file.is_at(since) {
+            return Ok(None);
+        }
+        let kept_ours = merge && !edit::merge(&mut theirs, &self.db).is_empty();
+        let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
+        match written {
+            Ok(()) => {}
+            Err(SaveError::Changed) => return Ok(None),
+            Err(SaveError::Failed(message)) => return Err(message),
+        }
+        let changed = changed_entries(&self.db, &theirs);
+        self.db = theirs;
+        self.unsaved = false;
+        Ok(Some((changed, kept_ours)))
+    }
+
     /// Writes changes kept from an older file, if any.
     pub fn save_pending(&mut self) -> Result<(), String> {
         if self.unsaved {

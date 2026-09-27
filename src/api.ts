@@ -2,10 +2,22 @@ import { invoke } from '@tauri-apps/api/core'
 
 export interface Status {
   database: string | null
+  /** Where the database is synced to; `database` is then its working copy. */
+  syncedWith: string | null
   keyFile: string | null
   unlocked: boolean
   /** Something to tell the user, such as a hotkey that could not be registered. */
   notice: string | null
+}
+
+/** What the window shows about syncing with a remote store. */
+export interface SyncStatus {
+  /** False for a local file: nothing to show. */
+  remote: boolean
+  busy: boolean
+  text: string
+  /** The last sync did not finish: offline or an error. */
+  problem: boolean
 }
 
 export interface Entry {
@@ -102,6 +114,10 @@ export const OTP = 'otp'
 export const api = {
   status: () => invoke<Status>('status'),
   pickDatabase: () => invoke<Status>('pick_database'),
+  syncWithFolder: () => invoke<Status>('sync_with_folder'),
+  stopSync: () => invoke<Status>('stop_sync'),
+  syncNow: () => invoke<void>('sync_now'),
+  syncStatus: () => invoke<SyncStatus>('sync_status'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),

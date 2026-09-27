@@ -76,9 +76,7 @@ impl DbFile {
     pub fn save(&mut self, db: &mut Database) -> Result<(), SaveError> {
         db.config.version = DatabaseVersion::KDB4(1);
         let db = &*db;
-        let unchanged = |current: &[u8]| if hash(current) == self.hash { Ok(()) } else { Err(SaveError::Changed) };
-        let read = || fs::read(&self.path).map_err(|e| SaveError::Failed(format!("Cannot read the database file: {e}")));
-        unchanged(&read()?)?;
+        self.check_unchanged()?;
         let mut bytes = Vec::new();
         db.save(&mut bytes, self.key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
         let reread = Database::parse(&bytes, self.key.clone())
@@ -86,15 +84,34 @@ impl DbFile {
         if !same_content(&reread, db) {
             return Err(SaveError::Failed("The new file did not read back the same; nothing was saved".into()));
         }
-        // Writing and checking takes seconds (the key is derived twice): look
-        // again, so a change a sync client brought in meanwhile is not lost.
-        let current = read()?;
-        unchanged(&current)?;
+        // Writing and checking takes seconds (the key is derived twice):
+        // `write` looks again, so a change brought in meanwhile is not lost.
+        self.write(&bytes)
+    }
 
+    /// True when the file was not read or written since `since` was taken.
+    pub fn is_at(&self, since: &Snapshot) -> bool {
+        self.hash == since.hash
+    }
+
+    /// The file as it is, when it did not change since it was last read or written.
+    fn check_unchanged(&self) -> Result<Vec<u8>, SaveError> {
+        let current = fs::read(&self.path).map_err(|e| SaveError::Failed(format!("Cannot read the database file: {e}")))?;
+        if hash(&current) != self.hash {
+            return Err(SaveError::Changed);
+        }
+        Ok(current)
+    }
+
+    /// Replaces the file with `bytes` — a whole database, already opened with
+    /// the key — atomically, keeping the old file as `<name>.bak`, when the file
+    /// did not change since it was last read or written.
+    pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
+        let current = self.check_unchanged()?;
         let tmp = self.sibling(".pswm-tmp");
         let written = (|| {
             let mut file = File::create(&tmp)?;
-            file.write_all(&bytes)?;
+            file.write_all(bytes)?;
             file.sync_all()?;
             fs::write(self.sibling(".bak"), &current)?;
             fs::rename(&tmp, &self.path)
@@ -103,7 +120,7 @@ impl DbFile {
             let _ = fs::remove_file(&tmp);
             return Err(SaveError::Failed(format!("Cannot save the database: {e}")));
         }
-        self.hash = hash(&bytes);
+        self.hash = hash(bytes);
         Ok(())
     }
 
@@ -142,6 +159,11 @@ impl Snapshot {
         let db = Database::parse(&bytes, self.key.clone())
             .map_err(|e| format!("The database file changed on disk and cannot be read now: {}", open_error(&e)))?;
         Ok(Some(Read { db, hash: now }))
+    }
+
+    /// Opens another copy of the database (a downloaded one) with this key.
+    pub fn parse(&self, bytes: &[u8]) -> Result<Database, String> {
+        Database::parse(bytes, self.key.clone()).map_err(|e| open_error(&e))
     }
 }
 

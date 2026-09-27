@@ -1,3 +1,4 @@
+use crate::remote::Location;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fs;
@@ -12,11 +13,27 @@ use std::sync::Mutex;
 pub struct State {
     /// Owned by the frontend; the backend stores it as-is.
     pub settings: Map<String, Value>,
-    /// The database opened last.
+    /// The database opened last; with `remote`, its working copy.
     pub database: Option<PathBuf>,
+    /// Where the database is synced to, if anywhere.
+    pub remote: Option<Remote>,
     /// The key file used with it, if any.
     pub key_file: Option<PathBuf>,
     pub window: Option<WindowGeometry>,
+}
+
+/// A remote file the working copy is synced with, and where the last sync
+/// left them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Remote {
+    pub location: Location,
+    /// The remote file's revision at the last sync; `None` before the first
+    /// upload, or when the file was gone.
+    pub revision: Option<String>,
+    /// The working copy's hash (hex SHA-256) at the last sync: when the
+    /// file's hash differs, it changed since.
+    pub synced: Option<String>,
 }
 
 /// Window placement in logical pixels.

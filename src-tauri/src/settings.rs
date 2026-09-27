@@ -8,6 +8,8 @@ use std::time::Duration;
 const HOTKEY: &str = "Ctrl+Alt+P";
 /// Minutes without use before locking; 0 means never.
 const LOCK_AFTER_MINUTES: (u64, u64, u64) = (5, 1, 60);
+/// Minutes between checks of the remote file while unlocked; 0 means never.
+const SYNC_EVERY_MINUTES: (u64, u64, u64) = (5, 1, 60);
 /// Seconds before a copied value is cleared.
 const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
 
@@ -42,14 +44,22 @@ impl<'a> Settings<'a> {
         clear_after(self.get("clearClipboard", Value::as_u64))
     }
 
+    pub fn sync_every(&self) -> Option<Duration> {
+        minutes(self.get("syncEveryMinutes", Value::as_u64), SYNC_EVERY_MINUTES)
+    }
+
     pub fn download_icons(&self) -> bool {
         self.get("downloadIcons", Value::as_bool).unwrap_or(true)
     }
 }
 
-fn lock_after(minutes: Option<u64>) -> Option<Duration> {
-    let (default, min, max) = LOCK_AFTER_MINUTES;
-    match minutes.unwrap_or(default) {
+fn lock_after(value: Option<u64>) -> Option<Duration> {
+    minutes(value, LOCK_AFTER_MINUTES)
+}
+
+/// A setting in minutes within its limits; 0 means never.
+fn minutes(value: Option<u64>, (default, min, max): (u64, u64, u64)) -> Option<Duration> {
+    match value.unwrap_or(default) {
         0 => None,
         m => Some(Duration::from_secs(m.clamp(min, max) * 60)),
     }
