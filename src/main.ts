@@ -344,6 +344,7 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'value' }, file.name),
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
+      button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
       button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name)),
       button('Rename', 'Rename (its history keeps the old name)', () => renameAttachment(file.name)),
       button('Remove', 'Remove from this entry (its history keeps the file)', () => removeAttachment(file.name))),
@@ -497,6 +498,16 @@ async function removeAttachment(name: string) {
   if (!yes || selectedId !== entry.id) return
   try {
     applyListing(await api.removeAttachment(entry.id, name), `Removed ${name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function openAttachment(name: string) {
+  if (!current) return
+  try {
+    await api.openAttachment(current.id, name)
+    notify(`Opened a read-only copy of ${name} · deleted when the database locks`, 5)
   } catch (e) {
     notify(String(e))
   }

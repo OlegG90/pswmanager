@@ -8,6 +8,7 @@ mod edit;
 mod file_watch;
 mod generator;
 mod icons;
+mod opened;
 mod otp;
 mod remote;
 mod session_watch;
@@ -387,6 +388,7 @@ fn lock_now(app: &AppHandle) {
         sync::request(app);
     }
     clipboard::clear_if_ours();
+    opened::clean(&opened::folder());
 }
 
 /// The window reports use, which keeps the database unlocked.
@@ -486,6 +488,15 @@ fn save_attachment(window: Window, session: State<Session>, id: String, name: St
     let Some(path) = chosen.map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(false) };
     std::fs::write(&path, &*data).map_err(|e| format!("Cannot save the file: {e}"))?;
     Ok(true)
+}
+
+/// Opens one of the entry's files in the app Windows uses for its type,
+/// from a read-only copy that is deleted when the database locks.
+#[tauri::command(async)]
+fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<(), String> {
+    let data = session.with(|v| v.attachment(&id, &name))?;
+    let path = opened::write(&opened::folder(), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))
 }
 
 #[derive(Serialize)]
@@ -711,6 +722,7 @@ pub fn run() {
             save_entry,
             delete_entry,
             save_attachment,
+            open_attachment,
             attach_file,
             remove_attachment,
             rename_attachment,
@@ -731,6 +743,7 @@ pub fn run() {
         })
         .setup(move |app| {
             app.manage(Store::load(data_dir::resolve_state_file()));
+            opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
             window::open(handle, !autostarted)?;
             tray::create(handle)?;

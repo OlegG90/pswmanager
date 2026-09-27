@@ -30,9 +30,8 @@ stays out.
 Browser autofill and browser extensions, an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, creating a new database
 (the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
-password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), opening an attachment
-in another app,
-Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
+password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
+an opened attachment, Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Database
 
@@ -57,7 +56,8 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 - A list of entries on the left, the selected entry on the right. A group / tag filter narrows the list.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes and attached files (name and size). Protected attributes are masked like the
-  password. **Save…** next to a file writes it where the user chooses, **Rename** renames it, **Remove**
+  password. **Open** opens a file in the app Windows uses for its type, **Save…** writes it where the user
+  chooses, **Rename** renames it, **Remove**
   takes it off the entry (after a confirmation); **Attach file…** adds one (see *Editing*). A file's content goes between the database and the disk in the backend, never through the
   webview.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
@@ -118,6 +118,11 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 - The clipboard is cleared only if it still holds the copied value. Copied secrets are excluded from Windows
   clipboard history and cloud clipboard.
 - Nothing secret is written to logs, the state file or the console.
+- An attachment opened in another app is the one secret written to disk by the app itself, because that
+  app needs a file: a read-only copy in a folder of its own (`%TEMP%\pswm-open\<random>\<name>`), which
+  is deleted when the database locks, when the app quits and when it starts (after a crash). A copy the other
+  app still holds open cannot be deleted on Windows; the next clean-up tries again. Changes made to the copy
+  are not saved back.
 
 ## Editing
 

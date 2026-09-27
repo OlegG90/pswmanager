@@ -185,6 +185,9 @@ export const api = {
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
   /** Asks where to save the file and writes it there; false when cancelled. */
   saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
+  /** Opens the file in the app Windows uses for its type, from a read-only
+   *  copy deleted when the database locks. */
+  openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
   /** Asks for a file and attaches it to the entry; null when cancelled. */
   attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
   /** Renames the entry's file; its history keeps the old name. */
