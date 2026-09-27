@@ -1,7 +1,27 @@
 # PswManager
 
-A minimal tray password manager for Windows on top of a KeePass (KDBX 4) file — in development.
-See [docs/spec.md](docs/spec.md) for the MVP specification.
+A minimal tray password manager for Windows on top of a KeePass (KDBX 4) file. The same file opens in
+KeePassXC and Keepass2Android. See [docs/spec.md](docs/spec.md) for the specification.
+
+## Download and first run
+
+1. From the [latest release](https://github.com/OlegG90/pswmanager/releases/latest), download
+   `pswm-x64.exe` (most PCs) or `pswm-arm64.exe` (Windows on ARM, e.g. Snapdragon laptops), and rename it
+   `pswm.exe` if you like. There is no installer: put it in any folder.
+2. The exe is not code-signed, so on first run Windows SmartScreen asks: choose *More info → Run anyway*.
+3. Choose the database: a local `.kdbx` file (**Open a local file…**), a file in a folder such as a NAS
+   share (**Sync with a folder…**), or a file in Dropbox (**Sync with Dropbox…**, which signs in through the
+   browser). New databases come from KeePassXC or from `sic2kdbx` below.
+4. The app lives in the notification area; `Ctrl+Alt+P` shows or hides the window. Settings: `Ctrl+,`.
+
+Settings, the chosen database and cached site icons are kept in `pswm.json` beside the exe when that
+folder is writable (portable), otherwise in `%APPDATA%\pswmanager`. Nothing secret is stored there; a
+cloud sign-in is kept in the Windows Credential Manager.
+
+```
+pswm [<file.kdbx>] [--data-dir <path>]
+pswm --help | --version
+```
 
 ## Development
 
@@ -12,7 +32,13 @@ npm install
 npx tauri dev            # dev mode
 npm test                 # frontend (vitest) and backend unit tests
 npm run build            # this machine's architecture: src-tauri/target/release/pswm.exe
+npm run build:x64        # src-tauri/target/x86_64-pc-windows-msvc/release/pswm.exe
+npm run build:arm64      # src-tauri/target/aarch64-pc-windows-msvc/release/pswm.exe
 ```
+
+Releases: bump `version` in `src-tauri/Cargo.toml`, merge, then push a tag `v<version>` from `main`.
+GitHub Actions ([release.yml](.github/workflows/release.yml)) runs the tests, builds both exes and
+attaches them to the release; *Run workflow* by hand builds them as an artifact without publishing.
 
 The app icon is generated from [src-tauri/icons/app-icon.svg](src-tauri/icons/app-icon.svg) with
 `npx tauri icon src-tauri/icons/app-icon.svg -o src-tauri/icons` (then delete the non-Windows files).
