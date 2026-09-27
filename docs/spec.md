@@ -30,7 +30,8 @@ stays out.
 Browser autofill and browser extensions, an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, creating a new database
 (the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
-password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), editing attachments,
+password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), renaming or removing
+attachments, opening an attachment in another app,
 Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Database
@@ -55,7 +56,10 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
   tags and notes (not passwords). Results update as you type.
 - A list of entries on the left, the selected entry on the right. A group / tag filter narrows the list.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
-  notes and additional attributes. Protected attributes are masked like the password.
+  notes, additional attributes and attached files (name and size). Protected attributes are masked like the
+  password. **Save…** next to a file writes it where the user chooses; **Attach file…** adds one (see
+  *Editing*). A file's content goes between the database and the disk in the backend, never through the
+  webview.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
 
@@ -125,6 +129,10 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
   unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
 - Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
   (add / rename / remove, protected or not).
+- **Attachments:** a file can be added to an entry from the entry view (up to 20 MB — the whole database
+  is synced on every change); it is saved at once, with the previous version in history, like an edit. A
+  name the entry already uses gets a number (`scan (2).pdf`): keepass-rs replaces an attachment by removing
+  the old one, which renumbers the others. Renaming and removing files stay with KeePassXC.
 - Every edit pushes the previous version into the entry's history.
 - **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,
   exclude look-alike characters. Generated with the OS CSPRNG.
@@ -169,6 +177,9 @@ Saving, change detection and the per-change merge below apply to both.
   file is read again, entries changed here later than in the file (`LastModificationTime`), newer moves,
   and entries missing from it without a deletion recorded at or after this device's change are kept and
   written back — the same rule as KeePass's merge: the newer version wins, the other goes to history.
+  Where this device's version wins, its attached files go along: each file whose content the file lacks is
+  added (under a free name); files only the other side has stay. Where the other version wins, its files
+  stand (keepass-rs cannot give an older version in history its own files).
 - Reading the file again (deriving the key) happens without holding the database, so the window, tray and
   hotkey stay responsive while a sync client delivers a change.
 - An entry open in the editor is never replaced silently: if another device changed it, the editor says so,

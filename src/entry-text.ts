@@ -40,3 +40,10 @@ export const parseTags = (text: string) => [
       .filter(Boolean),
   ),
 ]
+
+/** A file size as people read it: `820 B`, `14 KB`, `2.4 MB`. */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const [value, unit] = bytes < 1024 * 1024 ? [bytes / 1024, 'KB'] : [bytes / 1024 / 1024, 'MB']
+  return `${value < 10 ? value.toFixed(1).replace(/\.0$/, '') : Math.round(value)} ${unit}`
+}

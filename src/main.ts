@@ -1,9 +1,9 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { ask, choose, isAsking } from './modal'
-import { parseGroup } from './entry-text'
+import { formatSize, parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 
@@ -317,12 +317,27 @@ function renderDetail() {
     }
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
+  if (entry.attachments.length) {
+    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
+  }
   rows.push(
     el('div', { className: 'buttons' },
       button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
+      button('Attach file…', 'Attach a file to this entry', attachFile),
       button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
   )
   detail.replaceChildren(...rows)
+}
+
+/** An attached file: its name and size; the content is only ever saved to disk. */
+function fileRow(file: Attachment): HTMLDivElement {
+  return el(
+    'div',
+    { className: 'row file' },
+    el('span', { className: 'value' }, file.name),
+    el('span', { className: 'size' }, formatSize(file.size)),
+    el('span', { className: 'actions' }, button('Save…', 'Save to a file on this PC', () => saveAttachment(file.name))),
+  )
 }
 
 // ---------------------------------------------------------------- TOTP
@@ -433,6 +448,26 @@ async function deleteEntry() {
   if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function attachFile() {
+  const entry = current
+  if (!entry || isEditing()) return
+  try {
+    const attached = await api.attachFile(entry.id)
+    if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function saveAttachment(name: string) {
+  if (!current) return
+  try {
+    if (await api.saveAttachment(current.id, name)) notify(`Saved ${name}`)
   } catch (e) {
     notify(String(e))
   }

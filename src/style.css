@@ -580,6 +580,17 @@ input[type='range']:focus-visible {
   background: var(--color-accent-200);
 }
 
+/* Attachments: the file name, its size, Save…. */
+.row.file {
+  grid-template-columns: 1fr auto auto;
+}
+
+.row.file .size {
+  color: var(--color-neutral-700);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .notes {
   white-space: pre-wrap;
   text-align: justify;
@@ -645,7 +656,7 @@ input[type='range']:focus-visible {
 }
 
 /* Section headings: small capitals in the accent, over a hairline. */
-.editor h3 {
+#detail h3 {
   font-family: var(--font-body);
   font-size: 12px;
   font-weight: 600;
@@ -653,6 +664,13 @@ input[type='range']:focus-visible {
   text-transform: uppercase;
   color: var(--color-accent-700);
   margin: 6px 0 0;
+}
+
+/* The entry view's attachments heading, over the file rows. */
+#detail > h3 {
+  margin: 24px 0 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .edit-row {

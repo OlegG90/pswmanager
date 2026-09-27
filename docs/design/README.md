@@ -12,6 +12,8 @@ prototypes, not app code: nothing here is built or shipped.
 - `github.md` — the design tool's map of screens to files in this repository.
 
 What the app takes from it so far: the look of the unlock screen, vault, entry view, editor and
-generator. Not built: the first-run screen, settings, password health (out of scope, see
+generator. The entry view's attachments (a section under the notes, listing each file with
+its size and **Save…**, and **Attach file…** beside Edit) are not in the handoff; they follow the view's
+own rows and the editor's section headings. Not built: the first-run screen, settings, password health (out of scope, see
 `docs/spec.md`) and reordering additional fields. The app uses system fonts instead of the design
 system's Google Fonts, and adds a dark variant of the palette.
