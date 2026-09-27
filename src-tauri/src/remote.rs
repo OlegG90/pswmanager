@@ -123,9 +123,10 @@ impl Remote for Folder {
         if self.revision()?.as_deref() != expected {
             return Err(RemoteError::Changed);
         }
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(".pswm-tmp");
-        let tmp = self.path.with_file_name(name);
+        // Named for this upload only: another device may be uploading too.
+        let mut unique = [0u8; 8];
+        getrandom::fill(&mut unique).map_err(|e| RemoteError::Failed(format!("No random numbers: {e}")))?;
+        let tmp = crate::dbfile::sibling(&self.path, &format!(".{}.pswm-tmp", hash_hex(&unique)[..16].to_owned()));
         let written = (|| {
             let mut file = File::create(&tmp)?;
             file.write_all(bytes)?;
@@ -155,7 +156,7 @@ mod tests {
         let second = folder.upload(b"two", Some(&first)).unwrap();
         assert_eq!(folder.upload(b"three", Some(&first)), Err(RemoteError::Changed));
         assert_eq!(folder.revision(), Ok(Some(second)));
-        assert!(!dir.path().join("base.kdbx.pswm-tmp").exists());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "a temporary file was left behind");
     }
 
     #[test]

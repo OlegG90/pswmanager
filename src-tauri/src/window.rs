@@ -82,9 +82,14 @@ pub fn quit(app: &AppHandle) {
     if let Some(window) = main_window(app) {
         remember_geometry(&window);
     }
+    let _ = window_hidden(app);
     crate::lock_now(app);
-    crate::sync::finish(app);
-    app.exit(0);
+    crate::sync::quit_after_upload(app);
+}
+
+/// Quitting may wait for an upload: the window goes at once.
+fn window_hidden(app: &AppHandle) -> Option<()> {
+    main_window(app)?.hide().ok()
 }
 
 /// A saved position can point at a monitor that is no longer connected.

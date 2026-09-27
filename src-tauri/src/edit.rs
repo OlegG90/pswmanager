@@ -316,30 +316,37 @@ fn trim_history(db: &mut Database, id: EntryId) {
 /// copy won). Every entry of `ours` changed later than in `theirs`, or missing
 /// there with no deletion recorded at or after our change, is applied to
 /// `theirs` (which keeps its own version in the entry's history); a newer
-/// move — including one to the recycle bin — is kept too. Returns the ids of
+/// move is kept too. A move to the recycle bin (a deletion) on either side
+/// stands unless the other side changed the entry later. Returns the ids of
 /// the entries it kept.
 pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     let hidden = hidden_groups(theirs);
-    let our_bin = ours.meta.recyclebin_uuid.map(GroupId::from);
     let mut kept = Vec::new();
     for e in ours.iter_all_entries() {
         let id = e.id();
-        let binned = our_bin.is_some_and(|bin| ancestors(ours, e.parent().id()).contains(&bin));
+        let binned = is_binned(ours, &e);
         // What to write: our content if it is newer, their content otherwise;
         // our place if the move is newer, their place otherwise.
         let (data, to_bin) = match theirs.entry(id) {
             Some(t) => {
-                let newer_content = e.times.last_modification > t.times.last_modification;
-                let newer_place = e.times.location_changed > t.times.location_changed;
-                if !newer_content && !newer_place {
+                let (ours_at, theirs_at) = (&e.times, &t.times);
+                let newer_content = ours_at.last_modification > theirs_at.last_modification;
+                let our_place = if binned {
+                    ours_at.location_changed > theirs_at.location_changed
+                        && ours_at.location_changed > theirs_at.last_modification
+                } else {
+                    let restored = is_binned(theirs, &t) && ours_at.last_modification > theirs_at.location_changed;
+                    ours_at.location_changed > theirs_at.location_changed || restored
+                };
+                if !newer_content && !our_place {
                     continue;
                 }
                 let their_place = path_of(theirs, t.parent().id());
                 let mut data = read(if newer_content { &e } else { &t }, their_place);
-                if newer_place && !binned {
+                if our_place && !binned {
                     data.group = path_of(ours, e.parent().id());
                 }
-                (data, newer_place && binned)
+                (data, our_place && binned)
             }
             None => {
                 let deleted_after = theirs.deleted_objects.get(&id.uuid()).is_some_and(|at| at.is_none() || *at >= e.times.last_modification);
@@ -358,6 +365,12 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
         }
     }
     kept
+}
+
+/// True when the entry is in its database's recycle bin.
+fn is_binned(db: &Database, entry: &EntryRef<'_>) -> bool {
+    let bin = db.meta.recyclebin_uuid.map(GroupId::from);
+    bin.is_some_and(|bin| ancestors(db, entry.parent().id()).contains(&bin))
 }
 
 /// Merges this device's copy of the database (`ours`) into another device's
@@ -677,6 +690,34 @@ mod tests {
         assert!(theirs.entry(only_there).is_some());
         // Merging again finds nothing new.
         assert!(merge(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn a_deletion_stands_unless_the_other_side_changed_the_entry_later() {
+        let mut ours = Database::new();
+        let binned_there = apply(&mut ours, None, &data("binned there"), &HashSet::new()).unwrap();
+        let binned_here = apply(&mut ours, None, &data("binned here"), &HashSet::new()).unwrap();
+        for id in [binned_there, binned_here] {
+            ours.entry_mut(id).unwrap().times.last_modification = Some(Times::epoch());
+            ours.entry_mut(id).unwrap().times.location_changed = Some(Times::epoch());
+        }
+        let mut theirs = ours.clone();
+        // Deleted there, then edited here.
+        recycle(&mut theirs, binned_there).unwrap();
+        theirs.entry_mut(binned_there).unwrap().times.location_changed = Some(Times::epoch() + chrono::Duration::seconds(10));
+        apply(&mut ours, Some(binned_there), &with("binned there", |d| d.password = "later".into()), &HashSet::new()).unwrap();
+        // Deleted here, then edited there.
+        recycle(&mut ours, binned_here).unwrap();
+        ours.entry_mut(binned_here).unwrap().times.location_changed = Some(Times::epoch() + chrono::Duration::seconds(10));
+        apply(&mut theirs, Some(binned_here), &with("binned here", |d| d.password = "later".into()), &HashSet::new()).unwrap();
+
+        keep_newer(&mut theirs, &ours);
+        let bin = theirs.meta.recyclebin_uuid.map(GroupId::from).unwrap();
+        for id in [binned_there, binned_here] {
+            let entry = theirs.entry(id).unwrap();
+            assert_ne!(entry.parent().id(), bin, "{:?}", entry.get_title());
+            assert_eq!(entry.get_password(), Some("later"));
+        }
     }
 
     #[test]

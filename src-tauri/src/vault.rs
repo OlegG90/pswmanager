@@ -237,7 +237,8 @@ impl Vault {
         if !file.is_at(since) {
             return Ok(None);
         }
-        let kept_ours = merge && !edit::merge(&mut theirs, &self.db).is_empty();
+        // Changes kept from an older file but not written yet are changes here too.
+        let kept_ours = (merge || self.unsaved) && !edit::merge(&mut theirs, &self.db).is_empty();
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
             Ok(()) => {}

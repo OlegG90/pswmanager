@@ -101,7 +101,10 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
     }
 
     // What the working copy has that the remote file lacks goes up.
-    let (_, state) = synced(store).ok_or_else(|| failed("The database is not synced"))?;
+    let state = match synced(store) {
+        Some((now, state)) if now == working => state,
+        _ => return Err(failed("Another database was chosen meanwhile")),
+    };
     let bytes = fs::read(&working).map_err(|e| failed(format!("Cannot read the working copy: {e}")))?;
     let hash = hash_hex(&bytes);
     if state.revision.is_none() || state.synced.as_ref() != Some(&hash) {
@@ -152,9 +155,7 @@ pub fn working_copy_path(store: &Store, file_name: &str) -> PathBuf {
 }
 
 fn remote_backup(working: &Path) -> PathBuf {
-    let mut name = working.file_name().unwrap_or_default().to_os_string();
-    name.push(".remote.bak");
-    working.with_file_name(name)
+    crate::dbfile::sibling(working, ".remote.bak")
 }
 
 /// Makes `location` the database: its file is downloaded as the working copy.
@@ -186,7 +187,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let tmp = path.with_extension("kdbx.pswm-tmp");
+        let tmp = crate::dbfile::sibling(path, ".pswm-tmp");
         fs::write(&tmp, bytes)?;
         fs::rename(&tmp, path)
     })();
@@ -228,11 +229,12 @@ fn flags<R>(app: &AppHandle, f: impl FnOnce(&mut Flags) -> R) -> R {
 
 /// Starts a sync in the background, or one more after the one running.
 pub fn request(app: &AppHandle) {
-    if app.state::<Store>().read(|s| s.remote.is_none()) {
-        return;
-    }
+    let synced = app.state::<Store>().read(|s| s.remote.is_some());
     let started = flags(app, |f| {
         f.upload_at = None;
+        if !synced {
+            return false;
+        }
         if f.running {
             f.again = true;
             return false;
@@ -277,6 +279,10 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
     let name = store.read(|s| s.remote.as_ref().map(|r| r.location.name())).unwrap_or("the remote store");
     let time = chrono::Local::now().format("%H:%M");
     let (text, problem) = match result {
+        Ok(Outcome::Merged(changed)) if !changed.is_empty() => {
+            let entries = if changed.len() == 1 { "1 entry".to_string() } else { format!("{} entries", changed.len()) };
+            (format!("Merged {entries} from {name} at {time}"), false)
+        }
         Ok(Outcome::Merged(_)) => (format!("Merged with {name} at {time}"), false),
         Ok(Outcome::WaitingForUnlock) => (format!("Changes in {name} are merged at the next unlock"), false),
         Ok(_) => (format!("Synced at {time}"), false),
@@ -334,13 +340,22 @@ pub fn start_clock(app: AppHandle) {
     });
 }
 
-/// Before quitting: the last changes go up, waiting a little at most.
-pub fn finish(app: &AppHandle) {
+/// Quits once the last changes went up, waiting a little at most. The wait
+/// is off the main thread: the sync reports to the tray, which runs there.
+pub fn quit_after_upload(app: &AppHandle) {
     request(app);
-    let until = Instant::now() + QUIT_WAIT;
-    while Instant::now() < until && flags(app, |f| f.running) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let until = Instant::now() + QUIT_WAIT;
+        while Instant::now() < until && is_running(&app) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        app.exit(0);
+    });
+}
+
+pub fn is_running(app: &AppHandle) -> bool {
+    flags(app, |f| f.running)
 }
 
 #[cfg(test)]

@@ -124,13 +124,17 @@ impl DbFile {
         Ok(())
     }
 
-    /// `base.kdbx` → `base.kdbx<suffix>`, in the same folder (so the rename
-    /// stays on one drive).
     fn sibling(&self, suffix: &str) -> PathBuf {
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(suffix);
-        self.path.with_file_name(name)
+        sibling(&self.path, suffix)
     }
+}
+
+/// `base.kdbx` → `base.kdbx<suffix>`, in the same folder (so a rename stays
+/// on one drive).
+pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    path.with_file_name(name)
 }
 
 /// A database file as it was when the snapshot was taken, with its key.

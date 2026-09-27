@@ -120,6 +120,9 @@ fn can_switch(app: &AppHandle) -> Result<(), String> {
     if app.state::<Session>().is_unlocked() {
         return Err("Lock the database first".into());
     }
+    if sync::is_running(app) {
+        return Err("A sync is running; try again in a moment".into());
+    }
     if sync::has_pending(&app.state::<Store>()) {
         return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
     }
