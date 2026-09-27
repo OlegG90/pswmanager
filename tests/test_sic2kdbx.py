@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zlib
 
 from pykeepass import PyKeePass
 
@@ -12,6 +13,7 @@ import sic2kdbx  # noqa: E402
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 ZIP = b"PK\x03\x04" + b"\x00" * 16
+TEXT = "Привіт, notes\n".encode("utf-8")
 
 XML = f"""<?xml version="1.0" encoding="utf-8"?>
 <database>
@@ -30,6 +32,7 @@ line 2</field>
     <label_id>20</label_id>
     <image>{base64.b64encode(PNG).decode()}</image>
     <file name="sign.zip">{base64.b64encode(ZIP).decode()}</file>
+    <file name="notes.txt">{base64.b64encode(zlib.compress(TEXT)).decode()}</file>
   </card>
   <card title="Mail" id="2" time_stamp="1700000000000">
     <field name="User name" type="login" />
@@ -100,7 +103,12 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(e.group.name, "NET")
         self.assertEqual(e.tags, ["NET", "Old", "Favorite"])
         self.assertEqual({a.filename: a.data for a in e.attachments},
-                         {"image.png": PNG, "sign.zip": ZIP})
+                         {"image.png": PNG, "sign.zip": ZIP, "notes.txt": TEXT})
+
+    def test_unpack_leaves_what_is_not_zlib(self):
+        self.assertEqual(sic2kdbx._unpack(zlib.compress(TEXT)), TEXT)
+        for data in (PNG, ZIP, b"x\x9c broken", b""):
+            self.assertEqual(sic2kdbx._unpack(data), data)
 
     def test_history_and_times(self):
         _, kp = self.convert()
