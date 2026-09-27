@@ -22,19 +22,21 @@ stays out.
 | Device | Client |
 |---|---|
 | Windows PCs | PswManager |
-| Android phones | Keepass2Android (reads and writes the same file, merges on conflict) |
+| Android phones | Keepass2Android (opens the same file in the same store with its own client, merges on conflict) |
 | iPad | **Out of scope for now** |
 
 ### Out of scope
 
-Browser autofill and browser extensions, an own sync server or cloud APIs, iPad, creating a new database
+Browser autofill and browser extensions, an own sync server, a database shared between people (each person
+syncs their own), several people editing one file at the same moment, iPad, creating a new database
 (the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
 password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), editing attachments,
 Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Database
 
-- One KDBX 4 file, chosen once and remembered. Unlocked with a master password, a key file, or both.
+- One KDBX 4 file, chosen once and remembered: a local file, or a file in a remote store the app syncs
+  with (see *Synchronisation with a remote store*). Unlocked with a master password, a key file, or both.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1
   (`save_kdbx4` feature; 4.1 is the only version it writes, so a 4.0 file becomes 4.1 on its first save —
   KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept.
@@ -92,7 +94,7 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 ## Tray
 
 - The app lives in the notification area. Left click shows / hides the window.
-- Menu: Show, Lock, Start with Windows (a check mark), Settings, Quit.
+- Menu: Show, Lock, Sync now (with a remote store), Start with Windows (a check mark), Settings, Quit.
 - Optional start with Windows (off by default); it starts hidden in the tray, locked. The entry it adds
   under `HKCU\…\Run` launches `pswm --autostart`.
 - The global hotkey shows the window, or hides it when it is already in front. A hotkey another app has
@@ -132,11 +134,19 @@ Windows Hello unlock, password-health reports, sharing, KDBX 3 writing.
 
 ## Saving and synchronisation
 
-The file lives in a synced folder (OneDrive, with "Always keep on this device" for that folder). The app does
-not talk to any cloud; it keeps the file consistent when another device changes it.
+The app always works on a file on this PC. It is either:
+
+- **a local file** the user picked — on this PC, a USB drive, or a folder another program syncs. The app
+  keeps that file consistent when something else changes it (below), but it cannot tell when another
+  program delivers the file to other devices; or
+- **the working copy of a remote file** — kept in the data folder and synced with a LAN folder, Dropbox,
+  OneDrive or Google Drive by the app itself (see *Synchronisation with a remote store*). This is the way to
+  share the database with a phone.
+
+Saving, change detection and the per-change merge below apply to both.
 
 - **Save:** write to a temporary file in the same folder, then rename it over the original atomically, so
-  the sync client never picks up a half-written file. The new file is opened again with the key before it
+  no reader ever picks up a half-written file. The new file is opened again with the key before it
   replaces the old one. Before each save the previous file is kept as `<name>.kdbx.bak` next to it. Saving
   an entry that did not change does not write the file.
 - **Change detection:** the app remembers the file's hash when it loads or saves it. Every save, and every
@@ -170,8 +180,76 @@ not talk to any cloud; it keeps the file consistent when another device changes 
   versions in history are compared by what the file keeps of them: keepass-rs also remembers in memory
   which group each was made in, which the file does not store.)
 
+### Synchronisation with a remote store
+
+One person uses the database, from a few devices, and rarely edits on two of them at the same moment. So
+the app does not keep the remote file live: it keeps a working copy, and at defined moments **compares** it
+with the remote file and decides what to do. The window always shows what the last sync did.
+
+**Stores:** a LAN folder (`\\server\share\…`, e.g. a NAS), Dropbox, OneDrive, Google Drive. One remote file
+per app; each person uses their own account.
+
+**What the app remembers** (in the state file): where the remote file is, the remote revision it last
+synced with (Dropbox `rev`, OneDrive `eTag`, Google Drive `version`, a LAN file's hash), and whether the
+working copy has changed since that sync.
+
+**The decision:**
+
+| Remote file since the last sync | Working copy since the last sync | What happens |
+|---|---|---|
+| unchanged | unchanged | nothing |
+| unchanged | changed | upload: the working copy replaces the remote file |
+| changed | unchanged | download: the remote file replaces the working copy |
+| changed | changed | merge the two, save the result as the working copy, upload it |
+
+- **Merge** follows KeePass's rules: entries and groups are matched by UUID; for each, the version with the
+  newer `LastModificationTime` wins and the other goes into its history (histories are joined); moves
+  follow `LocationChanged`; an entry deleted on one side (`DeletedObjects`, or moved to the recycle bin)
+  stays deleted unless the other side changed it later; new entries from both sides are kept. The window
+  lists the entries that were merged. The remote file as it was before is kept as `<name>.remote.bak` in the
+  data folder (the clouds also keep their own version history).
+- **Upload is conditional:** it succeeds only if the remote file is still at the revision the decision was
+  made on (Dropbox `update` mode with `rev`, OneDrive `If-Match`; Google Drive: the revision is checked
+  right before the upload; a LAN file: its hash is checked before the rename). Otherwise the sync starts
+  again from the decision, so another device's upload is never overwritten.
+- A remote file that cannot be read (wrong key, corrupt, half-uploaded) never replaces the working copy
+  and is never overwritten; the window says so and the app keeps working on the working copy.
+- Only files verified the same way as a local save are uploaded; a download is opened with the key before
+  it replaces the working copy.
+
+**When it syncs:**
+
+| Moment | Sync |
+|---|---|
+| Unlock (including after start) | yes; the working copy shows at once, the list updates when the sync finishes |
+| An entry is created, edited, moved or deleted | upload about 10 s after the last such change, so several edits go up as one |
+| Only an entry's tags changed | waits for the next moment in this table |
+| The window is hidden to the tray | yes |
+| Lock (by hand, after inactivity, Windows lock) | an upload only: the key is dropped at once, so a merge waits for the next unlock |
+| Quit | an upload only, waiting at most 10 s; what did not go up is synced at the next start |
+| **Sync now** (a button in the window, an item in the tray menu) | yes |
+| While unlocked | the remote revision is checked every 5 min (1–60, or off); the file is downloaded only when it changed |
+
+- **Offline:** everything works on the working copy; the status says changes are waiting, and the next
+  sync moment sends them.
+- **Status** in the window and the tray tooltip: *Synced 12:04*, *Syncing…*, *Changes waiting — offline*,
+  *Merged 3 entries from Dropbox*, *Sign in to Dropbox again*, or the error. A sync error never blocks
+  reading or editing.
+
+**Connecting a cloud account:**
+
+- OAuth 2 with PKCE in the system browser and a loopback redirect (`http://localhost:53134/<store>`). The
+  app has no client secret; its public app ids are in the source.
+- The refresh token is kept in the Windows Credential Manager (protected for the Windows user), never in
+  the state file or logs. **Disconnect** removes it; the working copy stays.
+- Each store gets the narrowest access that still reaches a file Keepass2Android can open: Dropbox — its
+  app folder (`Apps/PswManager Sync`); OneDrive and Google Drive — settled with their steps of milestone 6.
+- Setting up: sign in, then either pick the `.kdbx` in the store or upload the current local database to it.
+- Only the stores' own APIs are contacted.
+
 **Compatibility gate:** a file saved by PswManager must open in KeePassXC and in Keepass2Android, and a
-change made in Keepass2Android must merge back without loss. This is checked before every release.
+change made in Keepass2Android must merge back without loss — for a local file and through each supported
+store. This is checked before every release.
 
 ## Command line
 
@@ -188,8 +266,9 @@ pswm --help | --version
 
 ## State
 
-- One JSON file: settings, the database path, the key file path, window geometry. **Never** the master
-  password or any secret. Site icons are cached in `icons/` beside it.
+- One JSON file: settings, the database path or remote store, the key file path, the sync state, window
+  geometry. **Never** the master password, a cloud token or any secret. Site icons are cached in `icons/`
+  beside it; the working copy of a remote file and its backups are in `sync/`.
 - **Location:** `pswm.json` next to the exe if that folder is writable; otherwise
   `%APPDATA%\pswmanager\pswm.json`. `--data-dir` overrides both.
 
@@ -197,8 +276,8 @@ pswm --help | --version
 
 - **Shell:** Tauri 2 (Rust) + WebView2, tray via Tauri's `tray-icon` feature.
 - **Frontend:** plain TypeScript, no framework.
-- **Crates:** `keepass` (`save_kdbx4`), `zeroize`, `notify`, `zxcvbn`, `totp-lite`; an HTTP client for
-  site icons.
+- **Crates:** `keepass` (`save_kdbx4`), `zeroize`, `notify`, `zxcvbn`, `totp-lite`; `ureq` (native TLS)
+  for site icons and the cloud APIs; the Windows Credential Manager for tokens.
 - **Plugins:** single-instance, global-shortcut, autostart, opener, dialog. Clipboard handling is done in
   Rust, so it can set the history-exclusion formats and clear only its own value.
 - **Build:** Tauri bundling (MSI/NSIS) disabled; only `pswm.exe` is produced. `npm run build` builds it for
@@ -217,6 +296,7 @@ the release.
 
 - Automated (Rust): KDBX round trip preserves everything listed under *Database*; merge cases (edit / edit,
   edit / delete, move, new on both sides, history union); atomic save and `.bak`; change detection;
+  the sync decision, conditional upload and retry against a fake store; merging two databases;
   generator character sets; TOTP against RFC 6238 vectors; icon choice order and `<link rel="icon">`
   parsing; data-location selection; CLI parsing.
 - Automated (TypeScript): search / filter, keyboard handling.
@@ -230,3 +310,5 @@ the release.
 3. Editing, generator, strength indicator, TOTP; atomic save with `.bak`
 4. Change detection, file watching, merge; compatibility gate with KeePassXC and Keepass2Android
 5. Settings panel, CLI flags, portable exe build and release CI
+6. Synchronisation with a remote store: the sync mechanism with a LAN folder and Dropbox, then OneDrive,
+   then Google Drive (one PR each); can land before 5
