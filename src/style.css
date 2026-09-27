@@ -150,6 +150,19 @@ button:focus-visible,
   max-width: 30%;
 }
 
+#sync-status {
+  align-self: center;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+#sync-status.problem {
+  color: var(--danger);
+}
+
 #list {
   margin: 0;
   padding: 0;

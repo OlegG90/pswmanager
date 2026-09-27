@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { ask, isAsking } from './modal'
@@ -39,8 +39,11 @@ const revealed = new Map<string, string>()
 // ---------------------------------------------------------------- unlock
 
 function showStatus(status: Status) {
-  $('database-path').textContent = status.database ?? 'No database chosen'
+  const synced = status.syncedWith
+  $('database-path').textContent = synced ? `Synced with ${synced}` : (status.database ?? 'No database chosen')
+  $('database-path').title = synced ? `Working copy: ${status.database}` : ''
   $('database-path').classList.toggle('muted', !status.database)
+  $('stop-sync').hidden = !synced
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
@@ -65,6 +68,8 @@ async function run(action: () => Promise<void>) {
 }
 
 $('pick-database').addEventListener('click', () => run(async () => showStatus(await api.pickDatabase())))
+$('sync-with-folder').addEventListener('click', () => run(async () => showStatus(await api.syncWithFolder())))
+$('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 
@@ -88,6 +93,7 @@ function showVault(next: Listing) {
   listing = next
   unlockForm.hidden = true
   vault.hidden = false
+  api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
   fillFilter()
   refresh()
@@ -439,6 +445,17 @@ function notify(message: string, seconds = 3) {
   toastTimer = window.setTimeout(() => (toast.hidden = true), seconds * 1000)
 }
 
+/** The sync line in the toolbar; hidden for a database that is not synced. */
+function showSyncStatus(status: SyncStatus) {
+  const line = $('sync-status')
+  line.hidden = !status.remote || !status.text && !status.busy
+  line.textContent = status.busy ? 'Syncing…' : status.text
+  line.title = line.textContent
+  line.classList.toggle('problem', status.problem && !status.busy)
+  $('sync-button').hidden = !status.remote
+  $<HTMLButtonElement>('sync-button').disabled = status.busy
+}
+
 /** The file changed on disk and was read again: show the new state in place. */
 function showDiskChange({ listing: next, changed }: DiskChange) {
   if (vault.hidden) return
@@ -452,6 +469,7 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
 searchInput.addEventListener('input', refresh)
 filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
+$('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 
 /** Esc with nothing left to close: back to the tray. */
 function hideWindow() {
@@ -549,6 +567,7 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 listen('locked', showLocked)
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
+listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 listen('window-shown', () => (vault.hidden ? passwordInput : searchInput).focus())
 
 listen<string>('icon-ready', (e) => {

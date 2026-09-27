@@ -7,7 +7,7 @@ use keepass::error::{DatabaseKeyError, DatabaseOpenError};
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// Why a save did not happen.
@@ -35,6 +35,30 @@ pub struct DbFile {
 
 fn hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+/// The same hash as text, as the sync state keeps it.
+pub fn hash_hex(bytes: &[u8]) -> String {
+    hex(&hash(bytes))
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Writes `bytes` to `tmp` (flushed to disk), then renames it over `path`, so
+/// a reader sees either the old file or the whole new one.
+pub fn replace_file(path: &Path, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+    let written = (|| {
+        let mut file = File::create(tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(tmp, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(tmp);
+    }
+    written
 }
 
 impl DbFile {
@@ -76,9 +100,7 @@ impl DbFile {
     pub fn save(&mut self, db: &mut Database) -> Result<(), SaveError> {
         db.config.version = DatabaseVersion::KDB4(1);
         let db = &*db;
-        let unchanged = |current: &[u8]| if hash(current) == self.hash { Ok(()) } else { Err(SaveError::Changed) };
-        let read = || fs::read(&self.path).map_err(|e| SaveError::Failed(format!("Cannot read the database file: {e}")));
-        unchanged(&read()?)?;
+        self.check_unchanged()?;
         let mut bytes = Vec::new();
         db.save(&mut bytes, self.key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
         let reread = Database::parse(&bytes, self.key.clone())
@@ -86,34 +108,48 @@ impl DbFile {
         if !same_content(&reread, db) {
             return Err(SaveError::Failed("The new file did not read back the same; nothing was saved".into()));
         }
-        // Writing and checking takes seconds (the key is derived twice): look
-        // again, so a change a sync client brought in meanwhile is not lost.
-        let current = read()?;
-        unchanged(&current)?;
+        // Writing and checking takes seconds (the key is derived twice):
+        // `write` looks again, so a change brought in meanwhile is not lost.
+        self.write(&bytes)
+    }
 
-        let tmp = self.sibling(".pswm-tmp");
-        let written = (|| {
-            let mut file = File::create(&tmp)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            fs::write(self.sibling(".bak"), &current)?;
-            fs::rename(&tmp, &self.path)
-        })();
-        if let Err(e) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(SaveError::Failed(format!("Cannot save the database: {e}")));
+    /// True when the file was not read or written since `since` was taken.
+    pub fn is_at(&self, since: &Snapshot) -> bool {
+        self.hash == since.hash
+    }
+
+    /// The file as it is, when it did not change since it was last read or written.
+    fn check_unchanged(&self) -> Result<Vec<u8>, SaveError> {
+        let current = fs::read(&self.path).map_err(|e| SaveError::Failed(format!("Cannot read the database file: {e}")))?;
+        if hash(&current) != self.hash {
+            return Err(SaveError::Changed);
         }
-        self.hash = hash(&bytes);
+        Ok(current)
+    }
+
+    /// Replaces the file with `bytes` — a whole database, already opened with
+    /// the key — atomically, keeping the old file as `<name>.bak`, when the file
+    /// did not change since it was last read or written.
+    pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
+        let current = self.check_unchanged()?;
+        fs::write(self.sibling(".bak"), &current)
+            .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))
+            .map_err(|e| SaveError::Failed(format!("Cannot save the database: {e}")))?;
+        self.hash = hash(bytes);
         Ok(())
     }
 
-    /// `base.kdbx` → `base.kdbx<suffix>`, in the same folder (so the rename
-    /// stays on one drive).
     fn sibling(&self, suffix: &str) -> PathBuf {
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(suffix);
-        self.path.with_file_name(name)
+        sibling(&self.path, suffix)
     }
+}
+
+/// `base.kdbx` → `base.kdbx<suffix>`, in the same folder (so a rename stays
+/// on one drive).
+pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    path.with_file_name(name)
 }
 
 /// A database file as it was when the snapshot was taken, with its key.
@@ -142,6 +178,11 @@ impl Snapshot {
         let db = Database::parse(&bytes, self.key.clone())
             .map_err(|e| format!("The database file changed on disk and cannot be read now: {}", open_error(&e)))?;
         Ok(Some(Read { db, hash: now }))
+    }
+
+    /// Opens another copy of the database (a downloaded one) with this key.
+    pub fn parse(&self, bytes: &[u8]) -> Result<Database, String> {
+        Database::parse(bytes, self.key.clone()).map_err(|e| open_error(&e))
     }
 }
 

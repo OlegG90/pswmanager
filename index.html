@@ -12,7 +12,9 @@
       <h1>PswManager</h1>
       <div class="file-row">
         <span id="database-path" class="path"></span>
-        <button type="button" id="pick-database">Choose…</button>
+        <button type="button" id="pick-database" title="Open a database file directly; the app does not sync it">Open a local file…</button>
+        <button type="button" id="sync-with-folder" title="Sync with a file in a folder, such as a NAS share">Sync with a folder…</button>
+        <button type="button" id="stop-sync" hidden>Stop syncing</button>
       </div>
       <input id="password" type="password" placeholder="Master password" aria-label="Master password" />
       <div class="file-row">
@@ -29,6 +31,8 @@
       <header id="toolbar">
         <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false" />
         <select id="filter" aria-label="Show"></select>
+        <span id="sync-status" class="muted" role="status" hidden></span>
+        <button id="sync-button" title="Sync now" hidden>Sync</button>
         <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
       </header>
       <ul id="list" role="listbox" aria-label="Entries" tabindex="0"></ul>

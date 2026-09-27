@@ -59,7 +59,9 @@ pub fn hide(app: &AppHandle) {
     remember_geometry(&window);
     let _ = window.hide();
     if Settings::of(&app.state()).lock_when_hidden() {
-        crate::lock_now(app);
+        crate::lock_now(app); // syncs too
+    } else {
+        crate::sync::request(app);
     }
 }
 
@@ -79,9 +81,10 @@ pub fn toggle(app: &AppHandle, need_focus: bool) {
 pub fn quit(app: &AppHandle) {
     if let Some(window) = main_window(app) {
         remember_geometry(&window);
+        let _ = window.hide(); // quitting may wait for an upload
     }
     crate::lock_now(app);
-    app.exit(0);
+    crate::sync::quit_after_upload(app);
 }
 
 /// A saved position can point at a monitor that is no longer connected.
