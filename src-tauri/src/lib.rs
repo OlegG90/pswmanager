@@ -191,7 +191,7 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     let password = Zeroizing::new(password);
     sync::ensure_working_copy(&store)?;
     let (database, key_file, synced) = store.read(|s| (s.database.clone(), s.key_file.clone(), s.remote.is_some()));
-    let database = database.ok_or("Choose a database first")?;
+    let database = database.ok_or("Open a local file or sync with a folder first")?;
     let password = (!password.is_empty()).then_some(password.as_str());
     let vault = Vault::open(&database, password, key_file.as_deref())?;
     let listing = vault.listing();
