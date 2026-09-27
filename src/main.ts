@@ -2,11 +2,12 @@ import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
-import { ask, choose, isAsking } from './modal'
+import { ask, isAsking } from './modal'
 import { parseGroup } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { filterChoices, groupPath, search, type Filter } from './search'
 import { renderSettings } from './settings'
+import { renderChoose } from './choose'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -19,6 +20,7 @@ const filterSelect = $<HTMLSelectElement>('filter')
 const list = $<HTMLUListElement>('list')
 const detail = $('detail')
 const settingsView = $('settings')
+const chooseView = $('choose')
 const toast = $('toast')
 
 const DEFAULT_ICON =
@@ -32,6 +34,8 @@ const EMPTY: Listing = { entries: [], customIcons: {} }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
+/** Back from the choose-database screen to the unlock screen; null on the first run. */
+let chooseBack: (() => void) | null = null
 let listing = EMPTY
 /** Site icons by host: a data URL, null when the cache has none (yet). */
 const siteIcons = new Map<string, string | null>()
@@ -43,23 +47,37 @@ const revealed = new Map<string, string>()
 
 // ---------------------------------------------------------------- unlock
 
+const SYNC_KINDS = { folder: 'Synced with a folder', dropbox: 'Synced with Dropbox' }
+
 function showStatus(status: Status) {
   const synced = status.syncedWith
-  $('database-path').textContent = synced ? `Synced with ${synced}` : (status.database ?? 'No database chosen')
-  $('database-path').title = synced ? `Working copy: ${status.database}` : ''
-  $('database-path').classList.toggle('muted', !status.database)
-  $('stop-sync').hidden = !synced
+  $('database-kind').textContent = status.syncKind ? SYNC_KINDS[status.syncKind] : 'Local file'
+  $('database-path').textContent = synced ?? status.database ?? ''
+  $('database-path').title = synced ? `Working copy: ${status.database}` : (status.database ?? '')
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
   $('notice').hidden = !status.notice
 }
 
+/** The unlock screen, or the choose-database screen while there is no database. */
 function showUnlock(status: Status) {
-  showStatus(status)
   vault.hidden = true
+  if (!status.database) return showChoose(status)
+  showStatus(status)
+  chooseBack = null
+  chooseView.hidden = true
+  chooseView.replaceChildren()
   unlockForm.hidden = settingsOpen
   if (!settingsOpen) passwordInput.focus()
+}
+
+function showChoose(status: Status) {
+  const back = () => run(async () => showUnlock(await api.status()))
+  chooseBack = status.database ? back : null
+  unlockForm.hidden = true
+  chooseView.hidden = settingsOpen
+  renderChoose(chooseView, status, { chosen: showUnlock, back })
 }
 
 async function run(action: () => Promise<void>) {
@@ -72,35 +90,7 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-$('pick-database').addEventListener('click', () => run(async () => showStatus(await api.pickDatabase())))
-$('sync-with-folder').addEventListener('click', () => run(async () => showStatus(await api.syncWithFolder())))
-$('stop-sync').addEventListener('click', () => run(async () => showStatus(await api.stopSync())))
-$('sync-with-dropbox').addEventListener('click', () => run(syncWithDropbox))
-
-$('cancel-sign-in').addEventListener('click', () => api.cancelDropbox())
-
-/** Signs in to Dropbox in the browser, then asks which file to sync with.
- *  Giving up on the way signs out again. */
-async function syncWithDropbox() {
-  const waiting = $('signing-in')
-  waiting.hidden = false
-  try {
-    const offer = await api.signInToDropbox().finally(() => (waiting.hidden = true))
-    const labels = offer.files.map((path) => `Use ${path}`)
-    const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
-    if (canUpload) labels.push(`Upload ${offer.upload}`)
-    if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
-    const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
-    if (picked === null) {
-      await api.cancelDropbox()
-      return
-    }
-    showStatus(await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null))
-  } catch (e) {
-    await api.cancelDropbox()
-    throw e
-  }
-}
+$('change-database').addEventListener('click', () => run(async () => showChoose(await api.status())))
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 
@@ -510,6 +500,7 @@ async function openSettings() {
   }
   settingsOpen = true
   unlockForm.hidden = true
+  chooseView.hidden = true
   vault.hidden = true
   settingsView.hidden = false
   settingsView.querySelector('button')?.focus()
@@ -521,9 +512,17 @@ function closeSettings() {
   settingsOpen = false
   settingsView.hidden = true
   settingsView.replaceChildren()
-  vault.hidden = !unlocked
-  unlockForm.hidden = unlocked
-  ;(unlocked ? searchInput : passwordInput).focus()
+  if (unlocked) {
+    vault.hidden = false
+    searchInput.focus()
+  } else if (chooseView.childElementCount) {
+    chooseView.hidden = false
+    chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  } else {
+    // Locked while the settings were open: the unlock screen, or the
+    // choose-database screen when there is no database.
+    api.status().then(showUnlock, (e) => notify(String(e)))
+  }
 }
 
 // ---------------------------------------------------------------- keys
@@ -608,7 +607,10 @@ document.addEventListener('keydown', (e) => {
     return
   }
   if (!unlocked) {
-    if (e.key === 'Escape') hideWindow()
+    if (e.key === 'Escape') {
+      if (!chooseView.hidden && chooseBack) chooseBack()
+      else hideWindow()
+    }
     if (e.ctrlKey && e.code === 'Comma') {
       e.preventDefault()
       openSettings()
@@ -650,7 +652,10 @@ listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 listen('window-shown', () => {
-  if (!settingsOpen) (unlocked ? searchInput : passwordInput).focus()
+  if (settingsOpen) return
+  if (unlocked) searchInput.focus()
+  else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  else passwordInput.focus()
 })
 listen('open-settings', () => {
   if (!isAsking()) openSettings()

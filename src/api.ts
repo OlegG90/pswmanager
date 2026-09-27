@@ -4,6 +4,7 @@ export interface Status {
   database: string | null
   /** Where the database is synced to; `database` is then its working copy. */
   syncedWith: string | null
+  syncKind: 'folder' | 'dropbox' | null
   keyFile: string | null
   unlocked: boolean
   /** Something to tell the user, such as a hotkey that could not be registered. */

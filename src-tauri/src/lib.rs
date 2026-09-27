@@ -89,6 +89,8 @@ struct Status {
     database: Option<String>,
     /// Where the database is synced to, if anywhere.
     synced_with: Option<String>,
+    /// The kind of store it is synced with: `folder` or `dropbox`.
+    sync_kind: Option<&'static str>,
     key_file: Option<String>,
     unlocked: bool,
     notice: Option<String>,
@@ -97,10 +99,12 @@ struct Status {
 #[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
     let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
-    let (database, synced_with, key_file) =
-        store.read(|s| (shown(&s.database), s.remote.as_ref().map(|r| r.location.describe()), shown(&s.key_file)));
+    let (database, synced_with, sync_kind, key_file) = store.read(|s| {
+        let location = s.remote.as_ref().map(|r| &r.location);
+        (shown(&s.database), location.map(|l| l.describe()), location.map(|l| l.kind()), shown(&s.key_file))
+    });
     let notice = notice.0.get().cloned();
-    Status { database, synced_with, key_file, unlocked: session.is_unlocked(), notice }
+    Status { database, synced_with, sync_kind, key_file, unlocked: session.is_unlocked(), notice }
 }
 
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
