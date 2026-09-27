@@ -31,7 +31,7 @@ use remote::Remote as _;
 use store::Store;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 use edit::EntryData;
 use vault::{EntryDetail, Listing, Vault};
@@ -684,6 +684,8 @@ fn settings(app: AppHandle) -> SettingsView {
 fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
     if name == "startWithWindows" {
         tray::set_autostart(&app, value.as_bool().ok_or("Start with Windows is on or off")?)?;
+    } else if name == "hotkey" {
+        change_hotkey(&app, value.as_str().ok_or("A hotkey is a key combination")?)?;
     } else {
         Settings::of(&app.state()).set(&name, value)?;
         if name == "theme" {
@@ -717,14 +719,40 @@ fn watch_inactivity(app: AppHandle) {
 /// another app is reported on the unlock screen instead of failing the start.
 fn register_hotkey(app: &AppHandle) {
     let hotkey = Settings::of(&app.state()).hotkey();
-    let registered = app.global_shortcut().on_shortcut(hotkey.as_str(), |app, _, event| {
-        if event.state == ShortcutState::Pressed {
-            window::toggle(app, true);
-        }
-    });
-    if let Err(e) = registered {
+    if let Err(e) = listen_to(app, &hotkey) {
         let _ = app.state::<Notice>().0.set(format!("The hotkey {hotkey} is not available: {e}"));
     }
+}
+
+/// Shows or hides the window on `hotkey`.
+fn listen_to(app: &AppHandle, hotkey: &str) -> Result<(), String> {
+    let shortcut: Shortcut = hotkey.parse().map_err(|e| format!("{hotkey} is not a key combination: {e}"))?;
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _, event| {
+            if event.state == ShortcutState::Pressed {
+                window::toggle(app, true);
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Moves the show / hide hotkey to `hotkey`, kept only once it is
+/// registered: a combination another app holds is refused and the old one
+/// stays.
+fn change_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
+    let old = Settings::of(&app.state()).hotkey();
+    let same = |a: &str, b: &str| a.parse::<Shortcut>().ok().zip(b.parse::<Shortcut>().ok()).is_some_and(|(a, b)| a == b);
+    if !same(&old, hotkey) {
+        let modified = hotkey.parse::<Shortcut>().is_ok_and(|s| {
+            s.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER)
+        });
+        if !modified {
+            return Err("A hotkey needs Ctrl, Alt or Win, so typing does not trigger it".into());
+        }
+        listen_to(app, hotkey).map_err(|e| format!("{hotkey} is not available — another app may use it ({e})"))?;
+        let _ = app.global_shortcut().unregister(old.as_str());
+    }
+    Settings::of(&app.state()).set("hotkey", hotkey.into())
 }
 
 /// Locks when Windows locks or the session is disconnected (`lockOnSessionLock`).

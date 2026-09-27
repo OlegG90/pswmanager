@@ -41,6 +41,43 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
+const MODIFIER_KEYS = ['Control', 'Alt', 'Shift', 'Meta', 'AltGraph']
+
+/**
+ * A key combination as the backend reads it, from the keys' positions
+ * (`e.code`), so it is the same in every keyboard layout: `Ctrl+Alt+P`.
+ */
+export function comboOf(e: KeyboardEvent): string | null {
+  if (MODIFIER_KEYS.includes(e.key)) return null
+  const key = e.code.replace(/^Key/, '').replace(/^Digit/, '')
+  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean)
+  return [...mods, key].join('+')
+}
+
+/** The hotkey, and a button that takes the next key combination pressed. */
+function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLElement {
+  const shown = el('span', { className: 'value' }, hotkey.replace('Super', 'Win'))
+  const edit = button('Change…', 'Press the new combination; Esc cancels', () => {
+    shown.textContent = 'Press the keys…'
+    edit.disabled = true
+    const take = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') return done(null)
+      const combo = comboOf(e)
+      if (combo) done(combo)
+    }
+    const done = (combo: string | null) => {
+      document.removeEventListener('keydown', take, true)
+      edit.disabled = false
+      shown.textContent = hotkey.replace('Super', 'Win')
+      if (combo && combo !== hotkey) change(combo)
+    }
+    document.addEventListener('keydown', take, true)
+  })
+  return el('span', { className: 'hotkey' }, shown, edit)
+}
+
 /**
  * Fills `container` with the settings screen. Each change is saved at once;
  * `onError` reports one that failed, and the screen then shows what is in effect.
@@ -72,7 +109,7 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
           select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
       group('Window and tray',
         row('Theme', 'Light or dark, or as Windows is set', pick('Theme', s.theme, THEMES, set('theme'))),
-        row('Global hotkey', 'Shows or hides the window', el('span', { className: 'value' }, s.hotkey)),
+        row('Global hotkey', 'Shows or hides the window from any app', hotkeyControl(s.hotkey, set('hotkey'))),
         row('Start with Windows', 'Starts hidden in the tray, locked',
           toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
         row('Download site icons', 'Directly from each site, never through a third party',
