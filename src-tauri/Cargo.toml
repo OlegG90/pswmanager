@@ -53,6 +53,43 @@ strip = true
 [dev-dependencies]
 tempfile = "3.27.0"
 
-# Dependencies optimised in debug builds too, so unlocking (Argon2) takes a second, not half a minute.
-[profile.dev.package."*"]
+# The crates that unlock and save a database (Argon2, the ciphers, hashing,
+# gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
+# a second, not half a minute. Only these: optimising every dependency made
+# a first debug or test build several times slower.
+[profile.dev.package.rust-argon2]
+opt-level = 3
+[profile.dev.package.blake2b_simd]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.cbc]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.twofish]
+opt-level = 3
+[profile.dev.package.cipher]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+[profile.dev.package.generic-array]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.quick-xml]
+opt-level = 3
+[profile.dev.package.keepass]
+opt-level = 3
+[profile.dev.package.zxcvbn]
 opt-level = 3
