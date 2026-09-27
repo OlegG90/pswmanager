@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use url::Url;
 use zeroize::Zeroizing;
@@ -38,13 +38,10 @@ static ACCESS: Mutex<Option<(Zeroizing<String>, Instant)>> = Mutex::new(None);
 /// Set to give up waiting for the browser.
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
-fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(TIMEOUT))
-        .http_status_as_error(false)
-        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
-        .build()
-        .into()
+/// One client for every request, so connections are reused.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| crate::icons::http_agent(TIMEOUT, false));
+    &AGENT
 }
 
 /// A request that did not get an answer: offline, or Dropbox unreachable.
@@ -94,8 +91,8 @@ pub fn sign_in(open: impl FnOnce(&str) -> Result<(), String>) -> Result<(), Stri
         ("code_verifier", verifier.as_str()),
         ("redirect_uri", REDIRECT_URI),
     ];
-    let tokens = request_tokens(&form).map_err(|e| e.message())?;
-    let refresh = Zeroizing::new(tokens.refresh_token.clone().ok_or("Dropbox gave no lasting sign-in")?);
+    let mut tokens = request_tokens(&form).map_err(|e| e.message())?;
+    let refresh = Zeroizing::new(tokens.refresh_token.take().ok_or("Dropbox gave no lasting sign-in")?);
     credentials::write(CREDENTIAL, &refresh)?;
     remember(tokens);
     Ok(())
@@ -125,10 +122,13 @@ fn request_tokens(form: &[(&str, &str)]) -> Result<Tokens, RemoteError> {
     }
 }
 
-fn remember(tokens: Tokens) {
+/// Keeps the access token in memory, and returns it.
+fn remember(tokens: Tokens) -> Zeroizing<String> {
     // A minute early, so a token never runs out mid-request.
     let until = Instant::now() + Duration::from_secs(tokens.expires_in.saturating_sub(60));
-    *ACCESS.lock().unwrap() = Some((Zeroizing::new(tokens.access_token), until));
+    let token = Zeroizing::new(tokens.access_token);
+    *ACCESS.lock().unwrap() = Some((token.clone(), until));
+    token
 }
 
 /// A valid access token: the one in memory, or a new one from the refresh token.
@@ -140,9 +140,7 @@ fn access_token() -> Result<Zeroizing<String>, RemoteError> {
     }
     let refresh = credentials::read(CREDENTIAL).ok_or_else(|| RemoteError::SignIn(SIGN_IN_AGAIN.into()))?;
     let tokens = request_tokens(&[("grant_type", "refresh_token"), ("refresh_token", refresh.as_str()), ("client_id", APP_KEY)])?;
-    let token = Zeroizing::new(tokens.access_token.clone());
-    remember(tokens);
-    Ok(token)
+    Ok(remember(tokens))
 }
 
 fn random_text(bytes: usize) -> String {
@@ -255,32 +253,34 @@ impl Answer {
     }
 }
 
-/// Calls the API with a fresh token; an expired one is renewed once.
+/// Calls the API; a token Dropbox no longer takes is renewed once.
 fn call(url: &str, arg: Option<&Value>, body: Option<(&str, &[u8])>) -> Result<Answer, RemoteError> {
-    for attempt in 0..2 {
-        let token = access_token()?;
-        let mut request = agent().post(url).header("Authorization", &format!("Bearer {}", token.as_str()));
-        if let Some(arg) = arg {
-            request = request.header("Dropbox-API-Arg", &header_json(arg));
-        }
-        let sent = match body {
-            Some((content_type, bytes)) => request.header("Content-Type", content_type).send(bytes),
-            None => request.send_empty(),
-        };
-        let mut response = sent.map_err(transport)?;
-        let status = response.status().as_u16();
-        if status == 401 && attempt == 0 {
-            *ACCESS.lock().unwrap() = None;
-            continue;
-        }
-        if status == 401 {
-            return Err(RemoteError::SignIn(SIGN_IN_AGAIN.into()));
-        }
-        let result = response.headers().get("dropbox-api-result").and_then(|v| v.to_str().ok()).map(str::to_string);
-        let body = response.body_mut().with_config().limit(FILE_LIMIT).read_to_vec().map_err(transport)?;
-        return Ok(Answer { status, result, body });
+    let answer = send(url, arg, body)?;
+    if answer.status != 401 {
+        return Ok(answer);
     }
-    unreachable!("the loop returns")
+    *ACCESS.lock().unwrap() = None;
+    match send(url, arg, body)? {
+        again if again.status == 401 => Err(RemoteError::SignIn(SIGN_IN_AGAIN.into())),
+        again => Ok(again),
+    }
+}
+
+fn send(url: &str, arg: Option<&Value>, body: Option<(&str, &[u8])>) -> Result<Answer, RemoteError> {
+    let token = access_token()?;
+    let mut request = agent().post(url).header("Authorization", &format!("Bearer {}", token.as_str()));
+    if let Some(arg) = arg {
+        request = request.header("Dropbox-API-Arg", &header_json(arg));
+    }
+    let sent = match body {
+        Some((content_type, bytes)) => request.header("Content-Type", content_type).send(bytes),
+        None => request.send_empty(),
+    };
+    let mut response = sent.map_err(transport)?;
+    let status = response.status().as_u16();
+    let result = response.headers().get("dropbox-api-result").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let body = response.body_mut().with_config().limit(FILE_LIMIT).read_to_vec().map_err(transport)?;
+    Ok(Answer { status, result, body })
 }
 
 /// JSON for an HTTP header: Dropbox wants DEL and anything beyond ASCII escaped.

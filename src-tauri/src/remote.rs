@@ -59,11 +59,10 @@ impl Location {
 
     /// The remote file's name, which the working copy takes.
     pub fn file_name(&self) -> String {
-        let name = match self {
-            Location::Folder { path } => path.file_name().map(|n| n.to_string_lossy().into_owned()),
-            Location::Dropbox { path } => path.rsplit('/').next().map(str::to_string),
-        };
-        name.filter(|n| !n.is_empty()).unwrap_or_else(|| "database.kdbx".into())
+        match self {
+            Location::Folder { path } => file_name(path),
+            Location::Dropbox { path } => file_name(Path::new(path.rsplit('/').next().unwrap_or_default())),
+        }
     }
 
     /// For the window: where the database is synced to.
@@ -74,12 +73,22 @@ impl Location {
         }
     }
 
-    /// The file to open directly once syncing stops; `None` when there is
-    /// none on this PC (the working copy stays the database).
-    pub fn local_path(&self) -> Option<PathBuf> {
+    /// Syncing stops: the file to use as a local database from now on. A
+    /// folder's own file; for a cloud store, the working copy, moved out of
+    /// `sync/` (where syncing again would overwrite it).
+    pub fn detach(&self, store: &crate::store::Store, working: &Path) -> Result<PathBuf, String> {
         match self {
-            Location::Folder { path } => Some(path.clone()),
-            Location::Dropbox { .. } => None,
+            Location::Folder { path } => Ok(path.clone()),
+            Location::Dropbox { .. } => crate::sync::keep_as_local(store, working),
+        }
+    }
+
+    /// The database no longer uses this store: a cloud account is signed out
+    /// (its refresh token removed).
+    pub fn forget(&self) {
+        match self {
+            Location::Folder { .. } => {}
+            Location::Dropbox { .. } => crate::dropbox::sign_out(),
         }
     }
 
@@ -90,6 +99,11 @@ impl Location {
             Location::Dropbox { .. } => "Dropbox",
         }
     }
+}
+
+/// A file's name, or `database.kdbx` for a path without one.
+pub fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "database.kdbx".into())
 }
 
 /// A file in a folder; its revision is the hash of its content.
