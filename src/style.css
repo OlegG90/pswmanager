@@ -928,6 +928,58 @@ input[type='range']:focus-visible {
   height: 34px;
 }
 
+/* The entry's icon: its preview, and the choices under it. */
+.icon-picker {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+}
+
+.icon-picker .controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+}
+
+.icon-picker .icon {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px;
+  background: var(--color-surface);
+}
+
+.icon-tile {
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.icon-tile img {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+}
+
+.icon-tile[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-100);
+}
+
 /* Tags as chips, with the input for a new one after them. */
 .tag-input {
   flex: 1;

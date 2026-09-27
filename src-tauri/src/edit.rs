@@ -2,7 +2,8 @@
 //! its previous version kept in the entry's history.
 
 use crate::otp;
-use keepass::db::{fields, Entry, EntryId, EntryRef, GroupId, History, Times, Value};
+use base64::Engine;
+use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -33,6 +34,41 @@ pub struct EntryData {
     pub group: Vec<String>,
     /// Additional attributes.
     pub fields: Vec<FieldData>,
+    #[zeroize(skip)]
+    pub icon: IconChoice,
+}
+
+/// The entry's icon as the editor chooses it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum IconChoice {
+    /// The site's icon when the URL has one, else the default: KeePass's
+    /// standard icon 0 (the key), which other clients show as usual.
+    #[default]
+    Auto,
+    /// One of KeePass's standard icons, by number; other clients show their
+    /// own picture for it.
+    Builtin { id: usize },
+    /// An image kept in the database (base64), shown by every client.
+    Custom { data: String },
+}
+
+/// The largest image an entry's own icon may be.
+pub const MAX_ICON: usize = 256 << 10;
+
+fn icon_choice(entry: &EntryRef<'_>) -> IconChoice {
+    if let Some(custom) = entry.custom_icon() {
+        return IconChoice::Custom { data: base64::engine::general_purpose::STANDARD.encode(&custom.data) };
+    }
+    match entry.icon() {
+        Some(Icon::BuiltIn(id)) if *id != 0 => IconChoice::Builtin { id: *id },
+        _ => IconChoice::Auto,
+    }
+}
+
+/// The icon in the database's pool that holds `data`, if there is one.
+fn pooled_icon(db: &Database, data: &[u8]) -> Option<CustomIconId> {
+    db.iter_all_custom_icons().find(|icon| icon.data == data).map(|icon| icon.id())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -65,6 +101,7 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
         tags: entry.tags.clone(),
         group,
         fields: additional,
+        icon: icon_choice(entry),
     }
 }
 
@@ -83,6 +120,7 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
     let otp = pick(&mut conflicts, "TOTP", &current.otp, &base.otp, &edited.otp);
     let tags = pick(&mut conflicts, "Tags", &current.tags, &base.tags, &edited.tags);
     let group = pick(&mut conflicts, "Group", &current.group, &base.group, &edited.group);
+    let icon = pick(&mut conflicts, "Icon", &current.icon, &base.icon, &edited.icon);
 
     // Additional fields, by name: removed, added or changed in the editor
     // apply; the rest are as they are now.
@@ -110,7 +148,7 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
             None => fields.push(new.clone()),
         }
     }
-    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields };
+    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields, icon };
     (merged, conflicts)
 }
 
@@ -138,6 +176,7 @@ pub fn hidden_groups(db: &Database) -> HashSet<GroupId> {
 /// `hidden` are the groups entries cannot be put in (recycle bin, templates).
 pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &HashSet<GroupId>) -> Result<EntryId, String> {
     check_field_names(&data.fields)?;
+    let icon = IconSetting::of(db, &data.icon)?;
     let existing = id.and_then(|id| db.entry(id));
     // A TOTP value the entry already has is kept as it is, even one this app
     // cannot read; a new one must work and is stored as a URI.
@@ -166,13 +205,25 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         entry.tags = tags;
         let id = entry.id();
         db.deleted_objects.remove(&id.uuid());
+        let mut entry = db.entry_mut(id).expect("just added");
+        match icon {
+            IconSetting::Builtin(0) => {} // no icon: the key
+            IconSetting::Builtin(n) => entry.set_icon_builtin(n),
+            IconSetting::Pooled(icon) => {
+                let _ = entry.set_icon_custom(icon); // checked to be in the pool
+            }
+            IconSetting::New(bytes) => {
+                entry.set_icon_custom_new(bytes);
+            }
+        }
         return Ok(id);
     };
 
     let entry = db.entry(id).expect("checked above");
     let wanted = wanted_fields(db, Some(&entry), data, otp)?;
     let moved = entry.parent().id() != group;
-    if entry.fields == wanted && entry.tags == tags && !moved {
+    let icon_changed = icon_choice(&entry) != data.icon;
+    if entry.fields == wanted && entry.tags == tags && !moved && !icon_changed {
         return Ok(id);
     }
     let mut entry = db.entry_mut(id).expect("checked above");
@@ -183,15 +234,67 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         entry.move_to(group).map_err(|e| e.to_string())?;
         entry.times.location_changed = Some(Times::now());
     }
-    if entry.fields != wanted || entry.tags != tags {
+    if entry.fields != wanted || entry.tags != tags || icon_changed {
         let mut tracked = entry.track_changes();
         tracked.edit(|e| {
             e.fields = wanted;
             e.tags = tags;
+            if icon_changed {
+                icon.set(e);
+            }
         });
     } // dropping the tracker files the old version into the history
     trim_history(db, id);
     Ok(id)
+}
+
+/// An icon choice checked and ready to set: an image already in the pool is
+/// shared rather than stored twice.
+enum IconSetting {
+    Builtin(usize),
+    Pooled(CustomIconId),
+    New(Vec<u8>),
+}
+
+impl IconSetting {
+    fn of(db: &Database, choice: &IconChoice) -> Result<IconSetting, String> {
+        Ok(match choice {
+            IconChoice::Auto => IconSetting::Builtin(0),
+            IconChoice::Builtin { id } => IconSetting::Builtin(*id),
+            IconChoice::Custom { data } => {
+                let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "The icon image is damaged")?;
+                check_icon_image(&bytes)?;
+                match pooled_icon(db, &bytes) {
+                    Some(id) => IconSetting::Pooled(id),
+                    None => IconSetting::New(bytes),
+                }
+            }
+        })
+    }
+
+    fn set(self, entry: &mut keepass::db::EntryTrack<'_>) {
+        match self {
+            IconSetting::Builtin(id) => entry.set_icon_builtin(id),
+            IconSetting::Pooled(id) => {
+                let _ = entry.set_icon_custom(id); // checked to be in the pool
+            }
+            IconSetting::New(bytes) => {
+                entry.set_icon_custom_new(bytes);
+            }
+        }
+    }
+}
+
+/// An entry's own icon must be an image every client can show: PNG, JPEG,
+/// GIF or WebP (Keepass2Android cannot show ICO or SVG), and small.
+pub fn check_icon_image(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_ICON {
+        return Err(format!("An icon can be {} KB at most", MAX_ICON >> 10));
+    }
+    match crate::icons::sniff(bytes) {
+        Some("image/png" | "image/jpeg" | "image/gif" | "image/webp") => Ok(()),
+        _ => Err("An icon must be a PNG, JPEG, GIF or WebP image".into()),
+    }
 }
 
 /// Attaches a file to the entry, its previous version kept in history, and
@@ -1046,6 +1149,45 @@ mod tests {
             let entry = theirs.entry(id).unwrap();
             assert_ne!(entry.parent().id(), bin, "{:?}", entry.get_title());
             assert_eq!(entry.get_password(), Some("later"));
+        }
+    }
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n....";
+
+    fn custom(bytes: &[u8]) -> IconChoice {
+        IconChoice::Custom { data: base64::engine::general_purpose::STANDARD.encode(bytes) }
+    }
+
+    #[test]
+    fn the_icon_is_chosen_kept_and_shared() {
+        let mut db = Database::new();
+        let a = apply(&mut db, None, &with("a", |d| d.icon = IconChoice::Builtin { id: 37 }), &HashSet::new()).unwrap();
+        assert_eq!(read(&db.entry(a).unwrap(), vec![]).icon, IconChoice::Builtin { id: 37 });
+
+        // An image; a second entry with the same image shares it.
+        apply(&mut db, Some(a), &with("a", |d| d.icon = custom(PNG)), &HashSet::new()).unwrap();
+        let b = apply(&mut db, None, &with("b", |d| d.icon = custom(PNG)), &HashSet::new()).unwrap();
+        assert_eq!(db.iter_all_custom_icons().count(), 1);
+        assert_eq!(read(&db.entry(b).unwrap(), vec![]).icon, custom(PNG));
+        // The version before the change keeps its icon in history.
+        let entry = db.entry(a).unwrap();
+        let old = &entry.history.as_ref().unwrap().get_entries()[0];
+        assert!(matches!(old.icon(), Some(Icon::BuiltIn(37))));
+
+        // Untouched: nothing changes; Auto: back to the key.
+        let before = db.clone();
+        let same = read(&db.entry(a).unwrap(), vec![]);
+        apply(&mut db, Some(a), &same, &HashSet::new()).unwrap();
+        assert_eq!(db, before);
+        apply(&mut db, Some(a), &with("a", |d| d.icon = IconChoice::Auto), &HashSet::new()).unwrap();
+        assert_eq!(read(&db.entry(a).unwrap(), vec![]).icon, IconChoice::Auto);
+    }
+
+    #[test]
+    fn only_small_images_every_client_shows_are_icons() {
+        let mut db = Database::new();
+        for bad in [custom(b"<svg/>"), custom(&[0, 0, 1, 0]), custom(&[0x89; MAX_ICON + 1]), IconChoice::Custom { data: "!".into() }] {
+            assert!(apply(&mut db, None, &with("x", |d| d.icon = bad), &HashSet::new()).is_err());
         }
     }
 

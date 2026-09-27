@@ -12,6 +12,7 @@ const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   tags: [],
   notes: '',
   customIcon: null,
+  icon: null,
   hasPassword: true,
   ...more,
 })

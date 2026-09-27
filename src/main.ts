@@ -1,3 +1,4 @@
+import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
@@ -26,12 +27,6 @@ const chooseView = $('choose')
 const healthView = $('health')
 const toast = $('toast')
 
-const DEFAULT_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#8a94a3"/>` +
-      `<circle cx="9" cy="12" r="3.2" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 12h7m-2 0v3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
-  )
 
 const EMPTY: Listing = { entries: [], customIcons: {} }
 let unlocked = false
@@ -182,9 +177,16 @@ function refresh() {
   select(shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null))
 }
 
+/** An entry's own image, else the drawing chosen for it, else its site's icon, else the key. */
 function iconFor(entry: Entry): string {
   if (entry.customIcon && listing.customIcons[entry.customIcon]) return listing.customIcons[entry.customIcon]
-  if (entry.host) {
+  if (entry.icon !== null) return glyphIcon(entry.icon)
+  return autoIcon(entry)
+}
+
+/** What the Auto choice shows: the site's icon, else the key. */
+function autoIcon(entry: Entry | null): string {
+  if (entry?.host) {
     if (!siteIcons.has(entry.host)) loadSiteIcon(entry.host)
     const icon = siteIcons.get(entry.host)
     if (icon) return icon
@@ -195,7 +197,7 @@ function iconFor(entry: Entry): string {
 function iconImage(entry: Entry): HTMLImageElement {
   const img = el('img', { className: 'icon', alt: '' })
   setIcon(img, iconFor(entry))
-  if (entry.host && !entry.customIcon) img.dataset.host = entry.host
+  if (entry.host && !entry.customIcon && entry.icon === null) img.dataset.host = entry.host
   img.onerror = () => {
     img.onerror = null
     setIcon(img, DEFAULT_ICON)
@@ -439,6 +441,7 @@ function startEditor(id: string | null, focusPassword = false) {
     focusPassword,
     group: groupForNew(),
     knownTags: filterChoices(listing.entries).tags,
+    autoIcon: autoIcon(id ? (listing.entries.find((e) => e.id === id) ?? null) : null),
     onSaved: afterSave,
     onClose: () => {
       current = null
