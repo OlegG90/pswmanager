@@ -21,6 +21,7 @@ describe('actionFor', () => {
     expect(actionFor(press('t', true), inSearch)).toBe('copy-totp')
     expect(actionFor(press('n', true), inSearch)).toBe('new-entry')
     expect(actionFor(press('e', true), inSearch)).toBe('edit-entry')
+    expect(actionFor(press(',', true, 'Comma'), inSearch)).toBe('settings')
     expect(actionFor(press('Delete', false, 'Delete'), outside)).toBe('delete-entry')
     expect(actionFor(press('Delete', false, 'Delete'), inSearch)).toBeNull()
     expect(actionFor(press('ArrowDown'), inSearch)).toBe('next')

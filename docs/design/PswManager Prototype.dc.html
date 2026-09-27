@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/styles.css">
+<script src="_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-300);font-family:var(--font-body);color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+input,select,textarea,button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:20px;padding:28px 24px 48px;box-sizing:border-box">
+  <div style="width:1120px;max-width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div style="font-family:var(--font-heading);font-size:20px;font-weight:600">PswManager · clickable prototype</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <sc-for list="{{ jumps }}" as="j" hint-placeholder-count="6">
+        <button onClick="{{ j.go }}" style="{{ j.style }}">{{ j.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div data-screen-label="App window" style="width:1120px;max-width:100%;height:720px;background:var(--color-bg);border:1px solid var(--color-neutral-400);border-radius:8px;box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column;position:relative;font-size:14px;line-height:1.45">
+    <div style="height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--color-divider);padding-left:12px;font-size:12px;color:var(--color-neutral-700)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <svg width="16" height="16" viewBox="0 0 256 256"><rect x="16" y="16" width="224" height="224" rx="48" fill="#2f5d8a"></rect><path d="M88 116V92a40 40 0 0 1 80 0v24" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round"></path><rect x="64" y="112" width="128" height="96" rx="16" fill="#fff"></rect><circle cx="128" cy="152" r="14" fill="#2f5d8a"></circle></svg>
+        <span>PswManager</span>
+      </div>
+      <div style="display:flex;height:100%">
+        <span style="width:46px;display:flex;align-items:center;justify-content:center">—</span>
+        <span style="width:46px;display:flex;align-items:center;justify-content:center">▢</span>
+        <span onClick="{{ hide }}" style="width:46px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#c42b1c;color:#fff">✕</span>
+      </div>
+    </div>
+
+    <sc-if value="{{ isOnboard }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="01 Choose database" style="flex:1;display:flex;justify-content:center;overflow:auto">
+        <div style="width:520px;max-width:90%;padding-top:72px;display:flex;flex-direction:column;gap:24px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">First run</div>
+            <h1 style="font-size:36px;margin:0">Choose your database</h1>
+            <p style="margin:0;color:var(--color-neutral-700);text-wrap:pretty">PswManager works on one KeePass (KDBX 4) file. Pick where it lives; you can change it later on the unlock screen.</p>
+          </div>
+          <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+            <sc-for list="{{ sources }}" as="s" hint-placeholder-count="3">
+              <div onClick="{{ s.pick }}" style="{{ s.style }}">
+                <div style="{{ s.radio }}"><div style="{{ s.dot }}"></div></div>
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <span style="font-family:var(--font-heading);font-size:19px;font-weight:600">{{ s.title }}</span>
+                  <span style="font-size:13px;color:var(--color-neutral-700)">{{ s.desc }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+            <span style="font-size:12px;color:var(--color-neutral-700);max-width:320px">No database yet? Create one in KeePassXC, or convert a SafeInCloud export with sic2kdbx.</span>
+            <button onClick="{{ continueOnboard }}" style="{{ continueStyle }}">Continue</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isUnlock }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="02 Unlock" style="flex:1;display:flex;justify-content:center;overflow:auto">
+        <form onSubmit="{{ unlock }}" style="width:420px;max-width:90%;padding-top:88px;display:flex;flex-direction:column;gap:14px">
+          <svg width="40" height="40" viewBox="0 0 256 256" style="margin-bottom:6px"><rect x="16" y="16" width="224" height="224" rx="48" fill="#2f5d8a"></rect><path d="M88 116V92a40 40 0 0 1 80 0v24" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round"></path><rect x="64" y="112" width="128" height="96" rx="16" fill="#fff"></rect><circle cx="128" cy="152" r="14" fill="#2f5d8a"></circle><rect x="121" y="156" width="14" height="30" rx="6" fill="#2f5d8a"></rect></svg>
+          <h1 style="font-size:34px;margin:0">PswManager</h1>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+              <span style="font-size:12px;color:var(--color-neutral-700)">{{ sourceLabel }}</span>
+              <span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left">{{ dbPath }}</span>
+            </div>
+            <button type="button" onClick="{{ goOnboard }}" style="padding:6px 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Change…</button>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:6px">
+            <span style="font-size:13px;color:var(--color-neutral-700)">Master password</span>
+            <input type="password" autoFocus value="{{ pw }}" onChange="{{ onPw }}" placeholder="Any password works in this prototype" style="height:40px;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;font-family:Consolas,ui-monospace,monospace;font-size:15px;outline:none" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+          </label>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px">
+            <span style="color:var(--color-neutral-700)">{{ keyFileLabel }}</span>
+            <button type="button" onClick="{{ toggleKeyFile }}" style="padding:4px 10px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">{{ keyFileBtn }}</button>
+          </div>
+          <button type="submit" style="height:42px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:17px;cursor:pointer" style-hover="background:var(--color-accent-100)" style-active="background:var(--color-accent-200)">Unlock</button>
+          <sc-if value="{{ err }}" hint-placeholder-val="{{ false }}"><p style="margin:0;color:#9b3b2a;font-size:13px">{{ err }}</p></sc-if>
+          <p style="margin:0;font-size:12px;color:var(--color-neutral-700)">Ctrl+Alt+P shows or hides this window from anywhere.</p>
+        </form>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isVault }}" hint-placeholder-val="{{ true }}">
+      <div data-screen-label="03 Vault" style="flex:1;min-height:0;display:grid;grid-template:auto 1fr / 380px 1fr">
+        <div style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--color-divider)">
+          <input value="{{ q }}" onChange="{{ onQ }}" placeholder="Search title, user name, URL, tags, notes" style="flex:1;min-width:0;height:34px;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+          <select value="{{ filter }}" onChange="{{ onFilter }}" style="height:34px;padding:0 8px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="5"><option value="{{ f.v }}">{{ f.label }}</option></sc-for>
+          </select>
+          <span style="font-size:12px;color:var(--color-neutral-700);padding:0 6px;white-space:nowrap">{{ syncStatus }}</span>
+          <button onClick="{{ syncNow }}" style="height:34px;padding:0 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Sync</button>
+          <button onClick="{{ goHealth }}" style="height:34px;padding:0 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Health</button>
+          <button onClick="{{ goSettings }}" title="Settings (Ctrl+,)" style="height:34px;padding:0 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Settings</button>
+          <button onClick="{{ lock }}" title="Lock (Ctrl+L)" style="height:34px;padding:0 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Lock</button>
+        </div>
+
+        <div style="border-right:1px solid var(--color-divider);display:flex;flex-direction:column;min-height:0">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;font-size:12px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">
+            <span>{{ countLabel }}</span>
+            <button onClick="{{ newEntry }}" style="padding:2px 10px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:14px;cursor:pointer" style-hover="background:var(--color-accent-100)">New entry</button>
+          </div>
+          <div style="flex:1;overflow:auto">
+            <sc-for list="{{ list }}" as="e" hint-placeholder-count="8">
+              <div onClick="{{ e.select }}" style="{{ e.rowStyle }}">
+                <div style="{{ e.tile }}">{{ e.initial }}</div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.title }}</span>
+                  <span style="font-size:12px;color:var(--color-neutral-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.user }}</span>
+                </div>
+                <sc-if value="{{ e.fav }}" hint-placeholder-val="{{ false }}"><span style="color:var(--color-accent);font-size:12px">★</span></sc-if>
+              </div>
+            </sc-for>
+            <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}"><div style="padding:24px 14px;color:var(--color-neutral-700)">No entries match “{{ q }}”.</div></sc-if>
+          </div>
+        </div>
+
+        <div style="min-height:0;overflow:auto">
+          <sc-if value="{{ viewing }}" hint-placeholder-val="{{ true }}">
+            <div data-screen-label="04 Entry" style="padding:24px 32px;display:flex;flex-direction:column;gap:18px">
+              <div style="display:flex;align-items:center;gap:14px">
+                <div style="{{ cur.bigTile }}">{{ cur.initial }}</div>
+                <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+                  <h2 style="margin:0;font-size:30px">{{ cur.title }}</h2>
+                  <span style="font-size:12px;color:var(--color-neutral-700)">{{ cur.group }} · {{ cur.tagText }}</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                <div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-divider)">
+                  <span style="color:var(--color-neutral-700)">User name</span><span>{{ cur.user }}</span>
+                  <button onClick="{{ copyUser }}" title="Ctrl+B" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">Copy</button>
+                </div>
+                <div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-divider)">
+                  <span style="color:var(--color-neutral-700)">Password</span>
+                  <span onClick="{{ toggleReveal }}" style="font-family:Consolas,ui-monospace,monospace;cursor:pointer;user-select:none">{{ pwShown }}</span>
+                  <div style="display:flex;gap:2px">
+                    <button onClick="{{ toggleReveal }}" title="Ctrl+H" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">{{ revealLabel }}</button>
+                    <button onClick="{{ copyPw }}" title="Ctrl+C" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">Copy</button>
+                  </div>
+                </div>
+                <sc-if value="{{ cur.hasOtp }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-divider)">
+                    <span style="color:var(--color-neutral-700)">TOTP</span>
+                    <span style="display:flex;align-items:baseline;gap:12px"><span style="font-family:Consolas,ui-monospace,monospace;font-size:17px;letter-spacing:.08em">{{ otp }}</span><span style="font-size:12px;color:var(--color-neutral-700)">{{ otpLeft }}</span></span>
+                    <button onClick="{{ copyOtp }}" title="Ctrl+T" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">Copy</button>
+                  </div>
+                </sc-if>
+                <div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-divider)">
+                  <span style="color:var(--color-neutral-700)">URL</span><a href="#" style="overflow-wrap:anywhere">{{ cur.url }}</a>
+                  <button onClick="{{ openUrl }}" title="Ctrl+U" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">Open</button>
+                </div>
+                <sc-for list="{{ cur.attrs }}" as="a" hint-placeholder-count="0">
+                  <div style="display:grid;grid-template-columns:120px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-divider)">
+                    <span style="color:var(--color-neutral-700)">{{ a.k }}</span><span style="{{ a.valStyle }}">{{ a.shown }}</span>
+                    <button onClick="{{ a.toggle }}" style="padding:3px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">{{ a.btn }}</button>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ cur.notes }}" hint-placeholder-val="{{ false }}"><p style="margin:0;white-space:pre-wrap;text-align:justify;max-width:560px">{{ cur.notes }}</p></sc-if>
+              <div style="font-size:12px;color:var(--color-neutral-700)">Modified {{ cur.modified }} · {{ cur.historyCount }} earlier versions in history</div>
+              <div style="display:flex;gap:8px">
+                <button onClick="{{ editEntry }}" title="Ctrl+E" style="padding:7px 16px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:15px;cursor:pointer" style-hover="background:var(--color-accent-100)">Edit</button>
+                <button onClick="{{ askDelete }}" title="Del" style="padding:7px 16px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:15px;cursor:pointer" style-hover="background:var(--color-neutral-200)">Delete</button>
+              </div>
+              <sc-if value="{{ confirmDelete }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid #9b3b2a;border-radius:4px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span>Move “{{ cur.title }}” to the recycle bin?</span>
+                  <div style="display:flex;gap:8px">
+                    <button onClick="{{ cancelDelete }}" style="padding:5px 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer">Cancel</button>
+                    <button onClick="{{ doDelete }}" style="padding:5px 12px;border:1px solid #9b3b2a;background:transparent;color:#9b3b2a;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:#f6e6e2">Move to recycle bin</button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
+            <div data-screen-label="05 Edit entry" style="padding:24px 32px;display:flex;flex-direction:column;gap:12px">
+              <h2 style="margin:0 0 4px;font-size:28px">{{ editTitle }}</h2>
+              <sc-for list="{{ edFields }}" as="f" hint-placeholder-count="3">
+                <label style="display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center">
+                  <span style="color:var(--color-neutral-700)">{{ f.label }}</span>
+                  <input value="{{ f.value }}" onChange="{{ f.on }}" placeholder="{{ f.ph }}" style="height:34px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;min-width:0" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+                </label>
+              </sc-for>
+              <div style="display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center">
+                <span style="color:var(--color-neutral-700)">Password</span>
+                <div style="display:flex;gap:6px;min-width:0">
+                  <input type="{{ edPwType }}" value="{{ edPw }}" onChange="{{ onEdPw }}" style="flex:1;min-width:0;height:34px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;font-family:Consolas,ui-monospace,monospace" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+                  <button onClick="{{ toggleEdReveal }}" style="padding:0 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer">{{ edRevealLabel }}</button>
+                  <button onClick="{{ toggleGen }}" style="{{ genBtnStyle }}">Generate</button>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;margin-left:120px;font-size:12px;color:var(--color-neutral-700)">
+                <div style="display:flex;gap:3px"><sc-for list="{{ edBars }}" as="b" hint-placeholder-count="4"><div style="{{ b.style }}"></div></sc-for></div>
+                <span>{{ edStrength }}</span>
+              </div>
+              <sc-if value="{{ genOpen }}" hint-placeholder-val="{{ false }}">
+                <div data-screen-label="06 Generator" style="margin-left:120px;border:1px solid var(--color-divider);border-radius:4px;background:var(--color-neutral-100);padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <span style="flex:1;min-width:0;font-family:Consolas,ui-monospace,monospace;font-size:15px;overflow-wrap:anywhere;user-select:none">{{ genPw }}</span>
+                    <button onClick="{{ regen }}" style="padding:4px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">Again</button>
+                    <button onClick="{{ useGen }}" style="padding:4px 12px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-accent-100)">Use</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <span style="font-size:13px;color:var(--color-neutral-700);width:56px">Length</span>
+                    <input type="range" min="8" max="64" value="{{ genLen }}" onChange="{{ onGenLen }}" style="flex:1;accent-color:var(--color-accent)">
+                    <span style="font-family:Consolas,ui-monospace,monospace;width:24px;text-align:right">{{ genLen }}</span>
+                  </div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    <sc-for list="{{ genOpts }}" as="o" hint-placeholder-count="5"><button onClick="{{ o.toggle }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <label style="display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:start">
+                <span style="color:var(--color-neutral-700);padding-top:6px">Notes</span>
+                <textarea value="{{ edNotes }}" onChange="{{ onEdNotes }}" rows="3" style="padding:7px 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;resize:vertical" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)"></textarea>
+              </label>
+              <div data-screen-label="05b Reorder fields" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+                  <h6 style="margin:0;color:var(--color-accent-700)">Additional fields</h6>
+                  <span style="font-size:12px;color:var(--color-neutral-700)">Drag ⋮⋮ or use ↑ ↓ to reorder. The entry view follows this order.</span>
+                </div>
+                <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                  <sc-for list="{{ edAttrs }}" as="a" hint-placeholder-count="2">
+                    <div draggable="{{ a.draggable }}" onDragStart="{{ a.onDragStart }}" onDragOver="{{ a.onDragOver }}" onDrop="{{ a.onDrop }}" onDragEnd="{{ a.onDragEnd }}" style="{{ a.rowStyle }}">
+                      <span title="Drag to reorder" style="cursor:grab;color:var(--color-neutral-600);font-size:16px;letter-spacing:-2px;user-select:none;padding:0 4px">⋮⋮</span>
+                      <span style="font-size:12px;color:var(--color-neutral-600);font-feature-settings:'tnum';width:16px">{{ a.pos }}</span>
+                      <input value="{{ a.k }}" onChange="{{ a.onK }}" placeholder="Field name" style="width:150px;height:32px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+                      <input type="{{ a.inputType }}" value="{{ a.v }}" onChange="{{ a.onV }}" placeholder="Value" style="flex:1;min-width:0;height:32px;padding:0 10px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff;outline:none;font-family:Consolas,ui-monospace,monospace" style-focus="border-color:var(--color-accent);box-shadow:0 0 0 3px var(--color-accent-200)">
+                      <button onClick="{{ a.toggleP }}" title="Protected values are masked like the password" style="{{ a.pStyle }}">Protected</button>
+                      <div style="display:flex">
+                        <button onClick="{{ a.up }}" disabled="{{ a.isFirst }}" title="Move up" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-accent-700)" style-hover="background:var(--color-accent-100)">↑</button>
+                        <button onClick="{{ a.down }}" disabled="{{ a.isLast }}" title="Move down" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-accent-700)" style-hover="background:var(--color-accent-100)">↓</button>
+                        <button onClick="{{ a.remove }}" title="Remove field" style="width:28px;height:28px;border:0;background:transparent;border-radius:4px;cursor:pointer;color:var(--color-neutral-700)" style-hover="background:var(--color-neutral-200)">✕</button>
+                      </div>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ noAttrs }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 0;font-size:13px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">No additional fields.</div></sc-if>
+                </div>
+                <button onClick="{{ addAttr }}" style="align-self:flex-start;padding:4px 10px;border:0;background:transparent;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;font-size:14px;cursor:pointer;border-radius:4px" style-hover="background:var(--color-accent-100)">+ Add field</button>
+              </div>
+              <div style="display:flex;gap:8px;margin-left:120px;margin-top:6px">
+                <button onClick="{{ save }}" style="padding:7px 18px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:15px;cursor:pointer" style-hover="background:var(--color-accent-100)">Save</button>
+                <button onClick="{{ cancelEdit }}" style="padding:7px 18px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:15px;cursor:pointer" style-hover="background:var(--color-neutral-200)">Cancel</button>
+                <span style="align-self:center;font-size:12px;color:var(--color-neutral-700);margin-left:8px">Saving keeps the previous version in history.</span>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="07 Settings" style="flex:1;overflow:auto;display:flex;justify-content:center">
+        <div style="width:640px;max-width:92%;padding:32px 0 48px;display:flex;flex-direction:column;gap:28px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <h1 style="margin:0;font-size:34px">Settings</h1>
+            <button onClick="{{ backToVault }}" style="padding:5px 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Done · Esc</button>
+          </div>
+          <sc-for list="{{ settingGroups }}" as="g" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column">
+              <h6 style="margin:0 0 6px;color:var(--color-accent-700)">{{ g.title }}</h6>
+              <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0;border-top:1px solid var(--color-divider)">
+                  <div style="display:flex;flex-direction:column"><span>{{ r.label }}</span><span style="font-size:12px;color:var(--color-neutral-700)">{{ r.hint }}</span></div>
+                  <sc-if value="{{ r.isToggle }}" hint-placeholder-val="{{ false }}"><div onClick="{{ r.toggle }}" style="{{ r.track }}"><div style="{{ r.knob }}"></div></div></sc-if>
+                  <sc-if value="{{ r.isSelect }}" hint-placeholder-val="{{ false }}">
+                    <select value="{{ r.value }}" onChange="{{ r.onChange }}" style="height:32px;padding:0 8px;border:1px solid var(--color-neutral-400);border-radius:4px;background:#fff">
+                      <sc-for list="{{ r.options }}" as="o" hint-placeholder-count="3"><option value="{{ o }}">{{ o }}</option></sc-for>
+                    </select>
+                  </sc-if>
+                  <sc-if value="{{ r.isText }}" hint-placeholder-val="{{ false }}"><span style="font-family:Consolas,ui-monospace,monospace;font-size:13px;padding:4px 10px;border:1px solid var(--color-divider);border-radius:4px">{{ r.value }}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isHealth }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="08 Password health" style="flex:1;overflow:auto;display:flex;justify-content:center">
+        <div style="width:720px;max-width:92%;padding:32px 0 48px;display:flex;flex-direction:column;gap:24px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <h1 style="margin:0;font-size:34px">Password health</h1>
+            <button onClick="{{ backToVault }}" style="padding:5px 12px;border:1px solid var(--color-divider);background:transparent;border-radius:4px;font-family:var(--font-heading);font-weight:600;cursor:pointer" style-hover="background:var(--color-neutral-200)">Done · Esc</button>
+          </div>
+          <p style="margin:0;color:var(--color-neutral-700);max-width:560px;text-align:justify">Checked on this PC only. Nothing about your entries leaves the device.</p>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+            <sc-for list="{{ healthStats }}" as="s" hint-placeholder-count="3">
+              <div style="padding:16px 0;display:flex;flex-direction:column;gap:2px">
+                <span style="font-family:var(--font-heading);font-size:44px;line-height:1;font-feature-settings:'tnum'">{{ s.n }}</span>
+                <span style="font-size:13px;color:var(--color-neutral-700)">{{ s.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-for list="{{ healthGroups }}" as="g" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column">
+              <h6 style="margin:0 0 6px;color:var(--color-accent-700)">{{ g.title }}</h6>
+              <sc-for list="{{ g.items }}" as="i" hint-placeholder-count="2">
+                <div onClick="{{ i.fix }}" style="display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--color-divider);cursor:pointer" style-hover="background:var(--color-neutral-200)">
+                  <div style="{{ i.tile }}">{{ i.initial }}</div>
+                  <div style="display:flex;flex-direction:column"><span>{{ i.title }}</span><span style="font-size:12px;color:var(--color-neutral-700)">{{ i.detail }}</span></div>
+                  <span style="color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600">Change password</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:var(--color-text);color:var(--color-bg);padding:7px 16px;border-radius:4px;font-size:13px;box-shadow:var(--shadow-md);white-space:nowrap">{{ toast }}</div>
+    </sc-if>
+  </div>
+  <div style="font-size:12px;color:var(--color-neutral-700)">Shortcuts work: ↑ ↓, Ctrl+H, Ctrl+C, Ctrl+B, Ctrl+T, Ctrl+N, Ctrl+E, Del, Ctrl+L, Ctrl+, and Esc.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const SEED = [
+  { id: 'gh', title: 'GitHub', user: 'oleg-g', url: 'https://github.com', group: 'Work', tags: ['dev', 'Favorite'], pw: 'vK7#q2Lm!xR9pT4wZe', otp: true, notes: 'Recovery codes are in the entry "GitHub recovery".', attrs: [{ k: 'Recovery e-mail', v: 'oleg@fastmail.com', p: false }], modified: '12 Sep 2026', hist: 4, age: 20 },
+  { id: 'db', title: 'Dropbox', user: 'oleg@fastmail.com', url: 'https://www.dropbox.com', group: 'Personal', tags: ['sync', 'Favorite'], pw: 'harbor-Quartz-ember-61', otp: true, notes: '', attrs: [], modified: '2 Aug 2026', hist: 2, age: 60 },
+  { id: 'bank', title: 'Raiffeisen online', user: 'OG-448120', url: 'https://online.raiffeisen.ru', group: 'Finance', tags: ['bank'], pw: 'T9$wQ1n@Lp4zR', otp: false, notes: 'Support line is on the back of the card.', attrs: [{ k: 'Card number', v: '5536 9140 2276 0183', p: false }, { k: 'Card PIN', v: '4071', p: true }, { k: 'Code word', v: 'lantern', p: true }, { k: 'Branch', v: 'Tverskaya 22', p: false }], modified: '14 Mar 2026', hist: 6, age: 200 },
+  { id: 'figma', title: 'Figma', user: 'oleg@fastmail.com', url: 'https://www.figma.com', group: 'Work', tags: ['design'], pw: 'Summer2023!', otp: false, notes: '', attrs: [], modified: '3 Jan 2025', hist: 0, age: 630 },
+  { id: 'notion', title: 'Notion', user: 'oleg@fastmail.com', url: 'https://www.notion.so', group: 'Work', tags: [], pw: 'Summer2023!', otp: false, notes: '', attrs: [], modified: '3 Jan 2025', hist: 1, age: 630 },
+  { id: 'router', title: 'Home router', user: 'admin', url: 'http://192.168.1.1', group: 'Personal', tags: ['home'], pw: 'keenetic', otp: false, notes: 'Wi-Fi password is in the field below.', attrs: [{ k: 'Wi-Fi password', v: 'nimbus-Fjord-24', p: true }], modified: '9 May 2024', hist: 0, age: 870 },
+  { id: 'steam', title: 'Steam', user: 'olegg90', url: 'https://store.steampowered.com', group: 'Personal', tags: ['games'], pw: 'p8Xq!r2Vn7KsWm', otp: false, notes: '', attrs: [], modified: '21 Jun 2026', hist: 1, age: 98 },
+  { id: 'gosuslugi', title: 'Gosuslugi', user: '+7 916 ••• 42 17', url: 'https://www.gosuslugi.ru', group: 'Personal', tags: ['gov'], pw: 'Summer2023!', otp: false, notes: '', attrs: [], modified: '3 Jan 2025', hist: 0, age: 630 },
+  { id: 'aws', title: 'AWS root', user: 'oleg@fastmail.com', url: 'https://console.aws.amazon.com', group: 'Work', tags: ['dev'], pw: 'cobalt-Willow-prism-Tundra-88', otp: true, notes: 'Root account. Use the IAM user for daily work.', attrs: [{ k: 'Account ID', v: '4410 2291 7735', p: false }], modified: '30 Jul 2026', hist: 3, age: 58 },
+];
+let AID = 0; SEED.forEach(e => e.attrs.forEach(a => a.id = ++AID));
+const MONO = 'Consolas,ui-monospace,monospace';
+const strength = pw => { if (!pw) return 0; let s = 0; if (pw.length >= 12) s++; if (pw.length >= 16) s++; if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++; if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) s++; if (/^(summer|password|qwerty)/i.test(pw) || pw.length < 10) s = Math.min(s, 1); return s; };
+const SLABEL = ['Very weak', 'Weak', 'Fair', 'Good', 'Strong'];
+const tile = (n, sel) => ({ width: n + 'px', height: n + 'px', borderRadius: '4px', border: '1px solid ' + (sel ? 'var(--color-accent)' : 'var(--color-neutral-400)'), color: 'var(--color-accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: n * 0.55 + 'px', flexShrink: 0, background: 'var(--color-bg)' });
+const toggleStyles = on => ({ track: { width: '38px', height: '22px', borderRadius: '11px', border: '1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-neutral-400)'), background: on ? 'var(--color-accent-100)' : 'transparent', position: 'relative', cursor: 'pointer', flexShrink: 0, boxSizing: 'border-box' }, knob: { position: 'absolute', top: '3px', left: on ? '19px' : '3px', width: '14px', height: '14px', borderRadius: '50%', background: on ? 'var(--color-accent)' : 'var(--color-neutral-500)', transition: 'left .15s' } });
+const move = (arr, from, to) => { const a = arr.slice(); const [x] = a.splice(from, 1); a.splice(to, 0, x); return a; };
+
+class Component extends DCLogic {
+  state = { screen: 'onboard', source: 'dropbox', pw: '', err: '', keyFile: false, entries: SEED, sel: 'gh', q: '', filter: 'all', reveal: false, revealAttr: {}, panel: 'view', draft: null, edReveal: false, genOpen: false, gen: { len: 20, upper: true, lower: true, digits: true, symbols: true, noLook: true }, genPw: '', toast: '', confirmDelete: false, synced: '12:04', now: Date.now(), drag: null, over: null, moved: null,
+    set: { autoLock: '5 min', winLock: true, trayLock: false, clip: '20 s', autostart: false, icons: true, remoteCheck: '5 min' } };
+  componentDidMount() {
+    this.tick = setInterval(() => this.setState({ now: Date.now() }), 1000);
+    this.onKey = e => this.key(e); document.addEventListener('keydown', this.onKey);
+    this.setState({ genPw: this.makePw() });
+  }
+  componentWillUnmount() { clearInterval(this.tick); document.removeEventListener('keydown', this.onKey); }
+  makePw(g = this.state.gen) {
+    let c = ''; if (g.lower) c += 'abcdefghijkmnopqrstuvwxyz' + (g.noLook ? '' : 'l'); if (g.upper) c += 'ABCDEFGHJKLMNPQRSTUVWXYZ' + (g.noLook ? '' : 'IO'); if (g.digits) c += '23456789' + (g.noLook ? '' : '01'); if (g.symbols) c += '!@#$%^&*-_+=?';
+    if (!c) c = 'abcdefghijkmnopqrstuvwxyz';
+    const a = new Uint32Array(g.len); crypto.getRandomValues(a); return Array.from(a, x => c[x % c.length]).join('');
+  }
+  flash(t) { clearTimeout(this.tt); this.setState({ toast: t }); this.tt = setTimeout(() => this.setState({ toast: '' }), 2200); }
+  visible() {
+    const { entries, q, filter } = this.state, ql = q.trim().toLowerCase();
+    return entries.filter(e => (filter === 'all' || (filter === 'fav' ? e.tags.includes('Favorite') : e.group === filter)) && (!ql || [e.title, e.user, e.url, e.notes, ...e.tags].join(' ').toLowerCase().includes(ql)));
+  }
+  select(id) { this.setState({ sel: id, reveal: false, revealAttr: {}, panel: 'view', confirmDelete: false }); }
+  startEdit(e) { this.setState({ panel: 'edit', sel: e ? e.id : this.state.sel, draft: e ? { ...e, attrs: e.attrs.map(a => ({ ...a })) } : { id: 'n' + Date.now(), title: '', user: '', url: '', group: 'Personal', tags: [], pw: this.makePw(), otp: false, notes: '', attrs: [], modified: 'just now', hist: 0, age: 0, isNew: true }, genOpen: !e, edReveal: !e, screen: 'vault', moved: null }); }
+  moveAttr(from, to) {
+    const d = this.state.draft; if (to < 0 || to >= d.attrs.length || from === to) return;
+    const a = d.attrs[from]; this.setState({ draft: { ...d, attrs: move(d.attrs, from, to) }, moved: a.id });
+    clearTimeout(this.mt); this.mt = setTimeout(() => this.setState({ moved: null }), 900);
+    this.flash('Moved “' + (a.k || 'Untitled field') + '” to position ' + (to + 1));
+  }
+  setAttr(i, patch) { const d = this.state.draft; this.setState({ draft: { ...d, attrs: d.attrs.map((a, j) => j === i ? { ...a, ...patch } : a) } }); }
+  save() {
+    const d = this.state.draft; if (!d.title.trim()) return this.flash('Give the entry a title');
+    const clean = { ...d, attrs: d.attrs.filter(a => a.k.trim()) };
+    const entries = d.isNew ? [{ ...clean, isNew: false }, ...this.state.entries] : this.state.entries.map(e => e.id === d.id ? { ...clean, modified: 'just now', hist: e.hist + 1, age: 0 } : e);
+    this.setState({ entries, sel: d.id, panel: 'view', draft: null, genOpen: false }); this.flash('Saved · syncing in 10 s');
+  }
+  key(e) {
+    const s = this.state; if (s.screen === 'onboard' || s.screen === 'unlock') return;
+    const tag = e.target.tagName, typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    const cur = s.entries.find(x => x.id === s.sel), vis = this.visible();
+    if (e.key === 'Escape') { e.preventDefault(); if (s.screen !== 'vault') return this.setState({ screen: 'vault' }); if (s.panel === 'edit') return this.setState({ panel: 'view' }); if (s.q) return this.setState({ q: '' }); return this.flash('Hidden to tray (the prototype keeps it open)'); }
+    if (e.ctrlKey && e.key === 'l') { e.preventDefault(); return this.setState({ screen: 'unlock', pw: '', reveal: false }); }
+    if (e.ctrlKey && e.key === ',') { e.preventDefault(); return this.setState({ screen: 'settings' }); }
+    if (s.screen !== 'vault' || s.panel === 'edit') return;
+    if (e.ctrlKey && e.key === 'n') { e.preventDefault(); return this.startEdit(null); }
+    if (!cur) return;
+    if (e.ctrlKey && e.key === 'e') { e.preventDefault(); return this.startEdit(cur); }
+    if (e.ctrlKey && e.key === 'h') { e.preventDefault(); return this.setState({ reveal: !s.reveal }); }
+    if (e.ctrlKey && e.key === 'c' && !window.getSelection().toString()) { e.preventDefault(); return this.flash('Password copied · clears in ' + s.set.clip); }
+    if (e.ctrlKey && e.key === 'b') { e.preventDefault(); return this.flash('User name copied'); }
+    if (e.ctrlKey && e.key === 't' && cur.otp) { e.preventDefault(); return this.flash('TOTP code copied'); }
+    if (e.key === 'Delete' && !typing) return this.setState({ confirmDelete: true });
+    if (!typing && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); const i = vis.findIndex(x => x.id === s.sel), n = vis[Math.max(0, Math.min(vis.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]; if (n) this.select(n.id); }
+  }
+  renderVals() {
+    const s = this.state, go = screen => () => this.setState({ screen, err: '' });
+    const vis = this.visible();
+    const cur = s.entries.find(e => e.id === s.sel) || vis[0] || s.entries[0];
+    const btn = on => ({ padding: '4px 10px', border: '1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-divider)'), background: on ? 'var(--color-accent-100)' : 'transparent', color: on ? 'var(--color-accent-800)' : 'var(--color-text)', borderRadius: '4px', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '14px', cursor: 'pointer' });
+    const jumpKey = s.screen === 'vault' && s.panel === 'edit' ? 'edit' : s.screen;
+    const win = Math.floor(s.now / 30000), code = String((win * 7919 + (cur ? cur.id.length * 104729 : 0)) % 1000000).padStart(6, '0');
+    const d = s.draft, sc = strength(d ? d.pw : ''), setD = k => ev => this.setState({ draft: { ...this.state.draft, [k]: ev.target.value } });
+    const sources = [['local', 'Open a local file', 'A .kdbx on this PC, a USB drive, or a folder another program syncs.'], ['folder', 'Sync with a folder', 'A file on a LAN share such as a NAS. PswManager keeps a working copy and syncs it.'], ['dropbox', 'Sync with Dropbox', 'Sign in once; the file lives in Apps/PswManager Sync and opens in Keepass2Android too.']];
+    const paths = { local: 'C:\\Users\\Oleg\\Documents\\passwords.kdbx', folder: '\\\\nas\\home\\keepass\\passwords.kdbx', dropbox: 'Dropbox › Apps/PswManager Sync/passwords.kdbx' };
+    const reused = s.entries.filter(e => s.entries.some(o => o !== e && o.pw === e.pw)), weak = s.entries.filter(e => strength(e.pw) <= 1 && !reused.includes(e)), old = s.entries.filter(e => e.age > 365 && !reused.includes(e) && !weak.includes(e));
+    const hItem = (e, detail) => ({ title: e.title, initial: e.title[0], tile: tile(28), detail, fix: () => this.startEdit(e) });
+    const setRow = (label, hint, k, opts) => { const v = s.set[k]; return opts ? { label, hint, isSelect: true, value: v, options: opts, onChange: ev => this.setState({ set: { ...this.state.set, [k]: ev.target.value } }) } : { label, hint, isToggle: true, ...toggleStyles(v), toggle: () => this.setState({ set: { ...this.state.set, [k]: !v } }) }; };
+    const attrs = d ? d.attrs : [];
+    return {
+      jumps: [['onboard', 'Onboarding', go('onboard')], ['unlock', 'Unlock', go('unlock')], ['vault', 'Vault', () => this.setState({ screen: 'vault', panel: 'view' })], ['edit', 'Edit entry', () => this.startEdit(s.entries.find(e => e.id === 'bank') || cur)], ['settings', 'Settings', go('settings')], ['health', 'Password health', go('health')]].map(([k, label, fn]) => ({ label, go: fn, style: btn(jumpKey === k) })),
+      hide: () => this.flash('Hidden to tray · Ctrl+Alt+P brings it back'),
+      isOnboard: s.screen === 'onboard', isUnlock: s.screen === 'unlock', isVault: s.screen === 'vault', isSettings: s.screen === 'settings', isHealth: s.screen === 'health',
+      sources: sources.map(([k, title, desc]) => { const on = s.source === k; return { title, desc, pick: () => this.setState({ source: k }), style: { display: 'flex', gap: '14px', alignItems: 'flex-start', padding: '14px 12px', borderBottom: '1px solid var(--color-divider)', cursor: 'pointer', background: on ? 'var(--color-accent-100)' : 'transparent' }, radio: { width: '18px', height: '18px', marginTop: '4px', borderRadius: '50%', border: '1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-neutral-500)'), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxSizing: 'border-box' }, dot: { width: '8px', height: '8px', borderRadius: '50%', background: on ? 'var(--color-accent)' : 'transparent' } }; }),
+      continueOnboard: () => this.setState({ screen: 'unlock' }), continueStyle: { padding: '8px 22px', border: '1px solid var(--color-accent)', background: 'transparent', color: 'var(--color-accent-700)', borderRadius: '4px', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '16px', cursor: 'pointer' },
+      sourceLabel: { local: 'Local file', folder: 'Synced with a folder', dropbox: 'Synced with Dropbox' }[s.source], dbPath: paths[s.source], goOnboard: go('onboard'),
+      pw: s.pw, onPw: e => this.setState({ pw: e.target.value, err: '' }), err: s.err,
+      keyFileLabel: s.keyFile ? 'Key file: D:\\keys\\passwords.keyx' : 'No key file', keyFileBtn: s.keyFile ? 'Remove' : 'Key file…', toggleKeyFile: () => this.setState({ keyFile: !s.keyFile }),
+      unlock: e => { e.preventDefault(); if (!s.pw) return this.setState({ err: 'Enter the master password.' }); this.setState({ screen: 'vault', panel: 'view', pw: '' }); this.flash(s.source === 'local' ? 'Unlocked' : 'Unlocked · syncing…'); },
+      q: s.q, onQ: e => this.setState({ q: e.target.value }), filter: s.filter, onFilter: e => this.setState({ filter: e.target.value }),
+      filters: [{ v: 'all', label: 'All entries' }, { v: 'fav', label: 'Favorites' }, { v: 'Personal', label: 'Personal' }, { v: 'Work', label: 'Work' }, { v: 'Finance', label: 'Finance' }],
+      syncStatus: s.source === 'local' ? 'Local file' : 'Synced ' + s.synced, syncNow: () => { const t = new Date(); this.setState({ synced: t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0') }); this.flash('Synced · nothing to merge'); },
+      goHealth: go('health'), goSettings: go('settings'), lock: () => this.setState({ screen: 'unlock', reveal: false }), backToVault: go('vault'),
+      countLabel: vis.length + (vis.length === 1 ? ' entry' : ' entries'), newEntry: () => this.startEdit(null), noResults: vis.length === 0,
+      list: vis.map(e => { const on = e.id === cur.id; return { title: e.title, user: e.user, initial: e.title[0], fav: e.tags.includes('Favorite'), tile: tile(28, on), select: () => this.select(e.id), rowStyle: { display: 'flex', alignItems: 'center', gap: '12px', padding: '9px 14px', borderBottom: '1px solid var(--color-divider)', cursor: 'default', background: on ? 'var(--color-accent-100)' : 'transparent' } }; }),
+      viewing: s.panel === 'view' && !!cur, editing: s.panel === 'edit' && !!d,
+      cur: cur && { ...cur, initial: cur.title[0], bigTile: tile(44, true), tagText: cur.tags.filter(t => t !== 'Favorite').join(', ') || 'no tags', hasOtp: cur.otp, historyCount: cur.hist,
+        attrs: cur.attrs.map(a => { const r = !a.p || s.revealAttr[a.k]; return { k: a.k, shown: r ? a.v : '••••••', valStyle: { fontFamily: a.p ? MONO : 'inherit' }, btn: a.p ? (r ? 'Hide' : 'Reveal') : 'Copy', toggle: () => a.p ? this.setState({ revealAttr: { ...this.state.revealAttr, [a.k]: !r } }) : this.flash(a.k + ' copied') }; }) },
+      pwShown: s.reveal && cur ? cur.pw : '••••••••••••', revealLabel: s.reveal ? 'Hide' : 'Reveal', toggleReveal: () => this.setState({ reveal: !s.reveal }),
+      copyPw: () => this.flash('Password copied · clears in ' + s.set.clip), copyUser: () => this.flash('User name copied'), copyOtp: () => this.flash('TOTP code copied'), openUrl: () => this.flash('Opened in the default browser'),
+      otp: code.slice(0, 3) + ' ' + code.slice(3), otpLeft: (30 - Math.floor(s.now / 1000) % 30) + ' s',
+      editEntry: () => this.startEdit(cur), askDelete: () => this.setState({ confirmDelete: true }), cancelDelete: () => this.setState({ confirmDelete: false }), confirmDelete: s.confirmDelete,
+      doDelete: () => { const rest = s.entries.filter(e => e.id !== cur.id); this.setState({ entries: rest, sel: rest[0] && rest[0].id, confirmDelete: false }); this.flash('Moved to the recycle bin'); },
+      editTitle: d && d.isNew ? 'New entry' : 'Edit entry',
+      edFields: d ? [['title', 'Title', 'e.g. GitHub'], ['user', 'User name', ''], ['url', 'URL', 'https://'], ['group', 'Group', 'Personal']].map(([k, label, ph]) => ({ label, ph, value: d[k], on: setD(k) })) : [],
+      edPw: d ? d.pw : '', onEdPw: setD('pw'), edPwType: s.edReveal ? 'text' : 'password', edRevealLabel: s.edReveal ? 'Hide' : 'Show', toggleEdReveal: () => this.setState({ edReveal: !s.edReveal }),
+      edBars: [1, 2, 3, 4].map(i => ({ style: { width: '22px', height: '4px', borderRadius: '2px', background: i <= Math.max(sc, 1) ? (sc <= 1 ? '#9b3b2a' : 'var(--color-accent-600)') : 'var(--color-neutral-300)' } })), edStrength: SLABEL[sc],
+      edNotes: d ? d.notes : '', onEdNotes: setD('notes'),
+      genOpen: s.genOpen, toggleGen: () => this.setState({ genOpen: !s.genOpen }), genBtnStyle: btn(s.genOpen),
+      genPw: s.genPw, regen: () => this.setState({ genPw: this.makePw() }), useGen: () => { this.setState({ draft: { ...d, pw: s.genPw }, edReveal: true }); this.flash('Generated password set'); },
+      genLen: s.gen.len, onGenLen: e => { const gen = { ...s.gen, len: +e.target.value }; this.setState({ gen, genPw: this.makePw(gen) }); },
+      genOpts: [['upper', 'A–Z'], ['lower', 'a–z'], ['digits', '0–9'], ['symbols', '!@#'], ['noLook', 'No look-alikes']].map(([k, label]) => ({ label, style: btn(s.gen[k]), toggle: () => { const gen = { ...s.gen, [k]: !s.gen[k] }; this.setState({ gen, genPw: this.makePw(gen) }); } })),
+      noAttrs: attrs.length === 0,
+      addAttr: () => this.setState({ draft: { ...d, attrs: [...d.attrs, { id: ++AID, k: '', v: '', p: false }] } }),
+      edAttrs: attrs.map((a, i) => {
+        const dragging = s.drag === i, over = s.over === i && s.drag !== null && s.drag !== i, hi = s.moved === a.id;
+        return { k: a.k, v: a.v, pos: i + 1, isFirst: i === 0, isLast: i === attrs.length - 1, inputType: a.p ? 'password' : 'text', draggable: true,
+          pStyle: { ...btn(a.p), fontSize: '12px', padding: '3px 8px' },
+          rowStyle: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 4px', borderBottom: '1px solid var(--color-divider)', boxShadow: over ? (s.drag < i ? 'inset 0 -2px 0 var(--color-accent)' : 'inset 0 2px 0 var(--color-accent)') : 'none', background: hi ? 'var(--color-accent-100)' : dragging ? 'var(--color-neutral-200)' : 'transparent', opacity: dragging ? 0.5 : 1, transition: 'background .4s' },
+          onK: e => this.setAttr(i, { k: e.target.value }), onV: e => this.setAttr(i, { v: e.target.value }), toggleP: () => this.setAttr(i, { p: !a.p }),
+          up: () => this.moveAttr(i, i - 1), down: () => this.moveAttr(i, i + 1),
+          remove: () => { this.setState({ draft: { ...d, attrs: d.attrs.filter((_, j) => j !== i) } }); this.flash('Removed “' + (a.k || 'Untitled field') + '”'); },
+          onDragStart: e => { e.dataTransfer.effectAllowed = 'move'; this.setState({ drag: i }); },
+          onDragOver: e => { e.preventDefault(); if (this.state.over !== i) this.setState({ over: i }); },
+          onDrop: e => { e.preventDefault(); const from = this.state.drag; this.setState({ drag: null, over: null }); if (from !== null) this.moveAttr(from, i); },
+          onDragEnd: () => this.setState({ drag: null, over: null }) };
+      }),
+      save: () => this.save(), cancelEdit: () => this.setState({ panel: 'view', draft: null, genOpen: false }),
+      settingGroups: [
+        { title: 'Security', rows: [setRow('Lock after inactivity', '1–60 minutes, or never', 'autoLock', ['1 min', '5 min', '15 min', '30 min', '60 min', 'Never']), setRow('Lock when Windows locks', 'Also when the session is switched', 'winLock'), setRow('Lock when hidden to tray', '', 'trayLock')] },
+        { title: 'Clipboard', rows: [setRow('Clear clipboard after copying', 'Only if it still holds the copied value', 'clip', ['5 s', '10 s', '20 s', '30 s', '60 s', '120 s'])] },
+        { title: 'Window and tray', rows: [{ label: 'Global hotkey', hint: 'Shows or hides the window', isText: true, value: 'Ctrl+Alt+P' }, setRow('Start with Windows', 'Starts hidden in the tray, locked', 'autostart'), setRow('Download site icons', 'Directly from each site, never through a third party', 'icons')] },
+        { title: 'Sync', rows: [{ label: 'Remote store', hint: paths[s.source], isText: true, value: { local: 'None', folder: 'LAN folder', dropbox: 'Dropbox' }[s.source] }, setRow('Check for remote changes', 'While unlocked', 'remoteCheck', ['1 min', '5 min', '15 min', '60 min', 'Off'])] },
+      ],
+      healthStats: [{ n: reused.length, label: 'Reused passwords' }, { n: weak.length, label: 'Weak passwords' }, { n: old.length, label: 'Unchanged for over a year' }],
+      healthGroups: [
+        { title: 'Reused', items: reused.map(e => hItem(e, 'Same password as ' + reused.filter(o => o !== e && o.pw === e.pw).map(o => o.title).join(', '))) },
+        { title: 'Weak', items: weak.map(e => hItem(e, SLABEL[strength(e.pw)] + ' · ' + e.pw.length + ' characters')) },
+        { title: 'Old', items: old.map(e => hItem(e, 'Last changed ' + e.modified)) },
+      ].filter(g => g.items.length),
+      toast: s.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>

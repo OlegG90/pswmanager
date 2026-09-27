@@ -114,6 +114,22 @@ export interface Strength {
   crackTime: string
 }
 
+/** The settings as they are in effect. Minutes of 0 mean never. */
+export interface Settings {
+  lockAfterMinutes: number
+  lockOnSessionLock: boolean
+  lockWhenHidden: boolean
+  /** Seconds. */
+  clearClipboard: number
+  syncEveryMinutes: number
+  downloadIcons: boolean
+  /** Shown only: set in the state file. */
+  hotkey: string
+  startWithWindows: boolean
+}
+
+export type SettingName = Exclude<keyof Settings, 'hotkey'>
+
 export const PASSWORD = 'Password'
 export const USERNAME = 'UserName'
 export const URL_FIELD = 'URL'
@@ -157,4 +173,7 @@ export const api = {
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
+  settings: () => invoke<Settings>('settings'),
+  /** Applies at once; resolves to every setting as it now is. */
+  setSetting: (name: SettingName, value: number | boolean) => invoke<Settings>('set_setting', { name, value }),
 }
