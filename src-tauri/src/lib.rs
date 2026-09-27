@@ -602,6 +602,15 @@ fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<L
     Ok(listing)
 }
 
+/// An image file for an entry's own icon, as base64; `None` when cancelled.
+#[tauri::command(async)]
+fn pick_icon_image(window: Window) -> Result<Option<String>, String> {
+    let Some(path) = pick(&window, "Image", &["png", "jpg", "jpeg", "gif", "webp"])? else { return Ok(None) };
+    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    edit::check_icon_image(&bytes)?;
+    Ok(Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)))
+}
+
 #[tauri::command(async)]
 fn group_paths(session: State<Session>) -> Result<Vec<Vec<String>>, String> {
     session.read(Vault::group_paths)
@@ -797,6 +806,7 @@ pub fn run() {
             rename_attachment,
             replace_attachment,
             group_paths,
+            pick_icon_image,
             totp,
             copy_totp,
             generate_password,

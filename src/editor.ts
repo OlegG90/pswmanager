@@ -2,6 +2,7 @@ import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved 
 import { button, el } from './dom'
 import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
 import { ask } from './modal'
+import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
 
 export interface EditorOptions {
@@ -15,9 +16,11 @@ export interface EditorOptions {
   focusPassword?: boolean
   /** The database's tags, offered when adding one. */
   knownTags: string[]
+  /** What the Auto icon shows for this entry now. */
+  autoIcon: string
 }
 
-const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [] }
+const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' } }
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
 /** Kept for the session, so the generator opens as it was last used. */
@@ -199,6 +202,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const group = input(formatGroup(data.group), { placeholder: 'Top level' })
   group.setAttribute('list', 'group-list')
   const tags = tagInput(data.tags, options.knownTags)
+  const icon = iconPicker(data.icon, options.autoIcon, (message) => showError(message))
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
   const error = el('p', { className: 'error', hidden: true })
   const strength = el('div', { className: 'strength' })
@@ -246,6 +250,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     tags: keep(data.tags, tags.value(), (t) => parseTags(formatTags(t))),
     group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
+    icon: icon.value(),
   })
 
   let saving = false
@@ -298,6 +303,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('TOTP', otp, showHide(otp)),
     row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
     row('Tags', tags.element),
+    row('Icon', icon.element),
     row('Notes', notes),
     el('h3', {}, 'Additional fields'),
     fieldList,

@@ -40,6 +40,8 @@ pub struct EntrySummary {
     pub notes: String,
     /// Key into [Listing::custom_icons] when the entry has its own icon.
     pub custom_icon: Option<String>,
+    /// The KeePass standard icon chosen for it (not the default key, 0).
+    pub icon: Option<usize>,
     pub has_password: bool,
 }
 
@@ -434,6 +436,10 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         tags: e.tags.clone(),
         notes: text(fields::NOTES),
         custom_icon: e.custom_icon().map(|icon| icon.id().to_string()),
+        icon: match e.icon() {
+            Some(keepass::db::Icon::BuiltIn(id)) if *id != 0 => Some(*id),
+            _ => None,
+        },
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
     }
 }
@@ -722,6 +728,26 @@ pub mod tests {
         let data = vault.edit_data(&id).unwrap();
         vault.save_entry(Some(&id), None, &data).unwrap();
         assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
+    }
+
+    #[test]
+    fn a_chosen_icon_saves_and_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let mail = id_of(&vault, "Mail").uuid().to_string();
+        let router = id_of(&vault, "Router").uuid().to_string();
+        let png = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+        for (id, icon) in [(&mail, edit::IconChoice::Custom { data: png }), (&router, edit::IconChoice::Builtin { id: 37 })] {
+            let mut data = vault.edit_data(id).unwrap();
+            data.icon = icon;
+            vault.save_entry(Some(id), None, &data).unwrap();
+        }
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        let listing = reopened.listing();
+        let summary = |id: &str| listing.entries.iter().find(|e| e.id == id).unwrap().clone();
+        assert!(listing.custom_icons[summary(&mail).custom_icon.as_ref().unwrap()].starts_with("data:image/png"));
+        assert_eq!(summary(&router).icon, Some(37));
     }
 
     #[test]

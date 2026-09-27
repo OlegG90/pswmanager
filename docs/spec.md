@@ -70,7 +70,14 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 
 - An entry whose URL is an `http(s)` address and whose site has its own icon shows that icon; every
   other entry shows the default icon.
-- Order: a custom icon already stored on the entry in the KDBX file → the site's icon → the default icon.
+- Order: a custom icon stored on the entry in the KDBX file → a standard icon chosen for it → the site's
+  icon → the default icon (the key).
+- The editor chooses the icon: **Auto** (the site's icon, else the key), one of the app's own drawings
+  (key, web site, account, e-mail, bank, card, identity, phone, computer, server, wireless, terminal, home,
+  certificate, note, star — stored as KeePass standard icon numbers, so other clients show their own
+  picture for them), or an **image file** (PNG, JPEG, GIF or WebP up to 256 KB — formats Keepass2Android can
+  show) kept in the database as the entry's custom icon; an image already there is shared, not stored
+  twice. Changing the icon is an edit: the previous version keeps its icon in history.
 - The site's icon is downloaded **the way a browser opening the site gets it**: the start page (following
   its redirects, also to another domain), the icons its `<link rel="icon">` declares (wherever the site keeps
   them, e.g. its CDN), then `/favicon.ico`. Only https addresses on named hosts are fetched (no plain http,

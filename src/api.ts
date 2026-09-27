@@ -39,6 +39,8 @@ export interface Entry {
   tags: string[]
   notes: string
   customIcon: string | null
+  /** The KeePass standard icon chosen for it (not the default key). */
+  icon: number | null
   hasPassword: boolean
 }
 
@@ -73,6 +75,13 @@ export interface Listing {
   customIcons: Record<string, string>
 }
 
+/** An entry's icon as the editor chooses it. */
+export type IconChoice =
+  | { kind: 'auto' }
+  | { kind: 'builtin'; id: number }
+  /** An image kept in the database, base64. */
+  | { kind: 'custom'; data: string }
+
 /** An entry with every value, as the editor shows and sends it. */
 export interface EntryData {
   title: string
@@ -85,6 +94,7 @@ export interface EntryData {
   tags: string[]
   group: string[]
   fields: FieldData[]
+  icon: IconChoice
 }
 
 /** An additional field with its value, for the editor. */
@@ -217,6 +227,8 @@ export const api = {
   /** Removes the file from the entry; its history keeps it. */
   removeAttachment: (id: string, name: string) => invoke<Listing>('remove_attachment', { id, name }),
   groupPaths: () => invoke<string[][]>('group_paths'),
+  /** An image file for an entry's icon, base64; null when cancelled. */
+  pickIconImage: () => invoke<string | null>('pick_icon_image'),
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),

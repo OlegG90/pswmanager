@@ -56,7 +56,7 @@ fn is_safe_host(host: &str) -> bool {
 
 /// The image type of `bytes`, from their signature; `None` for anything that
 /// is not an image (an HTML error page served as favicon.ico, for example).
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
+pub fn sniff(bytes: &[u8]) -> Option<&'static str> {
     let text = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).trim_start().to_ascii_lowercase();
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => Some("image/png"),
