@@ -438,6 +438,7 @@ function startEditor(id: string | null, focusPassword = false) {
     id,
     focusPassword,
     group: groupForNew(),
+    knownTags: filterChoices(listing.entries).tags,
     onSaved: afterSave,
     onClose: () => {
       current = null
