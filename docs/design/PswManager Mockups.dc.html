@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#E9E6E0;font-family:'IBM Plex Sans',sans-serif;color:#1B1D1C;-webkit-font-smoothing:antialiased}
+a{color:#1F6F54}a:hover{color:#155340}
+</style>
+</helmet>
+<section style="padding:64px;display:flex;flex-direction:column;gap:32px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#6B6F6C">PswManager · Desktop · v1</div>
+    <div style="font-size:32px;font-weight:600;letter-spacing:-.01em">Core screens</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+
+    <div id="1a" data-screen-label="01 Unlock" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:10px;align-items:center"><span style="background:#1B1D1C;color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:4px">1a</span><span style="font-size:14px;color:#6B6F6C">Unlock</span></div>
+      <div style="width:1280px;height:800px;background:#F4F2EE;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 20px 50px rgba(0,0,0,.10);overflow:hidden;display:flex;flex-direction:column">
+        <div style="height:40px;display:flex;align-items:center;gap:8px;padding:0 16px"><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span></div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center">
+          <div style="width:360px;display:flex;flex-direction:column;gap:28px">
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="width:44px;height:44px;border-radius:10px;background:#1F6F54;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-weight:500;font-size:18px">P*</div>
+              <div style="font-size:26px;font-weight:600;letter-spacing:-.01em">Welcome back, Maya</div>
+              <div style="font-size:15px;color:#6B6F6C">Enter your master password to unlock the Personal vault.</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <label style="font-size:13px;font-weight:500;color:#3A3D3B">Master password</label>
+              <div style="display:flex;align-items:center;height:48px;background:#fff;border:1.5px solid #1F6F54;border-radius:8px;padding:0 14px;box-shadow:0 0 0 4px rgba(31,111,84,.12)">
+                <span style="flex:1;font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:.2em">••••••••••••••</span>
+                <span style="font-size:13px;color:#6B6F6C">Show</span>
+              </div>
+              <button style="height:48px;border:0;border-radius:8px;background:#1B1D1C;color:#fff;font:600 15px 'IBM Plex Sans',sans-serif;cursor:pointer" style-hover="background:#2E322F">Unlock</button>
+              <button style="height:48px;border:1px solid #D9D5CE;border-radius:8px;background:transparent;color:#1B1D1C;font:500 15px 'IBM Plex Sans',sans-serif;cursor:pointer">Unlock with Touch ID</button>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:#6B6F6C"><span>Auto-locks after 15 min idle</span><a href="#1a" style="font-size:13px">Switch account</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1b" data-screen-label="02 Vault" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:10px;align-items:center"><span style="background:#1B1D1C;color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:4px">1b</span><span style="font-size:14px;color:#6B6F6C">Vault · item detail (click items, reveal password)</span></div>
+      <div style="width:1280px;height:800px;background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 20px 50px rgba(0,0,0,.10);overflow:hidden;display:grid;grid-template-columns:232px 360px 1fr">
+        <div style="background:#F4F2EE;border-right:1px solid #E3E0DA;display:flex;flex-direction:column;padding:14px 12px;gap:22px">
+          <div style="display:flex;gap:8px;padding:0 4px"><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 6px">
+            <div style="width:28px;height:28px;border-radius:7px;background:#1F6F54;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:12px">P*</div>
+            <div style="display:flex;flex-direction:column"><span style="font-size:14px;font-weight:600">Personal</span><span style="font-size:12px;color:#6B6F6C">148 items</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ nav }}" as="n" hint-placeholder-count="6">
+              <div style="{{ n.style }}"><span>{{ n.label }}</span><span style="font-size:12px;color:#8A8E8B">{{ n.count }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8A8E8B;padding:0 10px 6px">Tools</div>
+            <div style="padding:7px 10px;font-size:14px;border-radius:6px">Password generator</div>
+            <div style="padding:7px 10px;font-size:14px;border-radius:6px;display:flex;justify-content:space-between"><span>Security audit</span><span style="font-size:11px;font-weight:600;color:#fff;background:#B4452F;border-radius:10px;padding:1px 7px">7</span></div>
+          </div>
+          <div style="margin-top:auto;display:flex;align-items:center;justify-content:space-between;padding:8px 10px;font-size:13px;color:#6B6F6C;border-top:1px solid #E3E0DA"><span>maya@hey.com</span><span>Lock ⌘L</span></div>
+        </div>
+        <div style="border-right:1px solid #E3E0DA;display:flex;flex-direction:column;min-width:0">
+          <div style="padding:16px;display:flex;gap:8px;border-bottom:1px solid #EEEBE6">
+            <div style="flex:1;height:36px;background:#F4F2EE;border-radius:8px;display:flex;align-items:center;padding:0 12px;font-size:14px;color:#8A8E8B;justify-content:space-between"><span>Search vault</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px">⌘K</span></div>
+            <button style="width:36px;height:36px;border:0;border-radius:8px;background:#1F6F54;color:#fff;font-size:20px;cursor:pointer">+</button>
+          </div>
+          <div style="font-size:12px;color:#8A8E8B;padding:12px 16px 6px">Logins · sorted by recently used</div>
+          <div style="flex:1;overflow:auto;display:flex;flex-direction:column;padding:0 8px">
+            <sc-for list="{{ items }}" as="it" hint-placeholder-count="8">
+              <div onClick="{{ it.select }}" style="{{ it.rowStyle }}">
+                <div style="{{ it.iconStyle }}">{{ it.initial }}</div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font-size:14px;font-weight:500">{{ it.name }}</span>
+                  <span style="font-size:13px;color:#6B6F6C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.user }}</span>
+                </div>
+                <sc-if value="{{ it.weak }}" hint-placeholder-val="{{ false }}"><span style="width:8px;height:8px;border-radius:50%;background:#B7851C"></span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;min-width:0">
+          <div style="padding:16px 32px;display:flex;justify-content:flex-end;gap:8px;border-bottom:1px solid #EEEBE6">
+            <button style="height:36px;padding:0 14px;border:1px solid #D9D5CE;border-radius:8px;background:#fff;font:500 14px 'IBM Plex Sans',sans-serif">Share</button>
+            <button style="height:36px;padding:0 14px;border:1px solid #D9D5CE;border-radius:8px;background:#fff;font:500 14px 'IBM Plex Sans',sans-serif">Edit</button>
+          </div>
+          <div style="padding:32px;display:flex;flex-direction:column;gap:28px;overflow:auto">
+            <div style="display:flex;align-items:center;gap:16px">
+              <div style="{{ sel.bigIconStyle }}">{{ sel.initial }}</div>
+              <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:24px;font-weight:600;letter-spacing:-.01em">{{ sel.name }}</span><span style="font-size:14px;color:#6B6F6C">Login · edited {{ sel.edited }}</span></div>
+            </div>
+            <div style="border:1px solid #E3E0DA;border-radius:10px;display:flex;flex-direction:column">
+              <div style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #EEEBE6">
+                <span style="font-size:12px;color:#6B6F6C">Username</span>
+                <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:15px">{{ sel.user }}</span><span style="font-size:13px;color:#1F6F54;font-weight:500">Copy</span></div>
+              </div>
+              <div style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #EEEBE6">
+                <span style="font-size:12px;color:#6B6F6C">Password</span>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:15px;letter-spacing:.04em">{{ pwText }}</span>
+                  <div style="display:flex;gap:16px;font-size:13px;font-weight:500"><span onClick="{{ toggleReveal }}" style="color:#1F6F54;cursor:pointer">{{ revealLabel }}</span><span style="color:#1F6F54">Copy</span></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+                  <div style="flex:0 0 160px;height:4px;background:#EEEBE6;border-radius:2px;overflow:hidden"><div style="{{ sel.meterStyle }}"></div></div>
+                  <span style="font-size:12px;color:#6B6F6C">{{ sel.strength }}</span>
+                </div>
+              </div>
+              <div style="padding:14px 18px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #EEEBE6">
+                <span style="font-size:12px;color:#6B6F6C">One-time code</span>
+                <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-family:'JetBrains Mono',monospace;font-size:20px;letter-spacing:.12em">482 915</span><span style="font-size:13px;color:#6B6F6C">18s</span></div>
+              </div>
+              <div style="padding:14px 18px;display:flex;flex-direction:column;gap:4px">
+                <span style="font-size:12px;color:#6B6F6C">Website</span>
+                <span style="font-size:15px;color:#1F6F54">{{ sel.url }}</span>
+              </div>
+            </div>
+            <sc-if value="{{ sel.weak }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#FBF3E2;border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#6B4E10"><span>This password is reused on 2 other sites.</span><span style="font-weight:600">Change password</span></div>
+            </sc-if>
+            <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12px;color:#6B6F6C">Notes</span><span style="font-size:14px;color:#3A3D3B;line-height:1.5">{{ sel.notes }}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1c" data-screen-label="03 Generator" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:10px;align-items:center"><span style="background:#1B1D1C;color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:4px">1c</span><span style="font-size:14px;color:#6B6F6C">Password generator (live)</span></div>
+      <div style="width:1280px;height:800px;background:#8E8B86;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 20px 50px rgba(0,0,0,.10);overflow:hidden;display:flex;align-items:center;justify-content:center">
+        <div style="width:520px;background:#fff;border-radius:14px;box-shadow:0 30px 80px rgba(0,0,0,.25);display:flex;flex-direction:column">
+          <div style="padding:20px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #EEEBE6"><span style="font-size:17px;font-weight:600">Generate password</span><span style="font-size:14px;color:#6B6F6C">Esc</span></div>
+          <div style="padding:24px;display:flex;flex-direction:column;gap:24px">
+            <div style="background:#F4F2EE;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:20px;line-height:1.4;word-break:break-all;min-height:56px">{{ genPw }}</div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="display:flex;align-items:center;gap:10px"><div style="width:120px;height:4px;background:#E0DDD7;border-radius:2px;overflow:hidden"><div style="{{ genMeter }}"></div></div><span style="font-size:13px;color:#6B6F6C">{{ genStrength }}</span></div>
+                <span onClick="{{ regen }}" style="font-size:13px;font-weight:500;color:#1F6F54;cursor:pointer">Regenerate</span>
+              </div>
+            </div>
+            <div style="display:flex;background:#F4F2EE;border-radius:8px;padding:3px">
+              <sc-for list="{{ modes }}" as="m" hint-placeholder-count="2">
+                <div onClick="{{ m.select }}" style="{{ m.style }}">{{ m.label }}</div>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;justify-content:space-between;font-size:14px"><span>{{ lenLabel }}</span><span style="font-family:'JetBrains Mono',monospace">{{ len }}</span></div>
+              <input type="range" min="{{ lenMin }}" max="{{ lenMax }}" value="{{ len }}" onChange="{{ setLen }}" style="width:100%;accent-color:#1F6F54">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ opts }}" as="o" hint-placeholder-count="3">
+                <div onClick="{{ o.toggle }}" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;font-size:14px;cursor:pointer;border-top:1px solid #EEEBE6">
+                  <span>{{ o.label }}</span>
+                  <div style="{{ o.trackStyle }}"><div style="{{ o.knobStyle }}"></div></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding:16px 24px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #EEEBE6">
+            <button style="height:40px;padding:0 16px;border:1px solid #D9D5CE;border-radius:8px;background:#fff;font:500 14px 'IBM Plex Sans',sans-serif">Copy</button>
+            <button style="height:40px;padding:0 16px;border:0;border-radius:8px;background:#1B1D1C;color:#fff;font:600 14px 'IBM Plex Sans',sans-serif">Use password</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="1d" data-screen-label="04 Security audit" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:10px;align-items:center"><span style="background:#1B1D1C;color:#fff;font-size:12px;font-weight:600;padding:3px 8px;border-radius:4px">1d</span><span style="font-size:14px;color:#6B6F6C">Security audit</span></div>
+      <div style="width:1280px;height:800px;background:#fff;border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 20px 50px rgba(0,0,0,.10);overflow:hidden;display:flex;flex-direction:column">
+        <div style="height:40px;display:flex;align-items:center;gap:8px;padding:0 16px;background:#F4F2EE;border-bottom:1px solid #E3E0DA"><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="width:12px;height:12px;border-radius:50%;background:#E0DDD7"></span><span style="margin-left:12px;font-size:13px;color:#6B6F6C">Personal › Security audit</span></div>
+        <div style="padding:40px 56px;display:flex;flex-direction:column;gap:36px">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font-size:14px;color:#6B6F6C">Vault health</span>
+              <div style="display:flex;align-items:baseline;gap:12px"><span style="font-size:64px;font-weight:600;letter-spacing:-.03em;line-height:1">82</span><span style="font-size:18px;color:#6B6F6C">/ 100</span></div>
+            </div>
+            <span style="font-size:13px;color:#6B6F6C">Last checked 2 min ago · breach data via k-anonymity lookup</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+            <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+              <div style="border:1px solid #E3E0DA;border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="{{ s.dot }}"></span><span style="font-size:14px;color:#3A3D3B">{{ s.label }}</span></div>
+                <span style="font-size:32px;font-weight:600">{{ s.n }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <div style="display:grid;grid-template-columns:1.4fr 1fr 1.6fr 140px;font-size:12px;color:#8A8E8B;padding:0 0 10px;border-bottom:1px solid #E3E0DA"><span>Item</span><span>Issue</span><span>Detail</span><span></span></div>
+            <sc-for list="{{ issues }}" as="i" hint-placeholder-count="5">
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 1.6fr 140px;align-items:center;padding:14px 0;border-bottom:1px solid #EEEBE6;font-size:14px">
+                <span style="font-weight:500">{{ i.name }}</span>
+                <span style="{{ i.tagStyle }}">{{ i.issue }}</span>
+                <span style="color:#6B6F6C">{{ i.detail }}</span>
+                <span style="text-align:right;color:#1F6F54;font-weight:500">Fix now</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { sel: 0, reveal: false, mode: 'random', len: 20, opts: { upper: true, digits: true, symbols: true }, seed: 1 };
+  gen() {
+    const { mode, len, opts, seed } = this.state;
+    let s = seed * 9301 + 49297; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+    if (mode === 'words') {
+      const w = ['copper','lantern','orbit','maple','quartz','harbor','velvet','summit','ember','nimbus','fjord','cobalt','willow','prism','tundra','saffron'];
+      return Array.from({ length: len }, () => { let x = w[Math.floor(r() * w.length)]; if (opts.upper) x = x[0].toUpperCase() + x.slice(1); return x; }).join('-') + (opts.digits ? '-' + Math.floor(r() * 90 + 10) : '');
+    }
+    let c = 'abcdefghijkmnopqrstuvwxyz'; if (opts.upper) c += 'ABCDEFGHJKLMNPQRSTUVWXYZ'; if (opts.digits) c += '23456789'; if (opts.symbols) c += '!@#$%^&*-_+=?';
+    return Array.from({ length: len }, () => c[Math.floor(r() * c.length)]).join('');
+  }
+  renderVals() {
+    const st = this.state, G = '#1F6F54';
+    const items = [
+      { name: 'GitHub', user: 'maya-okafor', url: 'github.com', c: '#24292F', pw: 'vK7#q2Lm!xR9pT4w', weak: false, str: 94, edited: '3 days ago', notes: 'Recovery codes stored in Secure Notes › GitHub recovery.' },
+      { name: 'Figma', user: 'maya@hey.com', url: 'figma.com', c: '#A259FF', pw: 'Summer2023!', weak: true, str: 38, edited: '8 months ago', notes: 'Team plan billed to studio card.' },
+      { name: 'Chase Bank', user: 'mokafor88', url: 'chase.com', c: '#1A5DAB', pw: 'harbor-Quartz-ember-61', weak: false, str: 88, edited: '1 month ago', notes: 'Security question answers in Identity › Banking.' },
+      { name: 'Notion', user: 'maya@hey.com', url: 'notion.so', c: '#1B1D1C', pw: 'Summer2023!', weak: true, str: 38, edited: '8 months ago', notes: '' },
+      { name: 'Amazon', user: 'maya@hey.com', url: 'amazon.com', c: '#E08A00', pw: 'Tz9$wQ1n@Lp4', weak: false, str: 82, edited: '2 weeks ago', notes: 'Prime renews in March.' },
+      { name: 'Spotify', user: 'maya.okafor', url: 'spotify.com', c: '#1DB954', pw: 'p8Xq!r2Vn7Ks', weak: false, str: 80, edited: '5 months ago', notes: 'Family plan — manager account.' },
+      { name: 'Linear', user: 'maya@studio.co', url: 'linear.app', c: '#5E6AD2', pw: 'Summer2023!', weak: true, str: 38, edited: '8 months ago', notes: '' },
+      { name: 'Airbnb', user: 'maya@hey.com', url: 'airbnb.com', c: '#E0484E', pw: 'nimbus-Fjord-prism-24', weak: false, str: 86, edited: '4 months ago', notes: '' },
+    ];
+    const icon = (c, n) => ({ width: n + 'px', height: n + 'px', borderRadius: n / 4 + 'px', background: c, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: n * 0.42 + 'px', flexShrink: 0 });
+    const s = items[st.sel];
+    const meterCol = v => v > 75 ? G : v > 50 ? '#B7851C' : '#B4452F';
+    const pw = this.gen();
+    const gs = st.mode === 'words' ? Math.min(100, st.len * 20) : Math.min(100, st.len * 4 + Object.values(st.opts).filter(Boolean).length * 6);
+    const navL = [['All items', 148], ['Favorites', 12], ['Logins', 121], ['Cards', 4], ['Secure notes', 15], ['Identities', 8]];
+    const optL = st.mode === 'words' ? [['upper', 'Capitalize words'], ['digits', 'Add a number']] : [['upper', 'Uppercase (A–Z)'], ['digits', 'Numbers (0–9)'], ['symbols', 'Symbols (!@#)']];
+    const tag = (bg, fg) => ({ justifySelf: 'start', fontSize: '12px', fontWeight: 600, padding: '3px 8px', borderRadius: '4px', background: bg, color: fg });
+    return {
+      nav: navL.map(([label, count], i) => ({ label, count, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', fontSize: '14px', borderRadius: '6px', background: i === 2 ? '#E6E2DB' : 'transparent', fontWeight: i === 2 ? 600 : 400 } })),
+      items: items.map((it, i) => ({ ...it, initial: it.name[0], select: () => this.setState({ sel: i, reveal: false }), iconStyle: icon(it.c, 32),
+        rowStyle: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '8px', cursor: 'pointer', background: i === st.sel ? '#EEF4F1' : 'transparent', boxShadow: i === st.sel ? 'inset 0 0 0 1px #CFE2D9' : 'none' } })),
+      sel: { ...s, initial: s.name[0], bigIconStyle: icon(s.c, 56), strength: s.str > 75 ? 'Strong' : s.str > 50 ? 'Fair' : 'Weak', meterStyle: { width: s.str + '%', height: '100%', background: meterCol(s.str) } },
+      pwText: st.reveal ? s.pw : '•'.repeat(14), revealLabel: st.reveal ? 'Hide' : 'Reveal', toggleReveal: () => this.setState({ reveal: !st.reveal }),
+      genPw: pw, regen: () => this.setState({ seed: st.seed + 1 }),
+      genMeter: { width: gs + '%', height: '100%', background: meterCol(gs) }, genStrength: gs > 75 ? 'Very strong' : gs > 50 ? 'Fair' : 'Weak',
+      modes: [['random', 'Random characters'], ['words', 'Passphrase']].map(([k, label]) => ({ label, select: () => this.setState({ mode: k, len: k === 'words' ? 4 : 20 }),
+        style: { flex: 1, textAlign: 'center', padding: '8px', fontSize: '14px', borderRadius: '6px', cursor: 'pointer', background: st.mode === k ? '#fff' : 'transparent', fontWeight: st.mode === k ? 600 : 400, boxShadow: st.mode === k ? '0 1px 2px rgba(0,0,0,.08)' : 'none' } })),
+      len: st.len, lenMin: st.mode === 'words' ? 3 : 8, lenMax: st.mode === 'words' ? 8 : 64, lenLabel: st.mode === 'words' ? 'Words' : 'Length',
+      setLen: e => this.setState({ len: +e.target.value }),
+      opts: optL.map(([k, label]) => { const on = st.opts[k]; return { label, toggle: () => this.setState({ opts: { ...st.opts, [k]: !on } }),
+        trackStyle: { width: '36px', height: '20px', borderRadius: '10px', background: on ? G : '#D9D5CE', position: 'relative', transition: 'background .15s' },
+        knobStyle: { position: 'absolute', top: '2px', left: on ? '18px' : '2px', width: '16px', height: '16px', borderRadius: '50%', background: '#fff', transition: 'left .15s' } }; }),
+      stats: [['Breached', 1, '#B4452F'], ['Reused', 3, '#B7851C'], ['Weak', 3, '#B7851C'], ['Missing 2FA', 5, '#8A8E8B']].map(([label, n, c]) => ({ label, n, dot: { width: '8px', height: '8px', borderRadius: '50%', background: c } })),
+      issues: [
+        { name: 'Dropbox', issue: 'Breached', detail: 'Found in a 2024 breach dataset', tagStyle: tag('#F7E3DE', '#8E2F1D') },
+        { name: 'Figma', issue: 'Reused', detail: 'Same password as Notion, Linear', tagStyle: tag('#FBF3E2', '#6B4E10') },
+        { name: 'Notion', issue: 'Reused', detail: 'Same password as Figma, Linear', tagStyle: tag('#FBF3E2', '#6B4E10') },
+        { name: 'Linear', issue: 'Reused', detail: 'Same password as Figma, Notion', tagStyle: tag('#FBF3E2', '#6B4E10') },
+        { name: 'Old router admin', issue: 'Weak', detail: '8 characters, dictionary word', tagStyle: tag('#FBF3E2', '#6B4E10') },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
