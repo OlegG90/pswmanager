@@ -38,14 +38,12 @@ pub fn host_of(url: &str) -> Option<String> {
     is_safe_host(&host).then_some(host)
 }
 
-/// True for an https address on `host` itself, a subdomain of it, or a parent
-/// domain (`www.example.com` -> `example.com`): the site, not someone else.
-fn on_site(url: &Url, host: &str) -> bool {
-    let Some(other) = url.host_str().map(|h| h.trim_end_matches('.')) else { return false };
-    let related = other == host
-        || other.ends_with(&format!(".{host}"))
-        || (other.contains('.') && host.ends_with(&format!(".{other}")));
-    url.scheme() == "https" && related
+/// True for an https address on a named host: where a site may send the app
+/// for its page or icon (its own domain, another domain it moved to, the CDN
+/// it keeps its icons on). Never plain http or an IP address, so a page
+/// cannot point the app at a device on the local network.
+fn fetchable(url: &Url) -> bool {
+    url.scheme() == "https" && matches!(url.host(), Some(url::Host::Domain(d)) if d.trim_end_matches('.').contains('.'))
 }
 
 /// Hosts become file names, so only plain host characters are allowed.
@@ -77,10 +75,9 @@ pub fn data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
-/// Candidate icon URLs a page on `host` declares on its own site, best first:
-/// icons with a declared size of 32px or more, then Apple touch icons, then
-/// the rest.
-fn icon_links(html: &str, base: &Url, host: &str) -> Vec<Url> {
+/// Candidate icon URLs a site's page declares, best first: icons with a
+/// declared size of 32px or more, then Apple touch icons, then the rest.
+fn icon_links(html: &str, base: &Url) -> Vec<Url> {
     let mut found: Vec<(u8, Url)> = Vec::new();
     let lower = html.to_ascii_lowercase();
     let mut rest = 0;
@@ -94,7 +91,7 @@ fn icon_links(html: &str, base: &Url, host: &str) -> Vec<Url> {
             continue;
         }
         let Ok(url) = base.join(href.trim()) else { continue };
-        if !on_site(&url, host) {
+        if !fetchable(&url) {
             continue;
         }
         let big = attr(tag, "sizes").is_some_and(|s| largest_size(&s) >= 32);
@@ -223,24 +220,28 @@ pub fn http_agent(timeout: Duration, status_as_error: bool) -> ureq::Agent {
         .into()
 }
 
-/// Asks the site itself, over https: the icons its start page declares on the
-/// same site, then `/favicon.ico`. Only the host is sent — nothing from the
-/// entry — and whatever a redirect off the site returns is dropped.
+/// Asks the site itself, over https: the icons its start page declares
+/// (wherever the site keeps them), then `/favicon.ico` where the start page
+/// ended up (a site may redirect to another domain), then on the host itself.
+/// This is what a browser opening the site fetches; only the host is sent —
+/// nothing from the entry — and no third-party icon service is asked.
 fn fetch_icon(agent: &ureq::Agent, host: &str) -> Option<Vec<u8>> {
     let get = |url: &Url, limit: u64| -> Option<(Url, Vec<u8>)> {
         let mut response = agent.get(url.as_str()).call().ok()?;
         let landed = Url::parse(&ureq::ResponseExt::get_uri(&response).to_string()).ok()?;
-        if !on_site(&landed, host) {
+        if !fetchable(&landed) {
             return None;
         }
         Some((landed, response.body_mut().with_config().limit(limit).read_to_vec().ok()?))
     };
     let start = Url::parse(&format!("https://{host}/")).ok()?;
-    let mut candidates = match get(&start, PAGE_LIMIT) {
-        Some((base, html)) => icon_links(&String::from_utf8_lossy(&html), &base, host),
-        None => Vec::new(),
-    };
-    candidates.push(start.join("/favicon.ico").ok()?);
+    let mut candidates = Vec::new();
+    if let Some((landed, html)) = get(&start, PAGE_LIMIT) {
+        candidates = icon_links(&String::from_utf8_lossy(&html), &landed);
+        candidates.extend(landed.join("/favicon.ico"));
+    }
+    candidates.extend(start.join("/favicon.ico"));
+    candidates.dedup();
     candidates.into_iter().find_map(|url| get(&url, ICON_LIMIT).map(|(_, bytes)| bytes).filter(|b| sniff(b).is_some()))
 }
 
@@ -269,15 +270,15 @@ mod tests {
     }
 
     #[test]
-    fn only_the_site_itself_counts() {
-        let on = |url: &str| on_site(&Url::parse(url).unwrap(), "www.example.com");
-        assert!(on("https://www.example.com/i.png"));
-        assert!(on("https://static.www.example.com/i.png"));
-        assert!(on("https://example.com/i.png"));
-        assert!(!on("http://www.example.com/i.png"));
-        assert!(!on("https://cdn.example.net/i.png"));
-        assert!(!on("https://notexample.com/i.png"));
-        assert!(!on("https://com/i.png"));
+    fn only_https_on_named_hosts_is_fetched() {
+        let ok = |url: &str| fetchable(&Url::parse(url).unwrap());
+        assert!(ok("https://www.example.com/i.png"));
+        assert!(ok("https://cdn.example.net/i.png"));
+        assert!(!ok("http://www.example.com/i.png"));
+        assert!(!ok("https://192.168.1.1/i.png"));
+        assert!(!ok("https://[::1]/i.png"));
+        assert!(!ok("https://router/i.png"));
+        assert!(!ok("file:///C:/i.png"));
     }
 
     #[test]
@@ -300,14 +301,20 @@ mod tests {
             <LINK REL="shortcut icon" HREF="/favicon.ico">
             <link rel=apple-touch-icon href=touch.png>
             <link href='//cdn.example.com/i/64.png' sizes='16x16 64x64' rel='icon'>
-            <link rel="icon" href="https://favicons.example.net/example.com">
+            <link rel="icon" href="https://static.example.net/icon.png">
             <link rel="icon" href="http://example.com/plain.ico">
+            <link rel="icon" href="https://10.0.0.1/local.ico">
             <link rel="icon" href="javascript:alert(1)">
         </head></html>"#;
-        let urls: Vec<String> = icon_links(html, &base, "example.com").iter().map(Url::to_string).collect();
+        let urls: Vec<String> = icon_links(html, &base).iter().map(Url::to_string).collect();
         assert_eq!(
             urls,
-            ["https://cdn.example.com/i/64.png", "https://example.com/app/touch.png", "https://example.com/favicon.ico"]
+            [
+                "https://cdn.example.com/i/64.png",
+                "https://example.com/app/touch.png",
+                "https://example.com/favicon.ico",
+                "https://static.example.net/icon.png",
+            ]
         );
     }
 
@@ -345,4 +352,5 @@ mod tests {
         assert_eq!(cache.get("../pswm.json"), None);
     }
 }
+
 
