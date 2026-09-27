@@ -98,6 +98,11 @@ impl Vault {
         edit::hidden_groups(&self.db)
     }
 
+    /// Reused, weak and old passwords among the entries the user works with.
+    pub fn health(&self) -> crate::health::Health {
+        crate::health::check(self.visible_entries(), keepass::db::Times::now())
+    }
+
     pub fn listing(&self) -> Listing {
         let mut custom_icons = BTreeMap::new();
         let mut entries: Vec<EntrySummary> = self

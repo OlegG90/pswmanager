@@ -129,6 +129,20 @@ export interface Settings {
   startWithWindows: boolean
 }
 
+/** An entry the password health check lists, and why. */
+export interface Finding {
+  id: string
+  title: string
+  detail: string
+}
+
+/** Each entry is in one list at most: reused, else weak, else old. */
+export interface Health {
+  reused: Finding[]
+  weak: Finding[]
+  old: Finding[]
+}
+
 export type SettingName = Exclude<keyof Settings, 'hotkey'>
 
 export const PASSWORD = 'Password'
@@ -174,6 +188,7 @@ export const api = {
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
+  passwordHealth: () => invoke<Health>('password_health'),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
   setSetting: (name: SettingName, value: number | boolean) => invoke<Settings>('set_setting', { name, value }),

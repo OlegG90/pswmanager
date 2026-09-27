@@ -7,6 +7,7 @@ mod dropbox;
 mod edit;
 mod file_watch;
 mod generator;
+mod health;
 mod icons;
 mod otp;
 mod remote;
@@ -533,6 +534,12 @@ fn password_strength(password: String) -> Strength {
     }
 }
 
+/// Reused, weak and old passwords; worked out here, so no password leaves the backend.
+#[tauri::command(async)]
+fn password_health(session: State<Session>) -> Result<health::Health, String> {
+    session.read(Vault::health)
+}
+
 /// The settings screen's values.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -656,6 +663,7 @@ pub fn run() {
             password_strength,
             settings,
             set_setting,
+            password_health,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.
