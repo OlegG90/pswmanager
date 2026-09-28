@@ -1,25 +1,20 @@
-.venv/
+# ── Generated: dependencies and builds ──
+/node_modules/
+/dist/
+/src-tauri/target/
+/src-tauri/gen/
+/tools/sic2kdbx/.venv/
 __pycache__/
-# real exports and databases never go to git
-data/
+
+# ── Local app data: a development build writes it next to the exe ──
+/pswm.json
+/icons/
+
+# ── Private data: real databases and exports never go to git ──
 *.kdbx
-# what saving leaves beside a database: the previous version and an interrupted write
 *.kdbx.bak
 *.pswm-tmp
 *.xml
-!tests/**/*.xml
-
-# Node
-node_modules/
-dist/
-
-# Rust / Tauri
-target/
-src-tauri/gen/
-
-# Local app data written next to the exe during development
-pswm.json
-icons/
-!src-tauri/icons/
-
-!src-tauri/tests/fixtures/*.kdbx
+/data/
+# …except the made-up databases the Rust tests use
+!/src-tauri/tests/fixtures/*.kdbx

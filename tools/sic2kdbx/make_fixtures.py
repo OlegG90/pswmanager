@@ -5,20 +5,21 @@
   src-tauri/tests/fixtures/unordered.kdbx  the same without canonical_order(),
                                            as older sic2kdbx versions wrote it
 
-Run from the repository root: .venv\\Scripts\\python scripts/make-fixtures.py
+Run from this folder: .venv\\Scripts\\python make_fixtures.py
 """
 
 import os
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path[:0] = [ROOT, os.path.join(ROOT, "tests")]
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path[:0] = [HERE, os.path.join(HERE, "tests")]
 
 import sic2kdbx  # noqa: E402
 import test_sic2kdbx  # noqa: E402
 
-FIXTURES = os.path.join(ROOT, "src-tauri", "tests", "fixtures")
+FIXTURES = os.path.join(REPO, "src-tauri", "tests", "fixtures")
 
 
 def build(name):

@@ -741,7 +741,7 @@ pub mod tests {
 
     /// Protected values share one keystream in file order; reading them in any
     /// other order gives wrong secrets, not an error. The fixtures are made by
-    /// `scripts/make-fixtures.py`.
+    /// `tools/sic2kdbx/make_fixtures.py`.
     #[test]
     fn reads_the_secrets_sic2kdbx_writes() {
         let vault = Vault::open(&fixture_path("sic2kdbx.kdbx"), Some("test"), None).unwrap();

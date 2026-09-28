@@ -428,7 +428,7 @@ with code 2.
 
 ## SafeInCloud migration
 
-`sic2kdbx.py` stays a separate, one-off Python tool (see README). It is not part of the app and not part of
+`sic2kdbx.py` stays a separate, one-off Python tool, in `tools/sic2kdbx` (see its README). It is not part of the app and not part of
 the release.
 
 ## Testing

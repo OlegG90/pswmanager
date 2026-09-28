@@ -13,7 +13,7 @@ KeePassXC and Keepass2Android. See [docs/spec.md](docs/spec.md) for the specific
    one from a folder such as a NAS share, from Dropbox or from Google Drive (signing in through the
    browser); a database opened from a store is kept in a file on this PC that stays in step with it. Sync
    for the open database is set up or stopped in *Settings → Sync*. Several databases can be in the list;
-   one is open at a time. A SafeInCloud export converts with `sic2kdbx` below.
+   one is open at a time. A SafeInCloud export converts with [sic2kdbx](tools/sic2kdbx/README.md).
 4. The app lives in the notification area; `Ctrl+Alt+P` shows or hides the window. Settings: `Ctrl+,`.
 
 Settings, the chosen database and cached site icons are kept in `pswm.json` beside the exe when that
@@ -47,38 +47,5 @@ The app icon is generated from [src-tauri/icons/app-icon.svg](src-tauri/icons/ap
 
 ## sic2kdbx — SafeInCloud XML → KeePass (KDBX 4)
 
-An offline converter from a SafeInCloud export to a KeePass database, which opens in PswManager,
-KeePassXC and Keepass2Android. It is a one-off migration tool, not part of the app.
-
-```
-python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python sic2kdbx.py export.xml base.kdbx
-```
-
-The script asks for the master password twice. Options: `--keyfile`, `--no-password` (key file only),
-`--skip-deleted` (leave deleted cards out; by default they go to the recycle bin), `--drop-empty` (leave
-empty fields out, except in templates), `--force`.
-
-Elements are written in the order KeePass uses. Databases converted before that change store some
-fields out of order; PswManager refuses them rather than risk misreading protected values. Convert again,
-or open and save once in KeePassXC.
-
-`;` and `,` in label names become spaces in tags (KeePass separates tags with them); the group name keeps
-the original. Damaged attachments are skipped with a warning.
-
-| SafeInCloud | KDBX |
-|---|---|
-| first login (or e-mail) / password / website / OTP field | UserName / Password / URL / otp |
-| other fields | additional attributes; password, pin and secret ones are protected |
-| notes | Notes |
-| labels | tags; the first label is the group |
-| image, file | attachments |
-| field history | entry history |
-| templates | the Templates group, marked as KeePass's templates group |
-| star | the Favorite tag |
-| field types, order, symbol, colour | CustomData `SafeInCloud` (JSON) |
-
-Tests: `.venv\Scripts\python -m unittest discover -s tests`
-
-After converting, delete the XML export: it holds the passwords in plain text.
+A one-off converter from a SafeInCloud export to a KeePass database, kept apart from the app in
+[tools/sic2kdbx](tools/sic2kdbx/README.md).
