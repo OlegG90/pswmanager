@@ -424,16 +424,15 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
   return row(label, value ?? '••••••••', () => copy(field, label), { actions: [reveal], copyKey: keys?.copy, valueClass: 'secret' })
 }
 
-/** How a field is labelled; the standard ones only appear here when protected. */
-const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', [OTP]: 'TOTP' }
 
 /** Shown before the tags of an entry that is not in use. */
 const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
 
 const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
-const labelOf = (field: string) => LABELS[field] ?? field
-/** Every field by the name people know it by. */
+/** Fields by the names people know them by (the standard ones appear among
+ *  the others only when protected, or as a version's differences). */
 const NAMES: Record<string, string> = { Title: 'Title', [USERNAME]: 'User name', [PASSWORD]: 'Password', [URL_FIELD]: 'URL', Notes: 'Notes', [OTP]: 'TOTP' }
+const labelOf = (field: string) => NAMES[field] ?? field
 
 function renderDetail() {
   const shown = current
@@ -469,7 +468,8 @@ function renderDetail() {
   }
   if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
-    const actions = entry.host ? [button('Open', 'Open in the browser (Ctrl+U)', openUrl)] : []
+    // The entry's own address: not offered for an older version.
+    const actions = entry.host && !version ? [button('Open', 'Open in the browser (Ctrl+U)', openUrl)] : []
     rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   // An older version's TOTP secret is shown as a secret, not as codes.
@@ -489,7 +489,7 @@ function renderDetail() {
     if (version.at.differs.length) {
       rows.push(el('h3', {}, 'The entry now'), ...version.at.differs.map((d) =>
         el('div', { className: 'row now' },
-          el('span', { className: 'label' }, NAMES[d.name] ?? d.name),
+          el('span', { className: 'label' }, labelOf(d.name)),
           el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now'))))
     }
     const restorable = editable(shown) || isTemplate(shown)
@@ -589,11 +589,16 @@ async function restoreVersion() {
   const yes = await ask(`Restore the version saved ${when}? The entry's current content goes into its history.`, 'Restore')
   if (!yes || current !== entry) return
   try {
-    const next = await api.restoreVersion(entry.id, index)
+    const next = await api.restoreVersion(entry.id, index, at.modified)
     view = ENTRY_VIEW
     applyListing(next, 'Restored the older version · the replaced one is in the history')
   } catch (e) {
-    notify(String(e))
+    notify(String(e), 6)
+    // The history may have moved on: show it as it is now.
+    if (current === entry) {
+      view = ENTRY_VIEW
+      openHistory()
+    }
   }
 }
 
@@ -889,6 +894,9 @@ async function newFromTemplate(id: string) {
 function applyListing(next: Listing, message: string, focusSearch = true) {
   listing = next
   fillSidebar()
+  // The entry is shown again from the top: a version's revealed values go.
+  if (view.kind !== 'entry') revealed.clear()
+  view = ENTRY_VIEW
   current = null
   refresh()
   if (focusSearch) searchInput.focus()
@@ -1016,8 +1024,11 @@ async function copy(field: string, label: string) {
 }
 
 function openUrl() {
-  if (current?.host) api.openUrl(current.id).catch((e) => notify(String(e)))
+  if (view.kind === 'entry' && current?.host) api.openUrl(current.id).catch((e) => notify(String(e)))
 }
+
+/** What the entry view shows now: the entry, or the older version open. */
+const shownDetail = (): EntryDetail | null => (view.kind === 'version' ? view.at : current)
 
 let toastTimer: number | undefined
 function notify(message: string, seconds = 3) {
@@ -1145,16 +1156,16 @@ function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
       // A protected user name is among the fields instead.
-      if (current?.username || current?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
+      if (shownDetail()?.username || shownDetail()?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
       break
     case 'copy-password':
-      if (current?.hasPassword) copy(PASSWORD, 'Password')
+      if (shownDetail()?.hasPassword) copy(PASSWORD, 'Password')
       break
     case 'open-url':
       openUrl()
       break
     case 'toggle-password':
-      if (current?.hasPassword) toggleReveal(PASSWORD)
+      if (shownDetail()?.hasPassword) toggleReveal(PASSWORD)
       break
     case 'lock':
       lock()

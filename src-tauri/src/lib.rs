@@ -682,9 +682,9 @@ fn entry_version(session: State<Session>, id: String, index: usize) -> Result<Ve
 
 /// Makes an older version the entry's current content; saves and syncs as an edit.
 #[tauri::command(async)]
-fn restore_version(app: AppHandle, session: State<Session>, id: String, index: usize) -> Result<Listing, String> {
+fn restore_version(app: AppHandle, session: State<Session>, id: String, index: usize, saved: Option<String>) -> Result<Listing, String> {
     let listing = session.with_mut(|v| {
-        v.restore_version(&id, index)?;
+        v.restore_version(&id, index, saved.as_deref())?;
         Ok(v.listing())
     })?;
     sync::upload_soon(&app);

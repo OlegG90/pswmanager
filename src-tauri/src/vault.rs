@@ -9,7 +9,7 @@ use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::path::Path;
 use uuid::Uuid;
@@ -231,7 +231,7 @@ impl Vault {
     pub fn version(&self, id: &str, index: usize) -> Option<VersionDetail> {
         let entry = self.entry(id)?;
         let version = entry.historical(index)?;
-        let names: std::collections::BTreeSet<&String> = version.fields.keys().chain(entry.fields.keys()).collect();
+        let names: BTreeSet<&String> = version.fields.keys().chain(entry.fields.keys()).collect();
         let differs = names
             .into_iter()
             .filter(|name| version.fields.get(*name) != entry.fields.get(*name))
@@ -273,9 +273,10 @@ impl Vault {
 
     /// Makes an older version the entry's current content and saves the file
     /// (see [edit::restore_version]).
-    pub fn restore_version(&mut self, id: &str, index: usize) -> Result<(), String> {
+    /// `saved` is when the version shown was saved (see [edit::restore_version]).
+    pub fn restore_version(&mut self, id: &str, index: usize, saved: Option<&str>) -> Result<(), String> {
         let id = parse_id(id)?;
-        self.change(|db, hidden| edit::restore_version(db, id, index, hidden))
+        self.change(|db, hidden| edit::restore_version(db, id, index, saved, hidden))
     }
 
     /// The entry's URL as a web address, if it is one.
@@ -602,19 +603,20 @@ fn changes(old: &EntryRef<'_>, new: &EntryRef<'_>) -> Vec<String> {
     ];
     let differs = |name: &str| old.fields.get(name) != new.fields.get(name);
     let mut changed: Vec<String> = STANDARD.iter().filter(|(name, _)| differs(name)).map(|(_, label)| label.to_string()).collect();
-    let others: std::collections::BTreeSet<&String> =
+    let others: BTreeSet<&String> =
         old.fields.keys().chain(new.fields.keys()).filter(|name| !STANDARD.iter().any(|(s, _)| s == name)).collect();
     let mut others: Vec<&String> = others.into_iter().filter(|name| differs(name)).collect();
     others.sort_by_key(|name| name.to_lowercase());
     changed.extend(others.into_iter().cloned());
     let files = |e: &EntryRef<'_>| {
-        let mut all: Vec<(String, Vec<u8>)> = e.attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect();
-        all.sort();
+        let mut all: Vec<(String, Zeroizing<Vec<u8>>)> =
+            e.attachments_named().map(|(n, a)| (n.to_string(), Zeroizing::new(a.data.get().clone()))).collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
         all
     };
     let more = [
         (old.tags != new.tags, "Tags"),
-        (edit::icon_choice(old) != edit::icon_choice(new), "Icon"),
+        (old.icon() != new.icon(), "Icon"),
         (edit::expiry_of(&old.times) != edit::expiry_of(&new.times), "Expires"),
         (files(old) != files(new), "Files"),
     ];
@@ -862,7 +864,9 @@ pub mod tests {
         assert!(vault.version(&id, 5).is_none());
 
         // Restored: its content is current again, the replaced one in history.
-        vault.restore_version(&id, 1).unwrap();
+        // The version shown is checked: the history may have moved on meanwhile.
+        assert!(vault.restore_version(&id, 1, Some("2000-01-01T00:00:00Z")).unwrap_err().contains("history changed"));
+        vault.restore_version(&id, 1, history[1].modified.as_deref()).unwrap();
         assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "s3cret");
         assert!(vault.detail(&id).unwrap().attachments.is_empty());
         assert_eq!(vault.detail(&id).unwrap().versions, 3);

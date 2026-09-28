@@ -283,7 +283,7 @@ export const api = {
   entryHistory: (id: string) => invoke<Version[]>('entry_history', { id }),
   entryVersion: (id: string, index: number) => invoke<VersionDetail>('entry_version', { id, index }),
   /** Makes an older version the entry's current content; the replaced one goes to history. */
-  restoreVersion: (id: string, index: number) => invoke<Listing>('restore_version', { id, index }),
+  restoreVersion: (id: string, index: number, saved: string | null) => invoke<Listing>('restore_version', { id, index, saved }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   /** Tells the backend the window is in use, which postpones the auto-lock. */

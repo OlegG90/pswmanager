@@ -138,14 +138,16 @@ KeePassXC and Keepass2Android keep too, so their changes show here as well), up 
 
 - **History (N)** in the entry view lists the older versions, newest first: when each was saved and what
   changed from it to the next newer version — the names of the fields (title, user name, password, URL,
-  notes, TOTP, additional attributes), tags, icon, expiry and files added or removed. Never the values.
+  notes, TOTP, additional attributes), tags, icon, expiry and files. Never the values.
 - Opening a version shows it like the entry view, read only: protected values stay masked until
   revealed, **Copy** works as in the entry view (clipboard clearing included), and the version's files
-  can be opened or saved. An unprotected value (user name, URL, notes, an unprotected attribute) that
-  differs from the entry's current one shows the current value beside it; a protected one only says that
-  it differs.
-- **Restore this version** makes it the entry's current content (fields, tags, icon, expiry, files); the
-  version it replaces goes into the history, as with an edit. It is saved and synced like an edit.
+  can be opened or saved (its URL is not opened from there, nor its TOTP codes shown: the secret is).
+  Under it, **The entry now** lists the fields whose current value differs: an unprotected one with its
+  current value, a protected one only saying that it differs.
+- **Restore this version** (after a confirmation) makes it the entry's current content (fields, tags, icon,
+  expiry, files); the version it replaces goes into the history, as with an edit. It is saved and synced
+  like an edit. If another device's change has shifted the history meanwhile, it is refused and the
+  history opens again.
   Offered for entries in use and templates, not in the trash.
 - Versions are not deleted one by one; the history is trimmed to the database's limit.
 - As everywhere, the window gets the dates and the names of what changed; a value leaves the backend
