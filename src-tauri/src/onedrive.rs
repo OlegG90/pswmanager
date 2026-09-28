@@ -67,8 +67,14 @@ impl Answer {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Method {
+    Get,
+    Put,
+}
+
 /// Calls Graph; a token it no longer takes is renewed once.
-fn call(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<Answer, RemoteError> {
+fn call(method: Method, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<Answer, RemoteError> {
     let answer = send(method, url, headers, body)?;
     if answer.status != 401 {
         return Ok(answer);
@@ -80,18 +86,18 @@ fn call(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) 
     }
 }
 
-fn send(method: &str, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<Answer, RemoteError> {
+fn send(method: Method, url: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Result<Answer, RemoteError> {
     let token = ONEDRIVE.access_token()?;
     let bearer = format!("Bearer {}", token.as_str());
     let sent = match method {
-        "PUT" => {
+        Method::Put => {
             let mut request = oauth::agent().put(url).header("Authorization", &bearer).header("Content-Type", "application/octet-stream");
             for (name, value) in headers {
                 request = request.header(*name, *value);
             }
             request.send(body.unwrap_or_default())
         }
-        _ => {
+        Method::Get => {
             let mut request = oauth::agent().get(url).header("Authorization", &bearer);
             for (name, value) in headers {
                 request = request.header(*name, *value);
@@ -123,25 +129,35 @@ pub fn list_databases() -> Result<Vec<(String, String)>, RemoteError> {
     let mut files = Vec::new();
     let mut next = Some(format!("{GRAPH}/special/approot/children?$select=id,name,file&$top=200"));
     while let Some(url) = next {
-        let answer = call("GET", &url, &[], None)?;
+        let answer = call(Method::Get, &url, &[], None)?;
         if answer.status != 200 {
             return Err(answer.failed("list the app folder"));
         }
         let page = answer.json()?;
-        let items = page["value"].as_array().into_iter().flatten().filter(|item| item["file"].is_object());
-        files.extend(items.filter_map(|item| Some((item["id"].as_str()?.to_string(), item["name"].as_str()?.to_string()))).filter(|(_, name)| name.to_lowercase().ends_with(".kdbx")));
-        // Only Graph's own next page is followed.
-        next = page["@odata.nextLink"].as_str().filter(|link| link.starts_with(GRAPH)).map(str::to_string);
+        let files_here = page["value"].as_array().into_iter().flatten().filter(|item| item["file"].is_object());
+        let named = files_here.filter_map(|item| Some((item["id"].as_str()?.to_string(), item["name"].as_str()?.to_string())));
+        files.extend(named.filter(|(_, name)| name.to_lowercase().ends_with(".kdbx")));
+        next = match page["@odata.nextLink"].as_str() {
+            None => None,
+            // The token goes to Graph only: a next page anywhere else is refused.
+            Some(link) if is_graph(link) => Some(link.to_string()),
+            Some(_) => return Err(RemoteError::Failed("OneDrive sent an odd next page".into())),
+        };
     }
     files.sort_by_key(|(_, name)| name.to_lowercase());
     Ok(files)
+}
+
+/// Graph itself, over https (Graph may give a next page in another form of its address).
+fn is_graph(link: &str) -> bool {
+    Url::parse(link).is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("graph.microsoft.com"))
 }
 
 /// Uploads a new file into the app folder and returns its id and revision;
 /// a file of that name already there is never replaced ([RemoteError::Changed]).
 pub fn create(name: &str, bytes: &[u8]) -> Result<(String, String), RemoteError> {
     let url = format!("{GRAPH}/special/approot:/{}:/content?@microsoft.graph.conflictBehavior=fail", encode(name));
-    let answer = call("PUT", &url, &[], Some(bytes))?;
+    let answer = call(Method::Put, &url, &[], Some(bytes))?;
     match answer.status {
         200 | 201 => {
             let id = answer.json()?["id"].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed("OneDrive sent no file id".into()))?;
@@ -154,7 +170,7 @@ pub fn create(name: &str, bytes: &[u8]) -> Result<(String, String), RemoteError>
 
 impl Remote for OneDrive {
     fn revision(&self) -> Result<Option<String>, RemoteError> {
-        let answer = call("GET", &format!("{}?$select=id,eTag,file,deleted", item_url(&self.id)), &[], None)?;
+        let answer = call(Method::Get, &format!("{}?$select=id,eTag,file,deleted", item_url(&self.id)), &[], None)?;
         match answer.status {
             200 => {
                 let item = answer.json()?;
@@ -164,7 +180,7 @@ impl Remote for OneDrive {
                 if !item["file"].is_object() {
                     return Err(RemoteError::Failed("The OneDrive item is not a file".into()));
                 }
-                Ok(item["eTag"].as_str().map(str::to_string))
+                answer.etag().map(Some)
             }
             404 => Ok(None),
             _ => Err(answer.failed("look at the file")),
@@ -177,7 +193,7 @@ impl Remote for OneDrive {
     /// older than the content and the next upload is refused, which starts the
     /// sync over.
     fn download(&self) -> Result<(Vec<u8>, String), RemoteError> {
-        let answer = call("GET", &item_url(&self.id), &[], None)?;
+        let answer = call(Method::Get, &item_url(&self.id), &[], None)?;
         if answer.status != 200 {
             return Err(answer.failed("look at the file"));
         }
@@ -202,7 +218,7 @@ impl Remote for OneDrive {
             // The file is gone (deleted in OneDrive): there is nothing to replace by id.
             return Err(RemoteError::Failed("The file is no longer in OneDrive; set up sync again".into()));
         };
-        let answer = call("PUT", &format!("{}/content", item_url(&self.id)), &[("If-Match", expected)], Some(bytes))?;
+        let answer = call(Method::Put, &format!("{}/content", item_url(&self.id)), &[("If-Match", expected)], Some(bytes))?;
         match answer.status {
             200 | 201 => answer.etag(),
             412 => Err(RemoteError::Changed),
@@ -215,6 +231,14 @@ impl Remote for OneDrive {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_graph_pages_are_followed() {
+        assert!(is_graph("https://graph.microsoft.com/v1.0/drives/abc/items/def/children?$skiptoken=x"));
+        assert!(!is_graph("http://graph.microsoft.com/v1.0/me/drive"));
+        assert!(!is_graph("https://graph.microsoft.com.example.org/v1.0"));
+        assert!(!is_graph("not a url"));
+    }
 
     #[test]
     fn names_and_ids_are_encoded_for_the_path() {

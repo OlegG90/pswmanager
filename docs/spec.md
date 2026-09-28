@@ -396,8 +396,8 @@ working copy has changed since that sync.
 **Setting up sync for a database** (*Settings → Sync*, for the open database; opening a database from a
 store sets it up too):
 
-- **Upload to a store**: creates a new file there from this database (Dropbox's app folder, Google Drive's
-  PswManager folder, a file in a LAN folder) and syncs with it. It never replaces a file already there.
+- **Upload to a store**: creates a new file there from this database (Dropbox's app folder, OneDrive's
+  app folder, Google Drive's PswManager folder, a file in a LAN folder) and syncs with it. It never replaces a file already there.
 - **Link to an existing remote file**: pick a file in the store. When it and the local file differ, the
   app asks what to do: **Merge both** (the usual KeePass merge, then upload), **Use the remote file** (it
   replaces the local file; the local one is kept as `<name>.kdbx.bak`), or **Keep the local file** (it
