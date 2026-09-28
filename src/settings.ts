@@ -1,4 +1,5 @@
 import { api, type SettingName, type Settings, type Status, type Theme } from './api'
+import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
 import { setUpSync } from './sync-setup'
 
@@ -85,7 +86,7 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
  */
 export async function renderSettings(container: HTMLElement, onDone: () => void, onError: (message: string) => void) {
   const waiting = el('p', { className: 'muted', hidden: true })
-  const [settings, status] = await Promise.all([api.settings(), api.status()])
+  const [settings, status, version] = await Promise.all([api.settings(), api.status(), getVersion()])
   draw(settings, status)
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
@@ -142,6 +143,8 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
         waiting,
         row('Check for remote changes', 'While unlocked',
           select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
+      group('About',
+        row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
     )
     // Redrawing replaces the controls: keep the keyboard where it was.
     if (focused) container.querySelector<HTMLElement>(`[aria-label="${focused}"]`)?.focus()
