@@ -1,16 +1,4 @@
-/** How tags and group paths are written in one line of text. */
-
-const GROUP_SEPARATOR = ' / '
-
-export const formatGroup = (group: string[]) => group.join(GROUP_SEPARATOR)
-
-/** `Work / Mail` → `['Work', 'Mail']`; blank parts are dropped. Only " / "
- *  separates, so a name like `TCP/IP` stays whole. */
-export const parseGroup = (text: string) =>
-  text
-    .split(GROUP_SEPARATOR)
-    .map((part) => part.trim())
-    .filter(Boolean)
+/** How tags, dates and sizes are written in one line of text. */
 
 export const formatTags = (tags: string[]) => tags.join(', ')
 

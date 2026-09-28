@@ -1,6 +1,6 @@
 import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved } from './api'
 import { button, el } from './dom'
-import { dateOf, formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
+import { dateOf, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
 import { ask } from './modal'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
@@ -202,12 +202,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const loading = { save: () => {}, close: () => {} }
   active = loading
   let data: EntryData
-  let groups: string[][]
   try {
-    ;[data, groups] = await Promise.all([
-      options.id ? api.editEntry(options.id) : Promise.resolve({ ...EMPTY, ...fromTemplate(options.from), group: options.group }),
-      api.groupPaths(),
-    ])
+    data = options.id ? await api.editEntry(options.id) : { ...EMPTY, ...fromTemplate(options.from), group: options.group }
   } catch (e) {
     if (active === loading) active = null
     throw e
@@ -219,8 +215,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const password = input(data.password, { type: 'password', className: 'secret' })
   const url = input(data.url, { placeholder: 'https://' })
   const otp = input(data.otp, { type: 'password', className: 'secret', placeholder: 'Secret or otpauth:// URI' })
-  const group = input(formatGroup(data.group), { placeholder: 'Top level' })
-  group.setAttribute('list', 'group-list')
   const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), options.knownTags)
   let starred = data.tags.includes(FAVORITE)
   const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
@@ -275,7 +269,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     otp: keep(data.otp, otp.value.trim(), trimmedLine),
     // Typing the tag Favorite stars the entry.
     tags: keep(data.tags, withStar(tags.value(), starred || tags.value().includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
-    group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
+    // Not edited: an entry stays in its KDBX group; a new one goes to the top.
+    group: data.group,
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
     icon: icon.value(),
     expires: expires.value === expiryDay ? data.expires : expires.value ? startOfDay(expires.value) : null,
@@ -329,7 +324,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     generator.panel,
     row('URL', url),
     row('TOTP', otp, showHide(otp)),
-    row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
     row('Tags', tags.element),
     ...(options.template ? [] : [row('', star)]),
     row('Expires', expires, neverExpires),

@@ -291,7 +291,6 @@ export const api = {
   renameAttachment: (id: string, from: string, to: string) => invoke<Attached>('rename_attachment', { id, from, to }),
   /** Removes the file from the entry; its history keeps it. */
   removeAttachment: (id: string, name: string) => invoke<Listing>('remove_attachment', { id, name }),
-  groupPaths: () => invoke<string[][]>('group_paths'),
   /** An image file for an entry's icon, base64; null when cancelled. */
   pickIconImage: () => invoke<string | null>('pick_icon_image'),
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),

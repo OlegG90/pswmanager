@@ -442,19 +442,6 @@ impl Vault {
         Err("The database file keeps changing on disk; try again in a moment".into())
     }
 
-    /// Every group entries can go in, as paths, for the editor.
-    pub fn group_paths(&self) -> Vec<Vec<String>> {
-        let hidden = self.hidden_groups();
-        let mut paths: Vec<Vec<String>> = self
-            .db
-            .iter_all_groups()
-            .filter(|g| g.parent().is_some() && !edit::ancestors(&self.db, g.id()).iter().any(|a| hidden.contains(a)))
-            .map(|g| edit::path_of(&self.db, g.id()))
-            .collect();
-        paths.sort_by_key(|p| p.iter().map(|n| n.to_lowercase()).collect::<Vec<_>>());
-        paths
-    }
-
     /// The entry's current TOTP code, or `None` when it has no secret.
     pub fn totp(&self, id: &str) -> Result<Option<otp::Code>, String> {
         let Some(value) = self.field(id, fields::OTP) else { return Ok(None) };
@@ -1007,13 +994,6 @@ pub mod tests {
         assert_eq!((code.code.len(), code.period), (6, 30));
         let mail = vault.listing().entries.iter().find(|e| e.title == "Mail").unwrap().id.clone();
         assert!(vault.totp(&mail).unwrap().is_none());
-    }
-
-    #[test]
-    fn group_paths_leave_out_the_bin_and_templates() {
-        let dir = tempfile::tempdir().unwrap();
-        let vault = fixture("sic2kdbx.kdbx", dir.path());
-        assert_eq!(vault.group_paths(), [vec!["NET".to_string()], vec!["Work; Home, X".to_string()]]);
     }
 
     /// Another device changes the file: it is read, changed and written as a
