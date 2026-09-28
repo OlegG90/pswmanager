@@ -256,17 +256,18 @@ fn save_as(app: &AppHandle, window: &Window, name: &str) -> Result<Option<PathBu
         dialog = dialog.set_directory(folder);
     }
     let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    // The dialog may hand back a name without the extension: it is added,
-    // never put in place of a dot in the name ("Work.2024").
-    Ok(picked.map(|p| {
-        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
-            p
-        } else {
-            let mut name = p.into_os_string();
-            name.push(".kdbx");
-            PathBuf::from(name)
-        }
-    }))
+    Ok(picked.map(with_kdbx))
+}
+
+/// The dialog may hand back a name without the extension: it is added,
+/// never put in place of a dot in the name ("Work.2024").
+fn with_kdbx(path: PathBuf) -> PathBuf {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
+        return path;
+    }
+    let mut name = path.into_os_string();
+    name.push(".kdbx");
+    PathBuf::from(name)
 }
 
 /// Where a new database, or the local file of one opened from a cloud
@@ -318,7 +319,11 @@ struct CloudFiles {
 /// and the local one that could be uploaded instead.
 #[tauri::command(async)]
 fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, String> {
-    can_switch(&app)?;
+    // Also from the settings of an unlocked database (Upload, Link); opening
+    // one from the store checks the switch itself.
+    if sync::is_running(&app) {
+        return Err("A sync is running; try again in a moment".into());
+    }
     cloud.provider().sign_in(|url| app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))?;
     let files = cloud.list().map_err(|e| e.message())?;
     let upload = local_database(&app.state::<Store>()).map(|p| remote::file_name(&p));
@@ -427,7 +432,11 @@ impl SyncTarget {
 
 /// The current database, when it does not sync yet.
 fn unsynced_database(store: &Store) -> Result<PathBuf, String> {
-    local_database(store).ok_or_else(|| "This database is synced already: stop syncing first".into())
+    match store.read(|s| s.current().map(|d| (d.file.clone(), d.remote.is_some()))) {
+        None => Err("Choose a database first".into()),
+        Some((_, true)) => Err("This database is synced already: stop syncing first".into()),
+        Some((file, false)) => Ok(file),
+    }
 }
 
 /// Syncs the current database with an existing remote file. When the two
@@ -438,10 +447,13 @@ fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::LinkCh
     let store = app.state::<Store>();
     let file = unsynced_database(&store)?;
     let location = target.location();
-    if matches!(&location, remote::Location::Folder { path } if path == &file) {
-        return Err("A database cannot sync with its own file".into());
+    if let remote::Location::Folder { path } = &location {
+        if store.read(|s| s.databases.iter().any(|d| sync::same_file(&d.file, path))) {
+            return Err("That file is a database in the list: link to a file of its own".into());
+        }
     }
-    let linked = sync::link(&store, &file, location, choice)?;
+    let key = app.state::<Session>().read(Vault::snapshot).ok().flatten();
+    let linked = sync::link(&store, &file, location, choice, key.as_ref())?;
     if linked {
         sync::reset(&app);
         sync::request(&app);
@@ -472,7 +484,8 @@ fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
 /// A place for a new file anywhere (a LAN share, say); `None` when cancelled.
 fn pick_new_place(window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
     let dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
-    dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()
+    let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
+    Ok(picked.map(with_kdbx))
 }
 
 /// A database file in a folder to link to; `None` when cancelled.

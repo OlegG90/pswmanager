@@ -84,10 +84,9 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
  * `onError` reports one that failed, and the screen then shows what is in effect.
  */
 export async function renderSettings(container: HTMLElement, onDone: () => void, onError: (message: string) => void) {
+  const waiting = el('p', { className: 'muted', hidden: true })
   const [settings, status] = await Promise.all([api.settings(), api.status()])
   draw(settings, status)
-
-  const waiting = el('p', { className: 'muted', hidden: true })
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
   function syncControl(status: Status): HTMLElement {
@@ -100,6 +99,7 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
       }
       await redraw()
     }
+    if (!status.database) return el('span', { className: 'value' }, 'No database')
     if (status.syncedWith) {
       return el('span', { className: 'sync-control' }, el('span', { className: 'value' }, status.syncedWith),
         button('Stop syncing', 'Keep the file as it is, without sync', run(api.stopSync)))
