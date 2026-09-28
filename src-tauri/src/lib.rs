@@ -916,11 +916,6 @@ fn pick_icon_image(window: Window) -> Result<Option<String>, String> {
     Ok(Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)))
 }
 
-#[tauri::command(async)]
-fn group_paths(session: State<Session>) -> Result<Vec<Vec<String>>, String> {
-    session.read(Vault::group_paths)
-}
-
 /// The entry's current TOTP code, or nothing when it has no secret.
 #[tauri::command(async)]
 fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String> {
@@ -1152,7 +1147,6 @@ pub fn run() {
             remove_attachment,
             rename_attachment,
             replace_attachment,
-            group_paths,
             pick_icon_image,
             totp,
             copy_totp,
