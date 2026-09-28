@@ -671,6 +671,32 @@ input[type='range']:focus-visible {
 #detail {
   overflow-y: auto;
   padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The entry's and the editor's buttons stay at the bottom of the column:
+   below a short entry, and over a long one while it scrolls. */
+#detail > .buttons,
+#detail > .editor > .buttons {
+  position: sticky;
+  bottom: -24px; /* over the column's bottom padding */
+  z-index: 1;
+  margin-top: auto;
+  padding: 12px 0 24px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-divider);
+}
+
+#detail > .editor > .buttons {
+  margin-left: 0;
+  padding-left: 120px; /* in line with the fields, the strip covered too */
+}
+
+#detail > .editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 #detail > header {
