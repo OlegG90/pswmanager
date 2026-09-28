@@ -3,7 +3,7 @@
 
 use crate::otp;
 use base64::Engine;
-use keepass::db::{fields, AttachmentId, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
+use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
 use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
@@ -972,28 +972,13 @@ pub fn delete_for_good(db: &mut Database, ids: &[EntryId]) {
     }
 }
 
-/// Removes the entry, its history and the files only it used, recording the
-/// deletion. keepass-rs lets go only of the current version's files, and
-/// would write the ones only the history used into the file still: those are
-/// removed first, while the history still refers to them.
+/// Removes the entry, its history and the files only it used (in any
+/// version: the fork's fix, offered upstream as sseemayer/keepass-rs#375),
+/// recording the deletion.
 fn remove_for_good(db: &mut Database, id: EntryId) {
-    let Some(entry) = db.entry(id) else { return };
-    let current: HashSet<_> = entry.attachments().map(|a| a.id()).collect();
-    let others: HashSet<_> = db.iter_all_entries().filter(|e| e.id() != id).flat_map(|e| files_of(&e)).collect();
-    let history_only: Vec<_> = files_of(&entry).into_iter().filter(|a| !current.contains(a) && !others.contains(a)).collect();
-    for file in history_only {
-        if let Some(file) = db.attachment_mut(file) {
-            file.remove();
-        }
+    if let Some(mut entry) = db.entry_mut(id) {
+        entry.track_changes().remove();
     }
-    db.entry_mut(id).expect("checked above").track_changes().remove();
-}
-
-/// The files the entry uses, in any version.
-fn files_of(entry: &EntryRef<'_>) -> Vec<AttachmentId> {
-    let versions = entry.history.as_ref().map_or(0, |h| h.get_entries().len());
-    let history = (0..versions).filter_map(|i| entry.historical(i)).flat_map(|v| v.attachments().map(|a| a.id()).collect::<Vec<_>>());
-    entry.attachments().map(|a| a.id()).chain(history).collect()
 }
 
 /// Removes a group for good with everything in it, each deletion recorded.
