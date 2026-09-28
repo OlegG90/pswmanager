@@ -28,15 +28,31 @@ stays out.
 ### Out of scope
 
 Browser autofill and browser extensions, an own sync server, a database shared between people (each person
-syncs their own), several people editing one file at the same moment, iPad, creating a new database
-(the database comes from `sic2kdbx` or KeePassXC), several open databases at once, importing from other
+syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
+at once (one is open at a time; switching locks the other), importing from other
 password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
 an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 
-## Database
+## Databases
 
-- One KDBX 4 file, chosen once and remembered: a local file, or a file in a remote store the app syncs
-  with (see *Synchronisation with a remote store*). Unlocked with a master password, a key file, or both.
+A **database** is a KDBX 4 file on this PC — always a visible file the user can see, back up and open in
+KeePassXC. **Syncing** is a separate property of a database: it keeps that file paired with a file
+elsewhere (see *Synchronisation with a remote store*). The two are never mixed: choosing a database never
+uploads anything, and setting up sync never picks another database.
+
+- **Several databases, one open.** The app remembers a list of databases; the unlock screen shows which
+  one it opens and switches between them. Each database has its own key file (if any) and its own sync.
+  Only one is unlocked at a time; opening another locks the current one first.
+- **Adding a database** (the choose-database screen) — three explicit actions:
+  - **Create a new database**: a new, empty KDBX 4 file (AES-256 with Argon2id, as KeePassXC creates
+    them, a recycle bin) where the user chooses, protected by a master password (typed twice, with the
+    strength indicator) and/or a key file.
+  - **Open a local file**: an existing `.kdbx`.
+  - **Open from a store** (a LAN folder, Dropbox, Google Drive, later OneDrive): sign in, pick an
+    existing file there, choose where its local file goes (by default `Documents\PswManager\<name>.kdbx`).
+    The file is downloaded there and sync with that remote file is on from the start.
+- **Removing a database from the list** forgets it (and its sync); the file itself stays where it is.
+- Unlocked with a master password, a key file, or both.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1
   (`save_kdbx4` feature; 4.1 is the only version it writes, so a 4.0 file becomes 4.1 on its first save —
   KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept.
@@ -182,16 +198,11 @@ an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 
 ## Saving and synchronisation
 
-The app always works on a file on this PC. It is either:
-
-- **a local file** the user picked — on this PC, a USB drive, or a folder another program syncs. The app
-  keeps that file consistent when something else changes it (below), but it cannot tell when another
-  program delivers the file to other devices; or
-- **the working copy of a remote file** — kept in the data folder and synced with a LAN folder, Dropbox,
-  OneDrive or Google Drive by the app itself (see *Synchronisation with a remote store*). This is the way to
-  share the database with a phone.
-
-Saving, change detection and the per-change merge below apply to both.
+The app always works on the database's own file on this PC. Without sync the app keeps that file
+consistent when something else changes it (below) but cannot tell when another program delivers it to
+other devices; with sync (a LAN folder, Dropbox, OneDrive or Google Drive — see *Synchronisation with a
+remote store*) the app itself keeps it paired with the remote file. That is the way to share the database
+with a phone. Saving, change detection and the per-change merge below apply either way.
 
 - **Save:** write to a temporary file in the same folder, then rename it over the original atomically, so
   no reader ever picks up a half-written file. The new file is opened again with the key before it
@@ -235,8 +246,9 @@ Saving, change detection and the per-change merge below apply to both.
 ### Synchronisation with a remote store
 
 One person uses the database, from a few devices, and rarely edits on two of them at the same moment. So
-the app does not keep the remote file live: it keeps a working copy, and at defined moments **compares** it
-with the remote file and decides what to do. The window always shows what the last sync did.
+the app does not keep the remote file live: the database's local file is the working copy, and at defined
+moments the app **compares** it with the remote file and decides what to do. The window always shows what
+the last sync did.
 
 **Stores:** a LAN folder (`\\server\share\…`, e.g. a NAS), Dropbox, OneDrive, Google Drive. One remote file
 per app; each person uses their own account.
@@ -293,7 +305,7 @@ working copy has changed since that sync.
 - OAuth 2 with PKCE in the system browser and a loopback redirect (`http://localhost:53134/<store>`). The
   app has no client secret; its public app ids are in the source.
 - The refresh token is kept in the Windows Credential Manager (protected for the Windows user), never in
-  the state file or logs. **Disconnect** removes it; the working copy stays.
+  the state file or logs. **Disconnect** removes it; the database's local file stays.
 - Each store gets the narrowest access that still reaches a file Keepass2Android can open: Dropbox — its
   app folder (`Apps/PswManager Sync`); Google Drive — `drive.file`, the files the app created itself, in a
   `PswManager` folder at the top of the Drive (so a database gets there by uploading it from the app);
@@ -302,14 +314,21 @@ working copy has changed since that sync.
   is given at build time as `PSWM_GOOGLE_CLIENT_SECRET`; a build without it offers no Google Drive. While
   the Google app is in testing, Google asks to sign in again every 7 days; the status says so and the
   changes wait meanwhile.
-- Setting up: sign in, then either pick the `.kdbx` in the store or upload the current local database to it
-  (**Sync with Dropbox** / **Sync with Google Drive** on the choose-database screen; an upload never
-  replaces a file already there). Switching to another store signs the previous one out.
-  A LAN folder needs no account: **Sync with a folder…** on the unlock screen picks the file (**Open a local file…**
-  opens one without syncing).
-- **Stop syncing** (on the unlock screen) makes the database a local file again (for a LAN folder, the file
-  in it; for a cloud store, the working copy) and signs the account out. Choosing another database or stopping is refused while the working copy has changes the remote
-  file lacks — they would be left behind; unlocking syncs them first.
+- One account per store: databases synced with the same store share its sign-in. A store's account is
+  signed out when no database in the list uses it any more.
+
+**Setting up sync for a database** (in its settings — *Database → Sync*, for the open database):
+
+- **Upload to a store**: creates a new file there from this database (Dropbox's app folder, Google Drive's
+  PswManager folder, a file in a LAN folder) and syncs with it. It never replaces a file already there.
+- **Link to an existing remote file**: pick a file in the store. When it and the local file differ, the
+  app asks what to do: **Merge both** (the usual KeePass merge, then upload), **Use the remote file** (it
+  replaces the local file; the local one is kept as `<name>.kdbx.bak`), or **Keep the local file** (it
+  replaces the remote file; the remote one is kept as `<name>.remote.bak`). Linking never happens
+  silently.
+- **Stop syncing**: the database stays where it is, as a plain local file; the remote file is left alone.
+  Refused while the local file has changes the remote file lacks — unlocking syncs them first.
+- A LAN folder needs no account; the file in it is picked with the file dialog.
 - Only the stores' own APIs are contacted.
 
 **Compatibility gate:** a file saved by PswManager must open in KeePassXC and in Keepass2Android, and a
@@ -325,7 +344,7 @@ pswm --help | --version
 
 | Option | Meaning |
 |---|---|
-| `<file.kdbx>` | Open this database (as a local file, not synced); it is remembered like one chosen in the window |
+| `<file.kdbx>` | Open this database; a file not in the list is added to it (without sync) |
 | `--data-dir <path>` | Use an explicit data location |
 | `--help` / `--version` | Print to the console the exe was launched from |
 
@@ -335,9 +354,11 @@ with code 2.
 
 ## State
 
-- One JSON file: settings, the database path or remote store, the key file path, the sync state, window
-  geometry. **Never** the master password, a cloud token or any secret. Site icons are cached in `icons/`
-  beside it; the working copy of a remote file and its backups are in `sync/`.
+- One JSON file: settings, the list of databases (for each: its file, key file, and sync — the remote
+  file and the sync state), which one opens next, window geometry. **Never** the master password, a cloud
+  token or any secret. Site icons are cached in `icons/` beside it.
+- An older state file (one database, a working copy in `sync/`) is read as a list of one; its working
+  copy stays where it is and keeps syncing.
 - **Location:** `pswm.json` next to the exe if that folder is writable; otherwise
   `%APPDATA%\pswmanager\pswm.json`. `--data-dir` overrides both.
 
@@ -381,3 +402,6 @@ the release.
 5. Settings panel, CLI flags, portable exe build and release CI
 6. Synchronisation with a remote store: the sync mechanism with a LAN folder and Dropbox, then OneDrive,
    then Google Drive (one PR each); can land before 5
+7. Databases and sync apart: a list of databases (one open), create a new database, open a local file,
+   open from a store into a visible local file; sync set up per database (upload, link with an explicit
+   merge / use remote / keep local choice, stop); state migration
