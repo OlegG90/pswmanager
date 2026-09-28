@@ -14,13 +14,77 @@ use std::sync::Mutex;
 pub struct State {
     /// Owned by the frontend; the backend stores it as-is.
     pub settings: Map<String, Value>,
-    /// The database opened last; with `remote`, its working copy.
-    pub database: Option<PathBuf>,
-    /// Where the database is synced to, if anywhere.
-    pub remote: Option<Remote>,
-    /// The key file used with it, if any.
-    pub key_file: Option<PathBuf>,
+    /// The databases the app knows.
+    pub databases: Vec<Known>,
+    /// The file of the one the unlock screen opens.
+    pub current: Option<PathBuf>,
     pub window: Option<WindowGeometry>,
+    /// The one database of an older state file, read into `databases` once.
+    #[serde(skip_serializing, rename = "database")]
+    old_database: Option<PathBuf>,
+    #[serde(skip_serializing, rename = "remote")]
+    old_remote: Option<Remote>,
+    #[serde(skip_serializing, rename = "keyFile")]
+    old_key_file: Option<PathBuf>,
+}
+
+/// A database in the list: its file, the key file used with it, and the
+/// remote file it is synced with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Known {
+    pub file: PathBuf,
+    pub key_file: Option<PathBuf>,
+    pub remote: Option<Remote>,
+}
+
+impl State {
+    /// The database the unlock screen opens.
+    pub fn current(&self) -> Option<&Known> {
+        let file = self.current.as_ref()?;
+        self.databases.iter().find(|d| &d.file == file)
+    }
+
+    /// Where the current database is synced to, if anywhere.
+    pub fn remote(&self) -> Option<&Remote> {
+        self.current()?.remote.as_ref()
+    }
+
+    pub fn current_mut(&mut self) -> Option<&mut Known> {
+        let file = self.current.clone()?;
+        self.databases.iter_mut().find(|d| d.file == file)
+    }
+
+    /// Makes `file` the current database, adding it (without sync) if the
+    /// list does not have it yet.
+    pub fn select(&mut self, file: PathBuf) -> &mut Known {
+        if !self.databases.iter().any(|d| d.file == file) {
+            self.databases.push(Known { file: file.clone(), key_file: None, remote: None });
+        }
+        self.current = Some(file.clone());
+        self.databases.iter_mut().find(|d| d.file == file).expect("just added")
+    }
+
+    /// Forgets `file`; the next database in the list becomes current.
+    pub fn remove(&mut self, file: &Path) {
+        self.databases.retain(|d| d.file != file);
+        if self.current.as_deref() == Some(file) {
+            self.current = self.databases.first().map(|d| d.file.clone());
+        }
+    }
+
+    /// An older state file kept one database: it becomes a list of one.
+    fn upgrade(&mut self) {
+        if let Some(file) = self.old_database.take() {
+            if self.databases.is_empty() {
+                let (key_file, remote) = (self.old_key_file.take(), self.old_remote.take());
+                self.databases.push(Known { file: file.clone(), key_file, remote });
+                self.current = Some(file);
+            }
+        }
+        self.old_remote = None;
+        self.old_key_file = None;
+    }
 }
 
 /// A remote file the working copy is synced with, and where the last sync
@@ -57,10 +121,15 @@ impl Store {
     /// one is moved aside to `<name>.bak` rather than silently overwritten.
     pub fn load(path: PathBuf) -> Self {
         let state = match fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| {
-                let _ = fs::rename(&path, path.with_extension("json.bak"));
-                State::default()
-            }),
+            Ok(text) => serde_json::from_str(&text)
+                .map(|mut state: State| {
+                    state.upgrade();
+                    state
+                })
+                .unwrap_or_else(|_| {
+                    let _ = fs::rename(&path, path.with_extension("json.bak"));
+                    State::default()
+                }),
             Err(_) => State::default(),
         };
         Store { path, state: Mutex::new(state) }
@@ -107,10 +176,43 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("pswm.json");
         let store = Store::load(path.clone());
-        store.update(|s| s.database = Some(PathBuf::from(r"C:\Vault\base.kdbx"))).unwrap();
+        store.update(|s| s.select(PathBuf::from(r"C:\Vault\base.kdbx")).key_file = Some("k.key".into())).unwrap();
         let reloaded = Store::load(path);
-        assert_eq!(reloaded.read(|s| s.database.clone()), Some(PathBuf::from(r"C:\Vault\base.kdbx")));
+        let current = reloaded.read(|s| s.current().cloned()).unwrap();
+        assert_eq!(current.file, PathBuf::from(r"C:\Vault\base.kdbx"));
+        assert_eq!(current.key_file, Some("k.key".into()));
         assert_eq!(reloaded.dir(), dir.path().join("nested"));
+    }
+
+    #[test]
+    fn an_older_state_file_becomes_a_list_of_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pswm.json");
+        fs::write(&path, r#"{"database":"C:\\a.kdbx","keyFile":"C:\\a.key","remote":{"location":{"kind":"folder","path":"D:\\a.kdbx"},"revision":"r","synced":"h"}}"#).unwrap();
+        let store = Store::load(path.clone());
+        let state = store.read(State::clone);
+        assert_eq!(state.databases.len(), 1);
+        let current = state.current().unwrap();
+        assert_eq!((current.file.to_str(), current.key_file.as_deref().and_then(Path::to_str)), (Some(r"C:\a.kdbx"), Some(r"C:\a.key")));
+        assert_eq!(current.remote.as_ref().unwrap().revision.as_deref(), Some("r"));
+        // Written back in the new shape only.
+        store.update(|_| {}).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("databases") && !text.contains("\"database\""), "{text}");
+    }
+
+    #[test]
+    fn selecting_adds_and_removing_moves_on() {
+        let mut state = State::default();
+        state.select("a.kdbx".into());
+        state.select("b.kdbx".into());
+        state.select("a.kdbx".into());
+        assert_eq!(state.databases.len(), 2);
+        assert_eq!(state.current.as_deref(), Some(Path::new("a.kdbx")));
+        state.remove(Path::new("a.kdbx"));
+        assert_eq!(state.current.as_deref(), Some(Path::new("b.kdbx")));
+        state.remove(Path::new("b.kdbx"));
+        assert_eq!(state.current, None);
     }
 
     #[test]

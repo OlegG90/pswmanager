@@ -74,7 +74,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
     if revision != state.revision {
         if revision.is_none() {
             // The remote file is gone: the upload below puts it back.
-            update(store, |r| r.revision = None)?;
+            update(store, &working, |r| r.revision = None)?;
         } else {
             let Ok(Some((since, unsaved))) = session.read(|v| v.snapshot().map(|s| (s, v.has_unsaved()))) else {
                 return Ok(Some(Outcome::WaitingForUnlock));
@@ -94,7 +94,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
                 // What the upload below replaces, in case the merge got it wrong.
                 fs::write(sibling(&working, ".remote.bak"), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
             }
-            update(store, |r| {
+            update(store, &working, |r| {
                 r.revision = Some(revision);
                 if !merged {
                     r.synced = Some(hash_hex(&bytes)); // the working copy is now exactly the remote file
@@ -112,7 +112,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
     let hash = hash_hex(&bytes);
     if state.revision.is_none() || state.synced.as_ref() != Some(&hash) {
         match remote.upload(&bytes, state.revision.as_deref()) {
-            Ok(revision) => update(store, |r| {
+            Ok(revision) => update(store, &working, |r| {
                 r.revision = Some(revision);
                 r.synced = Some(hash);
             })?,
@@ -128,13 +128,19 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
 
 /// The working copy and the remote it is synced with, if it is.
 fn synced(store: &Store) -> Option<(PathBuf, store::Remote)> {
-    store.read(|s| Some((s.database.clone()?, s.remote.clone()?)))
+    store.read(|s| {
+        let current = s.current()?;
+        Some((current.file.clone(), current.remote.clone()?))
+    })
 }
 
-fn update(store: &Store, change: impl FnOnce(&mut store::Remote)) -> Result<(), SyncError> {
+/// Changes the sync state of the database whose file is `working` — the one
+/// this sync read, even if another became current meanwhile.
+fn update(store: &Store, working: &Path, change: impl FnOnce(&mut store::Remote)) -> Result<(), SyncError> {
     store
         .update(|s| {
-            if let Some(remote) = &mut s.remote {
+            let known = s.databases.iter_mut().find(|d| d.file == working);
+            if let Some(remote) = known.and_then(|d| d.remote.as_mut()) {
                 change(remote);
             }
         })
@@ -149,40 +155,54 @@ fn working_hash(path: &Path) -> Result<String, SyncError> {
     read_working(path).map(|bytes| hash_hex(&bytes))
 }
 
-/// True when the working copy has changes the remote file lacks (a missing
-/// working copy has none).
+/// True when the current database's file has changes its remote file lacks.
 pub fn has_pending(store: &Store) -> bool {
-    synced(store).is_some_and(|(working, state)| working_hash(&working).is_ok_and(|hash| state.synced != Some(hash)))
+    store.read(|s| s.current().is_some_and(is_pending))
 }
 
-/// `<data>/sync/<name>.kdbx`: where the working copy of a remote file lives.
-pub fn working_copy_path(store: &Store, file_name: &str) -> PathBuf {
-    store.dir().join("sync").join(file_name)
+/// True when a database's file has changes its remote file lacks (a missing
+/// file has none).
+pub fn is_pending(known: &store::Known) -> bool {
+    known.remote.as_ref().is_some_and(|r| working_hash(&known.file).is_ok_and(|hash| r.synced != Some(hash)))
 }
 
-/// Makes `location` the database: its file is downloaded as the working copy.
+/// Adds `location` to the list as the current database: its file is
+/// downloaded as a new working copy, under a name no other one has.
 pub fn start(store: &Store, location: crate::remote::Location) -> Result<(), String> {
-    let (bytes, revision) = location.open().download().map_err(|e| e.message())?;
-    let working = working_copy_path(store, &location.file_name());
-    store::write_atomically(&working, &bytes).map_err(|e| format!("Cannot write the working copy: {e}"))?;
-    let remote = store::Remote { location, revision: Some(revision), synced: Some(hash_hex(&bytes)) };
+    let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|d| d.file.clone()).collect());
+    let working = free_path(&store.dir().join("sync"), &location.file_name(), &taken);
+    let remote = download_into(&working, location)?;
     store
         .update(|s| {
-            s.database = Some(working);
-            s.remote = Some(remote);
+            s.select(working).remote = Some(remote);
         })
         .map_err(|e| format!("Cannot save the choice: {e}"))
+}
+
+/// Downloads the remote file into `working`; the sync state that goes with it.
+fn download_into(working: &Path, location: crate::remote::Location) -> Result<store::Remote, String> {
+    let (bytes, revision) = location.open().download().map_err(|e| e.message())?;
+    store::write_atomically(working, &bytes).map_err(|e| format!("Cannot write the working copy: {e}"))?;
+    Ok(store::Remote { location, revision: Some(revision), synced: Some(hash_hex(&bytes)) })
+}
+
+/// `<dir>/<name>`, or `<dir>/<stem> (2).kdbx` and so on: a path no file has
+/// and no database in the list uses.
+fn free_path(dir: &Path, file_name: &str, taken: &[PathBuf]) -> PathBuf {
+    let stem = Path::new(file_name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "database".into());
+    (1..)
+        .map(|n| if n == 1 { format!("{stem}.kdbx") } else { format!("{stem} ({n}).kdbx") })
+        .map(|file| dir.join(file))
+        .find(|path| !path.exists() && !taken.contains(path))
+        .expect("some name is free")
 }
 
 /// Moves a working copy out of `sync/` into the data folder, under a name
 /// no file there has yet, and returns where it went.
 pub fn keep_as_local(store: &Store, working: &Path) -> Result<PathBuf, String> {
-    let name = working.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "database".into());
-    let target = (1..)
-        .map(|n| if n == 1 { format!("{name}.kdbx") } else { format!("{name} ({n}).kdbx") })
-        .map(|file| store.dir().join(file))
-        .find(|path| !path.exists())
-        .expect("some name is free");
+    let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|d| d.file.clone()).collect());
+    let name = working.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let target = free_path(store.dir(), &name, &taken);
     fs::rename(working, &target).map_err(|e| format!("Cannot keep the working copy: {e}"))?;
     Ok(target)
 }
@@ -194,7 +214,14 @@ pub fn ensure_working_copy(store: &Store) -> Result<(), String> {
     if working.exists() {
         return Ok(());
     }
-    start(store, state.location)
+    let remote = download_into(&working, state.location)?;
+    store
+        .update(|s| {
+            if let Some(known) = s.databases.iter_mut().find(|d| d.file == working) {
+                known.remote = Some(remote);
+            }
+        })
+        .map_err(|e| format!("Cannot save the sync state: {e}"))
 }
 
 // ------------------------------------------------------------ in the app
@@ -232,7 +259,7 @@ fn flags<R>(app: &AppHandle, f: impl FnOnce(&mut Flags) -> R) -> R {
 
 /// Starts a sync in the background, or one more after the one running.
 pub fn request(app: &AppHandle) {
-    let synced = app.state::<Store>().read(|s| s.remote.is_some());
+    let synced = app.state::<Store>().read(|s| s.remote().is_some());
     let started = flags(app, |f| {
         f.upload_at = None;
         if !synced {
@@ -267,7 +294,7 @@ pub fn request(app: &AppHandle) {
 
 fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
     let store = app.state::<Store>();
-    let Some(location) = store.read(|s| s.remote.as_ref().map(|r| r.location.clone())) else {
+    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {
         return Ok(Outcome::UpToDate);
     };
     let outcome = sync(location.open().as_ref(), &store, &app.state::<Session>())?;
@@ -279,7 +306,7 @@ fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
 
 fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
     let store = app.state::<Store>();
-    let name = store.read(|s| s.remote.as_ref().map(|r| r.location.name())).unwrap_or("the remote store");
+    let name = store.read(|s| s.remote().map(|r| r.location.name())).unwrap_or("the remote store");
     let time = chrono::Local::now().format("%H:%M");
     let (text, problem) = match result {
         Ok(Outcome::Merged(changed)) if !changed.is_empty() => {
@@ -298,7 +325,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
-    let remote = app.state::<Store>().read(|s| s.remote.is_some());
+    let remote = app.state::<Store>().read(|s| s.remote().is_some());
     let status = flags(app, |f| {
         change(&mut f.status);
         f.status.remote = remote;
@@ -312,7 +339,7 @@ fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
 }
 
 pub fn status(app: &AppHandle) -> Status {
-    let remote = app.state::<Store>().read(|s| s.remote.is_some());
+    let remote = app.state::<Store>().read(|s| s.remote().is_some());
     Status { remote, ..flags(app, |f| f.status.clone()) }
 }
 
@@ -366,6 +393,7 @@ pub fn is_running(app: &AppHandle) -> bool {
 mod tests {
     use super::*;
     use crate::remote::{Folder, Location};
+    use crate::store::State;
     use crate::vault::Vault;
     use keepass::db::fields;
     use keepass::{Database, DatabaseKey};
@@ -393,7 +421,7 @@ mod tests {
         let store = Store::load(dir.path().join("data").join("pswm.json"));
         start(&store, Location::Folder { path: path.clone() }).unwrap();
         let session = Session::default();
-        let working = store.read(|s| s.database.clone()).unwrap();
+        let working = store.read(|s| s.current.clone()).unwrap();
         session.set(Some(Vault::open(&working, Some("test"), None).unwrap()));
         Setup { _dir: dir, store, session, remote: Folder { path } }
     }
@@ -466,7 +494,7 @@ mod tests {
         s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
         let Ok(Outcome::Downloaded(changed)) = s.sync() else { panic!() };
         assert_eq!(changed.len(), 1);
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         assert_eq!(fs::read(working).unwrap(), fs::read(&s.remote.path).unwrap());
         assert_eq!(s.sync(), Ok(Outcome::UpToDate));
     }
@@ -480,7 +508,7 @@ mod tests {
         assert!(s.remote_titles().contains(&"Added on the phone".to_string()));
         assert_eq!(s.remote_password("Mail"), "from the PC");
         assert_eq!(s.password_here("Mail"), "from the PC");
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         assert!(sibling(&working, ".remote.bak").exists());
         assert_eq!(s.sync(), Ok(Outcome::UpToDate));
     }
@@ -547,7 +575,7 @@ mod tests {
     #[test]
     fn a_working_copy_kept_as_local_leaves_sync_and_takes_a_free_name() {
         let s = setup();
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         fs::write(s.store.dir().join("base.kdbx"), b"another").unwrap();
         let kept = keep_as_local(&s.store, &working).unwrap();
         assert_eq!(kept, s.store.dir().join("base (2).kdbx"));
@@ -555,9 +583,42 @@ mod tests {
     }
 
     #[test]
+    fn two_remote_files_of_one_name_get_their_own_working_copies() {
+        let s = setup();
+        let first = s.store.read(|st| st.current.clone()).unwrap();
+        let other = s.remote.path.parent().unwrap().join("other");
+        fs::create_dir(&other).unwrap();
+        fs::copy(&s.remote.path, other.join("base.kdbx")).unwrap();
+        start(&s.store, Location::Folder { path: other.join("base.kdbx") }).unwrap();
+        let second = s.store.read(|st| st.current.clone()).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(s.store.read(|st| st.databases.len()), 2);
+        assert!(first.exists() && second.exists());
+    }
+
+    #[test]
+    fn a_sync_keeps_its_state_on_its_own_database() {
+        let s = setup();
+        s.edit_here("Mail", "from the PC");
+        let synced_file = s.store.read(|st| st.current.clone()).unwrap();
+        // Another database becomes current while this one syncs.
+        let other = s.remote.path.parent().unwrap().join("other.kdbx");
+        s.store.update(|st| st.current = Some(other.clone())).unwrap();
+        s.store.update(|st| st.select(other.clone()).key_file = None).unwrap();
+        s.store.update(|st| st.current = Some(synced_file.clone())).unwrap();
+        let (_, before) = synced(&s.store).unwrap();
+        s.store.update(|st| st.current = Some(other.clone())).unwrap();
+        let bytes = fs::read(&synced_file).unwrap();
+        update(&s.store, &synced_file, |r| r.synced = Some(hash_hex(&bytes))).unwrap();
+        let state = s.store.read(State::clone);
+        assert!(state.databases.iter().find(|d| d.file == other).unwrap().remote.is_none());
+        assert_ne!(state.databases.iter().find(|d| d.file == synced_file).unwrap().remote.as_ref().unwrap().synced, before.synced);
+    }
+
+    #[test]
     fn a_missing_working_copy_is_downloaded_again() {
         let s = setup();
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         fs::remove_file(&working).unwrap();
         ensure_working_copy(&s.store).unwrap();
         assert_eq!(fs::read(working).unwrap(), fs::read(&s.remote.path).unwrap());

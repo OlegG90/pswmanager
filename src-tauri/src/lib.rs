@@ -84,25 +84,54 @@ struct Notice(OnceLock<String>);
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Status {
+    /// The file of the database the unlock screen opens.
     database: Option<String>,
-    /// Where the database is synced to, if anywhere.
+    /// Where it is synced to, if anywhere.
     synced_with: Option<String>,
-    /// The kind of store it is synced with: `folder` or `dropbox`.
+    /// The kind of store it is synced with: `folder`, `dropbox` or `google`.
     sync_kind: Option<&'static str>,
     key_file: Option<String>,
+    /// Every database in the list, the current one among them.
+    databases: Vec<DatabaseInfo>,
     unlocked: bool,
     notice: Option<String>,
 }
 
+/// A database in the list, as the unlock screen names it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DatabaseInfo {
+    file: String,
+    /// The file name, for the list.
+    name: String,
+    sync_kind: Option<&'static str>,
+}
+
 #[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
-    let shown = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
-    let (database, synced_with, sync_kind, key_file) = store.read(|s| {
-        let location = s.remote.as_ref().map(|r| &r.location);
-        (shown(&s.database), location.map(|l| l.describe()), location.map(|l| l.kind()), shown(&s.key_file))
+    let shown = |p: &Path| p.display().to_string();
+    let (database, synced_with, sync_kind, key_file, databases) = store.read(|s| {
+        let current = s.current();
+        let location = s.remote().map(|r| &r.location);
+        let databases = s
+            .databases
+            .iter()
+            .map(|d| DatabaseInfo {
+                file: shown(&d.file),
+                name: remote::file_name(&d.file),
+                sync_kind: d.remote.as_ref().map(|r| r.location.kind()),
+            })
+            .collect();
+        (
+            current.map(|d| shown(&d.file)),
+            location.map(|l| l.describe()),
+            location.map(|l| l.kind()),
+            current.and_then(|d| d.key_file.as_deref()).map(shown),
+            databases,
+        )
     });
     let notice = notice.0.get().cloned();
-    Status { database, synced_with, sync_kind, key_file, unlocked: session.is_unlocked(), notice }
+    Status { database, synced_with, sync_kind, key_file, databases, unlocked: session.is_unlocked(), notice }
 }
 
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
@@ -119,8 +148,9 @@ fn choose(app: AppHandle, change: impl FnOnce(&mut store::State)) -> Result<Stat
     Ok(status(app.state(), app.state(), app.state()))
 }
 
-/// Another database can be chosen only while locked, and not while this
-/// device has changes the remote file lacks: they would stay behind.
+/// Another database can be chosen only while locked and not syncing. A
+/// database left with changes its remote file lacks keeps them, and syncs
+/// them when it is opened again.
 fn can_switch(app: &AppHandle) -> Result<(), String> {
     if app.state::<Session>().is_unlocked() {
         return Err("Lock the database first".into());
@@ -128,24 +158,26 @@ fn can_switch(app: &AppHandle) -> Result<(), String> {
     if sync::is_running(app) {
         return Err("A sync is running; try again in a moment".into());
     }
-    if sync::has_pending(&app.state::<Store>()) {
-        return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
-    }
     Ok(())
 }
 
-/// The store the database is synced with now, if any.
-fn current_location(store: &Store) -> Option<remote::Location> {
-    store.read(|s| s.remote.as_ref().map(|r| r.location.clone()))
+/// True when some database in the list is synced with `cloud`.
+fn cloud_in_use(store: &Store, cloud: remote::Cloud) -> bool {
+    store.read(|s| s.databases.iter().any(|d| d.remote.as_ref().and_then(|r| r.location.cloud()) == Some(cloud)))
 }
 
-/// After a switch: the store left behind is forgotten (a cloud account
-/// signed out). `left` is read before the switch, so a failed one keeps it.
-fn left(app: &AppHandle, left: Option<remote::Location>) {
-    if let Some(location) = left {
-        location.forget();
+/// After a database left the list or stopped syncing: the cloud it used is
+/// signed out if no other database uses it, and the sync status starts afresh.
+fn forget_if_unused(app: &AppHandle, cloud: Option<remote::Cloud>) {
+    if let Some(cloud) = cloud.filter(|c| !cloud_in_use(&app.state(), *c)) {
+        cloud.provider().sign_out();
     }
     sync::reset(app);
+}
+
+/// The cloud a database in the list is synced with, if any.
+fn cloud_of(store: &Store, file: &Path) -> Option<remote::Cloud> {
+    store.read(|s| s.databases.iter().find(|d| d.file == file).and_then(|d| d.remote.as_ref()).and_then(|r| r.location.cloud()))
 }
 
 /// Opens a local file: the app does not sync it.
@@ -156,13 +188,39 @@ fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
     open_local_file(&app, picked)
 }
 
-/// Makes `path` the database, as a local file.
+/// Makes `path` the current database, adding it to the list (without sync)
+/// if it is not there yet.
 fn open_local_file(app: &AppHandle, path: PathBuf) -> Result<Status, String> {
-    left(app, current_location(&app.state()));
+    sync::reset(app);
     choose(app.clone(), |s| {
-        s.database = Some(path);
-        s.remote = None;
+        s.select(path);
     })
+}
+
+/// Makes another database in the list the current one.
+#[tauri::command(async)]
+fn select_database(app: AppHandle, file: String) -> Result<Status, String> {
+    can_switch(&app)?;
+    sync::reset(&app);
+    choose(app, |s| {
+        if s.databases.iter().any(|d| d.file == Path::new(&file)) {
+            s.current = Some(PathBuf::from(&file));
+        }
+    })
+}
+
+/// Takes a database off the list; its file stays where it is.
+#[tauri::command(async)]
+fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
+    can_switch(&app)?;
+    let store = app.state::<Store>();
+    if store.read(|s| s.databases.iter().any(|d| d.file == Path::new(&file) && sync::is_pending(d))) {
+        return Err("Changes made here are not in its remote file yet: unlock it, and they are synced first".into());
+    }
+    let cloud = cloud_of(&store, Path::new(&file));
+    let status = choose(app.clone(), |s| s.remove(Path::new(&file)))?;
+    forget_if_unused(&app, cloud);
+    Ok(status)
 }
 
 /// A database named on the command line (at start, or by a second launch),
@@ -181,15 +239,14 @@ fn open_from_command_line(app: &AppHandle, path: PathBuf) -> Result<(), String> 
 fn sync_with_folder(app: AppHandle, window: Window) -> Result<Status, String> {
     can_switch(&app)?;
     let Some(path) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    let before = current_location(&app.state());
     sync::start(&app.state::<Store>(), remote::Location::Folder { path })?;
-    left(&app, before);
+    sync::reset(&app);
     choose(app, |_| {})
 }
 
 /// The local database a new cloud file can start from, if one is open.
 fn local_database(store: &Store) -> Option<PathBuf> {
-    store.read(|s| if s.remote.is_none() { s.database.clone() } else { None })
+    store.read(|s| s.current().filter(|d| d.remote.is_none()).map(|d| d.file.clone()))
 }
 
 #[derive(Serialize)]
@@ -217,7 +274,7 @@ fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, 
 #[tauri::command(async)]
 fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
     oauth::cancel_sign_in();
-    if current_location(&app.state()).and_then(|l| l.cloud()) != Some(cloud) {
+    if !cloud_in_use(&app.state(), cloud) {
         cloud.provider().sign_out();
     }
 }
@@ -228,7 +285,6 @@ fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
 fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::CloudFile>) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
-    let before = current_location(&store);
     let location = match file {
         Some(file) => cloud.location(file),
         None => {
@@ -243,27 +299,36 @@ fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::Cl
         }
     };
     sync::start(&store, location)?;
-    // Another cloud's sign-in is forgotten; this cloud's is the one just made.
-    let other_cloud = before.filter(|b| b.cloud() != Some(cloud));
-    left(&app, other_cloud);
+    sync::reset(&app);
     choose(app, |_| {})
 }
 
-/// Stops syncing. A folder's file becomes the database, used as a local
-/// file; a cloud database's working copy moves out of `sync/` into the data
-/// folder and becomes it, and the account is signed out. Refused while this
-/// device has changes the remote file lacks.
+/// Stops syncing the current database: its file stays, as a plain local
+/// file (a working copy an older version kept in `sync/` moves out into the
+/// data folder first, where syncing again cannot overwrite it). Refused while
+/// the file has changes the remote file lacks.
 #[tauri::command(async)]
 fn stop_sync(app: AppHandle) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
-    let Some((working, remote)) = store.read(|s| Some((s.database.clone()?, s.remote.clone()?))) else { return choose(app, |_| {}) };
-    let database = remote.location.detach(&store, &working)?;
-    left(&app, Some(remote.location));
-    choose(app, |s| {
-        s.remote = None;
-        s.database = Some(database);
-    })
+    if sync::has_pending(&store) {
+        return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
+    }
+    let Some(file) = store.read(|s| s.current().filter(|d| d.remote.is_some()).map(|d| d.file.clone())) else {
+        return choose(app, |_| {});
+    };
+    let kept = if file.starts_with(store.dir().join("sync")) { sync::keep_as_local(&store, &file)? } else { file.clone() };
+    let cloud = cloud_of(&store, &file);
+    // The same entry, in place: its key file and position stay.
+    let status = choose(app.clone(), |s| {
+        if let Some(known) = s.databases.iter_mut().find(|d| d.file == file) {
+            known.file = kept.clone();
+            known.remote = None;
+        }
+        s.current = Some(kept);
+    })?;
+    forget_if_unused(&app, cloud);
+    Ok(status)
 }
 
 #[tauri::command(async)]
@@ -279,20 +344,28 @@ fn sync_status(app: AppHandle) -> sync::Status {
 #[tauri::command(async)]
 fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "Key file", &[])?;
-    choose(app, |s| s.key_file = picked.or(s.key_file.take()))
+    choose(app, |s| {
+        if let (Some(d), Some(picked)) = (s.current_mut(), picked) {
+            d.key_file = Some(picked);
+        }
+    })
 }
 
 #[tauri::command(async)]
 fn clear_key_file(app: AppHandle) -> Result<Status, String> {
-    choose(app, |s| s.key_file = None)
+    choose(app, |s| {
+        if let Some(d) = s.current_mut() {
+            d.key_file = None;
+        }
+    })
 }
 
 #[tauri::command(async)]
 fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
     sync::ensure_working_copy(&store)?;
-    let (database, key_file, synced) = store.read(|s| (s.database.clone(), s.key_file.clone(), s.remote.is_some()));
-    let database = database.ok_or("Open a local file or sync with a folder first")?;
+    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
+    let (database, key_file, synced) = (current.file, current.key_file, current.remote.is_some());
     let password = (!password.is_empty()).then_some(password.as_str());
     let vault = Vault::open(&database, password, key_file.as_deref())?;
     let listing = vault.listing();
@@ -809,6 +882,8 @@ pub fn run() {
             status,
             pick_database,
             sync_with_folder,
+            select_database,
+            remove_database,
             sign_in_to_cloud,
             sync_with_cloud,
             cancel_cloud,
