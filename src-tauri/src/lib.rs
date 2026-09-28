@@ -859,6 +859,42 @@ fn remove_tag(session: State<Session>, tag: String) -> Result<Listing, String> {
     })
 }
 
+/// Puts entries from the recycle bin back where they were, saves the file and
+/// returns the new listing.
+#[tauri::command(async)]
+fn restore_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.restore(&ids)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
+/// Removes entries in the recycle bin for good, saves the file and returns
+/// the new listing.
+#[tauri::command(async)]
+fn delete_for_good(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.delete_for_good(&ids)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
+/// Removes everything in the recycle bin for good, saves the file and returns
+/// the new listing.
+#[tauri::command(async)]
+fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.empty_bin()?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
 /// Moves entries to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
@@ -1103,6 +1139,9 @@ pub fn run() {
             edit_entry,
             save_entry,
             delete_entries,
+            restore_entries,
+            delete_for_good,
+            empty_trash,
             set_tag,
             rename_tag,
             remove_tag,

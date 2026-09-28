@@ -679,6 +679,14 @@ input[type='range']:focus-visible {
   border-bottom: 1px solid var(--color-divider);
 }
 
+#entry-count {
+  flex: 1;
+}
+
+#list-header button + button {
+  margin-left: 6px;
+}
+
 #list-header button {
   padding: 2px 10px;
   font-size: 14px;

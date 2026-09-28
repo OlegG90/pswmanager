@@ -296,6 +296,29 @@ impl Vault {
         })
     }
 
+    /// Puts entries from the recycle bin back where they were and saves the file.
+    pub fn restore(&mut self, ids: &[String]) -> Result<(), String> {
+        let ids = parse_ids(ids)?;
+        self.change(|db, _| edit::restore(db, &ids))
+    }
+
+    /// Removes entries in the recycle bin for good and saves the file.
+    pub fn delete_for_good(&mut self, ids: &[String]) -> Result<(), String> {
+        let ids = parse_ids(ids)?;
+        self.change(|db, _| {
+            edit::delete_for_good(db, &ids);
+            Ok(())
+        })
+    }
+
+    /// Removes everything in the recycle bin for good and saves the file.
+    pub fn empty_bin(&mut self) -> Result<(), String> {
+        self.change(|db, _| {
+            edit::empty_bin(db);
+            Ok(())
+        })
+    }
+
     /// Moves entries to the recycle bin and saves the file, as one change. An
     /// entry already gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entries(&mut self, ids: &[String]) -> Result<(), String> {
