@@ -45,6 +45,9 @@ export function startOfDay(date: string): string {
 /** The day an expiry time falls on, as people read it. */
 export const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
 
+/** A moment as people read it, on this PC: `12 Sep 2026, 14:05`. */
+export const formatDateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
 /** A file size as people read it: `820 B`, `14 KB`, `2.4 MB`. */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

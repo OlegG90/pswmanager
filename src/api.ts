@@ -97,6 +97,8 @@ export interface Attachment {
 export interface EntryDetail extends Entry {
   fields: Field[]
   attachments: Attachment[]
+  /** When the entry was last changed (RFC 3339), if the file says. */
+  modified: string | null
 }
 
 /** After attaching a file. */

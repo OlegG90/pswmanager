@@ -5,7 +5,7 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, choose, isAsking } from './modal'
-import { formatDate, formatSize } from './entry-text'
+import { formatDate, formatDateTime, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
@@ -435,6 +435,7 @@ function renderDetail() {
     const text = `${state === 'expired' ? 'Expired' : 'Expires'} ${formatDate(entry.expires)}`
     heading.append(el('span', { className: `expiry ${state ?? ''}` }, text))
   }
+  if (entry.modified) heading.append(el('span', { className: 'meta changed' }, `Changed ${formatDateTime(entry.modified)}`))
   const header = el('header', {}, iconImage(entry), heading)
   if (editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
