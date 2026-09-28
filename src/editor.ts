@@ -1,9 +1,10 @@
 import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved } from './api'
 import { button, el } from './dom'
-import { formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
+import { dateOf, formatGroup, formatTags, keep, parseGroup, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
 import { ask } from './modal'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
+import { FAVORITE } from './search'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -20,7 +21,7 @@ export interface EditorOptions {
   autoIcon: string
 }
 
-const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' } }
+const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
 /** Kept for the session, so the generator opens as it was last used. */
@@ -141,6 +142,15 @@ function generatorPanel(use: (password: string) => void, onError: (message: stri
   return { panel, open }
 }
 
+/** The tags with the star (the tag Favorite) on or off; a star the entry had
+ *  keeps its place among the tags, so an untouched entry saves unchanged. */
+function withStar(tags: string[], on: boolean, original: string[]): string[] {
+  const rest = tags.filter((t) => t !== FAVORITE)
+  if (!on) return rest
+  const at = original.indexOf(FAVORITE)
+  return at < 0 ? [...rest, FAVORITE] : [...rest.slice(0, at), FAVORITE, ...rest.slice(at)]
+}
+
 /** The field each row started from, to keep values the form only reformatted. */
 const originals = new WeakMap<HTMLElement, FieldData>()
 
@@ -201,7 +211,13 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const otp = input(data.otp, { type: 'password', className: 'secret', placeholder: 'Secret or otpauth:// URI' })
   const group = input(formatGroup(data.group), { placeholder: 'Top level' })
   group.setAttribute('list', 'group-list')
-  const tags = tagInput(data.tags, options.knownTags)
+  const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), options.knownTags)
+  let starred = data.tags.includes(FAVORITE)
+  const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
+  // A date input holds a day: an expiry time on that day stays as it was.
+  const expiryDay = data.expires ? dateOf(data.expires) : ''
+  const expires = el('input', { type: 'date', value: expiryDay, ariaLabel: 'Expires' })
+  const neverExpires = button('Never', 'Does not expire', () => (expires.value = ''), 'ghost')
   const icon = iconPicker(data.icon, options.autoIcon, (message) => showError(message))
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
   const error = el('p', { className: 'error', hidden: true })
@@ -247,10 +263,11 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     url: keep(data.url, url.value.trim(), trimmedLine),
     notes: keep(data.notes, notes.value, textareaLines),
     otp: keep(data.otp, otp.value.trim(), trimmedLine),
-    tags: keep(data.tags, tags.value(), (t) => parseTags(formatTags(t))),
+    tags: keep(data.tags, withStar(tags.value(), starred, data.tags), (t) => parseTags(formatTags(t))),
     group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
     icon: icon.value(),
+    expires: expires.value === expiryDay ? data.expires : expires.value ? startOfDay(expires.value) : null,
   })
 
   let saving = false
@@ -303,6 +320,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('TOTP', otp, showHide(otp)),
     row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
     row('Tags', tags.element),
+    row('', star),
+    row('Expires', expires, neverExpires),
     row('Icon', icon.element),
     row('Notes', notes),
     el('h3', {}, 'Additional fields'),

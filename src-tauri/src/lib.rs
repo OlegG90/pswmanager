@@ -831,6 +831,16 @@ fn rename_attachment(app: AppHandle, session: State<Session>, id: String, from: 
     Ok(renamed)
 }
 
+/// Stars an entry or takes its star off, saves the file and returns the new
+/// listing. A tag: it waits for the next sync.
+#[tauri::command(async)]
+fn set_favorite(session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
+    session.with_mut(|v| {
+        v.set_favorite(&id, on)?;
+        Ok(v.listing())
+    })
+}
+
 /// Moves an entry to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
@@ -1075,6 +1085,7 @@ pub fn run() {
             edit_entry,
             save_entry,
             delete_entry,
+            set_favorite,
             save_attachment,
             open_attachment,
             attach_file,
