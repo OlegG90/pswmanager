@@ -35,7 +35,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 use edit::EntryData;
-use vault::{EntryDetail, Kind, Listing, Vault};
+use vault::{EntryDetail, Kind, Listing, Vault, Version, VersionDetail};
 use zeroize::Zeroizing;
 
 /// How often the inactivity check runs.
@@ -668,17 +668,41 @@ fn entry(session: State<Session>, id: String) -> Result<EntryDetail, String> {
     session.with(|v| v.detail(&id))
 }
 
-/// One field's value, for showing it. Asked for only on "reveal".
+/// The entry's older versions: when and what changed, never values.
 #[tauri::command(async)]
-fn reveal(session: State<Session>, id: String, field: String) -> Result<String, String> {
-    session.with(|v| v.field(&id, &field)).map(|value| value.to_string())
+fn entry_history(session: State<Session>, id: String) -> Result<Vec<Version>, String> {
+    session.with(|v| v.history(&id))
+}
+
+/// One older version, read only, secrets masked.
+#[tauri::command(async)]
+fn entry_version(session: State<Session>, id: String, index: usize) -> Result<VersionDetail, String> {
+    session.with(|v| v.version(&id, index))
+}
+
+/// Makes an older version the entry's current content; saves and syncs as an edit.
+#[tauri::command(async)]
+fn restore_version(app: AppHandle, session: State<Session>, id: String, index: usize, saved: Option<String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.restore_version(&id, index, saved.as_deref())?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
+/// One field's value (of an older version with `version`), for showing it.
+/// Asked for only on "reveal".
+#[tauri::command(async)]
+fn reveal(session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<String, String> {
+    session.with(|v| v.field_in(&id, version, &field)).map(|value| value.to_string())
 }
 
 /// Copies a field without the value passing through the frontend. Returns
 /// the seconds until the clipboard is cleared.
 #[tauri::command(async)]
-fn copy_field(store: State<Store>, session: State<Session>, id: String, field: String) -> Result<u64, String> {
-    let value = session.with(|v| v.field(&id, &field))?;
+fn copy_field(store: State<Store>, session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<u64, String> {
+    let value = session.with(|v| v.field_in(&id, version, &field))?;
     if value.is_empty() {
         return Err(format!("{field} is empty"));
     }
@@ -736,8 +760,8 @@ fn save_entry(
 /// from the database to the file without passing through the frontend.
 /// False when the user cancelled.
 #[tauri::command(async)]
-fn save_attachment(window: Window, session: State<Session>, id: String, name: String) -> Result<bool, String> {
-    let data = session.with(|v| v.attachment(&id, &name))?;
+fn save_attachment(window: Window, session: State<Session>, id: String, name: String, version: Option<usize>) -> Result<bool, String> {
+    let data = session.with(|v| v.attachment(&id, version, &name))?;
     // A name is a file name, but other clients may store a path.
     let file_name = name.rsplit(['/', '\\']).next().unwrap_or(&name);
     let chosen = window.dialog().file().set_parent(&window).set_file_name(file_name).blocking_save_file();
@@ -749,11 +773,11 @@ fn save_attachment(window: Window, session: State<Session>, id: String, name: St
 /// Opens one of the entry's files in the app Windows uses for its type,
 /// from a read-only copy that is deleted when the database locks.
 #[tauri::command(async)]
-fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<(), String> {
+fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String, version: Option<usize>) -> Result<(), String> {
     if opened::is_runnable(&name) {
         return Err("Programs and scripts are not opened from the database; save the file to run it".into());
     }
-    let data = session.with(|v| v.attachment(&id, &name))?;
+    let data = session.with(|v| v.attachment(&id, version, &name))?;
     let path = opened::write(&opened::folder(), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))
 }
@@ -1127,6 +1151,9 @@ pub fn run() {
             listing,
             entry,
             reveal,
+            entry_history,
+            entry_version,
+            restore_version,
             copy_field,
             open_url,
             icon,
