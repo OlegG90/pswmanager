@@ -110,10 +110,13 @@ entries in use (not templates, not the trash) is listed under the groups, with i
   change (each entry keeps its previous version in history).
 - **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
   or **removed** from every entry, after a confirmation. The entries themselves stay.
-- **Trash:** **Restore** puts an entry back where it was; **Delete permanently** (after a confirmation)
-  removes it and records the deletion for other devices; **Empty trash** does that for all of them. An entry
-  with attached files (now or in its history) cannot be removed that way: keepass-rs would misnumber the
-  other entries' files. It stays in the trash, and the window says why.
+- **Trash:** **Restore** puts an entry back where it was (the group it was deleted from, which KDBX 4.1
+  keeps; the top group when that group is gone or unknown); **Delete permanently** (after a confirmation)
+  removes it, its history and the files only it used, and records the deletion for other devices; **Empty
+  trash** does that for everything in the trash, groups deleted into it included. Several chosen entries in
+  the trash can be restored or deleted permanently at once. (keepass-rs 0.15 misnumbered the other
+  entries' files after a removal; the app uses a fork with the fix, offered upstream as
+  sseemayer/keepass-rs#374.)
 - **Templates:** **New entry** (`Ctrl+N`) asks for a blank entry or one of the templates. An entry made
   from a template gets its fields (names, values, protection), icon and tags, not its title. Templates are
   edited like entries in the Templates group, and **New template** makes one there. They are never listed
@@ -195,8 +198,8 @@ entries in use (not templates, not the trash) is listed under the groups, with i
 ## Editing
 
 - Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
-  the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused —
-  removing an entry with keepass-rs can leave other entries' attachments pointing at the wrong data.
+  the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused:
+  entries are removed for good only from the trash.
 - Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag
   spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
   unchanged. An edited entry stays in its KDBX group.
@@ -209,8 +212,8 @@ entries in use (not templates, not the trash) is listed under the groups, with i
   20 MB — the whole database is synced on every change); the change is saved at once, with the previous
   version in history, like an edit. A name the entry already uses gets a number (`scan (2).pdf`) rather
   than replacing the file. A removed file stays in the database for the history version that has it:
-  keepass-rs would drop it from the database's file pool, and the gap misnumbers every later file when the
-  database is saved, so the file is removed on a copy of the database and only the entry is taken from it.
+  keepass-rs would drop it from the database's file pool although that version still uses it, so the file
+  is removed on a copy of the database and only the entry is taken from it.
   keepass-rs cannot rename a file or change its content either: renaming and replacing let the entry go of
   the file the same way and attach the content under the name again (history keeps the old name and
   content). Replacing a file with the same content changes nothing; renaming to a name another file of the
@@ -261,8 +264,8 @@ with a phone. Saving, change detection and the per-change merge below apply eith
     the entry's history, so nothing is lost, and the window says which fields;
   - an entry deleted elsewhere (recycle bin or `DeletedObjects`) and edited here comes back with its id —
     the edit is newer than the deletion; deleting an entry already gone elsewhere does nothing;
-  - nothing is ever removed from the file (a removed attachment stays for the entry's history), so
-    keepass-rs's attachment renumbering on removal never applies.
+  - nothing is removed from the file except by deleting for good in the trash (a removed attachment
+    stays for the entry's history).
 - **An older file coming back** (a sync client restores a stale copy, or a conflict copy wins): when the
   file is read again, entries changed here later than in the file (`LastModificationTime`), newer moves,
   and entries missing from it without a deletion recorded at or after this device's change are kept and

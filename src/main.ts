@@ -202,7 +202,8 @@ function showFilter(choice: Filter) {
 function refresh() {
   shown = search(listing.entries, searchInput.value, filter)
   list.replaceChildren(...shown.map(listItem))
-  $('entry-count').textContent = `${shown.length} ${shown.length === 1 ? 'entry' : 'entries'}`
+  $('entry-count').textContent = count(shown.length)
+  $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
   if (shown.length === 0) {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
@@ -461,6 +462,12 @@ function renderDetail() {
         button('Attach file…', 'Attach a file to this entry', attachFile),
         button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
     )
+  } else if (inTrash(entry)) {
+    rows.push(
+      el('div', { className: 'buttons' },
+        button('Restore', 'Put it back where it was', () => restore([entry.id]), 'primary'),
+        button('Delete permanently…', 'Delete it for good, on every device (Del)', deleteEntry, 'danger')),
+    )
   }
   detail.replaceChildren(...rows)
 }
@@ -492,13 +499,18 @@ function renderSeveral() {
   if (!several || isEditing()) return
   const chosen = listing.entries.filter((e) => several!.chosen.includes(e.id))
   const inUse = chosenInUse()
+  const trashed = chosenInTrash()
   const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
     el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
   const rows: Node[] = [el('header', {}, heading)]
-  if (inUse.length < chosen.length) {
-    rows.push(el('p', { className: 'muted' }, inUse.length
-      ? 'Templates and entries in the trash among them are left out.'
-      : 'Templates and entries in the trash are not changed here.'))
+  if (inUse.length + trashed.length < chosen.length) {
+    rows.push(el('p', { className: 'muted' }, 'Templates are not changed here.'))
+  }
+  if (trashed.length) {
+    const ids = trashed.map((e) => e.id)
+    rows.push(el('div', { className: 'buttons' },
+      button('Restore', 'Put them back where they were', () => restore(ids), 'primary'),
+      button('Delete permanently…', 'Delete them for good, on every device (Del)', () => deleteForGood(ids, count(ids.length)), 'danger')))
   }
   if (inUse.length) {
     const ids = inUse.map((e) => e.id)
@@ -518,6 +530,10 @@ function renderSeveral() {
 /** The chosen entries that can be changed here: not templates, not the trash's. */
 function chosenInUse(): Entry[] {
   return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && editable(e)) : []
+}
+
+function chosenInTrash(): Entry[] {
+  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && inTrash(e)) : []
 }
 
 async function tagSeveral(ids: string[]) {
@@ -546,6 +562,40 @@ async function deleteSeveral(ids: string[]) {
     const next = await api.deleteEntries(ids)
     several = null
     applyListing(next, `Moved ${ids.length} entries to the recycle bin`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+// ---------------------------------------------------------------- trash
+
+const TRASH: Filter = { kind: 'group', group: 'trash' }
+
+function inTrash<T extends Entry>(entry: T | null): entry is T & { kind: 'trash' } {
+  return entry?.kind === 'trash'
+}
+
+const count = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
+
+/** Puts entries from the trash back where they were. */
+async function restore(ids: string[]) {
+  try {
+    const next = await api.restoreEntries(ids)
+    several = null
+    applyListing(next, ids.length === 1 ? 'Restored' : `Restored ${count(ids.length)}`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+/** Deletes entries in the trash for good (with null, everything in it), after asking. */
+async function deleteForGood(ids: string[] | null, what: string) {
+  const yes = await ask(`Delete ${what} permanently? This cannot be undone: other devices delete it too when they sync.`, 'Delete permanently')
+  if (!yes) return
+  try {
+    const next = await api.deleteForGood(ids)
+    several = null
+    applyListing(next, 'Deleted permanently')
   } catch (e) {
     notify(String(e))
   }
@@ -664,7 +714,7 @@ function startEditor(id: string | null, focusPassword = false) {
 }
 
 /** Only entries in use are edited here: not templates, not the trash's. */
-function editable<T extends Entry>(entry: T | null): entry is T {
+function editable<T extends Entry>(entry: T | null): entry is T & { kind: 'entry' } {
   return entry?.kind === 'entry'
 }
 
@@ -695,9 +745,10 @@ function afterSave(saved: Saved) {
   applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
 }
 
-/** Del / the Delete button: asks first. */
+/** Del / the Delete button: asks first. In the trash, deletes for good. */
 async function deleteEntry() {
   const entry = current
+  if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id], `"${entry.title || '(no title)'}"`)
   if (!editable(entry) || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
@@ -917,6 +968,7 @@ function closeSettings() {
 searchInput.addEventListener('input', refresh)
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', () => startEditor(null))
+$('empty-trash').addEventListener('click', () => deleteForGood(null, `everything in the trash (${count(listing.entries.filter(inTrash).length)})`))
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
@@ -954,7 +1006,8 @@ function perform(action: Action, e: KeyboardEvent) {
       editEntry()
       break
     case 'delete-entry':
-      if (several) deleteSeveral(chosenInUse().map((x) => x.id))
+      if (several && chosenInTrash().length) deleteForGood(chosenInTrash().map((x) => x.id), count(chosenInTrash().length))
+      else if (several) deleteSeveral(chosenInUse().map((x) => x.id))
       else deleteEntry()
       break
     case 'previous':
