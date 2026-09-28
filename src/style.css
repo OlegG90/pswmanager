@@ -629,6 +629,24 @@ input[type='range']:focus-visible {
   white-space: nowrap;
 }
 
+/* A tag's ⋯ menu (rename, remove) shows where the pointer or the focus is. */
+#tags li {
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+
+#tags li .more {
+  visibility: hidden;
+  padding: 0 6px;
+}
+
+#tags li:hover .more,
+#tags li:focus-within .more,
+#tags li .more[aria-expanded='true'] {
+  visibility: visible;
+}
+
 .side-item .count {
   font-size: 12px;
   color: var(--color-neutral-700);
@@ -946,25 +964,25 @@ button.star[aria-pressed='true'] {
   bottom: calc(100% + 4px);
 }
 
-.row .actions .menu button {
+.menu-wrap .menu button {
   text-align: left;
   color: var(--color-text);
   padding: 6px 12px;
   white-space: nowrap;
 }
 
-.row .actions .menu button:hover,
-.row .actions .menu button:focus-visible {
+.menu-wrap .menu button:hover,
+.menu-wrap .menu button:focus-visible {
   background: var(--color-accent-100);
   outline: none;
 }
 
-.row .actions .menu button.danger {
+.menu-wrap .menu button.danger {
   color: var(--color-danger);
 }
 
-.row .actions .menu button.danger:hover,
-.row .actions .menu button.danger:focus-visible {
+.menu-wrap .menu button.danger:hover,
+.menu-wrap .menu button.danger:focus-visible {
   background: var(--color-danger-100);
 }
 
