@@ -1,5 +1,6 @@
 import { api, type SettingName, type Settings, type Status, type Theme } from './api'
 import { button, el } from './dom'
+import { setUpSync } from './sync-setup'
 
 type Choice<T = number> = [value: T, label: string]
 
@@ -86,6 +87,28 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
   const [settings, status] = await Promise.all([api.settings(), api.status()])
   draw(settings, status)
 
+  const waiting = el('p', { className: 'muted', hidden: true })
+
+  /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
+  function syncControl(status: Status): HTMLElement {
+    const redraw = async () => draw(await api.settings(), await api.status())
+    const run = (action: () => Promise<unknown>) => async () => {
+      try {
+        await action()
+      } catch (e) {
+        onError(String(e))
+      }
+      await redraw()
+    }
+    if (status.syncedWith) {
+      return el('span', { className: 'sync-control' }, el('span', { className: 'value' }, status.syncedWith),
+        button('Stop syncing', 'Keep the file as it is, without sync', run(api.stopSync)))
+    }
+    return el('span', { className: 'sync-control' }, el('span', { className: 'value' }, 'Not synced'),
+      button('Upload…', 'Put this database into a store as a new file, and sync with it', run(() => setUpSync('upload', waiting))),
+      button('Link…', 'Sync with a file already in a store', run(() => setUpSync('link', waiting))))
+  }
+
   function draw(s: Settings, status: Status) {
     const set = (name: SettingName) => async (value: number | boolean | string) => {
       try {
@@ -115,8 +138,8 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
         row('Download site icons', 'Directly from each site, never through a third party',
           toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
       group('Sync',
-        row('Remote store', status.syncedWith ? (status.database ?? '') : 'Choose one on the unlock screen',
-          el('span', { className: 'value' }, status.syncedWith ?? 'None')),
+        row('This database', status.database ?? '', syncControl(status)),
+        waiting,
         row('Check for remote changes', 'While unlocked',
           select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
     )

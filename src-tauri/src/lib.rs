@@ -24,7 +24,7 @@ mod vault;
 mod window;
 
 use activity::Activity;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use settings::Settings;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -344,16 +344,19 @@ fn sync_with_cloud(
     file: Option<remote::CloudFile>,
     local: Option<String>,
 ) -> Result<Status, String> {
-    can_switch(&app)?;
     let store = app.state::<Store>();
     match file {
         // Opened from the store: downloaded to the file the user chose.
         Some(file) => {
+            can_switch(&app)?;
             let local = local.ok_or("Choose where the file goes on this PC")?;
             sync::start(&store, cloud.location(file), PathBuf::from(local))?;
         }
-        // The current local database, uploaded: it syncs with the new remote file.
+        // The current local database, uploaded (unlocked or not): it syncs with the new remote file.
         None => {
+            if sync::is_running(&app) {
+                return Err("A sync is running; try again in a moment".into());
+            }
             let current = local_database(&store).ok_or("Open a local file first")?;
             let bytes = std::fs::read(&current).map_err(|e| format!("Cannot read {}: {e}", current.display()))?;
             let name = remote::file_name(&current);
@@ -375,7 +378,9 @@ fn sync_with_cloud(
 /// the file has changes the remote file lacks.
 #[tauri::command(async)]
 fn stop_sync(app: AppHandle) -> Result<Status, String> {
-    can_switch(&app)?;
+    if sync::is_running(&app) {
+        return Err("A sync is running; try again in a moment".into());
+    }
     let store = app.state::<Store>();
     if sync::has_pending(&store) {
         return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
@@ -383,7 +388,11 @@ fn stop_sync(app: AppHandle) -> Result<Status, String> {
     let Some(file) = store.read(|s| s.current().filter(|d| d.remote.is_some()).map(|d| d.file.clone())) else {
         return choose(app, |_| {});
     };
-    let kept = if file.starts_with(store.dir().join("sync")) { sync::keep_as_local(&store, &file)? } else { file.clone() };
+    let in_sync_folder = file.starts_with(store.dir().join("sync"));
+    if in_sync_folder && app.state::<Session>().is_unlocked() {
+        return Err("Lock the database first: its file moves out of the app's data folder".into());
+    }
+    let kept = if in_sync_folder { sync::keep_as_local(&store, &file)? } else { file.clone() };
     let cloud = cloud_of(&store, &file);
     // The same entry, in place: its key file and position stay.
     let status = choose(app.clone(), |s| {
@@ -395,6 +404,81 @@ fn stop_sync(app: AppHandle) -> Result<Status, String> {
     })?;
     forget_if_unused(&app, cloud);
     Ok(status)
+}
+
+/// Where the current database could sync: a database file in a folder,
+/// picked with the file dialog (to link to), or where a new one goes (to
+/// upload to).
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum SyncTarget {
+    Folder { path: String },
+    Cloud { cloud: remote::Cloud, file: remote::CloudFile },
+}
+
+impl SyncTarget {
+    fn location(self) -> remote::Location {
+        match self {
+            SyncTarget::Folder { path } => remote::Location::Folder { path: PathBuf::from(path) },
+            SyncTarget::Cloud { cloud, file } => cloud.location(file),
+        }
+    }
+}
+
+/// The current database, when it does not sync yet.
+fn unsynced_database(store: &Store) -> Result<PathBuf, String> {
+    local_database(store).ok_or_else(|| "This database is synced already: stop syncing first".into())
+}
+
+/// Syncs the current database with an existing remote file. When the two
+/// differ, `choice` says what to do; without one nothing changes and the
+/// answer is `false`. The sync that carries it out starts at once.
+#[tauri::command(async)]
+fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::LinkChoice>) -> Result<bool, String> {
+    let store = app.state::<Store>();
+    let file = unsynced_database(&store)?;
+    let location = target.location();
+    if matches!(&location, remote::Location::Folder { path } if path == &file) {
+        return Err("A database cannot sync with its own file".into());
+    }
+    let linked = sync::link(&store, &file, location, choice)?;
+    if linked {
+        sync::reset(&app);
+        sync::request(&app);
+    }
+    Ok(linked)
+}
+
+/// Puts the current database into a folder as a new file (never over one
+/// already there) and syncs with it.
+#[tauri::command(async)]
+fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
+    let store = app.state::<Store>();
+    let file = unsynced_database(&store)?;
+    let Some(target) = pick_new_place(&window, &remote::file_name(&file))? else { return choose(app, |_| {}) };
+    let bytes = std::fs::read(&file).map_err(|e| format!("Cannot read {}: {e}", file.display()))?;
+    use remote::Remote as _;
+    let folder = remote::Folder { path: target.clone() };
+    let revision = match folder.upload(&bytes, None) {
+        Ok(revision) => revision,
+        Err(remote::RemoteError::Changed) => return Err(format!("{} is already there: link to it instead", target.display())),
+        Err(e) => return Err(e.message()),
+    };
+    sync::attach(&store, &file, remote::Location::Folder { path: target }, revision, &bytes)?;
+    sync::reset(&app);
+    choose(app, |_| {})
+}
+
+/// A place for a new file anywhere (a LAN share, say); `None` when cancelled.
+fn pick_new_place(window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
+    let dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
+    dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()
+}
+
+/// A database file in a folder to link to; `None` when cancelled.
+#[tauri::command(async)]
+fn pick_remote_file(window: Window) -> Result<Option<String>, String> {
+    Ok(pick(&window, "KeePass database", &["kdbx"])?.map(|p| p.display().to_string()))
 }
 
 #[tauri::command(async)]
@@ -948,6 +1032,9 @@ pub fn run() {
             status,
             pick_database,
             sync_with_folder,
+            link_database,
+            upload_to_folder,
+            pick_remote_file,
             pick_new_file,
             pick_key_file_path,
             create_database,

@@ -558,6 +558,14 @@ input[type='range']:focus-visible {
   display: none;
 }
 
+.sync-control {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 #sync-status {
   max-width: 30%;
   padding: 0 6px;

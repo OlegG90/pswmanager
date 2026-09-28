@@ -23,6 +23,12 @@ export interface DatabaseInfo {
   syncKind: SyncKind | null
 }
 
+/** A remote file a database can link to. */
+export type SyncTarget = { kind: 'folder'; path: string } | { kind: 'cloud'; cloud: Cloud; file: CloudFile }
+
+/** What to do when a database is linked to a remote file that differs. */
+export type LinkChoice = 'merge' | 'useRemote' | 'keepLocal'
+
 /** A cloud store one signs in to. */
 export type Cloud = 'dropbox' | 'google'
 
@@ -212,6 +218,11 @@ export const api = {
   removeDatabase: (file: string) => invoke<Status>('remove_database', { file }),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
+  /** Links the open database to an existing remote file; false (nothing changed) when they differ and no choice was given. */
+  linkDatabase: (target: SyncTarget, choice: LinkChoice | null) => invoke<boolean>('link_database', { target, choice }),
+  uploadToFolder: () => invoke<Status>('upload_to_folder'),
+  /** A database file in a folder to link to; null when cancelled. */
+  pickRemoteFile: () => invoke<string | null>('pick_remote_file'),
   signInToCloud: (cloud: Cloud) => invoke<CloudFiles>('sign_in_to_cloud', { cloud }),
   /** Opens `file` there into `local` on this PC; with no file, uploads the current local database and syncs it. */
   syncWithCloud: (cloud: Cloud, file: CloudFile | null, local: string | null) =>
