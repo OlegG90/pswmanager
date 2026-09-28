@@ -5,12 +5,14 @@ mod credentials;
 mod data_dir;
 mod dbfile;
 mod dropbox;
+mod google;
 mod edit;
 mod file_watch;
 mod generator;
 mod health;
 mod icons;
 mod opened;
+mod oauth;
 mod otp;
 mod remote;
 mod session_watch;
@@ -27,7 +29,6 @@ use settings::Settings;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use remote::Remote as _;
 use store::Store;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
@@ -193,55 +194,54 @@ fn local_database(store: &Store) -> Option<PathBuf> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DropboxFiles {
-    /// The databases in the app folder, as paths there.
-    files: Vec<String>,
+struct CloudFiles {
+    /// The databases the app can reach there.
+    files: Vec<remote::CloudFile>,
     /// The local database's name, when it can be uploaded instead.
     upload: Option<String>,
 }
 
-/// Signs in to Dropbox in the browser, then lists the databases in the app
-/// folder and the local one that could be uploaded instead.
+/// Signs in to a cloud store in the browser, then lists the databases there
+/// and the local one that could be uploaded instead.
 #[tauri::command(async)]
-fn sign_in_to_dropbox(app: AppHandle) -> Result<DropboxFiles, String> {
+fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, String> {
     can_switch(&app)?;
-    dropbox::sign_in(|url| app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))?;
-    let files = dropbox::list_databases().map_err(|e| e.message())?;
+    cloud.provider().sign_in(|url| app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))?;
+    let files = cloud.list().map_err(|e| e.message())?;
     let upload = local_database(&app.state::<Store>()).map(|p| remote::file_name(&p));
-    Ok(DropboxFiles { files, upload })
+    Ok(CloudFiles { files, upload })
 }
 
-/// The user gave up on Dropbox: stops waiting for the browser, and signs out
-/// unless the database is already synced with Dropbox.
+/// The user gave up on a cloud store: stops waiting for the browser, and
+/// signs out unless the database is already synced with that store.
 #[tauri::command(async)]
-fn cancel_dropbox(app: AppHandle) {
-    dropbox::cancel_sign_in();
-    if !matches!(current_location(&app.state()), Some(remote::Location::Dropbox { .. })) {
-        dropbox::sign_out();
+fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
+    oauth::cancel_sign_in();
+    if current_location(&app.state()).as_ref().and_then(remote::Cloud::of) != Some(cloud) {
+        cloud.provider().sign_out();
     }
 }
 
-/// Syncs with `path` in the Dropbox app folder; without one, the local
-/// database is uploaded there first (never over a file already there).
+/// Syncs with `file` in the cloud store; without one, the local database is
+/// uploaded there first (never over a file already there).
 #[tauri::command(async)]
-fn sync_with_dropbox(app: AppHandle, path: Option<String>) -> Result<Status, String> {
+fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::CloudFile>) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
-    let path = match path {
-        Some(path) => path,
+    let location = match file {
+        Some(file) => cloud.location(file),
         None => {
             let local = local_database(&store).ok_or("Open a local file first")?;
             let bytes = std::fs::read(&local).map_err(|e| format!("Cannot read {}: {e}", local.display()))?;
             let name = remote::file_name(&local);
-            let path = format!("/{name}");
-            match (dropbox::Dropbox { path: path.clone() }).upload(&bytes, None) {
-                Ok(_) => path,
-                Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in Dropbox: choose it instead")),
+            match cloud.create(&name, &bytes) {
+                Ok(location) => location,
+                Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in {}: choose it instead", cloud.provider().name)),
                 Err(e) => return Err(e.message()),
             }
         }
     };
-    sync::start(&store, remote::Location::Dropbox { path })?;
+    sync::start(&store, location)?;
     sync::reset(&app);
     choose(app, |_| {})
 }
@@ -806,9 +806,9 @@ pub fn run() {
             status,
             pick_database,
             sync_with_folder,
-            sign_in_to_dropbox,
-            sync_with_dropbox,
-            cancel_dropbox,
+            sign_in_to_cloud,
+            sync_with_cloud,
+            cancel_cloud,
             stop_sync,
             sync_now,
             sync_status,

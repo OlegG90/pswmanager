@@ -39,8 +39,14 @@ jobs:
 
       - run: npm ci
       - run: npm test
+      # Google Drive's OAuth client secret: not a secret for installed apps,
+      # but not kept in the source; without it the build has no Google Drive.
       - run: npm run build:x64
+        env:
+          PSWM_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       - run: npm run build:arm64
+        env:
+          PSWM_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
       - name: Collect the exes
         shell: pwsh
