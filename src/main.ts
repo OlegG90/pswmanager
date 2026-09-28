@@ -4,13 +4,14 @@ import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChan
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
-import { ask, askText, isAsking } from './modal'
+import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
+import { clicked, type Choice } from './selection'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -44,6 +45,8 @@ const siteIcons = new Map<string, string | null>()
 let filter: Filter = ALL
 let shown: Entry[] = []
 let selectedId: string | null = null
+/** Several entries chosen with Ctrl / Shift+click; null while one (or none) is. */
+let several: Choice | null = null
 let current: EntryDetail | null = null
 /** Values revealed in the current entry, by field name. */
 const revealed = new Map<string, string>()
@@ -153,6 +156,7 @@ async function showLocked() {
   listing = EMPTY
   shown = []
   selectedId = null
+  several = null
   current = null
   revealed.clear()
   list.replaceChildren()
@@ -174,7 +178,16 @@ function fillSidebar() {
     return el('li', {}, b)
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => item({ kind: 'group', group }, label)))
-  tagsList.replaceChildren(...tags.map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)))
+  tagsList.replaceChildren(
+    ...tags.map(([tag, count]) => {
+      const li = item({ kind: 'tag', tag }, tag, count)
+      li.append(menuButton(`More for the tag ${tag}`, [
+        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag) },
+        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag), danger: true },
+      ]))
+      return li
+    }),
+  )
   $('tags-heading').hidden = tags.length === 0
 }
 
@@ -193,6 +206,13 @@ function refresh() {
   if (shown.length === 0) {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
+  }
+  // Several chosen: those still shown stay chosen.
+  if (several) {
+    const still = several.chosen.filter((id) => shown.some((e) => e.id === id))
+    if (still.length > 1) return chooseSeveral({ ...several, chosen: still })
+    several = null
+    if (still.length) return select(still[0])
   }
   select(shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null))
 }
@@ -253,8 +273,43 @@ function listItem(entry: Entry): HTMLLIElement {
   )
   if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
-  li.addEventListener('mousedown', () => select(entry.id))
+  li.addEventListener('mousedown', (e) => pick(entry.id, e))
   return li
+}
+
+/** A click in the list: one entry, or several with Ctrl / Shift. */
+function pick(id: string, e: MouseEvent) {
+  if (isEditing()) return
+  if (!e.ctrlKey && !e.shiftKey) {
+    several = null
+    return select(id)
+  }
+  e.preventDefault() // Shift+click would select the page's text
+  const now = several ?? (selectedId ? { chosen: [selectedId], anchor: selectedId } : null)
+  const next = clicked(shown.map((s) => s.id), now, id, { ctrl: e.ctrlKey, shift: e.shiftKey })
+  if (next.chosen.length > 1) return chooseSeveral(next)
+  several = null
+  select(next.chosen[0])
+}
+
+/** Several entries chosen: the list marks them, the right column offers what
+ *  can be done to all of them. */
+function chooseSeveral(choice: Choice) {
+  several = choice
+  selectedId = null
+  current = null
+  revealed.clear()
+  stopTotp()
+  markList()
+  renderSeveral()
+}
+
+/** Marks the chosen entries in the list. */
+function markList() {
+  for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
+    const id = li.dataset.id ?? ''
+    li.setAttribute('aria-selected', String(several ? several.chosen.includes(id) : id === selectedId))
+  }
 }
 
 const isFavorite = (entry: Entry) => entry.tags.includes(FAVORITE)
@@ -274,7 +329,7 @@ async function toggleFavorite(entry: Entry) {
   if (isEditing()) return
   const on = !isFavorite(entry)
   try {
-    applyListing(await api.setFavorite(entry.id, on), on ? 'Added to Favorites' : 'Removed from Favorites', false)
+    applyListing(await api.setTag([entry.id], FAVORITE, on), on ? 'Added to Favorites' : 'Removed from Favorites', false)
   } catch (e) {
     notify(String(e))
   }
@@ -285,11 +340,9 @@ function select(id: string | null) {
   const same = id === selectedId
   if (!same) revealed.clear()
   selectedId = id
-  for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
-    const on = li.dataset.id === id
-    li.setAttribute('aria-selected', String(on))
-    if (on) li.scrollIntoView({ block: 'nearest' })
-  }
+  several = null
+  markList()
+  list.querySelector(`[aria-selected='true']`)?.scrollIntoView({ block: 'nearest' })
   // A new search that keeps the same entry keeps its view as it is.
   if (same && current?.id === id) return
   stopTotp()
@@ -310,7 +363,8 @@ function select(id: string | null) {
 
 function move(step: number) {
   if (shown.length === 0) return
-  const i = shown.findIndex((e) => e.id === selectedId)
+  // From several chosen, the arrows go on from the last one clicked.
+  const i = shown.findIndex((e) => e.id === (several?.anchor ?? selectedId))
   const next = Math.min(shown.length - 1, Math.max(0, i + step))
   select(shown[next].id)
 }
@@ -431,6 +485,107 @@ function fileRow(file: Attachment, changeable: boolean): HTMLDivElement {
   )
 }
 
+// ---------------------------------------------------------------- several entries
+
+/** What can be done to the chosen entries at once, each change saved as one. */
+function renderSeveral() {
+  if (!several || isEditing()) return
+  const chosen = listing.entries.filter((e) => several!.chosen.includes(e.id))
+  const inUse = chosenInUse()
+  const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
+    el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
+  const rows: Node[] = [el('header', {}, heading)]
+  if (inUse.length < chosen.length) {
+    rows.push(el('p', { className: 'muted' }, inUse.length
+      ? 'Templates and entries in the trash among them are left out.'
+      : 'Templates and entries in the trash are not changed here.'))
+  }
+  if (inUse.length) {
+    const ids = inUse.map((e) => e.id)
+    const theirTags = [...new Set(inUse.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
+    const untag = button('Remove tag…', 'Take a tag off these entries', () => untagSeveral(ids, theirTags))
+    untag.disabled = theirTags.length === 0
+    rows.push(el('div', { className: 'buttons' },
+      button('Add tag…', 'Give these entries a tag', () => tagSeveral(ids)),
+      untag,
+      button('★ Favorite', 'Add these entries to Favorites', () => changeSeveral(ids, FAVORITE, true)),
+      button('Not favorite', 'Remove these entries from Favorites', () => changeSeveral(ids, FAVORITE, false)),
+      button('Delete…', 'Move these entries to the recycle bin (Del)', () => deleteSeveral(ids), 'danger')))
+  }
+  detail.replaceChildren(...rows)
+}
+
+/** The chosen entries that can be changed here: not templates, not the trash's. */
+function chosenInUse(): Entry[] {
+  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && editable(e)) : []
+}
+
+async function tagSeveral(ids: string[]) {
+  const known = tagCounts(listing.entries).map(([tag]) => tag)
+  const tag = await askText(`Add a tag to ${ids.length} entries:`, '', 'Add tag', 0, known)
+  if (tag?.trim()) changeSeveral(ids, tag.trim(), true)
+}
+
+async function untagSeveral(ids: string[], tags: string[]) {
+  const i = await choose(`Take which tag off ${ids.length} entries?`, tags)
+  if (i !== null) changeSeveral(ids, tags[i], false)
+}
+
+async function changeSeveral(ids: string[], tag: string, on: boolean) {
+  const what = tag === FAVORITE ? (on ? 'Added to Favorites' : 'Removed from Favorites') : `${on ? 'Tagged' : 'Took the tag off'} "${tag}"`
+  try {
+    applyListing(await api.setTag(ids, tag, on), `${what} · ${ids.length} entries`, false)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function deleteSeveral(ids: string[]) {
+  if (!ids.length || !await ask(`Move ${ids.length} entries to the recycle bin?`, 'Move to the recycle bin')) return
+  try {
+    const next = await api.deleteEntries(ids)
+    several = null
+    applyListing(next, `Moved ${ids.length} entries to the recycle bin`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+// ---------------------------------------------------------------- tags
+
+/** How many entries have the tag: templates and the trash's too, as renaming
+ *  and removing a tag change every entry (a template would bring it back). */
+function entriesTagged(tag: string): string {
+  const count = listing.entries.filter((e) => e.tags.includes(tag)).length
+  return `${count} ${count === 1 ? 'entry' : 'entries'}`
+}
+
+/** Renames a tag in every entry; to a name another tag has, after asking, the two merge. */
+async function renameTag(tag: string) {
+  const to = (await askText(`Rename the tag "${tag}" (${entriesTagged(tag)}) to:`, tag, 'Rename'))?.trim()
+  if (!to || to === tag) return
+  if (listing.entries.some((e) => e.tags.includes(to))) {
+    if (!await ask(`There is a tag "${to}" already. Merge "${tag}" into it?`, 'Merge')) return
+  }
+  try {
+    const next = await api.renameTag(tag, to)
+    if (sameFilter(filter, { kind: 'tag', tag })) filter = { kind: 'tag', tag: to }
+    applyListing(next, `Renamed the tag "${tag}" to "${to}"`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function removeTag(tag: string) {
+  const yes = await ask(`Take the tag "${tag}" off ${entriesTagged(tag)}? The entries stay.`, 'Remove the tag')
+  if (!yes) return
+  try {
+    applyListing(await api.removeTag(tag), `Removed the tag "${tag}"`)
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
 // ---------------------------------------------------------------- TOTP
 
 let totpTimer: number | undefined
@@ -491,6 +646,7 @@ async function copyTotp() {
 
 function startEditor(id: string | null, focusPassword = false) {
   if (isEditing()) return
+  several = null
   stopTotp()
   openEditor(detail, {
     id,
@@ -547,7 +703,7 @@ async function deleteEntry() {
   // An update from another device may refresh the view meanwhile; the choice still stands.
   if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
-    applyListing(await api.deleteEntry(entry.id), 'Moved to the recycle bin')
+    applyListing(await api.deleteEntries([entry.id]), 'Moved to the recycle bin')
   } catch (e) {
     notify(String(e))
   }
@@ -798,7 +954,8 @@ function perform(action: Action, e: KeyboardEvent) {
       editEntry()
       break
     case 'delete-entry':
-      deleteEntry()
+      if (several) deleteSeveral(chosenInUse().map((x) => x.id))
+      else deleteEntry()
       break
     case 'previous':
       move(-1)

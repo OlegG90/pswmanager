@@ -263,9 +263,14 @@ export const api = {
    *  opened it: only what changed against it is saved. */
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData) =>
     invoke<Saved>('save_entry', { id, base, data }),
-  deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
-  /** Stars the entry or takes its star off (the tag Favorite). */
-  setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
+  /** Moves the entries to the recycle bin, as one change. */
+  deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
+  /** Gives the entries the tag or takes it off; the star is the tag Favorite. */
+  setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),
+  /** Renames a tag in every entry; to a name another tag has, the two become one. */
+  renameTag: (from: string, to: string) => invoke<Listing>('rename_tag', { from, to }),
+  /** Takes a tag off every entry. */
+  removeTag: (tag: string) => invoke<Listing>('remove_tag', { tag }),
   /** Asks where to save the file and writes it there; false when cancelled. */
   saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
   /** Opens the file in the app Windows uses for its type, from a read-only

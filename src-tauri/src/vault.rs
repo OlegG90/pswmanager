@@ -276,19 +276,37 @@ impl Vault {
         self.change(|db, hidden| edit::replace_attachment(db, id, name, data, hidden))
     }
 
-    /// Stars an entry or takes its star off, and saves the file.
-    pub fn set_favorite(&mut self, id: &str, on: bool) -> Result<(), String> {
-        let id = parse_id(id)?;
-        self.change(|db, hidden| edit::set_favorite(db, id, on, hidden))
+    /// Gives entries a tag or takes it off (the star is the tag Favorite), and
+    /// saves the file.
+    pub fn set_tag(&mut self, ids: &[String], tag: &str, on: bool) -> Result<(), String> {
+        let ids = parse_ids(ids)?;
+        self.change(|db, hidden| edit::set_tag(db, &ids, tag, on, hidden))
     }
 
-    /// Moves an entry to the recycle bin and saves the file. An entry already
-    /// gone (deleted or binned elsewhere) needs nothing.
-    pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
-        let id = parse_id(id)?;
-        self.change(|db, hidden| match db.entry(id) {
-            Some(entry) if !is_in(&entry, hidden) => edit::recycle(db, id),
-            _ => Ok(()),
+    /// Renames a tag in every entry and saves the file.
+    pub fn rename_tag(&mut self, from: &str, to: &str) -> Result<(), String> {
+        self.change(|db, _| edit::rename_tag(db, from, to))
+    }
+
+    /// Takes a tag off every entry and saves the file.
+    pub fn remove_tag(&mut self, tag: &str) -> Result<(), String> {
+        self.change(|db, _| {
+            edit::remove_tag(db, tag);
+            Ok(())
+        })
+    }
+
+    /// Moves entries to the recycle bin and saves the file, as one change. An
+    /// entry already gone (deleted or binned elsewhere) needs nothing.
+    pub fn delete_entries(&mut self, ids: &[String]) -> Result<(), String> {
+        let ids = parse_ids(ids)?;
+        self.change(|db, hidden| {
+            for &id in &ids {
+                if db.entry(id).is_some_and(|entry| !is_in(&entry, hidden)) {
+                    edit::recycle(db, id)?;
+                }
+            }
+            Ok(())
         })
     }
 
@@ -428,6 +446,10 @@ fn in_group(entry: &EntryRef<'_>, group: Option<Uuid>) -> bool {
 
 fn parse_id(id: &str) -> Result<EntryId, String> {
     Uuid::parse_str(id).map(EntryId::from).map_err(|_| NOT_FOUND.into())
+}
+
+fn parse_ids(ids: &[String]) -> Result<Vec<EntryId>, String> {
+    ids.iter().map(|id| parse_id(id)).collect()
 }
 
 /// The ids of entries that differ between two versions of the database.
@@ -887,7 +909,7 @@ pub mod tests {
         let mut first = edit::EntryData::default();
         first.title = "First".into();
         let (id, _) = vault.save_entry(None, None, &first).unwrap();
-        vault.delete_entry(&id).unwrap();
+        vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         assert!(Vault::create(&path, "Again", Some("pw"), None).unwrap_err().contains("already there"));
         assert!(Vault::create(&dir.path().join("b.kdbx"), "B", None, None).is_err());
     }
@@ -897,7 +919,7 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let id = in_use(&vault)[0].id.clone();
-        vault.delete_entry(&id).unwrap();
+        vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(kind_of(&reopened, &id), Some(Kind::Trash));
         assert_eq!(in_use(&reopened).len(), 2);
@@ -1006,7 +1028,7 @@ pub mod tests {
         });
         assert_eq!(vault.reload().unwrap(), Some(vec![mail.uuid().to_string()]));
         assert_eq!(kind_of(&vault, &mail.uuid().to_string()), Some(Kind::Trash));
-        vault.delete_entry(&mail.uuid().to_string()).unwrap();
+        vault.delete_entries(&[mail.uuid().to_string()]).unwrap();
     }
 
     #[test]

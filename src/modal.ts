@@ -49,10 +49,19 @@ export function choose(message: string, choices: string[]): Promise<number | nul
 }
 
 /** Asks for a line of text, starting from `value` with `selected` of it
- *  selected; resolves to the text, or `null` for Cancel. Enter confirms. */
-export function askText(message: string, value: string, confirmLabel: string, selected = value.length): Promise<string | null> {
+ *  selected, offering `suggestions` as it is typed; resolves to the text, or
+ *  `null` for Cancel. Enter confirms. */
+export function askText(
+  message: string,
+  value: string,
+  confirmLabel: string,
+  selected = value.length,
+  suggestions: string[] = [],
+): Promise<string | null> {
   return dialog<string | null>(message, null, (answer) => {
     const input = el('input', { value, spellcheck: false, className: 'text' })
+    const list = el('datalist', { id: 'ask-suggestions' }, ...suggestions.map((s) => new Option(s)))
+    input.setAttribute('list', list.id)
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault()
@@ -60,6 +69,6 @@ export function askText(message: string, value: string, confirmLabel: string, se
       }
     })
     requestAnimationFrame(() => input.setSelectionRange(0, selected))
-    return { body: [input], buttons: [button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')], focus: input }
+    return { body: [input, list], buttons: [button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')], focus: input }
   })
 }

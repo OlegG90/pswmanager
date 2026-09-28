@@ -831,21 +831,39 @@ fn rename_attachment(app: AppHandle, session: State<Session>, id: String, from: 
     Ok(renamed)
 }
 
-/// Stars an entry or takes its star off, saves the file and returns the new
-/// listing. A tag: it waits for the next sync.
+/// Gives entries a tag or takes it off (the star is the tag Favorite),
+/// saves the file and returns the new listing. Tags wait for the next sync.
 #[tauri::command(async)]
-fn set_favorite(session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
+fn set_tag(session: State<Session>, ids: Vec<String>, tag: String, on: bool) -> Result<Listing, String> {
     session.with_mut(|v| {
-        v.set_favorite(&id, on)?;
+        v.set_tag(&ids, &tag, on)?;
         Ok(v.listing())
     })
 }
 
-/// Moves an entry to the recycle bin, saves the file and returns the new listing.
+/// Renames a tag in every entry; tags wait for the next sync.
 #[tauri::command(async)]
-fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
+fn rename_tag(session: State<Session>, from: String, to: String) -> Result<Listing, String> {
+    session.with_mut(|v| {
+        v.rename_tag(&from, &to)?;
+        Ok(v.listing())
+    })
+}
+
+/// Takes a tag off every entry; tags wait for the next sync.
+#[tauri::command(async)]
+fn remove_tag(session: State<Session>, tag: String) -> Result<Listing, String> {
+    session.with_mut(|v| {
+        v.remove_tag(&tag)?;
+        Ok(v.listing())
+    })
+}
+
+/// Moves entries to the recycle bin, saves the file and returns the new listing.
+#[tauri::command(async)]
+fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
     let listing = session.with_mut(|v| {
-        v.delete_entry(&id)?;
+        v.delete_entries(&ids)?;
         Ok(v.listing())
     })?;
     sync::upload_soon(&app);
@@ -1084,8 +1102,10 @@ pub fn run() {
             hide_window,
             edit_entry,
             save_entry,
-            delete_entry,
-            set_favorite,
+            delete_entries,
+            set_tag,
+            rename_tag,
+            remove_tag,
             save_attachment,
             open_attachment,
             attach_file,

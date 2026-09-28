@@ -764,29 +764,85 @@ fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     joined
 }
 
-/// Stars the entry or takes its star off (the tag [FAVORITE]), its previous
-/// version kept in history. Nothing changes when it already is as asked.
-pub fn set_favorite(db: &mut Database, id: EntryId, on: bool, hidden: &HashSet<GroupId>) -> Result<(), String> {
-    let entry = db.entry(id).ok_or(NOT_FOUND)?;
-    if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
-        return Err(NOT_FOUND.into());
-    }
-    if entry.tags.iter().any(|t| t == FAVORITE) == on {
-        return Ok(());
-    }
-    {
-        let mut entry = db.entry_mut(id).expect("checked above");
-        let mut tracked = entry.track_changes();
-        tracked.edit(|e| {
-            if on {
-                e.tags.push(FAVORITE.into());
-            } else {
-                e.tags.retain(|t| t != FAVORITE);
-            }
+/// Gives the entries the tag, or takes it off (the tag [FAVORITE] is the
+/// star). Entries gone, templates and the recycle bin's (`hidden`) are left
+/// out, and so are entries already as asked.
+pub fn set_tag(db: &mut Database, ids: &[EntryId], tag: &str, on: bool, hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let tag = tag_name(tag)?;
+    for &id in ids {
+        let Some(entry) = db.entry(id) else { continue };
+        if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
+            continue;
+        }
+        retag(db, id, |tags| match (on, tags.contains(&tag)) {
+            (true, false) => [tags, std::slice::from_ref(&tag)].concat(),
+            (false, true) => tags.iter().filter(|t| **t != tag).cloned().collect(),
+            _ => tags.to_vec(), // already as asked, in its place
         });
-    } // dropping the tracker files the old version into the history
-    trim_history(db, id);
+    }
     Ok(())
+}
+
+/// Renames the tag in every entry (templates and the recycle bin's too); to a
+/// name another tag has, the two become one.
+pub fn rename_tag(db: &mut Database, from: &str, to: &str) -> Result<(), String> {
+    let to = tag_name(to)?;
+    if to == FAVORITE {
+        return Err(format!("{FAVORITE} is the star: choose another name"));
+    }
+    for id in all_entries(db) {
+        retag(db, id, |tags| {
+            // Entries without the tag stay exactly as they are.
+            if !tags.iter().any(|t| t == from) {
+                return tags.to_vec();
+            }
+            let mut renamed: Vec<String> = Vec::with_capacity(tags.len());
+            for tag in tags {
+                let tag = if tag == from { to.clone() } else { tag.clone() };
+                if !renamed.contains(&tag) {
+                    renamed.push(tag);
+                }
+            }
+            renamed
+        });
+    }
+    Ok(())
+}
+
+/// Takes the tag off every entry (templates and the recycle bin's too); the entries stay.
+pub fn remove_tag(db: &mut Database, tag: &str) {
+    for id in all_entries(db) {
+        retag(db, id, |tags| tags.iter().filter(|t| *t != tag).cloned().collect());
+    }
+}
+
+fn all_entries(db: &Database) -> Vec<EntryId> {
+    db.iter_all_entries().map(|e| e.id()).collect()
+}
+
+/// A tag as KeePass stores it: commas and semicolons separate tags.
+fn tag_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A tag needs a name".into());
+    }
+    if name.contains([',', ';']) {
+        return Err("A tag cannot contain a comma or a semicolon".into());
+    }
+    Ok(name.to_string())
+}
+
+/// Gives the entry the tags `change` makes of its own, its previous version
+/// kept in history. Nothing changes when they are the same.
+fn retag(db: &mut Database, id: EntryId, change: impl FnOnce(&[String]) -> Vec<String>) {
+    let Some(entry) = db.entry(id) else { return };
+    let tags = change(&entry.tags);
+    if tags == entry.tags {
+        return;
+    }
+    db.entry_mut(id).expect("checked above").track_changes().edit(|e| e.tags = tags);
+    // the tracker, dropped above, filed the old version into the history
+    trim_history(db, id);
 }
 
 /// True when an edit (`data` against the entry as the editor opened it,
@@ -935,20 +991,46 @@ mod tests {
     }
 
     #[test]
-    fn the_star_is_a_tag_with_history() {
+    fn tags_are_set_on_several_entries_with_history() {
         let mut db = Database::new();
-        let id = apply(&mut db, None, &with("x", |d| d.tags = vec!["work".into()]), &HashSet::new()).unwrap();
-        set_favorite(&mut db, id, true, &HashSet::new()).unwrap();
-        assert_eq!(db.entry(id).unwrap().tags, ["work", FAVORITE]);
-        assert_eq!(history_len(&db, id), 1);
-        // Already starred: nothing changes.
-        set_favorite(&mut db, id, true, &HashSet::new()).unwrap();
-        assert_eq!(history_len(&db, id), 1);
-        set_favorite(&mut db, id, false, &HashSet::new()).unwrap();
-        assert_eq!(db.entry(id).unwrap().tags, ["work"]);
-        // Not in the recycle bin.
-        let group = db.entry(id).unwrap().parent().id();
-        assert!(set_favorite(&mut db, id, true, &HashSet::from([group])).is_err());
+        let a = apply(&mut db, None, &with("a", |d| d.tags = vec!["work".into()]), &HashSet::new()).unwrap();
+        let b = apply(&mut db, None, &data("b"), &HashSet::new()).unwrap();
+        let binned = apply(&mut db, None, &data("binned"), &HashSet::new()).unwrap();
+        let bin = db.entry(binned).unwrap().parent().id();
+        let tags = |db: &Database, id: EntryId| db.entry(id).unwrap().tags.clone();
+        set_tag(&mut db, &[a, b], FAVORITE, true, &HashSet::new()).unwrap();
+        assert_eq!((tags(&db, a), tags(&db, b)), (vec!["work".to_string(), FAVORITE.into()], vec![FAVORITE.to_string()]));
+        assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
+        // Already so, even not last: nothing changes.
+        set_tag(&mut db, &[a], "work", true, &HashSet::new()).unwrap();
+        set_tag(&mut db, &[b], "work", false, &HashSet::new()).unwrap();
+        assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
+        set_tag(&mut db, &[a, b], " work ", false, &HashSet::new()).unwrap();
+        assert_eq!((tags(&db, a), history_len(&db, b)), (vec![FAVORITE.to_string()], 1));
+        // Entries gone and hidden ones are left out.
+        let gone = EntryId::from(uuid::Uuid::new_v4());
+        set_tag(&mut db, &[gone, binned], "x", true, &HashSet::from([bin])).unwrap();
+        assert!(tags(&db, binned).is_empty());
+        assert!(set_tag(&mut db, &[a], "a,b", true, &HashSet::new()).is_err());
+        assert!(set_tag(&mut db, &[a], " ", true, &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn a_tag_is_renamed_merged_and_removed_everywhere() {
+        let mut db = Database::new();
+        let a = apply(&mut db, None, &with("a", |d| d.tags = vec!["old".into(), "x".into()]), &HashSet::new()).unwrap();
+        let b = apply(&mut db, None, &with("b", |d| d.tags = vec!["new".into(), "old".into()]), &HashSet::new()).unwrap();
+        // Tags another client wrote twice stay so when another tag is renamed.
+        let c = apply(&mut db, None, &with("c", |d| d.tags = vec!["y".into(), "y".into()]), &HashSet::new()).unwrap();
+        rename_tag(&mut db, "old", " new ").unwrap();
+        let tags = |db: &Database, id: EntryId| db.entry(id).unwrap().tags.clone();
+        assert_eq!(tags(&db, a), ["new", "x"]);
+        assert_eq!(tags(&db, b), ["new"]);
+        assert_eq!(history_len(&db, c), 0);
+        assert!(rename_tag(&mut db, "new", FAVORITE).is_err());
+        remove_tag(&mut db, "new");
+        assert_eq!((tags(&db, a), tags(&db, b)), (vec!["x".to_string()], vec![]));
+        assert_eq!(history_len(&db, b), 2);
     }
 
     #[test]
