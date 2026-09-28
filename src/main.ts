@@ -512,30 +512,32 @@ function renderSeveral() {
   const trashed = chosenInTrash()
   const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
     el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
-  const rows: Node[] = [el('header', {}, heading)]
+  // One bar at the bottom of the column, as an entry's.
+  const actions: HTMLButtonElement[] = []
   const templates = chosenTemplates()
   if (templates.length) {
-    rows.push(el('div', { className: 'buttons' },
-      button('Delete…', 'Move these templates to the recycle bin (Del)', () => deleteSeveral(templates.map((e) => e.id)), 'danger')))
+    actions.push(button('Delete…', 'Move these templates to the recycle bin (Del)', () => deleteSeveral(templates.map((e) => e.id)), 'danger'))
   }
   if (trashed.length) {
     const ids = trashed.map((e) => e.id)
-    rows.push(el('div', { className: 'buttons' },
+    actions.push(
       button('Restore', 'Put them back where they were', () => restore(ids), 'primary'),
-      button('Delete permanently…', 'Delete them for good, on every device (Del)', () => deleteForGood(ids), 'danger')))
+      button('Delete permanently…', 'Delete them for good, on every device (Del)', () => deleteForGood(ids), 'danger'))
   }
   if (inUse.length) {
     const ids = inUse.map((e) => e.id)
     const theirTags = [...new Set(inUse.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
     const untag = button('Remove tag…', 'Take a tag off these entries', () => untagSeveral(ids, theirTags))
     untag.disabled = theirTags.length === 0
-    rows.push(el('div', { className: 'buttons' },
+    actions.push(
       button('Add tag…', 'Give these entries a tag', () => tagSeveral(ids)),
       untag,
       button('★ Favorite', 'Add these entries to Favorites', () => changeSeveral(ids, FAVORITE, true)),
       button('Not favorite', 'Remove these entries from Favorites', () => changeSeveral(ids, FAVORITE, false)),
-      button('Delete…', 'Move these entries to the recycle bin (Del)', () => deleteSeveral(ids), 'danger')))
+      button('Delete…', 'Move these entries to the recycle bin (Del)', () => deleteSeveral(ids), 'danger'))
   }
+  const rows: Node[] = [el('header', {}, heading)]
+  if (actions.length) rows.push(el('div', { className: 'buttons' }, ...actions))
   detail.replaceChildren(...rows)
 }
 

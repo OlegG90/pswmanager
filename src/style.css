@@ -1041,12 +1041,12 @@ button.star[aria-pressed='true'] {
   letter-spacing: 0;
 }
 
+/* Where they sit is set above: at the bottom of the column. */
 #detail .buttons,
 .editor .buttons {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 18px;
 }
 
 #detail .buttons button,
