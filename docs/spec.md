@@ -89,8 +89,8 @@ uploads anything, and setting up sync never picks another database.
 ### Groups and tags
 
 The sidebar has two parts. **Groups** are fixed: an entry is in one because of what it is or what was done
-to it, never by picking the group. **Tags** are the user's own way to sort entries; every tag in the
-database is listed under the groups, with its number of entries.
+to it, never by picking the group. **Tags** are the user's own way to sort entries; every tag of the
+entries in use (not templates, not the trash) is listed under the groups, with its number of entries.
 
 | Group | Shows |
 |---|---|

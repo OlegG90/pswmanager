@@ -35,7 +35,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 use edit::EntryData;
-use vault::{EntryDetail, Listing, Vault};
+use vault::{EntryDetail, Kind, Listing, Vault};
 use zeroize::Zeroizing;
 
 /// How often the inactivity check runs.
@@ -612,7 +612,8 @@ fn fetch_icons(app: &AppHandle, listing: &Listing) {
     if !Settings::of(&store).download_icons() {
         return;
     }
-    let mut hosts: Vec<String> = listing.entries.iter().filter_map(|e| e.host.clone()).collect();
+    // Only the entries in use: not the recycle bin's or the templates' sites.
+    let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
     hosts.sort();
     hosts.dedup();
     let (app, data_dir) = (app.clone(), store.dir().to_path_buf());
