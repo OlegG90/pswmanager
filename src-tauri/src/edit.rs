@@ -63,7 +63,7 @@ pub enum IconChoice {
 /// The largest image an entry's own icon may be.
 pub const MAX_ICON: usize = 256 << 10;
 
-fn icon_choice(entry: &EntryRef<'_>) -> IconChoice {
+pub fn icon_choice(entry: &EntryRef<'_>) -> IconChoice {
     if let Some(custom) = entry.custom_icon() {
         return IconChoice::Custom { data: base64::engine::general_purpose::STANDARD.encode(&custom.data) };
     }
@@ -787,6 +787,30 @@ fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
         joined.push(id);
     }
     joined
+}
+
+/// Makes an older version (`index` in the history, newest first) the entry's
+/// current content: fields, tags, icon, expiry and files. The version it
+/// replaces goes into the history, as with an edit; the entry stays in its
+/// group. Not for an entry in the trash.
+pub fn restore_version(db: &mut Database, id: EntryId, index: usize, hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let snapshot = db.clone();
+    let entry = snapshot.entry(id).ok_or(NOT_FOUND)?;
+    if is_binned(&snapshot, &entry) {
+        return Err("An entry in the trash is not changed; restore it first".into());
+    }
+    let version = entry.historical(index).ok_or("That version is no longer in the entry's history")?;
+    let data = read(&version, path_of(&snapshot, entry.parent().id()));
+    // As the tracker files it: without its own history.
+    let mut before = (*entry).clone();
+    before.history = None;
+    apply(db, Some(id), &data, hidden)?;
+    let filed = db.entry(id).and_then(|e| e.history.as_ref().and_then(|h| h.get_entries().first().cloned())).is_some_and(|newest| newest == before);
+    if take_attachments(db, &version) && !filed {
+        file_in_history(db, id, before);
+        trim_history(db, id);
+    }
+    Ok(())
 }
 
 /// Gives the entries the tag, or takes it off (the tag [FAVORITE] is the

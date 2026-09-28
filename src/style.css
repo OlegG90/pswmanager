@@ -975,6 +975,53 @@ button.star[aria-pressed='true'] {
 }
 
 /* Attachments: the file name, its size, Save…. */
+/* History: a quiet link under the title, the versions as a list. */
+#detail .heading button.history {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--color-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.versions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-divider);
+}
+
+.versions button.version {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+
+.versions button.version:hover {
+  background: var(--color-accent-100);
+}
+
+.versions .what {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+}
+
+/* How the entry differs now, under an older version. */
+.row.now .value {
+  color: var(--color-neutral-700);
+}
+
 .row.file {
   grid-template-columns: 1fr auto auto;
 }

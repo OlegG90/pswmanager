@@ -99,6 +99,30 @@ export interface EntryDetail extends Entry {
   attachments: Attachment[]
   /** When the entry was last changed (RFC 3339), if the file says. */
   modified: string | null
+  /** How many older versions its history keeps. */
+  versions: number
+}
+
+/** An older version of an entry, as its history lists it. */
+export interface Version {
+  /** When it was saved (RFC 3339). */
+  modified: string | null
+  /** What changed from it to the next newer version: names, never values. */
+  changed: string[]
+}
+
+/** An older version shown read only, with how it differs from the entry now. */
+export interface VersionDetail extends EntryDetail {
+  differs: Difference[]
+}
+
+/** A field whose value in a version is not the entry's current one. */
+export interface Difference {
+  name: string
+  /** The current value, when it is not a secret and the entry has the field. */
+  current: string | null
+  /** The current value is a secret: only that it differs is said. */
+  protected: boolean
 }
 
 /** After attaching a file. */
@@ -251,9 +275,15 @@ export const api = {
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),
-  reveal: (id: string, field: string) => invoke<string>('reveal', { id, field }),
+  /** With `version`, the value in that older version (0 is the newest). */
+  reveal: (id: string, field: string, version: number | null = null) => invoke<string>('reveal', { id, field, version }),
   /** Resolves to the seconds until the clipboard is cleared. */
-  copy: (id: string, field: string) => invoke<number>('copy_field', { id, field }),
+  copy: (id: string, field: string, version: number | null = null) => invoke<number>('copy_field', { id, field, version }),
+  /** The entry's older versions, newest first. */
+  entryHistory: (id: string) => invoke<Version[]>('entry_history', { id }),
+  entryVersion: (id: string, index: number) => invoke<VersionDetail>('entry_version', { id, index }),
+  /** Makes an older version the entry's current content; the replaced one goes to history. */
+  restoreVersion: (id: string, index: number) => invoke<Listing>('restore_version', { id, index }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   /** Tells the backend the window is in use, which postpones the auto-lock. */
@@ -280,10 +310,10 @@ export const api = {
   /** Takes a tag off every entry. */
   removeTag: (tag: string) => invoke<Listing>('remove_tag', { tag }),
   /** Asks where to save the file and writes it there; false when cancelled. */
-  saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
+  saveAttachment: (id: string, name: string, version: number | null = null) => invoke<boolean>('save_attachment', { id, name, version }),
   /** Opens the file in the app Windows uses for its type, from a read-only
    *  copy deleted when the database locks. */
-  openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
+  openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
   /** Asks for a file and attaches it to the entry; null when cancelled. */
   attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
   /** Asks for a file and makes its content the entry's file `name`; its
