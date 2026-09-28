@@ -4,17 +4,25 @@ export interface Status {
   database: string | null
   /** Where the database is synced to; `database` is then its working copy. */
   syncedWith: string | null
-  syncKind: 'folder' | 'dropbox' | null
+  syncKind: 'folder' | Cloud | null
   keyFile: string | null
   unlocked: boolean
   /** Something to tell the user, such as a hotkey that could not be registered. */
   notice: string | null
 }
 
-/** After signing in to Dropbox: what the app folder offers. */
-export interface DropboxFiles {
-  /** Databases in the app folder, as paths there. */
-  files: string[]
+/** A cloud store one signs in to. */
+export type Cloud = 'dropbox' | 'google'
+
+/** A database file in a cloud store: its id there (a path for Dropbox) and name. */
+export interface CloudFile {
+  id: string
+  name: string
+}
+
+/** After signing in to a cloud store: what it offers. */
+export interface CloudFiles {
+  files: CloudFile[]
   /** The local database's name, when it can be uploaded instead. */
   upload: string | null
 }
@@ -184,11 +192,11 @@ export const api = {
   pickDatabase: () => invoke<Status>('pick_database'),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
-  signInToDropbox: () => invoke<DropboxFiles>('sign_in_to_dropbox'),
-  /** Syncs with `path` in the app folder; `null` uploads the local database first. */
-  syncWithDropbox: (path: string | null) => invoke<Status>('sync_with_dropbox', { path }),
-  /** Gives up on Dropbox: stops waiting for the browser and signs out, unless already synced with it. */
-  cancelDropbox: () => invoke<void>('cancel_dropbox'),
+  signInToCloud: (cloud: Cloud) => invoke<CloudFiles>('sign_in_to_cloud', { cloud }),
+  /** Syncs with `file` there; `null` uploads the local database first. */
+  syncWithCloud: (cloud: Cloud, file: CloudFile | null) => invoke<Status>('sync_with_cloud', { cloud, file }),
+  /** Gives up on a cloud store: stops waiting for the browser and signs out, unless already synced with it. */
+  cancelCloud: (cloud: Cloud) => invoke<void>('cancel_cloud', { cloud }),
   syncNow: () => invoke<void>('sync_now'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),

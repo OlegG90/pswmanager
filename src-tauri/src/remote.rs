@@ -47,13 +47,80 @@ pub enum Location {
     Folder { path: PathBuf },
     /// A file in the app's Dropbox folder, by its path there (`/base.kdbx`).
     Dropbox { path: String },
+    /// A file in the Drive's PswManager folder, by its id; `name` is for people.
+    GoogleDrive { id: String, name: String },
+}
+
+/// A cloud store one signs in to.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Cloud {
+    Dropbox,
+    Google,
+}
+
+/// A database file in a cloud store: its id there (a path for Dropbox) and name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudFile {
+    pub id: String,
+    pub name: String,
+}
+
+impl Cloud {
+    pub fn provider(self) -> &'static crate::oauth::Provider {
+        match self {
+            Cloud::Dropbox => &crate::dropbox::DROPBOX,
+            Cloud::Google => &crate::google::GOOGLE,
+        }
+    }
+
+    /// The databases the app can reach there.
+    pub fn list(self) -> Result<Vec<CloudFile>, RemoteError> {
+        Ok(match self {
+            Cloud::Dropbox => crate::dropbox::list_databases()?
+                .into_iter()
+                .map(|path| CloudFile { name: path.trim_start_matches('/').to_string(), id: path })
+                .collect(),
+            Cloud::Google => crate::google::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect(),
+        })
+    }
+
+    pub fn location(self, file: CloudFile) -> Location {
+        match self {
+            Cloud::Dropbox => Location::Dropbox { path: file.id },
+            Cloud::Google => Location::GoogleDrive { id: file.id, name: file.name },
+        }
+    }
+
+    /// Uploads a new file there; one of that name already there is never
+    /// replaced ([RemoteError::Changed]).
+    pub fn create(self, name: &str, bytes: &[u8]) -> Result<Location, RemoteError> {
+        match self {
+            Cloud::Dropbox => {
+                let path = format!("/{name}");
+                crate::dropbox::Dropbox { path: path.clone() }.upload(bytes, None)?;
+                Ok(Location::Dropbox { path })
+            }
+            Cloud::Google => Ok(Location::GoogleDrive { id: crate::google::create(name, bytes)?, name: name.to_string() }),
+        }
+    }
 }
 
 impl Location {
+    /// The cloud store this is in; `None` for a folder.
+    pub fn cloud(&self) -> Option<Cloud> {
+        match self {
+            Location::Folder { .. } => None,
+            Location::Dropbox { .. } => Some(Cloud::Dropbox),
+            Location::GoogleDrive { .. } => Some(Cloud::Google),
+        }
+    }
+
     pub fn open(&self) -> Box<dyn Remote> {
         match self {
             Location::Folder { path } => Box::new(Folder { path: path.clone() }),
             Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
+            Location::GoogleDrive { id, .. } => Box::new(crate::google::GoogleDrive { id: id.clone() }),
         }
     }
 
@@ -62,6 +129,7 @@ impl Location {
         match self {
             Location::Folder { path } => file_name(path),
             Location::Dropbox { path } => file_name(Path::new(path.rsplit('/').next().unwrap_or_default())),
+            Location::GoogleDrive { name, .. } => file_name(Path::new(name)),
         }
     }
 
@@ -70,6 +138,7 @@ impl Location {
         match self {
             Location::Folder { .. } => "folder",
             Location::Dropbox { .. } => "dropbox",
+            Location::GoogleDrive { .. } => "google",
         }
     }
 
@@ -78,6 +147,7 @@ impl Location {
         match self {
             Location::Folder { path } => path.display().to_string(),
             Location::Dropbox { path } => format!("Dropbox: {path}"),
+            Location::GoogleDrive { name, .. } => format!("Google Drive: {}/{name}", crate::google::FOLDER),
         }
     }
 
@@ -87,16 +157,15 @@ impl Location {
     pub fn detach(&self, store: &crate::store::Store, working: &Path) -> Result<PathBuf, String> {
         match self {
             Location::Folder { path } => Ok(path.clone()),
-            Location::Dropbox { .. } => crate::sync::keep_as_local(store, working),
+            _ => crate::sync::keep_as_local(store, working),
         }
     }
 
     /// The database no longer uses this store: a cloud account is signed out
     /// (its refresh token removed).
     pub fn forget(&self) {
-        match self {
-            Location::Folder { .. } => {}
-            Location::Dropbox { .. } => crate::dropbox::sign_out(),
+        if let Some(cloud) = self.cloud() {
+            cloud.provider().sign_out();
         }
     }
 
@@ -105,6 +174,7 @@ impl Location {
         match self {
             Location::Folder { .. } => "the folder",
             Location::Dropbox { .. } => "Dropbox",
+            Location::GoogleDrive { .. } => "Google Drive",
         }
     }
 }

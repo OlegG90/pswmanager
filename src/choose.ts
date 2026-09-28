@@ -1,14 +1,20 @@
-import { api, type Status } from './api'
+import { api, type Cloud, type Status } from './api'
 import { button, el } from './dom'
 import { choose } from './modal'
 
-type Source = 'local' | 'folder' | 'dropbox'
+type Source = 'local' | 'folder' | Cloud
 
 const SOURCES: [Source, string, string][] = [
   ['local', 'Open a local file', 'A .kdbx on this PC, a USB drive, or a folder another program syncs. PswManager does not sync it.'],
   ['folder', 'Sync with a folder', 'A file on a LAN share such as a NAS. PswManager keeps a working copy and syncs it.'],
   ['dropbox', 'Sync with Dropbox', 'Sign in once; the file lives in Apps/PswManager Sync and opens in Keepass2Android too.'],
+  ['google', 'Sync with Google Drive', 'Sign in; the file lives in the PswManager folder of your Drive. PswManager sees only the files it put there.'],
 ]
+
+const CLOUDS: Record<Cloud, { name: string; where: string }> = {
+  dropbox: { name: 'Dropbox', where: 'the Dropbox app folder' },
+  google: { name: 'Google Drive', where: 'the PswManager folder of your Google Drive' },
+}
 
 export interface ChooseOptions {
   /** A database was chosen: the new status. */
@@ -17,24 +23,27 @@ export interface ChooseOptions {
   back: () => void
 }
 
-/** Signs in to Dropbox in the browser, then asks which file to sync with.
- *  Giving up on the way signs out again; null when the user did. */
-async function syncWithDropbox(waiting: HTMLElement): Promise<Status | null> {
+/** Signs in to a cloud store in the browser, then asks which file to sync
+ *  with. Giving up on the way signs out again; null when the user did. */
+async function syncWithCloud(cloud: Cloud, waiting: HTMLElement): Promise<Status | null> {
+  const { name, where } = CLOUDS[cloud]
+  waiting.replaceChildren(`Finish signing in to ${name} in the browser… `,
+    button('Cancel', 'Stop waiting for the browser', () => api.cancelCloud(cloud)))
   waiting.hidden = false
   try {
-    const offer = await api.signInToDropbox().finally(() => (waiting.hidden = true))
-    const labels = offer.files.map((path) => `Use ${path}`)
-    const canUpload = offer.upload !== null && !offer.files.some((p) => p.toLowerCase() === `/${offer.upload}`.toLowerCase())
+    const offer = await api.signInToCloud(cloud).finally(() => (waiting.hidden = true))
+    const labels = offer.files.map((file) => `Use ${file.name}`)
+    const canUpload = offer.upload !== null && !offer.files.some((f) => f.name.toLowerCase() === offer.upload!.toLowerCase())
     if (canUpload) labels.push(`Upload ${offer.upload}`)
-    if (!labels.length) throw new Error('The Dropbox app folder has no .kdbx file: open a local file first to upload it')
-    const picked = await choose('Which database in the Dropbox app folder should this PC sync with?', labels)
+    if (!labels.length) throw new Error(`There is no .kdbx file in ${where}: open a local file first to upload it`)
+    const picked = await choose(`Which database in ${where} should this PC sync with?`, labels)
     if (picked === null) {
-      await api.cancelDropbox()
+      await api.cancelCloud(cloud)
       return null
     }
-    return await api.syncWithDropbox(picked < offer.files.length ? offer.files[picked] : null)
+    return await api.syncWithCloud(cloud, picked < offer.files.length ? offer.files[picked] : null)
   } catch (e) {
-    await api.cancelDropbox()
+    await api.cancelCloud(cloud)
     throw e
   }
 }
@@ -50,8 +59,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
   let source: Source = status.syncKind ?? 'local'
 
   const error = el('p', { className: 'error', role: 'alert', hidden: true })
-  const waiting = el('p', { className: 'muted', hidden: true }, 'Finish signing in to Dropbox in the browser… ',
-    button('Cancel', 'Stop waiting for the browser', () => api.cancelDropbox()))
+  const waiting = el('p', { className: 'muted', hidden: true })
   const fail = (e: unknown) => {
     error.textContent = String(e)
     error.hidden = false
@@ -76,7 +84,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     error.hidden = true
     next.disabled = true
     try {
-      const chosen = source === 'dropbox' ? await syncWithDropbox(waiting)
+      const chosen = source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
         : changedOrNull(await (source === 'local' ? api.pickDatabase() : api.syncWithFolder()))
       if (chosen?.database) options.chosen(chosen)
     } catch (e) {
