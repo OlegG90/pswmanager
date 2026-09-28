@@ -9,9 +9,11 @@ KeePassXC and Keepass2Android. See [docs/spec.md](docs/spec.md) for the specific
    `pswm-x64.exe` (most PCs) or `pswm-arm64.exe` (Windows on ARM, e.g. Snapdragon laptops), and rename it
    `pswm.exe` if you like. There is no installer: put it in any folder.
 2. The exe is not code-signed, so on first run Windows SmartScreen asks: choose *More info → Run anyway*.
-3. Choose the database: a local `.kdbx` file (**Open a local file…**), a file in a folder such as a NAS
-   share (**Sync with a folder…**), or a file in Dropbox (**Sync with Dropbox…**, which signs in through the
-   browser). New databases come from KeePassXC or from `sic2kdbx` below.
+3. Choose the database: **Create a new database**, **Open a local file** (a `.kdbx` on this PC), or open
+   one from a folder such as a NAS share, from Dropbox or from Google Drive (signing in through the
+   browser); a database opened from a store is kept in a file on this PC that stays in step with it. Sync
+   for the open database is set up or stopped in *Settings → Sync*. Several databases can be in the list;
+   one is open at a time. A SafeInCloud export converts with `sic2kdbx` below.
 4. The app lives in the notification area; `Ctrl+Alt+P` shows or hides the window. Settings: `Ctrl+,`.
 
 Settings, the chosen database and cached site icons are kept in `pswm.json` beside the exe when that
