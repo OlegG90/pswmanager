@@ -179,7 +179,7 @@ pub fn cancel_sign_in() {
     CANCEL.store(true, Ordering::Relaxed);
 }
 
-fn random_text(bytes: usize) -> String {
+pub fn random_text(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     getrandom::fill(&mut buffer).expect("the OS random number generator");
     hex(&buffer)

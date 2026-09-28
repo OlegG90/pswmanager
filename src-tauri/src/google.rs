@@ -95,19 +95,17 @@ fn send(method: Method, url: &str, body: Option<(&str, &[u8])>) -> Result<Answer
     let token = GOOGLE.access_token()?;
     let bearer = format!("Bearer {}", token.as_str());
     let agent = oauth::agent();
+    let with_body = |request: ureq::RequestBuilder<ureq::typestate::WithBody>| {
+        let request = request.header("Authorization", &bearer);
+        match body {
+            Some((content_type, bytes)) => request.header("Content-Type", content_type).send(bytes),
+            None => request.send_empty(),
+        }
+    };
     let sent = match method {
         Method::Get => agent.get(url).header("Authorization", &bearer).call(),
-        Method::Post | Method::Patch => {
-            let request = match method {
-                Method::Post => agent.post(url),
-                _ => agent.patch(url),
-            };
-            let request = request.header("Authorization", &bearer);
-            match body {
-                Some((content_type, bytes)) => request.header("Content-Type", content_type).send(bytes),
-                None => request.send_empty(),
-            }
-        }
+        Method::Post => with_body(agent.post(url)),
+        Method::Patch => with_body(agent.patch(url)),
     };
     let mut response = sent.map_err(|e| GOOGLE.transport(e))?;
     let status = response.status().as_u16();
@@ -174,11 +172,12 @@ pub fn list_databases() -> Result<Vec<(String, String)>, RemoteError> {
 /// Uploads a new file into the app's folder and returns its id; a file of
 /// that name already there is never replaced ([RemoteError::Changed]).
 pub fn create(name: &str, bytes: &[u8]) -> Result<String, RemoteError> {
-    if list_databases()?.iter().any(|(_, existing)| existing.eq_ignore_ascii_case(name)) {
+    let folder = folder()?;
+    if !find(&format!("name = {} and {} in parents and trashed = false", quoted(name), quoted(&folder)))?.is_empty() {
         return Err(RemoteError::Changed);
     }
-    let boundary = format!("pswm-{:016x}", u64::from_le_bytes(random_bytes()));
-    let meta = json!({ "name": name, "parents": [folder()?] });
+    let boundary = format!("pswm-{}", oauth::random_text(8));
+    let meta = json!({ "name": name, "parents": [folder] });
     let mut body = format!("--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n").into_bytes();
     body.extend_from_slice(bytes);
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
@@ -188,12 +187,6 @@ pub fn create(name: &str, bytes: &[u8]) -> Result<String, RemoteError> {
         return Err(answer.failed("upload the file"));
     }
     answer.json()?["id"].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed("Google Drive sent no file id".into()))
-}
-
-fn random_bytes() -> [u8; 8] {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).expect("the OS random number generator");
-    bytes
 }
 
 impl GoogleDrive {

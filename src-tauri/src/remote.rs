@@ -74,15 +74,6 @@ impl Cloud {
         }
     }
 
-    /// The store a location is in, if it is a cloud's.
-    pub fn of(location: &Location) -> Option<Cloud> {
-        match location {
-            Location::Folder { .. } => None,
-            Location::Dropbox { .. } => Some(Cloud::Dropbox),
-            Location::GoogleDrive { .. } => Some(Cloud::Google),
-        }
-    }
-
     /// The databases the app can reach there.
     pub fn list(self) -> Result<Vec<CloudFile>, RemoteError> {
         Ok(match self {
@@ -116,6 +107,15 @@ impl Cloud {
 }
 
 impl Location {
+    /// The cloud store this is in; `None` for a folder.
+    pub fn cloud(&self) -> Option<Cloud> {
+        match self {
+            Location::Folder { .. } => None,
+            Location::Dropbox { .. } => Some(Cloud::Dropbox),
+            Location::GoogleDrive { .. } => Some(Cloud::Google),
+        }
+    }
+
     pub fn open(&self) -> Box<dyn Remote> {
         match self {
             Location::Folder { path } => Box::new(Folder { path: path.clone() }),
@@ -157,18 +157,15 @@ impl Location {
     pub fn detach(&self, store: &crate::store::Store, working: &Path) -> Result<PathBuf, String> {
         match self {
             Location::Folder { path } => Ok(path.clone()),
-            Location::Dropbox { .. } | Location::GoogleDrive { .. } => crate::sync::keep_as_local(store, working),
+            _ => crate::sync::keep_as_local(store, working),
         }
     }
 
     /// The database no longer uses this store: a cloud account is signed out
     /// (its refresh token removed).
     pub fn forget(&self) {
-        match self {
-            Location::Folder { .. } => {}
-            Location::Dropbox { .. } | Location::GoogleDrive { .. } => {
-                Cloud::of(self).expect("a cloud location").provider().sign_out();
-            }
+        if let Some(cloud) = self.cloud() {
+            cloud.provider().sign_out();
         }
     }
 

@@ -84,7 +84,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     error.hidden = true
     next.disabled = true
     try {
-      const chosen = source === 'dropbox' || source === 'google' ? await syncWithCloud(source, waiting)
+      const chosen = source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
         : changedOrNull(await (source === 'local' ? api.pickDatabase() : api.syncWithFolder()))
       if (chosen?.database) options.chosen(chosen)
     } catch (e) {

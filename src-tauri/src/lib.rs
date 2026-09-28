@@ -217,7 +217,7 @@ fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, 
 #[tauri::command(async)]
 fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
     oauth::cancel_sign_in();
-    if current_location(&app.state()).as_ref().and_then(remote::Cloud::of) != Some(cloud) {
+    if current_location(&app.state()).and_then(|l| l.cloud()) != Some(cloud) {
         cloud.provider().sign_out();
     }
 }
@@ -244,7 +244,8 @@ fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::Cl
     };
     sync::start(&store, location)?;
     // Another cloud's sign-in is forgotten; this cloud's is the one just made.
-    left(&app, before.filter(|b| remote::Cloud::of(b) != Some(cloud)));
+    let other_cloud = before.filter(|b| b.cloud() != Some(cloud));
+    left(&app, other_cloud);
     choose(app, |_| {})
 }
 
