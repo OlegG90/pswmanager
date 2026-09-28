@@ -6,8 +6,9 @@ const STORES: { label: string; cloud: Cloud | null }[] = [
   { label: 'A folder (a NAS or LAN share)', cloud: null },
   { label: 'Dropbox', cloud: 'dropbox' },
   { label: 'Google Drive', cloud: 'google' },
+  { label: 'OneDrive', cloud: 'onedrive' },
 ]
-const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google Drive' }
+const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google Drive', onedrive: 'OneDrive' }
 
 /**
  * Sets up sync for the open database: `upload` puts it into a store as a new

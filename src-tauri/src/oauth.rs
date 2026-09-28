@@ -169,7 +169,15 @@ impl Provider {
             }
         }
         let refresh = credentials::read(self.credential).ok_or_else(|| RemoteError::SignIn(self.sign_in_again()))?;
-        let tokens = self.request_tokens(&[("grant_type", "refresh_token"), ("refresh_token", refresh.as_str())])?;
+        let mut tokens = self.request_tokens(&[("grant_type", "refresh_token"), ("refresh_token", refresh.as_str())])?;
+        // Some stores (Microsoft) hand out a new refresh token each time: keep
+        // it, unless the account was signed out meanwhile. Failing to store it
+        // costs nothing now: the old one still works for a while.
+        if let Some(rotated) = tokens.refresh_token.take().map(Zeroizing::new) {
+            if *rotated != *refresh && credentials::read(self.credential).is_some() {
+                let _ = credentials::write(self.credential, &rotated);
+            }
+        }
         Ok(self.remember(tokens))
     }
 }

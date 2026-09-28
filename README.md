@@ -10,7 +10,7 @@ KeePassXC and Keepass2Android. See [docs/spec.md](docs/spec.md) for the specific
    `pswm.exe` if you like. There is no installer: put it in any folder.
 2. The exe is not code-signed, so on first run Windows SmartScreen asks: choose *More info → Run anyway*.
 3. Choose the database: **Create a new database**, **Open a local file** (a `.kdbx` on this PC), or open
-   one from a folder such as a NAS share, from Dropbox or from Google Drive (signing in through the
+   one from a folder such as a NAS share, from Dropbox, Google Drive or OneDrive (signing in through the
    browser); a database opened from a store is kept in a file on this PC that stays in step with it. Sync
    for the open database is set up or stopped in *Settings → Sync*. Several databases can be in the list;
    one is open at a time. A SafeInCloud export converts with [sic2kdbx](tools/sic2kdbx/README.md).

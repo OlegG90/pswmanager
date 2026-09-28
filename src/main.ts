@@ -64,7 +64,7 @@ const revealed = new Map<string, string>()
 
 // ---------------------------------------------------------------- unlock
 
-const SYNC_KINDS = { folder: 'Synced with a folder', dropbox: 'Synced with Dropbox', google: 'Synced with Google Drive' }
+const SYNC_KINDS = { folder: 'Synced with a folder', dropbox: 'Synced with Dropbox', google: 'Synced with Google Drive', onedrive: 'Synced with OneDrive' }
 
 function showStatus(status: Status) {
   const synced = status.syncedWith

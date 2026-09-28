@@ -30,7 +30,7 @@ export type SyncTarget = { kind: 'folder'; path: string } | { kind: 'cloud'; clo
 export type LinkChoice = 'merge' | 'useRemote' | 'keepLocal'
 
 /** A cloud store one signs in to. */
-export type Cloud = 'dropbox' | 'google'
+export type Cloud = 'dropbox' | 'google' | 'onedrive'
 
 /** A database file in a cloud store: its id there (a path for Dropbox) and name. */
 export interface CloudFile {

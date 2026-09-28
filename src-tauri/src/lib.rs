@@ -6,6 +6,7 @@ mod data_dir;
 mod dbfile;
 mod dropbox;
 mod google;
+mod onedrive;
 mod edit;
 mod file_watch;
 mod generator;
@@ -88,7 +89,7 @@ struct Status {
     database: Option<String>,
     /// Where it is synced to, if anywhere.
     synced_with: Option<String>,
-    /// The kind of store it is synced with: `folder`, `dropbox` or `google`.
+    /// The kind of store it is synced with: `folder`, `dropbox`, `google` or `onedrive`.
     sync_kind: Option<&'static str>,
     key_file: Option<String>,
     /// Every database in the list, the current one among them.

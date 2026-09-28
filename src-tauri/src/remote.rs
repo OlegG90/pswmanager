@@ -49,6 +49,8 @@ pub enum Location {
     Dropbox { path: String },
     /// A file in the Drive's PswManager folder, by its id; `name` is for people.
     GoogleDrive { id: String, name: String },
+    /// A file in OneDrive's app folder, by its item id; `name` is for people.
+    OneDrive { id: String, name: String },
 }
 
 /// A cloud store one signs in to.
@@ -57,6 +59,8 @@ pub enum Location {
 pub enum Cloud {
     Dropbox,
     Google,
+    #[serde(rename = "onedrive")]
+    OneDrive,
 }
 
 /// A database file in a cloud store: its id there (a path for Dropbox) and name.
@@ -71,6 +75,7 @@ impl Cloud {
         match self {
             Cloud::Dropbox => &crate::dropbox::DROPBOX,
             Cloud::Google => &crate::google::GOOGLE,
+            Cloud::OneDrive => &crate::onedrive::ONEDRIVE,
         }
     }
 
@@ -82,6 +87,7 @@ impl Cloud {
                 .map(|path| CloudFile { name: path.trim_start_matches('/').to_string(), id: path })
                 .collect(),
             Cloud::Google => crate::google::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect(),
+            Cloud::OneDrive => crate::onedrive::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect(),
         })
     }
 
@@ -89,6 +95,7 @@ impl Cloud {
         match self {
             Cloud::Dropbox => Location::Dropbox { path: file.id },
             Cloud::Google => Location::GoogleDrive { id: file.id, name: file.name },
+            Cloud::OneDrive => Location::OneDrive { id: file.id, name: file.name },
         }
     }
 
@@ -105,6 +112,10 @@ impl Cloud {
                 let (id, revision) = crate::google::create(name, bytes)?;
                 Ok((Location::GoogleDrive { id, name: name.to_string() }, revision))
             }
+            Cloud::OneDrive => {
+                let (id, revision) = crate::onedrive::create(name, bytes)?;
+                Ok((Location::OneDrive { id, name: name.to_string() }, revision))
+            }
         }
     }
 }
@@ -116,6 +127,7 @@ impl Location {
             Location::Folder { .. } => None,
             Location::Dropbox { .. } => Some(Cloud::Dropbox),
             Location::GoogleDrive { .. } => Some(Cloud::Google),
+            Location::OneDrive { .. } => Some(Cloud::OneDrive),
         }
     }
 
@@ -124,6 +136,7 @@ impl Location {
             Location::Folder { path } => Box::new(Folder { path: path.clone() }),
             Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
             Location::GoogleDrive { id, .. } => Box::new(crate::google::GoogleDrive { id: id.clone() }),
+            Location::OneDrive { id, .. } => Box::new(crate::onedrive::OneDrive { id: id.clone() }),
         }
     }
 
@@ -132,7 +145,7 @@ impl Location {
         match self {
             Location::Folder { path } => file_name(path),
             Location::Dropbox { path } => file_name(Path::new(path.rsplit('/').next().unwrap_or_default())),
-            Location::GoogleDrive { name, .. } => file_name(Path::new(name)),
+            Location::GoogleDrive { name, .. } | Location::OneDrive { name, .. } => file_name(Path::new(name)),
         }
     }
 
@@ -142,6 +155,7 @@ impl Location {
             Location::Folder { .. } => "folder",
             Location::Dropbox { .. } => "dropbox",
             Location::GoogleDrive { .. } => "google",
+            Location::OneDrive { .. } => "onedrive",
         }
     }
 
@@ -151,6 +165,7 @@ impl Location {
             Location::Folder { path } => path.display().to_string(),
             Location::Dropbox { path } => format!("Dropbox: {path}"),
             Location::GoogleDrive { name, .. } => format!("Google Drive: {}/{name}", crate::google::FOLDER),
+            Location::OneDrive { name, .. } => format!("OneDrive: {}/{name}", crate::onedrive::FOLDER),
         }
     }
 
@@ -160,6 +175,7 @@ impl Location {
             Location::Folder { .. } => "the folder",
             Location::Dropbox { .. } => "Dropbox",
             Location::GoogleDrive { .. } => "Google Drive",
+            Location::OneDrive { .. } => "OneDrive",
         }
     }
 }
