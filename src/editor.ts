@@ -19,6 +19,10 @@ export interface EditorOptions {
   knownTags: string[]
   /** What the Auto icon shows for this entry now. */
   autoIcon: string
+  /** A new entry starts from this template's values (not its title or expiry). */
+  from?: EntryData
+  /** A template is edited, or made (it goes among the templates). */
+  template?: boolean
 }
 
 const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
@@ -151,6 +155,11 @@ function withStar(tags: string[], on: boolean, original: string[]): string[] {
   return at < 0 ? [...rest, FAVORITE] : [...rest.slice(0, at), FAVORITE, ...rest.slice(at)]
 }
 
+/** What a new entry takes from a template: everything but its title and expiry. */
+function fromTemplate(template?: EntryData): Partial<EntryData> {
+  return template ? { ...template, title: '', expires: null } : {}
+}
+
 /** The field each row started from, to keep values the form only reformatted. */
 const originals = new WeakMap<HTMLElement, FieldData>()
 
@@ -195,7 +204,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   let groups: string[][]
   try {
     ;[data, groups] = await Promise.all([
-      options.id ? api.editEntry(options.id) : Promise.resolve({ ...EMPTY, group: options.group }),
+      options.id ? api.editEntry(options.id) : Promise.resolve({ ...EMPTY, ...fromTemplate(options.from), group: options.group }),
       api.groupPaths(),
     ])
   } catch (e) {
@@ -276,7 +285,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(options.id, options.id ? data : null, collect())
+      const saved = await api.saveEntry(options.id, options.id ? data : null, collect(), options.template)
       // Locking while the save ran closed this editor: the vault is gone.
       if (active !== self) return
       active = null
@@ -310,7 +319,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const form = el(
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
-    el('h2', {}, options.id ? 'Edit entry' : 'New entry'),
+    el('h2', {}, `${options.id ? 'Edit' : 'New'} ${options.template ? 'template' : 'entry'}`),
     error,
     row('Title', title),
     row('User name', username),
@@ -321,7 +330,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('TOTP', otp, showHide(otp)),
     row('Group', group, el('datalist', { id: 'group-list' }, ...groups.map((g) => new Option(formatGroup(g))))),
     row('Tags', tags.element),
-    row('', star),
+    ...(options.template ? [] : [row('', star)]),
     row('Expires', expires, neverExpires),
     row('Icon', icon.element),
     row('Notes', notes),

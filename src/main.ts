@@ -1,13 +1,13 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, type Filter } from './search'
+import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -204,6 +204,9 @@ function refresh() {
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
   $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
+  const templates = sameFilter(filter, TEMPLATES)
+  $('new-entry').textContent = templates ? 'New template' : 'New entry'
+  $('new-entry').title = `${templates ? 'New template' : 'New entry'} (Ctrl+N)`
   if (shown.length === 0) {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
@@ -462,6 +465,13 @@ function renderDetail() {
         button('Attach file…', 'Attach a file to this entry', attachFile),
         button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
     )
+  } else if (isTemplate(entry)) {
+    rows.push(
+      el('div', { className: 'buttons' },
+        button('New entry from it', 'A new entry with its fields, icon and tags', () => newFromTemplate(entry.id), 'primary'),
+        button('Edit', 'Edit the template (Ctrl+E)', editEntry),
+        button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
+    )
   } else if (inTrash(entry)) {
     rows.push(
       el('div', { className: 'buttons' },
@@ -695,13 +705,14 @@ async function copyTotp() {
 
 // ---------------------------------------------------------------- editing
 
-function startEditor(id: string | null, focusPassword = false) {
+function startEditor(id: string | null, focusPassword = false, start: { from?: EntryData; template?: boolean } = {}) {
   if (isEditing()) return
   several = null
   stopTotp()
   openEditor(detail, {
     id,
     focusPassword,
+    ...start,
     // New entries go to the top group.
     group: [],
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
@@ -719,8 +730,34 @@ function editable<T extends Entry>(entry: T | null): entry is T & { kind: 'entry
   return entry?.kind === 'entry'
 }
 
+function isTemplate<T extends Entry>(entry: T | null): entry is T & { kind: 'template' } {
+  return entry?.kind === 'template'
+}
+
 function editEntry() {
-  if (editable(current)) startEditor(current.id)
+  if (editable(current) || isTemplate(current)) startEditor(current.id, false, { template: isTemplate(current) })
+}
+
+/** New entry (Ctrl+N): blank, or from one of the templates; in the
+ *  Templates group, a new template. */
+async function newEntry() {
+  if (isEditing()) return
+  if (sameFilter(filter, TEMPLATES)) return startEditor(null, false, { template: true })
+  const templates = listing.entries.filter(isTemplate)
+  if (!templates.length) return startEditor(null)
+  const i = await choose('New entry:', ['Blank entry', ...templates.map((t) => t.title || '(no title)')])
+  if (i === null) return searchInput.focus()
+  if (i === 0) startEditor(null)
+  else newFromTemplate(templates[i - 1].id)
+}
+
+/** A new entry with the template's fields, icon and tags, not its title. */
+async function newFromTemplate(id: string) {
+  try {
+    startEditor(null, false, { from: await api.editEntry(id) })
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 /** Shows a listing the backend sent after a change, then says what happened.
@@ -750,7 +787,7 @@ function afterSave(saved: Saved) {
 async function deleteEntry() {
   const entry = current
   if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id])
-  if (!editable(entry) || isEditing()) return
+  if (!(editable(entry) || isTemplate(entry)) || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
   if (!yes || selectedId !== entry.id) return searchInput.focus()
@@ -968,7 +1005,7 @@ function closeSettings() {
 
 searchInput.addEventListener('input', refresh)
 $('lock-button').addEventListener('click', lock)
-$('new-entry').addEventListener('click', () => startEditor(null))
+$('new-entry').addEventListener('click', newEntry)
 $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
@@ -1001,7 +1038,7 @@ function perform(action: Action, e: KeyboardEvent) {
       if (current && hasTotp(current)) copyTotp()
       break
     case 'new-entry':
-      startEditor(null)
+      newEntry()
       break
     case 'edit-entry':
       editEntry()

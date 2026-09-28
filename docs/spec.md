@@ -103,7 +103,7 @@ entries in use (not templates, not the trash) is listed under the groups, with i
 | Trash | the deleted entries (the recycle bin) |
 
 - The KDBX groups an entry sits in are not shown or edited any more; entries stay where they are in the
-  file, and new ones go to its top group (or the template's group). Search runs within the chosen group or
+  file, and new ones go to its top group (new templates to the templates' group). Search runs within the chosen group or
   tag.
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
@@ -120,8 +120,11 @@ entries in use (not templates, not the trash) is listed under the groups, with i
   entries' files after a removal; the app uses a fork with the fix, offered upstream as
   sseemayer/keepass-rs#374.)
 - **Templates:** **New entry** (`Ctrl+N`) asks for a blank entry or one of the templates. An entry made
-  from a template gets its fields (names, values, protection), icon and tags, not its title. Templates are
-  edited like entries in the Templates group, and **New template** makes one there. They are never listed
+  from a template gets its fields (names, values, protection), icon and tags, not its title or expiry; a
+  template's own view also offers **New entry from it**. Templates are edited like entries in the Templates
+  group (and deleted into the trash, restored among the templates), and **New template** (the list's button
+  and `Ctrl+N` there) makes one there, in KeePass's templates group, made when the database has none.
+  They are never listed
   under All, and nothing else treats them as entries (search, health report, favorites).
 
 ### Entry icons

@@ -885,6 +885,23 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     Ok(())
 }
 
+/// The group templates are kept in (KeePass's `EntryTemplatesGroup`), made
+/// at the top when the database has none.
+pub fn templates_group(db: &mut Database) -> GroupId {
+    if let Some(group) = db.meta.entry_templates_group.map(GroupId::from).filter(|g| db.group(*g).is_some()) {
+        return group;
+    }
+    let mut root = db.root_mut();
+    let mut group = root.add_group();
+    group.name = "Templates".into();
+    group.enable_autotype = Some(false);
+    group.enable_searching = Some(false);
+    let group = group.id();
+    db.meta.entry_templates_group = Some(group.uuid());
+    db.meta.entry_templates_group_changed = Some(Times::now());
+    group
+}
+
 fn in_bin(db: &Database, id: EntryId) -> bool {
     db.entry(id).is_some_and(|e| is_binned(db, &e))
 }

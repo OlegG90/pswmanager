@@ -533,7 +533,7 @@ mod tests {
                     let id = v.listing().entries.into_iter().find(|e| e.title == title).unwrap().id;
                     let mut data = v.edit_data(&id).unwrap();
                     data.password = password.into();
-                    v.save_entry(Some(&id), None, &data).map(|_| ())
+                    v.save_entry(Some(&id), None, &data, false).map(|_| ())
                 })
                 .unwrap();
         }
