@@ -127,6 +127,13 @@ fn parse_expiry(text: &str) -> Result<NaiveDateTime, String> {
     Ok(at.naive_utc().with_nanosecond(0).expect("zero is a valid nanosecond"))
 }
 
+/// An expiry written the way [expiry_of] writes it; one that is not a time
+/// stays as it is (saving it is refused).
+fn same_form(expires: &Option<String>) -> Option<String> {
+    let text = expires.as_deref()?;
+    Some(parse_expiry(text).map_or_else(|_| text.to_string(), |at| at.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true)))
+}
+
 /// The expiry the entry has, compared as times rather than as text.
 fn expiry_time(times: &Times) -> Option<NaiveDateTime> {
     times.expiry.filter(|_| times.expires == Some(true))
@@ -156,7 +163,14 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
     let tags = pick(&mut conflicts, "Tags", &current.tags, &base.tags, &edited.tags);
     let group = pick(&mut conflicts, "Group", &current.group, &base.group, &edited.group);
     let icon = pick(&mut conflicts, "Icon", &current.icon, &base.icon, &edited.icon);
-    let expires = pick(&mut conflicts, "Expires", &current.expires, &base.expires, &edited.expires);
+    // Compared as times: the window writes them with milliseconds.
+    let expires = pick(
+        &mut conflicts,
+        "Expires",
+        &same_form(&current.expires),
+        &same_form(&base.expires),
+        &same_form(&edited.expires),
+    );
 
     // Additional fields, by name: removed, added or changed in the editor
     // apply; the rest are as they are now.
@@ -908,6 +922,16 @@ mod tests {
         assert!(entry.times.expiry.is_some());
         assert_eq!(expiry_of(&entry.historical(0).unwrap().times).as_deref(), Some("2030-01-02T03:04:05Z"));
         assert!(apply(&mut db, Some(id), &with("x", |d| d.expires = Some("soon".into())), &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn merge3_compares_expiry_as_times() {
+        let base = data("x");
+        let current = with("x", |d| d.expires = Some("2030-01-01T22:00:00Z".into()));
+        let edited = with("x", |d| d.expires = Some("2030-01-01T22:00:00.000Z".into()));
+        let (merged, conflicts) = merge3(&current, &base, &edited);
+        assert_eq!(merged.expires.as_deref(), Some("2030-01-01T22:00:00Z"));
+        assert!(conflicts.is_empty());
     }
 
     #[test]

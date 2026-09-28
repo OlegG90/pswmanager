@@ -242,7 +242,7 @@ async function loadSiteIcon(host: string) {
 
 function listItem(entry: Entry): HTMLLIElement {
   const title = el('div', { className: 'title' }, entry.title || '(no title)')
-  const expires = entry.kind === 'entry' ? expiry(entry, Date.now()) : null
+  const expires = editable(entry) ? expiry(entry, Date.now()) : null
   if (expires) title.append(el('span', { className: `badge ${expires}` }, expires === 'soon' ? 'Expires soon' : 'Expired'))
   const li = el(
     'li',
@@ -251,7 +251,7 @@ function listItem(entry: Entry): HTMLLIElement {
     title,
     el('div', { className: 'subtitle' }, entry.username || entry.host || ''),
   )
-  if (entry.kind === 'entry') li.append(starButton(entry))
+  if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
   li.addEventListener('mousedown', () => select(entry.id))
   return li
@@ -508,7 +508,7 @@ function startEditor(id: string | null, focusPassword = false) {
 }
 
 /** Only entries in use are edited here: not templates, not the trash's. */
-function editable(entry: EntryDetail | null): entry is EntryDetail {
+function editable<T extends Entry>(entry: T | null): entry is T {
   return entry?.kind === 'entry'
 }
 

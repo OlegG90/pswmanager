@@ -263,7 +263,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     url: keep(data.url, url.value.trim(), trimmedLine),
     notes: keep(data.notes, notes.value, textareaLines),
     otp: keep(data.otp, otp.value.trim(), trimmedLine),
-    tags: keep(data.tags, withStar(tags.value(), starred, data.tags), (t) => parseTags(formatTags(t))),
+    // Typing the tag Favorite stars the entry.
+    tags: keep(data.tags, withStar(tags.value(), starred || tags.value().includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
     group: keep(data.group, parseGroup(group.value), (g) => parseGroup(formatGroup(g))),
     fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
     icon: icon.value(),
