@@ -52,7 +52,8 @@ uploads anything, and setting up sync never picks another database.
   - **Open from a store** (a LAN folder, Dropbox, Google Drive, later OneDrive): sign in, pick an
     existing file there, choose where its local file goes (by default `Documents\PswManager\<name>.kdbx`).
     The file is downloaded there and sync with that remote file is on from the start. A file the user
-    chose to replace is kept as `<name>.bak`.
+    chose to replace is kept as `<name>.kdbx.bak`. A synced database whose file went missing is downloaded
+    to it again at the next unlock.
 - **Removing a database from the list** forgets it (and its sync); the file itself stays where it is.
 - Unlocked with a master password, a key file, or both.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1

@@ -256,15 +256,29 @@ fn save_as(app: &AppHandle, window: &Window, name: &str) -> Result<Option<PathBu
         dialog = dialog.set_directory(folder);
     }
     let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    // The dialog may hand back a name without the extension.
-    Ok(picked.map(|p| if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) { p } else { p.with_extension("kdbx") }))
+    // The dialog may hand back a name without the extension: it is added,
+    // never put in place of a dot in the name ("Work.2024").
+    Ok(picked.map(|p| {
+        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
+            p
+        } else {
+            let mut name = p.into_os_string();
+            name.push(".kdbx");
+            PathBuf::from(name)
+        }
+    }))
 }
 
 /// Where a new database, or the local file of one opened from a cloud
-/// store, goes; `None` when the dialog was cancelled.
+/// store, goes; `None` when the dialog was cancelled. With `fresh` (a new
+/// database) a file already there is refused, whatever the dialog asked.
 #[tauri::command(async)]
-fn pick_new_file(app: AppHandle, window: Window, name: String) -> Result<Option<String>, String> {
-    Ok(save_as(&app, &window, &name)?.map(|p| p.display().to_string()))
+fn pick_new_file(app: AppHandle, window: Window, name: String, fresh: bool) -> Result<Option<String>, String> {
+    let picked = save_as(&app, &window, &name)?;
+    if fresh && picked.as_ref().is_some_and(|p| p.exists()) {
+        return Err("A file with that name is already there: choose a name that is free".into());
+    }
+    Ok(picked.map(|p| p.display().to_string()))
 }
 
 /// A key file for a new database; `None` when the dialog was cancelled.
@@ -343,12 +357,12 @@ fn sync_with_cloud(
             let current = local_database(&store).ok_or("Open a local file first")?;
             let bytes = std::fs::read(&current).map_err(|e| format!("Cannot read {}: {e}", current.display()))?;
             let name = remote::file_name(&current);
-            let location = match cloud.create(&name, &bytes) {
-                Ok(location) => location,
+            let (location, revision) = match cloud.create(&name, &bytes) {
+                Ok(created) => created,
                 Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in {}: choose it instead", cloud.provider().name)),
                 Err(e) => return Err(e.message()),
             };
-            sync::attach(&store, &current, location)?;
+            sync::attach(&store, &current, location, revision, &bytes)?;
         }
     }
     sync::reset(&app);

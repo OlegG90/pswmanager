@@ -169,9 +169,9 @@ pub fn list_databases() -> Result<Vec<(String, String)>, RemoteError> {
     Ok(files)
 }
 
-/// Uploads a new file into the app's folder and returns its id; a file of
-/// that name already there is never replaced ([RemoteError::Changed]).
-pub fn create(name: &str, bytes: &[u8]) -> Result<String, RemoteError> {
+/// Uploads a new file into the app's folder and returns its id and revision;
+/// a file of that name already there is never replaced ([RemoteError::Changed]).
+pub fn create(name: &str, bytes: &[u8]) -> Result<(String, String), RemoteError> {
     let folder = folder()?;
     if !find(&format!("name = {} and {} in parents and trashed = false", quoted(name), quoted(&folder)))?.is_empty() {
         return Err(RemoteError::Changed);
@@ -182,11 +182,13 @@ pub fn create(name: &str, bytes: &[u8]) -> Result<String, RemoteError> {
     body.extend_from_slice(bytes);
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     let content_type = format!("multipart/related; boundary={boundary}");
-    let answer = call(Method::Post, &url(UPLOAD, &[("uploadType", "multipart"), ("fields", "id")]), Some((&content_type, &body)))?;
+    let answer = call(Method::Post, &url(UPLOAD, &[("uploadType", "multipart"), ("fields", "id,headRevisionId")]), Some((&content_type, &body)))?;
     if answer.status != 200 {
         return Err(answer.failed("upload the file"));
     }
-    answer.json()?["id"].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed("Google Drive sent no file id".into()))
+    let meta = answer.json()?;
+    let field = |name: &str| meta[name].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed(format!("Google Drive sent no {name}")));
+    Ok((field("id")?, field("headRevisionId")?))
 }
 
 impl GoogleDrive {

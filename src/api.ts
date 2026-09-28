@@ -203,7 +203,7 @@ export const api = {
   status: () => invoke<Status>('status'),
   pickDatabase: () => invoke<Status>('pick_database'),
   /** Where a new file goes on this PC (a save dialog); null when cancelled. */
-  pickNewFile: (name: string) => invoke<string | null>('pick_new_file', { name }),
+  pickNewFile: (name: string, fresh = false) => invoke<string | null>('pick_new_file', { name, fresh }),
   pickKeyFilePath: () => invoke<string | null>('pick_key_file_path'),
   createDatabase: (file: string, password: string, keyFile: string | null) =>
     invoke<Status>('create_database', { file, password, keyFile }),

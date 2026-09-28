@@ -24,7 +24,8 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
     }
 
     const chooseFile = button('Choose…', 'Where the new database file goes', async () => {
-      const picked = await api.pickNewFile('Passwords.kdbx').catch((e) => (fail(String(e)), null))
+      error.hidden = true
+      const picked = await api.pickNewFile('Passwords.kdbx', true).catch((e) => (fail(String(e)), null))
       if (picked) {
         file = picked
         where.textContent = picked
@@ -50,11 +51,26 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
     password.addEventListener('input', () => {
       clearTimeout(timer)
       timer = window.setTimeout(async () => {
-        if (!password.value) return (strength.textContent = '')
-        const { score, crackTime } = await api.passwordStrength(password.value)
-        strength.textContent = `${STRENGTH[score]} · cracked in ${crackTime}`
+        const typed = password.value
+        if (!typed) return (strength.textContent = '')
+        const { score, crackTime } = await api.passwordStrength(typed)
+        // An answer to an older value is dropped.
+        if (password.value === typed) strength.textContent = `${STRENGTH[score]} · cracked in ${crackTime}`
       }, 200)
     })
+    // Esc goes back to the add screen, while this form is up.
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      done(null)
+    }
+    const done = (status: Status | null) => {
+      container.removeEventListener('keydown', escape, true)
+      password.value = ''
+      repeat.value = ''
+      resolve(status)
+    }
 
     const create = button('Create', 'Create the database', async () => {
       error.hidden = true
@@ -63,10 +79,7 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       if (password.value !== repeat.value) return fail('The two passwords differ')
       create.disabled = true
       try {
-        const status = await api.createDatabase(file, password.value, keyFile)
-        password.value = ''
-        repeat.value = ''
-        resolve(status)
+        done(await api.createDatabase(file, password.value, keyFile))
       } catch (e) {
         fail(String(e))
       } finally {
@@ -87,8 +100,18 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       el('div', { className: 'file-row' }, keyShown, chooseKey, removeKey),
       error,
       el('div', { className: 'footer' }, el('span'),
-        el('div', { className: 'buttons' }, button('Back', 'Back (Esc)', () => resolve(null)), create)),
+        el('div', { className: 'buttons' }, button('Back', 'Back (Esc)', () => done(null)), create)),
     )
+    // Enter in a password field creates.
+    for (const input of [password, repeat]) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          create.click()
+        }
+      })
+    }
+    container.addEventListener('keydown', escape, true)
     chooseFile.focus()
   })
 }
