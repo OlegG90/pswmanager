@@ -725,8 +725,8 @@ pub mod tests {
         let router = id_of(&vault, "Router");
         let id = router.uuid().to_string();
         let mail = id_of(&vault, "Mail").uuid().to_string();
-        // A file after the router's in the database, so removing one of the
-        // router's would misnumber it if the database let go of it.
+        // A file after the router's in the database: it must keep its data
+        // when one of the router's is removed.
         vault.attach(&mail, "later.txt", b"attached later").unwrap();
         let files = |v: &Vault, id: EntryId| {
             let mut all: Vec<(String, Vec<u8>)> =

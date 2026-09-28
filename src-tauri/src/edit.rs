@@ -300,7 +300,7 @@ pub fn check_icon_image(bytes: &[u8]) -> Result<(), String> {
 /// Attaches a file to the entry, its previous version kept in history, and
 /// returns the name it got: a name the entry already uses gets a number
 /// (`scan (2).pdf`), because keepass-rs replaces an attachment by removing
-/// the old one, which can leave other entries pointing at the wrong data.
+/// the old one from the database, taking it from the history too.
 pub fn attach(db: &mut Database, id: EntryId, name: &str, data: &[u8], hidden: &HashSet<GroupId>) -> Result<String, String> {
     let entry = db.entry(id).ok_or(NOT_FOUND)?;
     if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
@@ -414,8 +414,7 @@ fn swap_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, data: V
 /// Takes files off the entry's current version, leaving them in the
 /// database for the versions in history that still have them.
 /// keepass-rs cannot do that: it drops a file from the database as soon as
-/// the current version lets go of it, even while history refers to it, and
-/// the gap misnumbers every later file when the database is saved. So the
+/// the current version lets go of it, even while history refers to it. So the
 /// files are removed on a copy of the database and only the entry is taken
 /// from it: it refers to the same files as before, minus these.
 fn drop_attachments(db: &mut Database, id: EntryId, names: &[String]) {
