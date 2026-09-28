@@ -96,11 +96,14 @@ async function run(action: () => Promise<void>) {
 }
 
 $('change-database').addEventListener('click', () => run(async () => showChoose(await api.status())))
-$('database-select').addEventListener('change', (e) =>
-  run(async () => {
+$('database-select').addEventListener('change', async (e) => {
+  await run(async () => {
     showStatus(await api.selectDatabase((e.target as HTMLSelectElement).value))
     passwordInput.focus()
-  }))
+  })
+  // A refused switch: the list shows again what opens.
+  if (!unlockError.hidden) showStatus(await api.status())
+})
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 

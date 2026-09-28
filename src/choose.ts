@@ -123,7 +123,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
       el('span', { className: 'kicker' }, first ? 'First run' : 'Database'),
       el('h1', {}, first ? 'Choose your database' : 'Add a database'),
       el('p', { className: 'muted' },
-        'PswManager works on one KeePass (KDBX 4) file. Pick where it lives; you can change it later on the unlock screen.')),
+        'Each database is a KeePass (KDBX 4) file on this PC; the unlock screen switches between the ones added here.')),
     el('div', { className: 'sources', role: 'radiogroup', ariaLabel: 'Where the database lives' }, ...sources),
     ...stop,
     ...remove,

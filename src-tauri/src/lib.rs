@@ -166,15 +166,18 @@ fn cloud_in_use(store: &Store, cloud: remote::Cloud) -> bool {
     store.read(|s| s.databases.iter().any(|d| d.remote.as_ref().and_then(|r| r.location.cloud()) == Some(cloud)))
 }
 
-/// After the list changed: a cloud account no database uses any more is
-/// signed out, and the sync status starts afresh.
-fn forget_unused_clouds(app: &AppHandle) {
-    for cloud in [remote::Cloud::Dropbox, remote::Cloud::Google] {
-        if !cloud_in_use(&app.state(), cloud) {
-            cloud.provider().sign_out();
-        }
+/// After a database left the list or stopped syncing: the cloud it used is
+/// signed out if no other database uses it, and the sync status starts afresh.
+fn forget_if_unused(app: &AppHandle, cloud: Option<remote::Cloud>) {
+    if let Some(cloud) = cloud.filter(|c| !cloud_in_use(&app.state(), *c)) {
+        cloud.provider().sign_out();
     }
     sync::reset(app);
+}
+
+/// The cloud a database in the list is synced with, if any.
+fn cloud_of(store: &Store, file: &Path) -> Option<remote::Cloud> {
+    store.read(|s| s.databases.iter().find(|d| d.file == file).and_then(|d| d.remote.as_ref()).and_then(|r| r.location.cloud()))
 }
 
 /// Opens a local file: the app does not sync it.
@@ -210,8 +213,13 @@ fn select_database(app: AppHandle, file: String) -> Result<Status, String> {
 #[tauri::command(async)]
 fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
     can_switch(&app)?;
+    let store = app.state::<Store>();
+    if store.read(|s| s.databases.iter().any(|d| d.file == Path::new(&file) && sync::is_pending(d))) {
+        return Err("Changes made here are not in its remote file yet: unlock it, and they are synced first".into());
+    }
+    let cloud = cloud_of(&store, Path::new(&file));
     let status = choose(app.clone(), |s| s.remove(Path::new(&file)))?;
-    forget_unused_clouds(&app);
+    forget_if_unused(&app, cloud);
     Ok(status)
 }
 
@@ -310,11 +318,16 @@ fn stop_sync(app: AppHandle) -> Result<Status, String> {
         return choose(app, |_| {});
     };
     let kept = if file.starts_with(store.dir().join("sync")) { sync::keep_as_local(&store, &file)? } else { file.clone() };
+    let cloud = cloud_of(&store, &file);
+    // The same entry, in place: its key file and position stay.
     let status = choose(app.clone(), |s| {
-        s.remove(&file);
-        s.select(kept);
+        if let Some(known) = s.databases.iter_mut().find(|d| d.file == file) {
+            known.file = kept.clone();
+            known.remote = None;
+        }
+        s.current = Some(kept);
     })?;
-    forget_unused_clouds(&app);
+    forget_if_unused(&app, cloud);
     Ok(status)
 }
 
