@@ -576,12 +576,45 @@ input[type='range']:focus-visible {
 
 /* Sidebar: the fixed groups, then the tags */
 
+/* The groups stay in place; a long list of tags scrolls on its own below a
+   rule, so the two never run together. */
 #sidebar {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  padding: 8px 0;
+  overflow: hidden;
+  padding: 0 0 8px;
   background: var(--color-surface);
   border-right: 1px solid var(--color-divider);
+}
+
+#groups {
+  flex: none;
+  padding-bottom: 8px;
+}
+
+#tags-heading {
+  flex: none;
+  margin: 0 0 4px;
+  padding: 12px 14px 0;
+  border-top: 1px solid var(--color-divider); /* across the whole sidebar */
+}
+
+#tags {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A tag reads as one: #work, not a group called work. */
+#tags .side-item .name::before {
+  content: '#';
+  margin-right: 1px;
+  color: var(--color-neutral-500);
+}
+
+#tags .side-item[aria-current='true'] .name::before {
+  color: inherit;
 }
 
 #sidebar ul {
@@ -591,7 +624,7 @@ input[type='range']:focus-visible {
 }
 
 #sidebar h3 {
-  margin: 14px 14px 4px;
+  margin: 12px 14px 4px;
   font: 600 11px var(--font-body);
   letter-spacing: 0.06em;
   text-transform: uppercase;
