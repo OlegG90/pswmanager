@@ -5,9 +5,9 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, isAsking } from './modal'
-import { formatSize, parseGroup } from './entry-text'
+import { formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { filterChoices, groupPath, search, type Filter } from './search'
+import { ALL, expiry, GROUPS, sameFilter, search, tagCounts, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -19,7 +19,8 @@ const passwordInput = $<HTMLInputElement>('password')
 const unlockError = $('unlock-error')
 const vault = $('vault')
 const searchInput = $<HTMLInputElement>('search')
-const filterSelect = $<HTMLSelectElement>('filter')
+const groupsList = $<HTMLUListElement>('groups')
+const tagsList = $<HTMLUListElement>('tags')
 const list = $<HTMLUListElement>('list')
 const detail = $('detail')
 const settingsView = $('settings')
@@ -39,6 +40,8 @@ let chooseBack: (() => void) | null = null
 let listing = EMPTY
 /** Site icons by host: a data URL, null when the cache has none (yet). */
 const siteIcons = new Map<string, string | null>()
+/** What the sidebar shows: a group or a tag. */
+let filter: Filter = ALL
 let shown: Entry[] = []
 let selectedId: string | null = null
 let current: EntryDetail | null = null
@@ -130,7 +133,8 @@ function showVault(next: Listing) {
   vault.hidden = false
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
-  fillFilter()
+  filter = ALL
+  fillSidebar()
   refresh()
   searchInput.focus()
 }
@@ -156,36 +160,39 @@ async function showLocked() {
   showUnlock(await api.status())
 }
 
-/** Fills the filter menu from the listing, keeping the choice while it still exists. */
-function fillFilter() {
-  const chosen = filterSelect.value
-  const { groups, tags } = filterChoices(listing.entries)
-  const section = (label: string, kind: string, values: string[]) =>
-    values.length ? [el('optgroup', { label }, ...values.map((v) => new Option(v, `${kind}:${v}`)))] : []
-  filterSelect.replaceChildren(
-    new Option('All entries', 'all'),
-    ...section('Groups', 'group', groups),
-    ...section('Tags', 'tag', tags),
-  )
-  filterSelect.value = [...filterSelect.options].some((o) => o.value === chosen) ? chosen : 'all'
+/** The sidebar: the fixed groups, then the tags with their counts. A tag no
+ *  entry has any more goes back to All. */
+function fillSidebar() {
+  const tags = tagCounts(listing.entries)
+  const chosen = filter
+  if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
+  const item = (choice: Filter, label: string, count?: number) => {
+    const b = el('button', { type: 'button', className: 'side-item', title: label }, el('span', { className: 'name' }, label))
+    if (count !== undefined) b.append(el('span', { className: 'count' }, String(count)))
+    if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
+    b.addEventListener('click', () => showFilter(choice))
+    return el('li', {}, b)
+  }
+  groupsList.replaceChildren(...GROUPS.map(({ group, label }) => item({ kind: 'group', group }, label)))
+  tagsList.replaceChildren(...tags.map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)))
+  $('tags-heading').hidden = tags.length === 0
 }
 
-/** Filter options carry their kind before the first colon: `group:Work`, `tag:Favorite`. */
-function currentFilter(): Filter {
-  const [kind, ...rest] = filterSelect.value.split(':')
-  const value = rest.join(':')
-  if (kind === 'group') return { kind, path: value }
-  if (kind === 'tag') return { kind, tag: value }
-  return { kind: 'all' }
+function showFilter(choice: Filter) {
+  filter = choice
+  fillSidebar()
+  refresh()
+  searchInput.focus()
 }
 
 /** Re-runs the search and redraws the list, keeping the selection if it is still shown. */
 function refresh() {
-  shown = search(listing.entries, searchInput.value, currentFilter())
+  shown = search(listing.entries, searchInput.value, filter)
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = `${shown.length} ${shown.length === 1 ? 'entry' : 'entries'}`
   if (shown.length === 0) {
-    list.append(el('li', { className: 'empty' }, listing.entries.length ? 'Nothing found' : 'The database is empty'))
+    const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
+    list.append(el('li', { className: 'empty' }, empty))
   }
   select(shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null))
 }
@@ -234,12 +241,15 @@ async function loadSiteIcon(host: string) {
 }
 
 function listItem(entry: Entry): HTMLLIElement {
+  const title = el('div', { className: 'title' }, entry.title || '(no title)')
+  const expires = entry.kind === 'entry' ? expiry(entry, Date.now()) : null
+  if (expires) title.append(el('span', { className: `badge ${expires}` }, expires === 'soon' ? 'Expires soon' : 'Expired'))
   const li = el(
     'li',
     { role: 'option' },
     iconImage(entry),
-    el('div', { className: 'title' }, entry.title || '(no title)'),
-    el('div', { className: 'subtitle' }, entry.username || entry.host || groupPath(entry)),
+    title,
+    el('div', { className: 'subtitle' }, entry.username || entry.host || ''),
   )
   li.dataset.id = entry.id
   li.addEventListener('mousedown', () => select(entry.id))
@@ -331,7 +341,7 @@ function renderDetail() {
   const entry = current
   // An entry fetched just as the editor opened must not draw over it.
   if (!entry || isEditing()) return
-  const meta = [groupPath(entry), entry.tags.join(', ')].filter(Boolean).join(' · ')
+  const meta = [PLACES[entry.kind], entry.tags.join(', ')].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
   const rows: Node[] = [el('header', {}, iconImage(entry), heading)]
@@ -353,19 +363,31 @@ function renderDetail() {
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   if (entry.attachments.length) {
-    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
+    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map((file) => fileRow(file, editable(entry))))
   }
-  rows.push(
-    el('div', { className: 'buttons' },
-      button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
-      button('Attach file…', 'Attach a file to this entry', attachFile),
-      button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
-  )
+  if (editable(entry)) {
+    rows.push(
+      el('div', { className: 'buttons' },
+        button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
+        button('Attach file…', 'Attach a file to this entry', attachFile),
+        button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
+    )
+  }
   detail.replaceChildren(...rows)
 }
 
-/** An attached file: its name and size; the content is only ever saved to disk. */
-function fileRow(file: Attachment): HTMLDivElement {
+/** Shown before the tags of an entry that is not in use. */
+const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
+
+/** An attached file: its name and size; the content is only ever saved to disk.
+ *  Only an entry in use has its files changed. */
+function fileRow(file: Attachment, changeable: boolean): HTMLDivElement {
+  const save = { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) }
+  const changes = [
+    { label: 'Replace…', title: 'Replace with another file (its history keeps this one)', action: () => replaceAttachment(file.name) },
+    { label: 'Rename…', title: 'Rename (its history keeps the old name)', action: () => renameAttachment(file.name) },
+    { label: 'Remove…', title: 'Remove from this entry (its history keeps the file)', action: () => removeAttachment(file.name), danger: true },
+  ]
   return el(
     'div',
     { className: 'row file' },
@@ -373,12 +395,7 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
       button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
-      menuButton(`More for ${file.name}`, [
-        { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) },
-        { label: 'Replace…', title: 'Replace with another file (its history keeps this one)', action: () => replaceAttachment(file.name) },
-        { label: 'Rename…', title: 'Rename (its history keeps the old name)', action: () => renameAttachment(file.name) },
-        { label: 'Remove…', title: 'Remove from this entry (its history keeps the file)', action: () => removeAttachment(file.name), danger: true },
-      ])),
+      menuButton(`More for ${file.name}`, changeable ? [save, ...changes] : [save])),
   )
 }
 
@@ -440,20 +457,15 @@ async function copyTotp() {
 
 // ---------------------------------------------------------------- editing
 
-/** New entries go into the group the list is filtered to. */
-function groupForNew(): string[] {
-  const filter = currentFilter()
-  return filter.kind === 'group' ? parseGroup(filter.path) : []
-}
-
 function startEditor(id: string | null, focusPassword = false) {
   if (isEditing()) return
   stopTotp()
   openEditor(detail, {
     id,
     focusPassword,
-    group: groupForNew(),
-    knownTags: filterChoices(listing.entries).tags,
+    // New entries go to the top group.
+    group: [],
+    knownTags: tagCounts(listing.entries).map(([tag]) => tag),
     autoIcon: autoIcon(id ? (listing.entries.find((e) => e.id === id) ?? null) : null),
     onSaved: afterSave,
     onClose: () => {
@@ -463,15 +475,20 @@ function startEditor(id: string | null, focusPassword = false) {
   }).catch((e) => notify(String(e)))
 }
 
+/** Only entries in use are edited here: not templates, not the trash's. */
+function editable(entry: EntryDetail | null): entry is EntryDetail {
+  return entry?.kind === 'entry'
+}
+
 function editEntry() {
-  if (current) startEditor(current.id)
+  if (editable(current)) startEditor(current.id)
 }
 
 /** Shows a listing the backend sent after a change, then says what happened.
  *  The open entry is fetched again. */
 function applyListing(next: Listing, message: string, focusSearch = true) {
   listing = next
-  fillFilter()
+  fillSidebar()
   current = null
   refresh()
   if (focusSearch) searchInput.focus()
@@ -480,6 +497,8 @@ function applyListing(next: Listing, message: string, focusSearch = true) {
 
 function afterSave(saved: Saved) {
   selectedId = saved.id
+  // A new entry shows among All when the sidebar's choice does not have it.
+  if (!search(saved.listing.entries, '', filter).some((e) => e.id === saved.id)) filter = ALL
   const replaced = saved.conflicts.join(', ')
   applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
 }
@@ -487,7 +506,7 @@ function afterSave(saved: Saved) {
 /** Del / the Delete button: asks first. */
 async function deleteEntry() {
   const entry = current
-  if (!entry || isEditing()) return
+  if (!editable(entry) || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
   if (!yes || selectedId !== entry.id) return searchInput.focus()
@@ -500,7 +519,7 @@ async function deleteEntry() {
 
 async function attachFile() {
   const entry = current
-  if (!entry || isEditing()) return
+  if (!editable(entry) || isEditing()) return
   try {
     const attached = await api.attachFile(entry.id)
     if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
@@ -657,7 +676,8 @@ function iconOf(id: string): HTMLElement {
 function changePassword(id: string) {
   closeHealth()
   searchInput.value = ''
-  filterSelect.value = 'all'
+  filter = ALL
+  fillSidebar()
   refresh()
   select(id)
   startEditor(id, true)
@@ -703,7 +723,6 @@ function closeSettings() {
 // ---------------------------------------------------------------- keys
 
 searchInput.addEventListener('input', refresh)
-filterSelect.addEventListener('change', refresh)
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', () => startEditor(null))
 $('settings-button').addEventListener('click', openSettings)

@@ -43,6 +43,24 @@ pub struct EntrySummary {
     /// The KeePass standard icon chosen for it (not the default key, 0).
     pub icon: Option<usize>,
     pub has_password: bool,
+    /// Where the entry is: in use, a template, or in the recycle bin.
+    pub kind: Kind,
+    /// It has a TOTP secret.
+    pub otp: bool,
+    /// It has a passkey KeePassXC stored.
+    pub passkey: bool,
+    /// When it expires (UTC, RFC 3339), if it does.
+    pub expires: Option<String>,
+}
+
+/// Where an entry is, for the sidebar's groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Kind {
+    Entry,
+    Template,
+    /// In the recycle bin (a template there too).
+    Trash,
 }
 
 /// An additional attribute. A protected one comes without its value.
@@ -128,10 +146,12 @@ impl Vault {
         crate::health::check(self.visible_entries(), keepass::db::Times::now())
     }
 
+    /// Every entry, the recycle bin's and the templates too, each marked with its [Kind].
     pub fn listing(&self) -> Listing {
         let mut custom_icons = BTreeMap::new();
         let mut entries: Vec<EntrySummary> = self
-            .visible_entries()
+            .db
+            .iter_all_entries()
             .map(|e| {
                 let summary = summary(&e);
                 if let (Some(key), Some(icon)) = (&summary.custom_icon, e.custom_icon()) {
@@ -192,16 +212,15 @@ impl Vault {
         icons::web_url(&self.field(id, fields::URL)?)
     }
 
-    /// A visible entry by id; entries in the recycle bin are not reachable.
+    /// An entry by id, to show or copy from: templates and the recycle bin's too.
     fn entry(&self, id: &str) -> Option<EntryRef<'_>> {
-        let id = EntryId::from(Uuid::parse_str(id).ok()?);
-        let entry = self.db.entry(id)?;
-        (!is_in(&entry, &self.hidden_groups())).then_some(entry)
+        self.db.entry(parse_id(id).ok()?)
     }
 
-    /// The entry with every value, for the editor.
+    /// The entry with every value, for the editor: not a template or one in
+    /// the recycle bin.
     pub fn edit_data(&self, id: &str) -> Option<EntryData> {
-        let entry = self.entry(id)?;
+        let entry = self.entry(id).filter(|e| !is_in(e, &self.hidden_groups()))?;
         Some(edit::read(&entry, group_path(&entry)))
     }
 
@@ -380,7 +399,7 @@ impl Vault {
     }
 }
 
-/// Templates are not entries the user edits (they are hidden from the list).
+/// Templates are not edited as entries.
 fn is_template(entry: &EntryRef<'_>) -> bool {
     let templates = entry.database().meta.entry_templates_group.map(GroupId::from);
     templates.is_some_and(|t| is_in(entry, &HashSet::from([t])))
@@ -440,6 +459,19 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     };
     let url = text(fields::URL);
     let group = group_path(e);
+    let db = e.database();
+    let in_group = |group: Option<Uuid>| group.is_some_and(|g| is_in(e, &HashSet::from([GroupId::from(g)])));
+    let kind = if in_group(db.meta.recyclebin_uuid) {
+        Kind::Trash
+    } else if in_group(db.meta.entry_templates_group) {
+        Kind::Template
+    } else {
+        Kind::Entry
+    };
+    let expires = match (e.times.expires, e.times.expiry) {
+        (Some(true), Some(at)) => Some(at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        _ => None,
+    };
     EntrySummary {
         id: e.id().uuid().to_string(),
         title: text(fields::TITLE),
@@ -455,8 +487,15 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
             _ => None,
         },
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
+        kind,
+        otp: e.fields.contains_key(fields::OTP),
+        passkey: e.fields.keys().any(|name| name.starts_with(PASSKEY)),
+        expires,
     }
 }
+
+/// The attributes KeePassXC stores a passkey in start with this.
+const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
 fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
@@ -516,13 +555,22 @@ pub mod tests {
         db
     }
 
+    /// The listed entries in use: not templates, not in the recycle bin.
+    pub fn in_use(vault: &Vault) -> Vec<EntrySummary> {
+        vault.listing().entries.into_iter().filter(|e| e.kind == Kind::Entry).collect()
+    }
+
+    fn kind_of(vault: &Vault, id: &str) -> Option<Kind> {
+        vault.listing().entries.into_iter().find(|e| e.id == id).map(|e| e.kind)
+    }
+
     #[test]
-    fn listing_hides_the_recycle_bin_and_secrets() {
+    fn listing_marks_the_recycle_bin_and_hides_secrets() {
         let vault = Vault::from_database(sample());
         let listing = vault.listing();
-        let titles: Vec<&str> = listing.entries.iter().map(|e| e.title.as_str()).collect();
-        assert_eq!(titles, ["alpha router", "Mail"]);
-        let mail = &listing.entries[1];
+        let titles: Vec<(&str, Kind)> = listing.entries.iter().map(|e| (e.title.as_str(), e.kind)).collect();
+        assert_eq!(titles, [("alpha router", Kind::Entry), ("Deleted", Kind::Trash), ("Mail", Kind::Entry)]);
+        let mail = &listing.entries[2];
         assert_eq!(mail.group, ["Work"]);
         assert_eq!(mail.host.as_deref(), Some("example.com"));
         assert!(mail.has_password);
@@ -533,7 +581,7 @@ pub mod tests {
     #[test]
     fn detail_masks_protected_fields() {
         let vault = Vault::from_database(sample());
-        let id = vault.listing().entries[1].id.clone();
+        let id = in_use(&vault)[1].id.clone();
         let detail = vault.detail(&id).unwrap();
         assert_eq!(
             detail.fields,
@@ -548,13 +596,42 @@ pub mod tests {
     }
 
     #[test]
-    fn recycled_and_unknown_entries_are_unreachable() {
+    fn recycled_entries_show_but_do_not_edit() {
         let db = sample();
         let trash = db.meta.recyclebin_uuid.unwrap();
-        let deleted = db.iter_all_entries().find(|e| e.parent().id().uuid() == trash).unwrap().id().uuid();
+        let deleted = db.iter_all_entries().find(|e| e.parent().id().uuid() == trash).unwrap().id().uuid().to_string();
         let vault = Vault::from_database(db);
-        assert!(vault.detail(&deleted.to_string()).is_none());
+        assert_eq!(vault.detail(&deleted).unwrap().summary.title, "Deleted");
+        assert!(vault.edit_data(&deleted).is_none());
         assert!(vault.detail("not-a-uuid").is_none());
+    }
+
+    #[test]
+    fn listing_marks_templates_2fa_passkeys_and_expiry() {
+        let mut db = sample();
+        let mut root = db.root_mut();
+        let mut templates = root.add_group();
+        templates.name = "Templates".into();
+        let templates_id = templates.id();
+        templates.add_entry().edit(|e| e.set_unprotected(fields::TITLE, "Card"));
+        root.add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "Shop");
+            e.set_protected(fields::OTP, "otpauth://totp/Shop?secret=JBSWY3DP");
+            e.set_protected("KPEX_PASSKEY_PRIVATE_KEY_PEM", "key");
+            e.times.expires = Some(true);
+            e.times.expiry = chrono::NaiveDate::from_ymd_opt(2030, 1, 2).unwrap().and_hms_opt(3, 4, 5);
+        });
+        db.meta.entry_templates_group = Some(templates_id.uuid());
+        let listing = Vault::from_database(db).listing();
+        let by_title = |title: &str| listing.entries.iter().find(|e| e.title == title).unwrap();
+        assert_eq!(by_title("Card").kind, Kind::Template);
+        let shop = by_title("Shop");
+        assert!(shop.otp && shop.passkey);
+        assert_eq!(shop.expires.as_deref(), Some("2030-01-02T03:04:05Z"));
+        let mail = by_title("Mail");
+        assert!(!mail.otp && !mail.passkey && mail.expires.is_none());
+        let json = serde_json::to_string(&listing.entries).unwrap();
+        assert!(!json.contains("JBSWY3DP") && !json.contains("\"key\""), "{json}");
     }
 
     #[test]
@@ -563,7 +640,7 @@ pub mod tests {
         let path = dir.path().join("t.kdbx");
         sample().save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("pw")).unwrap();
         let vault = Vault::open(&path, Some("pw"), None).unwrap();
-        assert_eq!(vault.listing().entries.len(), 2);
+        assert_eq!(in_use(&vault).len(), 2);
         assert_eq!(Vault::open(&path, Some("nope"), None).err().unwrap(), "Wrong password or key file");
         assert_eq!(Vault::open(&path, None, None).err().unwrap(), "Enter the password or choose a key file");
     }
@@ -680,7 +757,7 @@ pub mod tests {
         assert_eq!(entry.history.as_ref().unwrap().get_entries().len(), old.history.as_ref().unwrap().get_entries().len() + 1);
         assert_eq!(entry.get(fields::OTP), old.get(fields::OTP));
         // Templates and the recycle bin stay where they were.
-        assert_eq!(reopened.listing().entries.len(), 3);
+        assert_eq!(in_use(&reopened).len(), 3);
         assert!(std::fs::metadata(dir.path().join("sic2kdbx.kdbx.bak")).is_ok());
     }
 
@@ -764,7 +841,7 @@ pub mod tests {
     fn saving_an_untouched_entry_leaves_the_file_alone() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
-        let id = vault.listing().entries[0].id.clone();
+        let id = in_use(&vault)[0].id.clone();
         let data = vault.edit_data(&id).unwrap();
         vault.save_entry(Some(&id), None, &data).unwrap();
         assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
@@ -808,14 +885,14 @@ pub mod tests {
     }
 
     #[test]
-    fn deleting_saves_and_hides_the_entry() {
+    fn deleting_saves_and_moves_the_entry_to_the_bin() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
-        let id = vault.listing().entries[0].id.clone();
+        let id = in_use(&vault)[0].id.clone();
         vault.delete_entry(&id).unwrap();
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
-        assert!(reopened.detail(&id).is_none());
-        assert_eq!(reopened.listing().entries.len(), 2);
+        assert_eq!(kind_of(&reopened, &id), Some(Kind::Trash));
+        assert_eq!(in_use(&reopened).len(), 2);
     }
 
     #[test]
@@ -905,7 +982,7 @@ pub mod tests {
         });
         vault.save_entry(Some(&mail.uuid().to_string()), None, &data).unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
-        assert!(reopened.detail(&mail.uuid().to_string()).is_some());
+        assert_eq!(kind_of(&reopened, &mail.uuid().to_string()), Some(Kind::Entry));
     }
 
     #[test]
@@ -920,7 +997,7 @@ pub mod tests {
             db.entry_mut(mail).unwrap().move_to(bin).unwrap();
         });
         assert_eq!(vault.reload().unwrap(), Some(vec![mail.uuid().to_string()]));
-        assert!(vault.detail(&mail.uuid().to_string()).is_none());
+        assert_eq!(kind_of(&vault, &mail.uuid().to_string()), Some(Kind::Trash));
         vault.delete_entry(&mail.uuid().to_string()).unwrap();
     }
 

@@ -68,7 +68,17 @@ export interface Entry {
   /** The KeePass standard icon chosen for it (not the default key). */
   icon: number | null
   hasPassword: boolean
+  kind: EntryKind
+  /** It has a TOTP secret. */
+  otp: boolean
+  /** It has a passkey KeePassXC stored. */
+  passkey: boolean
+  /** When it expires (RFC 3339), if it does. */
+  expires: string | null
 }
+
+/** In use, a template, or in the recycle bin. */
+export type EntryKind = 'entry' | 'template' | 'trash'
 
 export interface Field {
   name: string

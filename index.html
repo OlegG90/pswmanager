@@ -44,13 +44,17 @@
     <div id="vault" hidden>
       <header id="toolbar">
         <input id="search" type="search" placeholder="Search title, user name, URL, tags, notes" aria-label="Search" autocomplete="off" spellcheck="false" />
-        <select id="filter" aria-label="Show"></select>
         <span id="sync-status" class="muted" role="status" hidden></span>
         <button id="sync-button" title="Sync now" hidden>Sync</button>
         <button id="health-button" title="Find reused, weak and old passwords">Health</button>
         <button id="settings-button" title="Settings (Ctrl+,)">Settings</button>
         <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
       </header>
+      <nav id="sidebar" aria-label="Groups and tags">
+        <ul id="groups"></ul>
+        <h3 id="tags-heading" hidden>Tags</h3>
+        <ul id="tags"></ul>
+      </nav>
       <div id="list-pane">
         <div id="list-header">
           <span id="entry-count"></span>
