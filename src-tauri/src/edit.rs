@@ -3,7 +3,7 @@
 
 use crate::otp;
 use base64::Engine;
-use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
+use keepass::db::{fields, AttachmentId, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
 use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
@@ -640,8 +640,9 @@ fn trim_history(db: &mut Database, id: EntryId) {
 /// there with no deletion recorded at or after our change, is applied to
 /// `theirs` (which keeps its own version in the entry's history); a newer
 /// move is kept too. A move to the recycle bin (a deletion) on either side
-/// stands unless the other side changed the entry later. Returns the ids of
-/// the entries it kept.
+/// stands unless the other side changed the entry later, and so does a
+/// deletion for good this device recorded ([keep_deletions]). Returns the ids
+/// of the entries it kept or removed.
 pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     let hidden = hidden_groups(theirs);
     let mut kept = Vec::new();
@@ -698,6 +699,7 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
             kept.push(id);
         }
     }
+    kept.extend(keep_deletions(theirs, ours));
     kept
 }
 
@@ -854,9 +856,8 @@ pub fn only_tags_changed(base: &EntryData, data: &EntryData) -> bool {
 }
 
 /// Moves the entry to the recycle bin, creating the bin if the database has
-/// none. A database that turned the bin off is refused: removing an entry
-/// with keepass-rs can leave other entries' attachments pointing at the
-/// wrong data.
+/// none. A database that turned the bin off is refused: entries are removed
+/// for good only from the trash.
 pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     db.entry(id).ok_or(NOT_FOUND)?;
     if db.meta.recyclebin_enabled == Some(false) {
@@ -884,22 +885,24 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     Ok(())
 }
 
-/// True when the entry is in the recycle bin, at any depth.
 fn in_bin(db: &Database, id: EntryId) -> bool {
-    let bin = db.meta.recyclebin_uuid.map(GroupId::from);
-    db.entry(id).is_some_and(|e| bin.is_some_and(|bin| ancestors(db, e.parent().id()).contains(&bin)))
+    db.entry(id).is_some_and(|e| is_binned(db, &e))
 }
 
 /// Puts entries from the recycle bin back in the group each was deleted from
-/// (KDBX 4.1 keeps it); into the top group when that group is gone, in the
-/// bin, or the templates' (`hidden`). Entries not in the bin are left alone.
-pub fn restore(db: &mut Database, ids: &[EntryId], hidden: &HashSet<GroupId>) -> Result<(), String> {
+/// (KDBX 4.1 keeps it; a template goes back among the templates). The top
+/// group when that group is gone or itself in the bin, and for an entry in a
+/// group deleted into the bin: its previous group is from an older move.
+/// Entries not in the bin are left alone.
+pub fn restore(db: &mut Database, ids: &[EntryId]) -> Result<(), String> {
+    let Some(bin) = db.meta.recyclebin_uuid.map(GroupId::from) else { return Ok(()) };
     for &id in ids {
         if !in_bin(db, id) {
             continue;
         }
         let entry = db.entry(id).expect("in the bin");
-        let back = entry.previous_parent().map(|g| g.id()).filter(|g| !ancestors(db, *g).iter().any(|a| hidden.contains(a)));
+        let deleted_itself = entry.parent().id() == bin;
+        let back = entry.previous_parent().map(|g| g.id()).filter(|g| deleted_itself && !ancestors(db, *g).contains(&bin));
         let target = back.unwrap_or_else(|| db.root().id());
         let mut entry = db.entry_mut(id).expect("in the bin");
         entry.move_to(target).map_err(|e| e.to_string())?;
@@ -914,8 +917,43 @@ pub fn restore(db: &mut Database, ids: &[EntryId], hidden: &HashSet<GroupId>) ->
 pub fn delete_for_good(db: &mut Database, ids: &[EntryId]) {
     for &id in ids {
         if in_bin(db, id) {
-            db.entry_mut(id).expect("in the bin").track_changes().remove();
+            remove_for_good(db, id);
         }
+    }
+}
+
+/// Removes the entry, its history and the files only it used, recording the
+/// deletion. keepass-rs lets go only of the current version's files, and
+/// would write the ones only the history used into the file still: those are
+/// removed first, while the history still refers to them.
+fn remove_for_good(db: &mut Database, id: EntryId) {
+    let Some(entry) = db.entry(id) else { return };
+    let current: HashSet<_> = entry.attachments().map(|a| a.id()).collect();
+    let others: HashSet<_> = db.iter_all_entries().filter(|e| e.id() != id).flat_map(|e| files_of(&e)).collect();
+    let history_only: Vec<_> = files_of(&entry).into_iter().filter(|a| !current.contains(a) && !others.contains(a)).collect();
+    for file in history_only {
+        if let Some(file) = db.attachment_mut(file) {
+            file.remove();
+        }
+    }
+    db.entry_mut(id).expect("checked above").track_changes().remove();
+}
+
+/// The files the entry uses, in any version.
+fn files_of(entry: &EntryRef<'_>) -> Vec<AttachmentId> {
+    let versions = entry.history.as_ref().map_or(0, |h| h.get_entries().len());
+    let history = (0..versions).filter_map(|i| entry.historical(i)).flat_map(|v| v.attachments().map(|a| a.id()).collect::<Vec<_>>());
+    entry.attachments().map(|a| a.id()).chain(history).collect()
+}
+
+/// Removes a group for good with everything in it, each deletion recorded.
+fn remove_group_for_good(db: &mut Database, group: GroupId) {
+    let inside: Vec<EntryId> = db.iter_all_entries().filter(|e| ancestors(db, e.parent().id()).contains(&group)).map(|e| e.id()).collect();
+    for id in inside {
+        remove_for_good(db, id);
+    }
+    if let Some(mut group) = db.group_mut(group) {
+        let _ = group.track_changes().remove(); // refused for the root only, which the callers never pass
     }
 }
 
@@ -926,11 +964,38 @@ pub fn empty_bin(db: &mut Database) {
     let Some(group) = db.group(bin) else { return };
     let (entries, groups): (Vec<EntryId>, Vec<GroupId>) = (group.entry_ids().collect(), group.group_ids().collect());
     delete_for_good(db, &entries);
-    for id in groups {
-        if let Some(mut group) = db.group_mut(id) {
-            let _ = group.track_changes().remove(); // never the root: it is inside the bin
-        }
+    for group in groups {
+        remove_group_for_good(db, group);
     }
+}
+
+/// Deletions this device recorded (`ours`: deleting for good in the trash)
+/// that `theirs` lacks: the entries and groups go from `theirs` too, unless it
+/// changed or moved them later, and the records are kept for other devices.
+/// Returns the entries removed.
+fn keep_deletions(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
+    let later = |at: Option<NaiveDateTime>, times: &Times| {
+        at.is_some_and(|at| times.last_modification.is_some_and(|t| t > at) || times.location_changed.is_some_and(|t| t > at))
+    };
+    let mut removed = Vec::new();
+    for (&uuid, &at) in &ours.deleted_objects {
+        let (entry, group) = (EntryId::from(uuid), GroupId::from(uuid));
+        if let Some(e) = theirs.entry(entry) {
+            if later(at, &e.times) {
+                continue;
+            }
+            remove_for_good(theirs, entry);
+            removed.push(entry);
+        } else if let Some(g) = theirs.group(group) {
+            if later(at, &g.times) || g.parent().is_none() {
+                continue;
+            }
+            removed.extend(theirs.iter_all_entries().filter(|e| ancestors(theirs, e.parent().id()).contains(&group)).map(|e| e.id()));
+            remove_group_for_good(theirs, group);
+        }
+        theirs.deleted_objects.insert(uuid, at);
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -1094,15 +1159,72 @@ mod tests {
         // The group "gone" was in is deleted meanwhile.
         let old = db.iter_all_groups().find(|g| g.name == "Old").unwrap().id();
         db.group_mut(old).unwrap().track_changes().remove().unwrap();
-        let hidden = hidden_groups(&db);
-        restore(&mut db, &[mail, top, gone], &hidden).unwrap();
+        restore(&mut db, &[mail, top, gone]).unwrap();
         let group = |db: &Database, id: EntryId| db.entry(id).unwrap().parent().name.clone();
         let root = db.root().name.clone();
         assert_eq!(group(&db, mail), "Work");
         assert_eq!((group(&db, top), group(&db, gone)), (root.clone(), root));
         // Not in the bin: nothing happens.
-        restore(&mut db, &[mail], &hidden).unwrap();
+        restore(&mut db, &[mail]).unwrap();
         assert_eq!(group(&db, mail), "Work");
+    }
+
+    #[test]
+    fn a_template_restores_among_the_templates_and_an_entry_of_a_deleted_group_at_the_top() {
+        let mut db = Database::new();
+        let mut root = db.root_mut();
+        let mut templates = root.add_group();
+        templates.name = "Templates".into();
+        let templates = templates.id();
+        let card = db.group_mut(templates).unwrap().add_entry().id();
+        db.meta.entry_templates_group = Some(templates.uuid());
+        recycle(&mut db, card).unwrap();
+        // An entry moved from Work to Personal, then Personal deleted into the bin.
+        let moved = apply(&mut db, None, &with("moved", |d| d.group = vec!["Work".into()]), &HashSet::new()).unwrap();
+        let personal = group_at(&mut db, &["Personal".to_string()], &HashSet::new()).unwrap();
+        db.entry_mut(moved).unwrap().move_to(personal).unwrap();
+        let bin = GroupId::from(db.meta.recyclebin_uuid.unwrap());
+        db.group_mut(personal).unwrap().move_to(bin).unwrap();
+        restore(&mut db, &[card, moved]).unwrap();
+        assert_eq!(db.entry(card).unwrap().parent().id(), templates);
+        assert_eq!(db.entry(moved).unwrap().parent().id(), db.root().id());
+    }
+
+    #[test]
+    fn files_only_the_deleted_entrys_history_used_go_too() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
+        attach(&mut db, id, "old.txt", b"secret", &HashSet::new()).unwrap();
+        detach(&mut db, id, "old.txt", &HashSet::new()).unwrap(); // history keeps it
+        assert_eq!(db.num_attachments(), 1);
+        recycle(&mut db, id).unwrap();
+        delete_for_good(&mut db, &[id]);
+        assert_eq!(db.num_attachments(), 0);
+    }
+
+    #[test]
+    fn a_deletion_for_good_survives_a_merge_unless_changed_later() {
+        let mut ours = Database::new();
+        let gone = apply(&mut ours, None, &data("gone"), &HashSet::new()).unwrap();
+        let edited = apply(&mut ours, None, &data("edited there"), &HashSet::new()).unwrap();
+        recycle(&mut ours, gone).unwrap();
+        recycle(&mut ours, edited).unwrap();
+        // Another device still has both in its trash.
+        let mut theirs = ours.clone();
+        let bin = GroupId::from(ours.meta.recyclebin_uuid.unwrap());
+        let mut group = ours.group_mut(bin).unwrap();
+        let old = group.add_group().id();
+        theirs = { let mut t = theirs; t.group_mut(GroupId::from(t.meta.recyclebin_uuid.unwrap())).unwrap().add_group_with_id(old).unwrap(); t };
+        delete_for_good(&mut ours, &[gone, edited]);
+        empty_bin(&mut ours);
+        // ...and changed one of them after this device deleted it.
+        theirs.entry_mut(edited).unwrap().times.last_modification = Some(Times::now() + chrono::Duration::seconds(60));
+
+        let removed = merge(&mut theirs, &ours);
+        assert!(removed.contains(&gone));
+        assert!(theirs.entry(gone).is_none() && theirs.group(old).is_none());
+        assert!(theirs.deleted_objects.contains_key(&gone.uuid()) && theirs.deleted_objects.contains_key(&old.uuid()));
+        assert!(theirs.entry(edited).is_some());
     }
 
     #[test]

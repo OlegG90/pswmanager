@@ -299,7 +299,7 @@ impl Vault {
     /// Puts entries from the recycle bin back where they were and saves the file.
     pub fn restore(&mut self, ids: &[String]) -> Result<(), String> {
         let ids = parse_ids(ids)?;
-        self.change(|db, hidden| edit::restore(db, &ids, hidden))
+        self.change(|db, _| edit::restore(db, &ids))
     }
 
     /// Removes entries in the recycle bin for good and saves the file.

@@ -267,8 +267,10 @@ export const api = {
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts entries from the trash back where they were. */
   restoreEntries: (ids: string[]) => invoke<Listing>('restore_entries', { ids }),
-  /** Removes entries in the trash for good; with null, everything in it. */
-  deleteForGood: (ids: string[] | null) => invoke<Listing>('delete_for_good', { ids }),
+  /** Removes entries in the trash for good. */
+  deleteForGood: (ids: string[]) => invoke<Listing>('delete_for_good', { ids }),
+  /** Removes everything in the trash for good. */
+  emptyTrash: () => invoke<Listing>('empty_trash'),
   /** Gives the entries the tag or takes it off; the star is the tag Favorite. */
   setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),
   /** Renames a tag in every entry; to a name another tag has, the two become one. */

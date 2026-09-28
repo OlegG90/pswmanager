@@ -6,6 +6,7 @@ export type Group = 'all' | 'favorites' | 'expired' | '2fa' | 'passkey' | 'templ
 export type Filter = { kind: 'group'; group: Group } | { kind: 'tag'; tag: string }
 
 export const ALL: Filter = { kind: 'group', group: 'all' }
+export const TRASH: Filter = { kind: 'group', group: 'trash' }
 
 export const GROUPS: { group: Group; label: string }[] = [
   { group: 'all', label: 'All' },

@@ -111,9 +111,11 @@ entries in use (not templates, not the trash) is listed under the groups, with i
 - **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
   or **removed** from every entry, after a confirmation. The entries themselves stay.
 - **Trash:** **Restore** puts an entry back where it was (the group it was deleted from, which KDBX 4.1
-  keeps; the top group when that group is gone or unknown); **Delete permanently** (after a confirmation)
+  keeps, a template among the templates; the top group when that group is gone, unknown or in the trash
+  itself, and for an entry of a group deleted into the trash); **Delete permanently** (after a confirmation)
   removes it, its history and the files only it used, and records the deletion for other devices; **Empty
-  trash** does that for everything in the trash, groups deleted into it included. Several chosen entries in
+  trash** does that for everything in the trash, groups deleted into it included. A deletion for good
+  stands in a merge and when an older file comes back, unless the other side changed the entry later. Several chosen entries in
   the trash can be restored or deleted permanently at once. (keepass-rs 0.15 misnumbered the other
   entries' files after a removal; the app uses a fork with the fix, offered upstream as
   sseemayer/keepass-rs#374.)
