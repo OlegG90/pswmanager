@@ -2411,7 +2411,7 @@ dependencies = [
 [[package]]
 name = "keepass"
 version = "0.15.0"
-source = "git+https://github.com/OlegG90/keepass-rs?rev=1b163083679f0fee644d00aac90b27caea6825df#1b163083679f0fee644d00aac90b27caea6825df"
+source = "git+https://github.com/OlegG90/keepass-rs?rev=7479151d064f2b5d2a4a3094a7fb3ddc62661b08#7479151d064f2b5d2a4a3094a7fb3ddc62661b08"
 dependencies = [
  "aes",
  "base64 0.23.1",
