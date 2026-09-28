@@ -147,9 +147,11 @@ fn find(query: &str) -> Result<Vec<(String, String)>, RemoteError> {
     }
 }
 
-/// The app's folder, created the first time.
+/// The app's folder, created at the top of the Drive the first time. The
+/// user may move it anywhere (into their own Apps folder, say): with
+/// `drive.file` the app sees only what it created, so it is found wherever it is.
 fn folder() -> Result<String, RemoteError> {
-    let query = format!("name = {} and mimeType = '{FOLDER_TYPE}' and 'root' in parents and trashed = false", quoted(FOLDER));
+    let query = format!("name = {} and mimeType = '{FOLDER_TYPE}' and trashed = false", quoted(FOLDER));
     if let Some((id, _)) = find(&query)?.into_iter().next() {
         return Ok(id);
     }

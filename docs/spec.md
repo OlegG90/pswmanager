@@ -346,7 +346,8 @@ working copy has changed since that sync.
   the state file or logs. **Disconnect** removes it; the database's local file stays.
 - Each store gets the narrowest access that still reaches a file Keepass2Android can open: Dropbox — its
   app folder (`Apps/PswManager Sync`); Google Drive — `drive.file`, the files the app created itself, in a
-  `PswManager` folder at the top of the Drive (so a database gets there by uploading it from the app);
+  `PswManager` folder the app makes at the top of the Drive, which the user may move anywhere (e.g. into an
+  `Apps` folder, like Dropbox's; so a database gets there by uploading it from the app);
   OneDrive — settled with its step of milestone 6.
 - Google Drive's OAuth client secret (not a secret for installed apps, but not kept in the source either)
   is given at build time as `PSWM_GOOGLE_CLIENT_SECRET`; a build without it offers no Google Drive. While
