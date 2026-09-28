@@ -201,9 +201,68 @@ pub fn attach(store: &Store, file: &Path, location: crate::remote::Location, rev
         .map_err(|e| format!("Cannot save the sync state: {e}"))
 }
 
+/// What to do when a database is linked to a remote file that differs.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LinkChoice {
+    /// The usual merge, then upload (needs the database unlocked).
+    Merge,
+    /// The remote file replaces the local one (kept as `.bak`; needs the
+    /// database unlocked).
+    UseRemote,
+    /// The local file replaces the remote one (kept as `.remote.bak`).
+    KeepLocal,
+}
+
+/// Links the database whose file is `file` to the existing remote file at
+/// `location`. The same content links at once; a different one needs a
+/// `choice`, and without one nothing changes and `Ok(false)` says they
+/// differ. The choice is carried out by the next sync, which it sets up:
+/// each is one row of the decision table.
+pub fn link(
+    store: &Store,
+    file: &Path,
+    location: crate::remote::Location,
+    choice: Option<LinkChoice>,
+    key: Option<&crate::dbfile::Snapshot>,
+) -> Result<bool, String> {
+    let local = working_hash(file).map_err(|_| format!("Cannot read {}", file.display()))?;
+    let (bytes, revision) = location.open().download().map_err(|e| e.message())?;
+    // With the database unlocked, the remote file must open with its key:
+    // otherwise every sync would fail, or Keep this file would replace a
+    // database with other credentials.
+    if let Some(key) = key {
+        key.parse(&bytes).map_err(|e| format!("The remote file does not open with this database's key ({e})"))?;
+    }
+    let (revision, synced) = if hash_hex(&bytes) == local {
+        (Some(revision), Some(local))
+    } else {
+        match choice {
+            None => return Ok(false),
+            // Both count as changed: the sync merges them.
+            Some(LinkChoice::Merge) => (None, None),
+            // Only the remote file counts as changed: the sync takes it.
+            Some(LinkChoice::UseRemote) => (None, Some(local)),
+            // Only the local file counts as changed: the sync uploads it.
+            Some(LinkChoice::KeepLocal) => {
+                fs::write(sibling(file, ".remote.bak"), &bytes).map_err(|e| format!("Cannot keep the remote copy: {e}"))?;
+                (Some(revision), None)
+            }
+        }
+    };
+    store
+        .update(|s| {
+            if let Some(known) = s.databases.iter_mut().find(|d| d.file == file) {
+                known.remote = Some(store::Remote { location, revision, synced });
+            }
+        })
+        .map_err(|e| format!("Cannot save the sync state: {e}"))?;
+    Ok(true)
+}
+
 /// True when two paths name the same file as Windows sees it (letter case
 /// does not matter).
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
@@ -642,6 +701,66 @@ mod tests {
         let state = s.store.read(State::clone);
         assert!(state.databases.iter().find(|d| d.file == other).unwrap().remote.is_none());
         assert_ne!(state.databases.iter().find(|d| d.file == synced_file).unwrap().remote.as_ref().unwrap().synced, before.synced);
+    }
+
+    /// A second local database with the fixture's content, not synced, current.
+    fn second_database(s: &Setup) -> PathBuf {
+        let path = s.store.dir().join("second.kdbx");
+        fs::copy(&s.remote.path, &path).unwrap();
+        s.store.update(|st| {
+            st.select(path.clone());
+        })
+        .unwrap();
+        s.session.set(Some(Vault::open(&path, Some("test"), None).unwrap()));
+        path
+    }
+
+    #[test]
+    fn linking_to_the_same_content_links_at_once() {
+        let s = setup();
+        let second = second_database(&s);
+        assert_eq!(link(&s.store, &second, Location::Folder { path: s.remote.path.clone() }, None, None), Ok(true));
+        assert_eq!(s.sync(), Ok(Outcome::UpToDate));
+    }
+
+    #[test]
+    fn linking_to_a_different_file_asks_and_each_choice_syncs_its_way() {
+        for (choice, expected) in [
+            (LinkChoice::Merge, "both"),
+            (LinkChoice::UseRemote, "remote"),
+            (LinkChoice::KeepLocal, "local"),
+        ] {
+            let s = setup();
+            let second = second_database(&s);
+            s.edit_here("Mail", "here");
+            s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added there"));
+            let folder = Location::Folder { path: s.remote.path.clone() };
+            assert_eq!(link(&s.store, &second, folder.clone(), None, None), Ok(false));
+            assert!(s.store.read(|st| st.remote().is_none()), "nothing linked without a choice");
+            assert_eq!(link(&s.store, &second, folder, Some(choice), None), Ok(true));
+            s.sync().unwrap();
+            let titles = s.remote_titles();
+            let (added, mine) = (titles.contains(&"Added there".to_string()), s.remote_password("Mail") == "here");
+            match expected {
+                "both" => assert!(added && mine, "{choice:?}"),
+                "remote" => assert!(added && !mine && s.password_here("Mail") != "here", "{choice:?}"),
+                _ => assert!(!added && mine && sibling(&second, ".remote.bak").exists(), "{choice:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_remote_file_with_another_key_is_not_linked() {
+        let s = setup();
+        let second = second_database(&s);
+        let other = s.remote.path.with_file_name("other-key.kdbx");
+        let mut db = Database::open(&mut File::open(&s.remote.path).unwrap(), key()).unwrap();
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&other).unwrap(), DatabaseKey::new().with_password("another")).unwrap();
+        let snapshot = s.session.read(Vault::snapshot).unwrap().unwrap();
+        let refused = link(&s.store, &second, Location::Folder { path: other }, Some(LinkChoice::KeepLocal), Some(&snapshot));
+        assert!(refused.unwrap_err().contains("does not open"));
+        assert!(s.store.read(|st| st.remote().is_none()));
     }
 
     #[test]

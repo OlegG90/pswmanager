@@ -34,16 +34,14 @@ async function syncWithCloud(cloud: Cloud, waiting: HTMLElement): Promise<Status
   waiting.hidden = false
   try {
     const offer = await api.signInToCloud(cloud).finally(() => (waiting.hidden = true))
-    const labels = offer.files.map((file) => `Use ${file.name}`)
-    const canUpload = offer.upload !== null && !offer.files.some((f) => f.name.toLowerCase() === offer.upload!.toLowerCase())
-    if (canUpload) labels.push(`Upload ${offer.upload}`)
-    if (!labels.length) throw new Error(`There is no .kdbx file in ${where}: open a local file first to upload it`)
-    const picked = await choose(`Which database in ${where} should this PC sync with?`, labels)
+    if (!offer.files.length) {
+      throw new Error(`There is no .kdbx file in ${where}: to put a database there, open it and use Settings → Sync → Upload`)
+    }
+    const picked = await choose(`Which database in ${where} should this PC open?`, offer.files.map((file) => file.name))
     if (picked === null) {
       await api.cancelCloud(cloud)
       return null
     }
-    if (picked >= offer.files.length) return await api.syncWithCloud(cloud, null, null)
     const file = offer.files[picked]
     // Opened from the store: the user chooses where its file goes on this PC.
     const local = await api.pickNewFile(file.name)
@@ -121,10 +119,6 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
       fail(e)
     }
   }
-  const stop = status.syncedWith
-    ? [el('p', { className: 'stop muted' }, `Synced with ${status.syncedWith}. `,
-        button('Stop syncing', 'Keep using the file on this PC as a plain local file', act(api.stopSync)))]
-    : []
   const current = status.database
   const remove = current
     ? [el('p', { className: 'stop muted' }, `${status.databases.find((d) => d.file === current)?.name ?? current} is in the list. `,
@@ -138,7 +132,6 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
       el('p', { className: 'muted' },
         'Each database is a KeePass (KDBX 4) file on this PC; the unlock screen switches between the ones added here.')),
     el('div', { className: 'sources', role: 'radiogroup', ariaLabel: 'Where the database lives' }, ...sources),
-    ...stop,
     ...remove,
     error,
     waiting,

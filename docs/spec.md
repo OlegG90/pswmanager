@@ -320,7 +320,8 @@ working copy has changed since that sync.
 - One account per store: databases synced with the same store share its sign-in. A store's account is
   signed out when no database in the list uses it any more.
 
-**Setting up sync for a database** (in its settings — *Database → Sync*, for the open database):
+**Setting up sync for a database** (*Settings → Sync*, for the open database; opening a database from a
+store sets it up too):
 
 - **Upload to a store**: creates a new file there from this database (Dropbox's app folder, Google Drive's
   PswManager folder, a file in a LAN folder) and syncs with it. It never replaces a file already there.
