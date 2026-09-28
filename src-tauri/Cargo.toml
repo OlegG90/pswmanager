@@ -53,6 +53,13 @@ strip = true
 [dev-dependencies]
 tempfile = "3.27.0"
 
+# keepass-rs 0.15 misnumbers the other entries' files in the saved file after
+# an attachment is removed from the database. The fork carries the fix,
+# offered upstream as sseemayer/keepass-rs#374 (branch pswmanager-0.15: the
+# fix on v0.15.0); back to crates.io once released.
+[patch.crates-io]
+keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "1b163083679f0fee644d00aac90b27caea6825df" }
+
 # The crates that unlock and save a database (Argon2, the ciphers, hashing,
 # gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
 # a second, not half a minute. Only these: optimising every dependency made

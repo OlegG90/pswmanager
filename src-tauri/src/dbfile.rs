@@ -324,6 +324,27 @@ pub mod tests {
     }
 
     #[test]
+    fn files_after_a_removed_one_keep_their_data() {
+        use keepass::db::Value;
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Database::new();
+        let ids: Vec<_> = [b"one", b"two", b"six"]
+            .iter()
+            .map(|data| {
+                let mut root = db.root_mut();
+                let mut entry = root.add_entry();
+                entry.add_attachment("file.bin", Value::unprotected(data.to_vec()));
+                entry.id()
+            })
+            .collect();
+        // Removing the first file from the database leaves a gap in its numbering.
+        db.entry_mut(ids[0]).unwrap().remove_attachment_by_name("file.bin");
+        let (reopened, _) = saved(dir.path(), &db);
+        let data = |i: usize| reopened.entry(ids[i]).unwrap().attachment_by_name("file.bin").map(|a| a.data.get().clone());
+        assert_eq!((data(0), data(1), data(2)), (None, Some(b"two".to_vec()), Some(b"six".to_vec())));
+    }
+
+    #[test]
     fn reload_reads_a_file_changed_elsewhere_once() {
         let dir = tempfile::tempdir().unwrap();
         let (_, mut file) = saved(dir.path(), &Database::new());
