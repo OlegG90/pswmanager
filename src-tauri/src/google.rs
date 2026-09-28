@@ -12,7 +12,11 @@ const CLIENT_ID: &str = "488783310128-a29rg9cu85a3ki2kdibuvvruapgc7ua3.apps.goog
 /// Google wants one for installed apps though it is no secret there; it is
 /// given at build time (`PSWM_GOOGLE_CLIENT_SECRET`) rather than kept in the
 /// source. Without it the build offers no Google Drive.
-const CLIENT_SECRET: Option<&str> = option_env!("PSWM_GOOGLE_CLIENT_SECRET");
+const CLIENT_SECRET: Option<&str> = match option_env!("PSWM_GOOGLE_CLIENT_SECRET") {
+    // CI gives an empty value when the repository has no such secret.
+    Some(secret) if !secret.is_empty() => Some(secret),
+    _ => None,
+};
 const FILE_LIMIT: u64 = 100 * 1024 * 1024;
 const FILES: &str = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3/files";
@@ -54,9 +58,12 @@ impl Answer {
     }
 
     fn failed(&self, what: &str) -> RemoteError {
-        let reason = self.json().ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string)).unwrap_or_default();
+        let error = self.json().map(|v| v["error"].clone()).unwrap_or_default();
+        let reason = error["message"].as_str().unwrap_or_default();
         let message = format!("Google Drive could not {what} ({} {reason})", self.status);
-        if oauth::is_temporary(self.status) {
+        // Drive answers a rate limit with 403 `rateLimitExceeded` / `userRateLimitExceeded`.
+        let rate_limited = error["errors"][0]["reason"].as_str().is_some_and(|r| r.ends_with("ateLimitExceeded"));
+        if oauth::is_temporary(self.status) || rate_limited {
             RemoteError::Offline(message)
         } else {
             RemoteError::Failed(message)
@@ -119,17 +126,27 @@ fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
-/// Files matching a Drive search, as `(id, name)`.
+/// Files matching a Drive search, as `(id, name)`, every page of them.
 fn find(query: &str) -> Result<Vec<(String, String)>, RemoteError> {
-    let answer = call(Method::Get, &url(FILES, &[("q", query), ("fields", "files(id,name)"), ("spaces", "drive")]), None)?;
-    if answer.status != 200 {
-        return Err(answer.failed("search the Drive"));
+    let mut found = Vec::new();
+    let mut page_token = String::new();
+    loop {
+        let mut params = vec![("q", query), ("fields", "nextPageToken,files(id,name)"), ("spaces", "drive")];
+        if !page_token.is_empty() {
+            params.push(("pageToken", &page_token));
+        }
+        let answer = call(Method::Get, &url(FILES, &params), None)?;
+        if answer.status != 200 {
+            return Err(answer.failed("search the Drive"));
+        }
+        let page = answer.json()?;
+        let files = page["files"].as_array().into_iter().flatten();
+        found.extend(files.filter_map(|f| Some((f["id"].as_str()?.to_string(), f["name"].as_str()?.to_string()))));
+        match page["nextPageToken"].as_str() {
+            Some(next) => page_token = next.to_string(),
+            None => return Ok(found),
+        }
     }
-    let files = answer.json()?["files"].as_array().cloned().unwrap_or_default();
-    Ok(files
-        .iter()
-        .filter_map(|f| Some((f["id"].as_str()?.to_string(), f["name"].as_str()?.to_string())))
-        .collect())
 }
 
 /// The app's folder, created the first time.
@@ -186,24 +203,25 @@ impl GoogleDrive {
 }
 
 impl Remote for GoogleDrive {
-    /// Drive's `version`, which every change of the file raises.
+    /// Drive's `headRevisionId`: it changes with the content only (`version`
+    /// also moves with metadata and sharing changes).
     fn revision(&self) -> Result<Option<String>, RemoteError> {
-        let answer = call(Method::Get, &self.file_url(&[("fields", "version,trashed")]), None)?;
+        let answer = call(Method::Get, &self.file_url(&[("fields", "headRevisionId,trashed")]), None)?;
         match answer.status {
             200 => {
                 let meta = answer.json()?;
                 if meta["trashed"] == true {
                     return Ok(None);
                 }
-                Ok(meta["version"].as_str().map(str::to_string))
+                Ok(meta["headRevisionId"].as_str().map(str::to_string))
             }
             404 => Ok(None),
             _ => Err(answer.failed("look at the file")),
         }
     }
 
-    /// The version is read before and after, so the bytes are known to be
-    /// that version (the download itself does not say).
+    /// The revision is read before and after, so the bytes are known to be
+    /// that revision (the download itself does not say).
     fn download(&self) -> Result<(Vec<u8>, String), RemoteError> {
         for _ in 0..3 {
             let before = self.revision()?.ok_or_else(|| RemoteError::Failed("The file is gone from Google Drive".into()))?;
@@ -218,7 +236,7 @@ impl Remote for GoogleDrive {
         Err(RemoteError::Failed("The file in Google Drive keeps changing; try again in a moment".into()))
     }
 
-    /// Drive has no conditional upload: the version is checked right before,
+    /// Drive has no conditional upload: the revision is checked right before,
     /// which leaves a moment in which another device's upload is not seen.
     fn upload(&self, bytes: &[u8], expected: Option<&str>) -> Result<String, RemoteError> {
         let Some(expected) = expected else {
@@ -227,12 +245,12 @@ impl Remote for GoogleDrive {
         if self.revision()?.as_deref() != Some(expected) {
             return Err(RemoteError::Changed);
         }
-        let upload = url(&format!("{UPLOAD}/{}", self.id), &[("uploadType", "media"), ("fields", "version")]);
+        let upload = url(&format!("{UPLOAD}/{}", self.id), &[("uploadType", "media"), ("fields", "headRevisionId")]);
         let answer = call(Method::Patch, &upload, Some(("application/octet-stream", bytes)))?;
         if answer.status != 200 {
             return Err(answer.failed("upload the file"));
         }
-        answer.json()?["version"].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed("Google Drive sent no version".into()))
+        answer.json()?["headRevisionId"].as_str().map(str::to_string).ok_or_else(|| RemoteError::Failed("Google Drive sent no revision".into()))
     }
 }
 

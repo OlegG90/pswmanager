@@ -303,7 +303,8 @@ working copy has changed since that sync.
   the Google app is in testing, Google asks to sign in again every 7 days; the status says so and the
   changes wait meanwhile.
 - Setting up: sign in, then either pick the `.kdbx` in the store or upload the current local database to it
-  (**Sync with Dropbox…** on the unlock screen; an upload never replaces a file already there).
+  (**Sync with Dropbox** / **Sync with Google Drive** on the choose-database screen; an upload never
+  replaces a file already there). Switching to another store signs the previous one out.
   A LAN folder needs no account: **Sync with a folder…** on the unlock screen picks the file (**Open a local file…**
   opens one without syncing).
 - **Stop syncing** (on the unlock screen) makes the database a local file again (for a LAN folder, the file

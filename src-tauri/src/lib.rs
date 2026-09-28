@@ -228,6 +228,7 @@ fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
 fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::CloudFile>) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
+    let before = current_location(&store);
     let location = match file {
         Some(file) => cloud.location(file),
         None => {
@@ -242,7 +243,8 @@ fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::Cl
         }
     };
     sync::start(&store, location)?;
-    sync::reset(&app);
+    // Another cloud's sign-in is forgotten; this cloud's is the one just made.
+    left(&app, before.filter(|b| remote::Cloud::of(b) != Some(cloud)));
     choose(app, |_| {})
 }
 

@@ -140,11 +140,13 @@ impl Provider {
         let mut response = agent().post(self.token_url).send_form(form).map_err(|e| self.transport(e))?;
         let status = response.status().as_u16();
         let body = Zeroizing::new(response.body_mut().read_to_string().map_err(|e| self.transport(e))?);
+        let error = || serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string));
         match status {
             200 => serde_json::from_str(&body).map_err(|e| RemoteError::Failed(format!("{} answered oddly: {e}", self.name))),
             // The code or the refresh token is no longer valid (access was
             // withdrawn, or a test app's week ran out).
-            400 | 401 => Err(RemoteError::SignIn(self.sign_in_again())),
+            400 | 401 if error().is_none_or(|e| e == "invalid_grant") => Err(RemoteError::SignIn(self.sign_in_again())),
+            400 | 401 => Err(RemoteError::Failed(format!("{} refused the sign-in ({})", self.name, error().unwrap_or_default()))),
             _ if is_temporary(status) => Err(RemoteError::Offline(format!("{} is busy ({status}); trying again later", self.name))),
             _ => Err(RemoteError::Failed(format!("{} sign-in failed ({status})", self.name))),
         }

@@ -11,7 +11,6 @@ export interface Status {
   notice: string | null
 }
 
-/** After signing in to Dropbox: what the app folder offers. */
 /** A cloud store one signs in to. */
 export type Cloud = 'dropbox' | 'google'
 
