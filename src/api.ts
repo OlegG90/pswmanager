@@ -202,14 +202,20 @@ export const OTP = 'otp'
 export const api = {
   status: () => invoke<Status>('status'),
   pickDatabase: () => invoke<Status>('pick_database'),
+  /** Where a new file goes on this PC (a save dialog); null when cancelled. */
+  pickNewFile: (name: string, fresh = false) => invoke<string | null>('pick_new_file', { name, fresh }),
+  pickKeyFilePath: () => invoke<string | null>('pick_key_file_path'),
+  createDatabase: (file: string, password: string, keyFile: string | null) =>
+    invoke<Status>('create_database', { file, password, keyFile }),
   selectDatabase: (file: string) => invoke<Status>('select_database', { file }),
   /** Takes a database off the list; its file stays. */
   removeDatabase: (file: string) => invoke<Status>('remove_database', { file }),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
   signInToCloud: (cloud: Cloud) => invoke<CloudFiles>('sign_in_to_cloud', { cloud }),
-  /** Syncs with `file` there; `null` uploads the local database first. */
-  syncWithCloud: (cloud: Cloud, file: CloudFile | null) => invoke<Status>('sync_with_cloud', { cloud, file }),
+  /** Opens `file` there into `local` on this PC; with no file, uploads the current local database and syncs it. */
+  syncWithCloud: (cloud: Cloud, file: CloudFile | null, local: string | null) =>
+    invoke<Status>('sync_with_cloud', { cloud, file, local }),
   /** Gives up on a cloud store: stops waiting for the browser and signs out, unless already synced with it. */
   cancelCloud: (cloud: Cloud) => invoke<void>('cancel_cloud', { cloud }),
   syncNow: () => invoke<void>('sync_now'),

@@ -233,15 +233,71 @@ fn open_from_command_line(app: &AppHandle, path: PathBuf) -> Result<(), String> 
     open_local_file(app, path).map(drop)
 }
 
-/// The database becomes a file in a folder (a LAN share, a NAS), synced
-/// through a working copy.
+/// Opens a database from a folder (a LAN share, a NAS): the file there is
+/// copied to a place this PC keeps, which then syncs with it.
 #[tauri::command(async)]
 fn sync_with_folder(app: AppHandle, window: Window) -> Result<Status, String> {
     can_switch(&app)?;
     let Some(path) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    sync::start(&app.state::<Store>(), remote::Location::Folder { path })?;
+    let location = remote::Location::Folder { path };
+    let Some(local) = save_as(&app, &window, &location.file_name())? else { return choose(app, |_| {}) };
+    sync::start(&app.state::<Store>(), location, local)?;
     sync::reset(&app);
     choose(app, |_| {})
+}
+
+/// Asks where a database file goes on this PC; the dialog starts in
+/// `Documents\PswManager` (created if missing), with `name` filled in.
+fn save_as(app: &AppHandle, window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
+    let mut dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
+    if let Ok(documents) = app.path().document_dir() {
+        let folder = documents.join("PswManager");
+        let _ = std::fs::create_dir_all(&folder);
+        dialog = dialog.set_directory(folder);
+    }
+    let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
+    // The dialog may hand back a name without the extension: it is added,
+    // never put in place of a dot in the name ("Work.2024").
+    Ok(picked.map(|p| {
+        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
+            p
+        } else {
+            let mut name = p.into_os_string();
+            name.push(".kdbx");
+            PathBuf::from(name)
+        }
+    }))
+}
+
+/// Where a new database, or the local file of one opened from a cloud
+/// store, goes; `None` when the dialog was cancelled. With `fresh` (a new
+/// database) a file already there is refused, whatever the dialog asked.
+#[tauri::command(async)]
+fn pick_new_file(app: AppHandle, window: Window, name: String, fresh: bool) -> Result<Option<String>, String> {
+    let picked = save_as(&app, &window, &name)?;
+    if fresh && picked.as_ref().is_some_and(|p| p.exists()) {
+        return Err("A file with that name is already there: choose a name that is free".into());
+    }
+    Ok(picked.map(|p| p.display().to_string()))
+}
+
+/// A key file for a new database; `None` when the dialog was cancelled.
+#[tauri::command(async)]
+fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
+    Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
+}
+
+/// Creates a new, empty database at `file` and adds it to the list as the
+/// current one.
+#[tauri::command(async)]
+fn create_database(app: AppHandle, file: String, password: String, key_file: Option<String>) -> Result<Status, String> {
+    can_switch(&app)?;
+    let password = Zeroizing::new(password);
+    let (file, key_file) = (PathBuf::from(file), key_file.map(PathBuf::from));
+    let name = file.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Passwords".into());
+    Vault::create(&file, &name, (!password.is_empty()).then_some(password.as_str()), key_file.as_deref())?;
+    sync::reset(&app);
+    choose(app, |s| s.select(file).key_file = key_file)
 }
 
 /// The local database a new cloud file can start from, if one is open.
@@ -282,23 +338,33 @@ fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
 /// Syncs with `file` in the cloud store; without one, the local database is
 /// uploaded there first (never over a file already there).
 #[tauri::command(async)]
-fn sync_with_cloud(app: AppHandle, cloud: remote::Cloud, file: Option<remote::CloudFile>) -> Result<Status, String> {
+fn sync_with_cloud(
+    app: AppHandle,
+    cloud: remote::Cloud,
+    file: Option<remote::CloudFile>,
+    local: Option<String>,
+) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
-    let location = match file {
-        Some(file) => cloud.location(file),
+    match file {
+        // Opened from the store: downloaded to the file the user chose.
+        Some(file) => {
+            let local = local.ok_or("Choose where the file goes on this PC")?;
+            sync::start(&store, cloud.location(file), PathBuf::from(local))?;
+        }
+        // The current local database, uploaded: it syncs with the new remote file.
         None => {
-            let local = local_database(&store).ok_or("Open a local file first")?;
-            let bytes = std::fs::read(&local).map_err(|e| format!("Cannot read {}: {e}", local.display()))?;
-            let name = remote::file_name(&local);
-            match cloud.create(&name, &bytes) {
-                Ok(location) => location,
+            let current = local_database(&store).ok_or("Open a local file first")?;
+            let bytes = std::fs::read(&current).map_err(|e| format!("Cannot read {}: {e}", current.display()))?;
+            let name = remote::file_name(&current);
+            let (location, revision) = match cloud.create(&name, &bytes) {
+                Ok(created) => created,
                 Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in {}: choose it instead", cloud.provider().name)),
                 Err(e) => return Err(e.message()),
-            }
+            };
+            sync::attach(&store, &current, location, revision, &bytes)?;
         }
-    };
-    sync::start(&store, location)?;
+    }
     sync::reset(&app);
     choose(app, |_| {})
 }
@@ -882,6 +948,9 @@ pub fn run() {
             status,
             pick_database,
             sync_with_folder,
+            pick_new_file,
+            pick_key_file_path,
+            create_database,
             select_database,
             remove_database,
             sign_in_to_cloud,

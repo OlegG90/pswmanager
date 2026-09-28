@@ -166,17 +166,45 @@ pub fn is_pending(known: &store::Known) -> bool {
     known.remote.as_ref().is_some_and(|r| working_hash(&known.file).is_ok_and(|hash| r.synced != Some(hash)))
 }
 
-/// Adds `location` to the list as the current database: its file is
-/// downloaded as a new working copy, under a name no other one has.
-pub fn start(store: &Store, location: crate::remote::Location) -> Result<(), String> {
-    let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|d| d.file.clone()).collect());
-    let working = free_path(&store.dir().join("sync"), &location.file_name(), &taken);
-    let remote = download_into(&working, location)?;
+/// Adds the remote file at `location` to the list as the current database:
+/// it is downloaded to `local`, a file the user chose, which it then syncs
+/// with. A file already at `local` is kept as `<name>.bak`.
+pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -> Result<(), String> {
+    if store.read(|s| s.databases.iter().any(|d| same_file(&d.file, &local))) {
+        return Err(format!("{} is already in the list: choose another place", local.display()));
+    }
+    if matches!(&location, crate::remote::Location::Folder { path } if same_file(path, &local)) {
+        return Err("The copy on this PC must be another file than the one in the folder".into());
+    }
+    if local.exists() {
+        fs::copy(&local, sibling(&local, ".bak")).map_err(|e| format!("Cannot keep the file that was there: {e}"))?;
+    }
+    let remote = download_into(&local, location)?;
     store
         .update(|s| {
-            s.select(working).remote = Some(remote);
+            s.select(local).remote = Some(remote);
         })
         .map_err(|e| format!("Cannot save the choice: {e}"))
+}
+
+/// Starts syncing the database whose file is `file` with `location`, a
+/// remote file just made from `uploaded` (the file's bytes) at `revision`:
+/// nothing is downloaded, and a change to the file since counts as pending.
+pub fn attach(store: &Store, file: &Path, location: crate::remote::Location, revision: String, uploaded: &[u8]) -> Result<(), String> {
+    let remote = store::Remote { location, revision: Some(revision), synced: Some(hash_hex(uploaded)) };
+    store
+        .update(|s| {
+            if let Some(known) = s.databases.iter_mut().find(|d| d.file == file) {
+                known.remote = Some(remote);
+            }
+        })
+        .map_err(|e| format!("Cannot save the sync state: {e}"))
+}
+
+/// True when two paths name the same file as Windows sees it (letter case
+/// does not matter).
+fn same_file(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// Downloads the remote file into `working`; the sync state that goes with it.
@@ -187,7 +215,8 @@ fn download_into(working: &Path, location: crate::remote::Location) -> Result<st
 }
 
 /// `<dir>/<name>`, or `<dir>/<stem> (2).kdbx` and so on: a path no file has
-/// and no database in the list uses.
+/// and no database in the list uses. (Only for working copies an older
+/// version kept in `sync/`, when they stop syncing.)
 fn free_path(dir: &Path, file_name: &str, taken: &[PathBuf]) -> PathBuf {
     let stem = Path::new(file_name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "database".into());
     (1..)
@@ -419,7 +448,7 @@ mod tests {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sic2kdbx.kdbx");
         fs::copy(fixture, &path).unwrap();
         let store = Store::load(dir.path().join("data").join("pswm.json"));
-        start(&store, Location::Folder { path: path.clone() }).unwrap();
+        start(&store, Location::Folder { path: path.clone() }, dir.path().join("local").join("base.kdbx")).unwrap();
         let session = Session::default();
         let working = store.read(|s| s.current.clone()).unwrap();
         session.set(Some(Vault::open(&working, Some("test"), None).unwrap()));
@@ -589,7 +618,7 @@ mod tests {
         let other = s.remote.path.parent().unwrap().join("other");
         fs::create_dir(&other).unwrap();
         fs::copy(&s.remote.path, other.join("base.kdbx")).unwrap();
-        start(&s.store, Location::Folder { path: other.join("base.kdbx") }).unwrap();
+        start(&s.store, Location::Folder { path: other.join("base.kdbx") }, s.store.dir().join("other").join("base.kdbx")).unwrap();
         let second = s.store.read(|st| st.current.clone()).unwrap();
         assert_ne!(first, second);
         assert_eq!(s.store.read(|st| st.databases.len()), 2);

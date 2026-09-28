@@ -44,13 +44,16 @@ uploads anything, and setting up sync never picks another database.
   one it opens and switches between them. Each database has its own key file (if any) and its own sync.
   Only one is unlocked at a time; opening another locks the current one first.
 - **Adding a database** (the choose-database screen) — three explicit actions:
-  - **Create a new database**: a new, empty KDBX 4 file (AES-256 with Argon2id, as KeePassXC creates
-    them, a recycle bin) where the user chooses, protected by a master password (typed twice, with the
-    strength indicator) and/or a key file.
+  - **Create a new database**: a new, empty KDBX 4 file (AES-256 with Argon2id at 64 MiB, like KeePassXC's
+    default, the recycle bin on) where the user chooses (the dialog starts in `Documents\PswManager`),
+    protected by a master password (typed twice, with the strength indicator) and/or an existing key file.
+    It is never made over a file already there.
   - **Open a local file**: an existing `.kdbx`.
   - **Open from a store** (a LAN folder, Dropbox, Google Drive, later OneDrive): sign in, pick an
     existing file there, choose where its local file goes (by default `Documents\PswManager\<name>.kdbx`).
-    The file is downloaded there and sync with that remote file is on from the start.
+    The file is downloaded there and sync with that remote file is on from the start. A file the user
+    chose to replace is kept as `<name>.kdbx.bak`. A synced database whose file went missing is downloaded
+    to it again at the next unlock.
 - **Removing a database from the list** forgets it (and its sync); the file itself stays where it is.
 - Unlocked with a master password, a key file, or both.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1

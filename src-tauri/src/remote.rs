@@ -92,16 +92,19 @@ impl Cloud {
         }
     }
 
-    /// Uploads a new file there; one of that name already there is never
-    /// replaced ([RemoteError::Changed]).
-    pub fn create(self, name: &str, bytes: &[u8]) -> Result<Location, RemoteError> {
+    /// Uploads a new file there and returns where it is and its revision;
+    /// one of that name already there is never replaced ([RemoteError::Changed]).
+    pub fn create(self, name: &str, bytes: &[u8]) -> Result<(Location, String), RemoteError> {
         match self {
             Cloud::Dropbox => {
                 let path = format!("/{name}");
-                crate::dropbox::Dropbox { path: path.clone() }.upload(bytes, None)?;
-                Ok(Location::Dropbox { path })
+                let revision = crate::dropbox::Dropbox { path: path.clone() }.upload(bytes, None)?;
+                Ok((Location::Dropbox { path }, revision))
             }
-            Cloud::Google => Ok(Location::GoogleDrive { id: crate::google::create(name, bytes)?, name: name.to_string() }),
+            Cloud::Google => {
+                let (id, revision) = crate::google::create(name, bytes)?;
+                Ok((Location::GoogleDrive { id, name: name.to_string() }, revision))
+            }
         }
     }
 }
