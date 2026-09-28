@@ -6,6 +6,7 @@ mod data_dir;
 mod dbfile;
 mod dropbox;
 mod google;
+mod onedrive;
 mod edit;
 mod file_watch;
 mod generator;

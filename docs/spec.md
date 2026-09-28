@@ -49,7 +49,7 @@ uploads anything, and setting up sync never picks another database.
     protected by a master password (typed twice, with the strength indicator) and/or an existing key file.
     It is never made over a file already there.
   - **Open a local file**: an existing `.kdbx`.
-  - **Open from a store** (a LAN folder, Dropbox, Google Drive, later OneDrive): sign in, pick an
+  - **Open from a store** (a LAN folder, Dropbox, Google Drive, OneDrive): sign in, pick an
     existing file there, choose where its local file goes (by default `Documents\PswManager\<name>.kdbx`).
     The file is downloaded there and sync with that remote file is on from the start. A file the user
     chose to replace is kept as `<name>.kdbx.bak`. A synced database whose file went missing is downloaded
@@ -382,7 +382,10 @@ working copy has changed since that sync.
   app folder (`Apps/PswManager Sync`); Google Drive — `drive.file`, the files the app created itself, in a
   `PswManager` folder the app makes at the top of the Drive, which the user may move anywhere (e.g. into an
   `Apps` folder, like Dropbox's; so a database gets there by uploading it from the app);
-  OneDrive — settled with its step of milestone 6.
+  OneDrive — `Files.ReadWrite.AppFolder`, its app folder (`Apps/PswManager`, named after the app's
+  registration), for personal Microsoft accounts. A file is downloaded from the short-lived address
+  OneDrive gives for it, so the access token is never sent to another host; Microsoft hands out a new
+  refresh token on each renewal, and the app keeps the newest.
 - Google Drive's OAuth client secret (not a secret for installed apps, but not kept in the source either)
   is given at build time as `PSWM_GOOGLE_CLIENT_SECRET`; a build without it offers no Google Drive. While
   the Google app is in testing, Google asks to sign in again every 7 days; the status says so and the

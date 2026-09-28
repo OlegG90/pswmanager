@@ -11,11 +11,13 @@ const SOURCES: [Source, string, string][] = [
   ['folder', 'Open from a folder', 'A file on a LAN share such as a NAS: copied to a file on this PC that PswManager keeps in step with it.'],
   ['dropbox', 'Open from Dropbox', 'Sign in; pick a file in Apps/PswManager Sync. It is copied to a file on this PC that stays in step with it.'],
   ['google', 'Open from Google Drive', 'Sign in; pick a file in the PswManager folder of your Drive. PswManager sees only the files it put there.'],
+  ['onedrive', 'Open from OneDrive', 'Sign in; pick a file in Apps/PswManager of your OneDrive. It is copied to a file on this PC that stays in step with it.'],
 ]
 
 const CLOUDS: Record<Cloud, { name: string; where: string }> = {
   dropbox: { name: 'Dropbox', where: 'the Dropbox app folder' },
   google: { name: 'Google Drive', where: 'the PswManager folder of your Google Drive' },
+  onedrive: { name: 'OneDrive', where: 'Apps/PswManager in your OneDrive' },
 }
 
 export interface ChooseOptions {
