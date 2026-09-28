@@ -550,6 +550,14 @@ input[type='range']:focus-visible {
   height: 34px;
 }
 
+#database-select {
+  max-width: 100%;
+}
+
+#database-select:not([hidden]) + #database-path {
+  display: none;
+}
+
 #sync-status {
   max-width: 30%;
   padding: 0 6px;

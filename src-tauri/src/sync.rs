@@ -128,13 +128,16 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
 
 /// The working copy and the remote it is synced with, if it is.
 fn synced(store: &Store) -> Option<(PathBuf, store::Remote)> {
-    store.read(|s| Some((s.database.clone()?, s.remote.clone()?)))
+    store.read(|s| {
+        let current = s.current()?;
+        Some((current.file.clone(), current.remote.clone()?))
+    })
 }
 
 fn update(store: &Store, change: impl FnOnce(&mut store::Remote)) -> Result<(), SyncError> {
     store
         .update(|s| {
-            if let Some(remote) = &mut s.remote {
+            if let Some(remote) = s.current_mut().and_then(|d| d.remote.as_mut()) {
                 change(remote);
             }
         })
@@ -168,8 +171,7 @@ pub fn start(store: &Store, location: crate::remote::Location) -> Result<(), Str
     let remote = store::Remote { location, revision: Some(revision), synced: Some(hash_hex(&bytes)) };
     store
         .update(|s| {
-            s.database = Some(working);
-            s.remote = Some(remote);
+            s.select(working).remote = Some(remote);
         })
         .map_err(|e| format!("Cannot save the choice: {e}"))
 }
@@ -232,7 +234,7 @@ fn flags<R>(app: &AppHandle, f: impl FnOnce(&mut Flags) -> R) -> R {
 
 /// Starts a sync in the background, or one more after the one running.
 pub fn request(app: &AppHandle) {
-    let synced = app.state::<Store>().read(|s| s.remote.is_some());
+    let synced = app.state::<Store>().read(|s| s.remote().is_some());
     let started = flags(app, |f| {
         f.upload_at = None;
         if !synced {
@@ -267,7 +269,7 @@ pub fn request(app: &AppHandle) {
 
 fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
     let store = app.state::<Store>();
-    let Some(location) = store.read(|s| s.remote.as_ref().map(|r| r.location.clone())) else {
+    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {
         return Ok(Outcome::UpToDate);
     };
     let outcome = sync(location.open().as_ref(), &store, &app.state::<Session>())?;
@@ -279,7 +281,7 @@ fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
 
 fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
     let store = app.state::<Store>();
-    let name = store.read(|s| s.remote.as_ref().map(|r| r.location.name())).unwrap_or("the remote store");
+    let name = store.read(|s| s.remote().map(|r| r.location.name())).unwrap_or("the remote store");
     let time = chrono::Local::now().format("%H:%M");
     let (text, problem) = match result {
         Ok(Outcome::Merged(changed)) if !changed.is_empty() => {
@@ -298,7 +300,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
-    let remote = app.state::<Store>().read(|s| s.remote.is_some());
+    let remote = app.state::<Store>().read(|s| s.remote().is_some());
     let status = flags(app, |f| {
         change(&mut f.status);
         f.status.remote = remote;
@@ -312,7 +314,7 @@ fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
 }
 
 pub fn status(app: &AppHandle) -> Status {
-    let remote = app.state::<Store>().read(|s| s.remote.is_some());
+    let remote = app.state::<Store>().read(|s| s.remote().is_some());
     Status { remote, ..flags(app, |f| f.status.clone()) }
 }
 
@@ -393,7 +395,7 @@ mod tests {
         let store = Store::load(dir.path().join("data").join("pswm.json"));
         start(&store, Location::Folder { path: path.clone() }).unwrap();
         let session = Session::default();
-        let working = store.read(|s| s.database.clone()).unwrap();
+        let working = store.read(|s| s.current.clone()).unwrap();
         session.set(Some(Vault::open(&working, Some("test"), None).unwrap()));
         Setup { _dir: dir, store, session, remote: Folder { path } }
     }
@@ -466,7 +468,7 @@ mod tests {
         s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
         let Ok(Outcome::Downloaded(changed)) = s.sync() else { panic!() };
         assert_eq!(changed.len(), 1);
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         assert_eq!(fs::read(working).unwrap(), fs::read(&s.remote.path).unwrap());
         assert_eq!(s.sync(), Ok(Outcome::UpToDate));
     }
@@ -480,7 +482,7 @@ mod tests {
         assert!(s.remote_titles().contains(&"Added on the phone".to_string()));
         assert_eq!(s.remote_password("Mail"), "from the PC");
         assert_eq!(s.password_here("Mail"), "from the PC");
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         assert!(sibling(&working, ".remote.bak").exists());
         assert_eq!(s.sync(), Ok(Outcome::UpToDate));
     }
@@ -547,7 +549,7 @@ mod tests {
     #[test]
     fn a_working_copy_kept_as_local_leaves_sync_and_takes_a_free_name() {
         let s = setup();
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         fs::write(s.store.dir().join("base.kdbx"), b"another").unwrap();
         let kept = keep_as_local(&s.store, &working).unwrap();
         assert_eq!(kept, s.store.dir().join("base (2).kdbx"));
@@ -557,7 +559,7 @@ mod tests {
     #[test]
     fn a_missing_working_copy_is_downloaded_again() {
         let s = setup();
-        let working = s.store.read(|st| st.database.clone()).unwrap();
+        let working = s.store.read(|st| st.current.clone()).unwrap();
         fs::remove_file(&working).unwrap();
         ensure_working_copy(&s.store).unwrap();
         assert_eq!(fs::read(working).unwrap(), fs::read(&s.remote.path).unwrap());

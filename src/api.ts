@@ -1,14 +1,26 @@
 import { invoke } from '@tauri-apps/api/core'
 
 export interface Status {
+  /** The file of the database the unlock screen opens. */
   database: string | null
-  /** Where the database is synced to; `database` is then its working copy. */
+  /** Where it is synced to, if anywhere. */
   syncedWith: string | null
-  syncKind: 'folder' | Cloud | null
+  syncKind: SyncKind | null
   keyFile: string | null
+  /** Every database in the list, the current one among them. */
+  databases: DatabaseInfo[]
   unlocked: boolean
   /** Something to tell the user, such as a hotkey that could not be registered. */
   notice: string | null
+}
+
+export type SyncKind = 'folder' | Cloud
+
+/** A database in the list. */
+export interface DatabaseInfo {
+  file: string
+  name: string
+  syncKind: SyncKind | null
 }
 
 /** A cloud store one signs in to. */
@@ -190,6 +202,9 @@ export const OTP = 'otp'
 export const api = {
   status: () => invoke<Status>('status'),
   pickDatabase: () => invoke<Status>('pick_database'),
+  selectDatabase: (file: string) => invoke<Status>('select_database', { file }),
+  /** Takes a database off the list; its file stays. */
+  removeDatabase: (file: string) => invoke<Status>('remove_database', { file }),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
   signInToCloud: (cloud: Cloud) => invoke<CloudFiles>('sign_in_to_cloud', { cloud }),

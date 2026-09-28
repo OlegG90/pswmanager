@@ -53,7 +53,12 @@ function showStatus(status: Status) {
   const synced = status.syncedWith
   $('database-kind').textContent = status.syncKind ? SYNC_KINDS[status.syncKind] : 'Local file'
   $('database-path').textContent = synced ?? status.database ?? ''
-  $('database-path').title = synced ? `Working copy: ${status.database}` : (status.database ?? '')
+  $('database-path').title = synced ? `Local file: ${status.database}` : (status.database ?? '')
+  // With more than one database, a list picks which one opens.
+  const select = $<HTMLSelectElement>('database-select')
+  select.hidden = status.databases.length < 2
+  select.replaceChildren(...status.databases.map((d) => new Option(d.name, d.file, false, d.file === status.database)))
+  select.title = status.database ?? ''
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
@@ -91,6 +96,11 @@ async function run(action: () => Promise<void>) {
 }
 
 $('change-database').addEventListener('click', () => run(async () => showChoose(await api.status())))
+$('database-select').addEventListener('change', (e) =>
+  run(async () => {
+    showStatus(await api.selectDatabase((e.target as HTMLSelectElement).value))
+    passwordInput.focus()
+  }))
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
 

@@ -99,25 +99,34 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     el('span', { className: 'muted' }, 'No database yet? Create one in KeePassXC, or convert a SafeInCloud export with sic2kdbx.'),
     el('div', { className: 'buttons' }, ...(first ? [] : [button('Back', 'Back (Esc)', options.back)]), next))
 
+  const act = (action: () => Promise<Status>) => async () => {
+    try {
+      const next = await action()
+      if (next.database) options.chosen(next)
+      else renderChoose(container, next, options) // the list is empty now
+    } catch (e) {
+      fail(e)
+    }
+  }
   const stop = status.syncedWith
     ? [el('p', { className: 'stop muted' }, `Synced with ${status.syncedWith}. `,
-        button('Stop syncing', 'Keep using the copy on this PC as a local file', async () => {
-          try {
-            options.chosen(await api.stopSync())
-          } catch (e) {
-            fail(e)
-          }
-        }))]
+        button('Stop syncing', 'Keep using the file on this PC as a plain local file', act(api.stopSync)))]
+    : []
+  const current = status.database
+  const remove = current
+    ? [el('p', { className: 'stop muted' }, `${status.databases.find((d) => d.file === current)?.name ?? current} is in the list. `,
+        button('Remove from the list', 'Forget this database here; its file stays where it is', act(() => api.removeDatabase(current))))]
     : []
 
   container.replaceChildren(
     el('div', { className: 'intro' },
       el('span', { className: 'kicker' }, first ? 'First run' : 'Database'),
-      el('h1', {}, first ? 'Choose your database' : 'Change the database'),
+      el('h1', {}, first ? 'Choose your database' : 'Add a database'),
       el('p', { className: 'muted' },
         'PswManager works on one KeePass (KDBX 4) file. Pick where it lives; you can change it later on the unlock screen.')),
     el('div', { className: 'sources', role: 'radiogroup', ariaLabel: 'Where the database lives' }, ...sources),
     ...stop,
+    ...remove,
     error,
     waiting,
     footer,

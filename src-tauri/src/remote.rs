@@ -151,24 +151,6 @@ impl Location {
         }
     }
 
-    /// Syncing stops: the file to use as a local database from now on. A
-    /// folder's own file; for a cloud store, the working copy, moved out of
-    /// `sync/` (where syncing again would overwrite it).
-    pub fn detach(&self, store: &crate::store::Store, working: &Path) -> Result<PathBuf, String> {
-        match self {
-            Location::Folder { path } => Ok(path.clone()),
-            _ => crate::sync::keep_as_local(store, working),
-        }
-    }
-
-    /// The database no longer uses this store: a cloud account is signed out
-    /// (its refresh token removed).
-    pub fn forget(&self) {
-        if let Some(cloud) = self.cloud() {
-            cloud.provider().sign_out();
-        }
-    }
-
     /// For status lines: "the folder", "Dropbox".
     pub fn name(&self) -> &'static str {
         match self {
