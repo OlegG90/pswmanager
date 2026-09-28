@@ -87,6 +87,8 @@ pub struct EntryDetail {
     pub summary: EntrySummary,
     pub fields: Vec<Field>,
     pub attachments: Vec<Attachment>,
+    /// When the entry was last changed (UTC, RFC 3339), if the file says.
+    pub modified: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,7 +193,8 @@ impl Vault {
         let mut attachments: Vec<Attachment> =
             entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
         attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        Some(EntryDetail { summary: summary(&entry), fields, attachments })
+        let modified = entry.times.last_modification.map(edit::time_text);
+        Some(EntryDetail { summary: summary(&entry), fields, attachments, modified })
     }
 
     /// The content of one of the entry's files, for saving it to disk.
@@ -639,6 +642,9 @@ pub mod tests {
         let vault = Vault::from_database(sample());
         let id = in_use(&vault)[1].id.clone();
         let detail = vault.detail(&id).unwrap();
+        let modified = vault.db.entry(parse_id(&id).unwrap()).unwrap().times.last_modification.unwrap();
+        assert_eq!(detail.modified, Some(edit::time_text(modified)));
+        assert!(detail.modified.as_deref().is_some_and(|t| t.ends_with('Z')));
         assert_eq!(
             detail.fields,
             [

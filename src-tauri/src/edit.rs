@@ -116,9 +116,14 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 /// When KeePass's *Expires* is on: the time, as the window gets it.
 pub fn expiry_of(times: &Times) -> Option<String> {
     match (times.expires, times.expiry) {
-        (Some(true), Some(at)) => Some(at.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true)),
+        (Some(true), Some(at)) => Some(time_text(at)),
         _ => None,
     }
+}
+
+/// A time as the window gets it: UTC, RFC 3339, to the second.
+pub fn time_text(at: NaiveDateTime) -> String {
+    at.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 /// The time an expiry the window sent stands for, to the second (as the file keeps it).
