@@ -7,7 +7,7 @@ import { menuButton } from './menu'
 import { ask, askText, isAsking } from './modal'
 import { formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, GROUPS, sameFilter, search, tagCounts, type Filter } from './search'
+import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -334,6 +334,9 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
 /** How a field is labelled; the standard ones only appear here when protected. */
 const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', [OTP]: 'TOTP' }
 
+/** Shown before the tags of an entry that is not in use. */
+const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
+
 const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
 const labelOf = (field: string) => LABELS[field] ?? field
 
@@ -341,7 +344,8 @@ function renderDetail() {
   const entry = current
   // An entry fetched just as the editor opened must not draw over it.
   if (!entry || isEditing()) return
-  const meta = [PLACES[entry.kind], entry.tags.join(', ')].filter(Boolean).join(' · ')
+  const tags = entry.tags.filter((t) => t !== FAVORITE).join(', ')
+  const meta = [PLACES[entry.kind], tags].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
   const rows: Node[] = [el('header', {}, iconImage(entry), heading)]
@@ -375,9 +379,6 @@ function renderDetail() {
   }
   detail.replaceChildren(...rows)
 }
-
-/** Shown before the tags of an entry that is not in use. */
-const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
 
 /** An attached file: its name and size; the content is only ever saved to disk.
  *  Only an entry in use has its files changed. */
@@ -497,8 +498,12 @@ function applyListing(next: Listing, message: string, focusSearch = true) {
 
 function afterSave(saved: Saved) {
   selectedId = saved.id
-  // A new entry shows among All when the sidebar's choice does not have it.
-  if (!search(saved.listing.entries, '', filter).some((e) => e.id === saved.id)) filter = ALL
+  // The saved entry shows: among All, without the search, when the sidebar's
+  // choice or the search leaves it out.
+  if (!search(saved.listing.entries, searchInput.value, filter).some((e) => e.id === saved.id)) {
+    filter = ALL
+    searchInput.value = ''
+  }
   const replaced = saved.conflicts.join(', ')
   applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
 }

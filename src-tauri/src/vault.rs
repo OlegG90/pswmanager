@@ -401,8 +401,23 @@ impl Vault {
 
 /// Templates are not edited as entries.
 fn is_template(entry: &EntryRef<'_>) -> bool {
-    let templates = entry.database().meta.entry_templates_group.map(GroupId::from);
-    templates.is_some_and(|t| is_in(entry, &HashSet::from([t])))
+    in_group(entry, entry.database().meta.entry_templates_group)
+}
+
+/// A template in the recycle bin is in the trash.
+fn kind(entry: &EntryRef<'_>) -> Kind {
+    if in_group(entry, entry.database().meta.recyclebin_uuid) {
+        Kind::Trash
+    } else if is_template(entry) {
+        Kind::Template
+    } else {
+        Kind::Entry
+    }
+}
+
+/// True when the entry sits in `group` (if the database has one), at any depth.
+fn in_group(entry: &EntryRef<'_>, group: Option<Uuid>) -> bool {
+    group.is_some_and(|g| is_in(entry, &HashSet::from([GroupId::from(g)])))
 }
 
 fn parse_id(id: &str) -> Result<EntryId, String> {
@@ -459,15 +474,6 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     };
     let url = text(fields::URL);
     let group = group_path(e);
-    let db = e.database();
-    let in_group = |group: Option<Uuid>| group.is_some_and(|g| is_in(e, &HashSet::from([GroupId::from(g)])));
-    let kind = if in_group(db.meta.recyclebin_uuid) {
-        Kind::Trash
-    } else if in_group(db.meta.entry_templates_group) {
-        Kind::Template
-    } else {
-        Kind::Entry
-    };
     let expires = match (e.times.expires, e.times.expiry) {
         (Some(true), Some(at)) => Some(at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         _ => None,
@@ -487,7 +493,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
             _ => None,
         },
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
-        kind,
+        kind: kind(e),
         otp: e.fields.contains_key(fields::OTP),
         passkey: e.fields.keys().any(|name| name.starts_with(PASSKEY)),
         expires,

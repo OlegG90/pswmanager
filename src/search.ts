@@ -76,5 +76,7 @@ export function tagCounts(entries: Entry[]): [string, number][] {
   return [...counts].sort(([a], [b]) => a.localeCompare(b))
 }
 
-export const sameFilter = (a: Filter, b: Filter) =>
-  a.kind === 'group' ? b.kind === 'group' && a.group === b.group : b.kind === 'tag' && a.tag === b.tag
+/** True when both choose the same group or tag. */
+export function sameFilter(a: Filter, b: Filter): boolean {
+  return a.kind === 'group' ? b.kind === 'group' && a.group === b.group : b.kind === 'tag' && a.tag === b.tag
+}
