@@ -82,16 +82,30 @@ pub struct Listing {
 impl Vault {
     /// Opens a KDBX file with a password, a key file, or both.
     pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, String> {
-        let mut key = DatabaseKey::new();
-        if let Some(password) = password {
-            key = key.with_password(password);
-        }
-        if let Some(key_file) = key_file {
-            let mut file = File::open(key_file).map_err(|e| format!("Cannot read the key file: {e}"))?;
-            key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
-        }
-        let (db, file) = DbFile::open(path, key)?;
+        let (db, file) = DbFile::open(path, key(password, key_file)?)?;
         Ok(Vault { db, file: Some(file), unsaved: false })
+    }
+
+    /// Creates a new, empty database at `path` (never over a file already
+    /// there): KDBX 4 with AES-256 and Argon2id, as KeePassXC makes them, the
+    /// recycle bin on, the root group named `name`.
+    pub fn create(path: &Path, name: &str, password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
+        if password.is_none() && key_file.is_none() {
+            return Err("A database needs a master password, a key file, or both".into());
+        }
+        if path.exists() {
+            return Err(format!("{} is already there: choose another name", path.display()));
+        }
+        let key = key(password, key_file)?;
+        let mut db = Database::with_config(new_database_config());
+        db.meta.database_name = Some(name.to_string());
+        db.meta.recyclebin_enabled = Some(true);
+        db.meta.history_max_items = Some(10);
+        db.root_mut().name = name.to_string();
+        let mut bytes = Vec::new();
+        db.save(&mut bytes, key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
+        Database::parse(&bytes, key).map_err(|e| format!("The new database did not open again ({e})"))?;
+        crate::store::write_atomically(path, &bytes).map_err(|e| format!("Cannot write {}: {e}", path.display()))
     }
 
     #[cfg(test)]
@@ -444,6 +458,32 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     }
 }
 
+/// The key from a master password, a key file, or both.
+fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
+    let mut key = DatabaseKey::new();
+    if let Some(password) = password {
+        key = key.with_password(password);
+    }
+    if let Some(key_file) = key_file {
+        let mut file = File::open(key_file).map_err(|e| format!("Cannot read the key file: {e}"))?;
+        key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
+    }
+    Ok(key)
+}
+
+/// What a new database is made with: KDBX 4.1, AES-256, ChaCha20 for
+/// protected values, and Argon2id tuned like KeePassXC's default (64 MiB)
+/// so a phone opens it in a few seconds.
+fn new_database_config() -> keepass::config::DatabaseConfig {
+    use keepass::config::{DatabaseConfig, DatabaseVersion, KdfConfig, OuterCipherConfig};
+    let mut config = DatabaseConfig::default();
+    let KdfConfig::Argon2 { version, .. } = config.kdf_config else { unreachable!("keepass-rs defaults to Argon2") };
+    config.version = DatabaseVersion::KDB4(1);
+    config.outer_cipher_config = OuterCipherConfig::AES256;
+    config.kdf_config = KdfConfig::Argon2id { iterations: 10, memory: 64 << 20, parallelism: 2, version };
+    config
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -748,6 +788,23 @@ pub mod tests {
         let summary = |id: &str| listing.entries.iter().find(|e| e.id == id).unwrap().clone();
         assert!(listing.custom_icons[summary(&mail).custom_icon.as_ref().unwrap()].starts_with("data:image/png"));
         assert_eq!(summary(&router).icon, Some(37));
+    }
+
+    #[test]
+    fn a_new_database_opens_and_is_never_made_over_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new").join("Passwords.kdbx");
+        Vault::create(&path, "Passwords", Some("pw"), None).unwrap();
+        let mut vault = Vault::open(&path, Some("pw"), None).unwrap();
+        assert!(vault.listing().entries.is_empty());
+        assert!(matches!(vault.db.config.kdf_config, keepass::config::KdfConfig::Argon2id { .. }));
+        // It takes entries, and deleting one makes the recycle bin.
+        let mut first = edit::EntryData::default();
+        first.title = "First".into();
+        let (id, _) = vault.save_entry(None, None, &first).unwrap();
+        vault.delete_entry(&id).unwrap();
+        assert!(Vault::create(&path, "Again", Some("pw"), None).unwrap_err().contains("already there"));
+        assert!(Vault::create(&dir.path().join("b.kdbx"), "B", None, None).is_err());
     }
 
     #[test]

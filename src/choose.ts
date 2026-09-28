@@ -1,14 +1,16 @@
 import { api, type Cloud, type Status } from './api'
 import { button, el } from './dom'
 import { choose } from './modal'
+import { createDatabase } from './new-database'
 
-type Source = 'local' | 'folder' | Cloud
+type Source = 'new' | 'local' | 'folder' | Cloud
 
 const SOURCES: [Source, string, string][] = [
+  ['new', 'Create a new database', 'An empty KeePass file where you choose, with a master password and / or a key file.'],
   ['local', 'Open a local file', 'A .kdbx on this PC, a USB drive, or a folder another program syncs. PswManager does not sync it.'],
-  ['folder', 'Sync with a folder', 'A file on a LAN share such as a NAS. PswManager keeps a working copy and syncs it.'],
-  ['dropbox', 'Sync with Dropbox', 'Sign in once; the file lives in Apps/PswManager Sync and opens in Keepass2Android too.'],
-  ['google', 'Sync with Google Drive', 'Sign in; the file lives in the PswManager folder of your Drive. PswManager sees only the files it put there.'],
+  ['folder', 'Open from a folder', 'A file on a LAN share such as a NAS: copied to a file on this PC that PswManager keeps in step with it.'],
+  ['dropbox', 'Open from Dropbox', 'Sign in; pick a file in Apps/PswManager Sync. It is copied to a file on this PC that stays in step with it.'],
+  ['google', 'Open from Google Drive', 'Sign in; pick a file in the PswManager folder of your Drive. PswManager sees only the files it put there.'],
 ]
 
 const CLOUDS: Record<Cloud, { name: string; where: string }> = {
@@ -41,7 +43,15 @@ async function syncWithCloud(cloud: Cloud, waiting: HTMLElement): Promise<Status
       await api.cancelCloud(cloud)
       return null
     }
-    return await api.syncWithCloud(cloud, picked < offer.files.length ? offer.files[picked] : null)
+    if (picked >= offer.files.length) return await api.syncWithCloud(cloud, null, null)
+    const file = offer.files[picked]
+    // Opened from the store: the user chooses where its file goes on this PC.
+    const local = await api.pickNewFile(file.name)
+    if (!local) {
+      await api.cancelCloud(cloud)
+      return null
+    }
+    return await api.syncWithCloud(cloud, file, local)
   } catch (e) {
     await api.cancelCloud(cloud)
     throw e
@@ -84,8 +94,11 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     error.hidden = true
     next.disabled = true
     try {
-      const chosen = source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
+      const chosen = source === 'new' ? await createDatabase(container)
+        : source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
         : changedOrNull(await (source === 'local' ? api.pickDatabase() : api.syncWithFolder()))
+      // Back from the new-database form: this screen again.
+      if (source === 'new' && !chosen) return renderChoose(container, status, options)
       if (chosen?.database) options.chosen(chosen)
     } catch (e) {
       fail(e)
