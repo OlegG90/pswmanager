@@ -639,6 +639,16 @@ input[type='range']:focus-visible {
 #tags li .more {
   visibility: hidden;
   padding: 0 6px;
+  border-color: transparent;
+  background: none;
+}
+
+#tags .menu {
+  min-width: 120px;
+}
+
+#tags .menu button {
+  border-color: transparent;
 }
 
 #tags li:hover .more,

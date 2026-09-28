@@ -182,8 +182,8 @@ function fillSidebar() {
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
-        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag, count) },
-        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag, count), danger: true },
+        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag) },
+        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag), danger: true },
       ]))
       return li
     }),
@@ -491,7 +491,7 @@ function fileRow(file: Attachment, changeable: boolean): HTMLDivElement {
 function renderSeveral() {
   if (!several || isEditing()) return
   const chosen = listing.entries.filter((e) => several!.chosen.includes(e.id))
-  const inUse = chosen.filter(editable)
+  const inUse = chosenInUse()
   const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
     el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
   const rows: Node[] = [el('header', {}, heading)]
@@ -503,16 +503,21 @@ function renderSeveral() {
   if (inUse.length) {
     const ids = inUse.map((e) => e.id)
     const theirTags = [...new Set(inUse.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
-    const removeTag = button('Remove tag…', 'Take a tag off these entries', () => untagSeveral(ids, theirTags))
-    removeTag.disabled = theirTags.length === 0
+    const untag = button('Remove tag…', 'Take a tag off these entries', () => untagSeveral(ids, theirTags))
+    untag.disabled = theirTags.length === 0
     rows.push(el('div', { className: 'buttons' },
       button('Add tag…', 'Give these entries a tag', () => tagSeveral(ids)),
-      removeTag,
+      untag,
       button('★ Favorite', 'Add these entries to Favorites', () => changeSeveral(ids, FAVORITE, true)),
       button('Not favorite', 'Remove these entries from Favorites', () => changeSeveral(ids, FAVORITE, false)),
       button('Delete…', 'Move these entries to the recycle bin (Del)', () => deleteSeveral(ids), 'danger')))
   }
   detail.replaceChildren(...rows)
+}
+
+/** The chosen entries that can be changed here: not templates, not the trash's. */
+function chosenInUse(): Entry[] {
+  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && editable(e)) : []
 }
 
 async function tagSeveral(ids: string[]) {
@@ -538,8 +543,9 @@ async function changeSeveral(ids: string[], tag: string, on: boolean) {
 async function deleteSeveral(ids: string[]) {
   if (!ids.length || !await ask(`Move ${ids.length} entries to the recycle bin?`, 'Move to the recycle bin')) return
   try {
+    const next = await api.deleteEntries(ids)
     several = null
-    applyListing(await api.deleteEntries(ids), `Moved ${ids.length} entries to the recycle bin`)
+    applyListing(next, `Moved ${ids.length} entries to the recycle bin`)
   } catch (e) {
     notify(String(e))
   }
@@ -547,11 +553,18 @@ async function deleteSeveral(ids: string[]) {
 
 // ---------------------------------------------------------------- tags
 
+/** How many entries have the tag: templates and the trash's too, as renaming
+ *  and removing a tag change every entry (a template would bring it back). */
+function entriesTagged(tag: string): string {
+  const count = listing.entries.filter((e) => e.tags.includes(tag)).length
+  return `${count} ${count === 1 ? 'entry' : 'entries'}`
+}
+
 /** Renames a tag in every entry; to a name another tag has, after asking, the two merge. */
-async function renameTag(tag: string, count: number) {
-  const to = (await askText(`Rename the tag "${tag}" (${count} ${count === 1 ? 'entry' : 'entries'}) to:`, tag, 'Rename'))?.trim()
+async function renameTag(tag: string) {
+  const to = (await askText(`Rename the tag "${tag}" (${entriesTagged(tag)}) to:`, tag, 'Rename'))?.trim()
   if (!to || to === tag) return
-  if (tagCounts(listing.entries).some(([t]) => t === to)) {
+  if (listing.entries.some((e) => e.tags.includes(to))) {
     if (!await ask(`There is a tag "${to}" already. Merge "${tag}" into it?`, 'Merge')) return
   }
   try {
@@ -563,8 +576,8 @@ async function renameTag(tag: string, count: number) {
   }
 }
 
-async function removeTag(tag: string, count: number) {
-  const yes = await ask(`Take the tag "${tag}" off ${count} ${count === 1 ? 'entry' : 'entries'}? The entries stay.`, 'Remove the tag')
+async function removeTag(tag: string) {
+  const yes = await ask(`Take the tag "${tag}" off ${entriesTagged(tag)}? The entries stay.`, 'Remove the tag')
   if (!yes) return
   try {
     applyListing(await api.removeTag(tag), `Removed the tag "${tag}"`)
@@ -941,7 +954,7 @@ function perform(action: Action, e: KeyboardEvent) {
       editEntry()
       break
     case 'delete-entry':
-      if (several) deleteSeveral(listing.entries.filter((x) => several!.chosen.includes(x.id) && editable(x)).map((x) => x.id))
+      if (several) deleteSeveral(chosenInUse().map((x) => x.id))
       else deleteEntry()
       break
     case 'previous':

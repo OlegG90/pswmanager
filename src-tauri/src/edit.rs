@@ -774,12 +774,10 @@ pub fn set_tag(db: &mut Database, ids: &[EntryId], tag: &str, on: bool, hidden: 
         if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
             continue;
         }
-        retag(db, id, |tags| {
-            let mut tags: Vec<String> = tags.iter().filter(|t| **t != tag).cloned().collect();
-            if on {
-                tags.push(tag.clone());
-            }
-            tags
+        retag(db, id, |tags| match (on, tags.contains(&tag)) {
+            (true, false) => [tags, std::slice::from_ref(&tag)].concat(),
+            (false, true) => tags.iter().filter(|t| **t != tag).cloned().collect(),
+            _ => tags.to_vec(), // already as asked, in its place
         });
     }
     Ok(())
@@ -794,6 +792,10 @@ pub fn rename_tag(db: &mut Database, from: &str, to: &str) -> Result<(), String>
     }
     for id in all_entries(db) {
         retag(db, id, |tags| {
+            // Entries without the tag stay exactly as they are.
+            if !tags.iter().any(|t| t == from) {
+                return tags.to_vec();
+            }
             let mut renamed: Vec<String> = Vec::with_capacity(tags.len());
             for tag in tags {
                 let tag = if tag == from { to.clone() } else { tag.clone() };
@@ -999,9 +1001,10 @@ mod tests {
         set_tag(&mut db, &[a, b], FAVORITE, true, &HashSet::new()).unwrap();
         assert_eq!((tags(&db, a), tags(&db, b)), (vec!["work".to_string(), FAVORITE.into()], vec![FAVORITE.to_string()]));
         assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
-        // Already so: nothing changes.
-        set_tag(&mut db, &[a], FAVORITE, true, &HashSet::new()).unwrap();
-        assert_eq!(history_len(&db, a), 1);
+        // Already so, even not last: nothing changes.
+        set_tag(&mut db, &[a], "work", true, &HashSet::new()).unwrap();
+        set_tag(&mut db, &[b], "work", false, &HashSet::new()).unwrap();
+        assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
         set_tag(&mut db, &[a, b], " work ", false, &HashSet::new()).unwrap();
         assert_eq!((tags(&db, a), history_len(&db, b)), (vec![FAVORITE.to_string()], 1));
         // Entries gone and hidden ones are left out.
@@ -1017,7 +1020,8 @@ mod tests {
         let mut db = Database::new();
         let a = apply(&mut db, None, &with("a", |d| d.tags = vec!["old".into(), "x".into()]), &HashSet::new()).unwrap();
         let b = apply(&mut db, None, &with("b", |d| d.tags = vec!["new".into(), "old".into()]), &HashSet::new()).unwrap();
-        let c = apply(&mut db, None, &data("c"), &HashSet::new()).unwrap();
+        // Tags another client wrote twice stay so when another tag is renamed.
+        let c = apply(&mut db, None, &with("c", |d| d.tags = vec!["y".into(), "y".into()]), &HashSet::new()).unwrap();
         rename_tag(&mut db, "old", " new ").unwrap();
         let tags = |db: &Database, id: EntryId| db.entry(id).unwrap().tags.clone();
         assert_eq!(tags(&db, a), ["new", "x"]);
