@@ -72,7 +72,8 @@ uploads anything, and setting up sync never picks another database.
 
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
   tags and notes (not passwords). Results update as you type.
-- A list of entries on the left, the selected entry on the right. A group / tag filter narrows the list.
+- Three columns: the **sidebar** (the fixed groups, then the tags), the **list** of entries the sidebar's
+  choice shows, and the selected **entry** (see *Groups and tags*). There is no filter menu.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes and attached files (name and size). Protected attributes are masked like the
   password. **Open** next to a file opens it in the app Windows uses for its type; the **⋯** menu beside it
@@ -84,6 +85,39 @@ uploads anything, and setting up sync never picks another database.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
 - Theme: light or dark, or as Windows is set (the default); a setting.
+
+### Groups and tags
+
+The sidebar has two parts. **Groups** are fixed: an entry is in one because of what it is or what was done
+to it, never by picking the group. **Tags** are the user's own way to sort entries; every tag in the
+database is listed under the groups, with its number of entries.
+
+| Group | Shows |
+|---|---|
+| All | every entry except the deleted ones and the templates |
+| Favorites | entries marked with the star (the entry view and the list toggle it); stored as the tag `Favorite`, which `sic2kdbx` also writes for SafeInCloud's star and other clients see as a tag — it is not listed among the tags |
+| Expired | entries whose expiry date has passed; those expiring within 14 days are listed too, marked as soon |
+| 2FA | entries with a TOTP secret |
+| Passkey | entries with a passkey KeePassXC stored (its `KPEX_PASSKEY_*` attributes); shown, not made by the app |
+| Templates | the database's templates (KeePass's templates group) |
+| Trash | the deleted entries (the recycle bin) |
+
+- The KDBX groups an entry sits in are not shown or edited any more; entries stay where they are in the
+  file, and new ones go to its top group (or the template's group). Search runs within the chosen group or
+  tag.
+- **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
+  offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
+  change (each entry keeps its previous version in history).
+- **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
+  or **removed** from every entry, after a confirmation. The entries themselves stay.
+- **Trash:** **Restore** puts an entry back where it was; **Delete permanently** (after a confirmation)
+  removes it and records the deletion for other devices; **Empty trash** does that for all of them. An entry
+  with attached files (now or in its history) cannot be removed that way: keepass-rs would misnumber the
+  other entries' files. It stays in the trash, and the window says why.
+- **Templates:** **New entry** (`Ctrl+N`) asks for a blank entry or one of the templates. An entry made
+  from a template gets its fields (names, values, protection), icon and tags, not its title. Templates are
+  edited like entries in the Templates group, and **New template** makes one there. They are never listed
+  under All, and nothing else treats them as entries (search, health report, favorites).
 
 ### Entry icons
 
@@ -163,11 +197,12 @@ uploads anything, and setting up sync never picks another database.
 - Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
   the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused —
   removing an entry with keepass-rs can leave other entries' attachments pointing at the wrong data.
-- Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag and group
+- Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag
   spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
-  unchanged. An entry whose group path did not change stays in its own group, even when group names repeat.
-- Editable: title, user name, password, URL, notes, tags, group, TOTP secret, additional attributes
-  (add / rename / remove, protected or not).
+  unchanged. An edited entry stays in its KDBX group.
+- Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*; none
+  by default), TOTP secret, additional attributes (add / rename / remove, protected or not). The group is
+  not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
 - **Attachments:** in the entry view a file can be added to an entry, replaced, renamed or removed (up to
@@ -409,3 +444,7 @@ the release.
 7. Databases and sync apart: a list of databases (one open), create a new database, open a local file,
    open from a store into a visible local file; sync set up per database (upload, link with an explicit
    merge / use remote / keep local choice, stop); state migration
+8. Groups and tags: the three-column window with fixed groups (All, Favorites, Expired, 2FA, Passkey,
+   Templates, Trash) and tags in the sidebar; the favorite star and expiry date; tags on several entries
+   at once, renaming and removing a tag; restore, delete permanently and empty in the trash; new entries
+   from templates; no group field
