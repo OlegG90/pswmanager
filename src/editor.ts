@@ -155,9 +155,10 @@ function withStar(tags: string[], on: boolean, original: string[]): string[] {
   return at < 0 ? [...rest, FAVORITE] : [...rest.slice(0, at), FAVORITE, ...rest.slice(at)]
 }
 
-/** What a new entry takes from a template: everything but its title and expiry. */
+/** What a new entry takes from a template: everything but its title, expiry,
+ *  TOTP secret (every entry has its own) and star. */
 function fromTemplate(template?: EntryData): Partial<EntryData> {
-  return template ? { ...template, title: '', expires: null } : {}
+  return template ? { ...template, title: '', expires: null, otp: '', tags: template.tags.filter((t) => t !== FAVORITE) } : {}
 }
 
 /** The field each row started from, to keep values the form only reformatted. */

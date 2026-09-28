@@ -229,8 +229,8 @@ impl Vault {
     /// changed against it is applied, so changes another device made since
     /// stay. Returns the entry's id and the fields both changed (the
     /// editor's version won). Nothing changes when saving fails.
-    /// A new `template` goes into the templates' group (made when missing);
-    /// an existing template stays a template.
+    /// A `template` (a new one, or one being edited) is kept in the templates'
+    /// group, made when missing; the editor's group does not move it.
     pub fn save_entry(
         &mut self,
         id: Option<&str>,
@@ -240,28 +240,25 @@ impl Vault {
     ) -> Result<(String, Vec<String>), String> {
         let id = id.map(parse_id).transpose()?;
         let (id, conflicts) = self.change(|db, hidden| {
-            let (exists, is_template) = match id.and_then(|id| db.entry(id)) {
-                Some(entry) => (true, is_template(&entry)),
-                None => (false, template),
-            };
-            // A template may be put (back) among the templates, nothing else may.
-            let mut hidden = hidden.clone();
-            let mut data = data.clone();
-            if is_template {
-                let group = edit::templates_group(db);
-                hidden.remove(&group);
-                if !exists {
-                    data.group = edit::path_of(db, group);
-                }
-            }
             let current = id.and_then(|id| db.entry(id));
-            match (current, base) {
+            let template = template || current.as_ref().is_some_and(|e| is_template(e));
+            let mut data = data.clone();
+            if template {
+                // Where it is now (the top for a new one): nothing moves until
+                // it is put among the templates, by the group's id.
+                data.group = current.as_ref().map_or_else(Vec::new, group_path);
+            }
+            let (saved, conflicts) = match (current, base) {
                 (Some(entry), Some(base)) => {
                     let (merged, conflicts) = edit::merge3(&edit::read(&entry, group_path(&entry)), base, &data);
-                    Ok((edit::apply(db, id, &merged, &hidden)?, conflicts))
+                    (edit::apply(db, id, &merged, hidden)?, conflicts)
                 }
-                _ => Ok((edit::apply(db, id, &data, &hidden)?, Vec::new())),
+                _ => (edit::apply(db, id, &data, hidden)?, Vec::new()),
+            };
+            if template {
+                edit::put_among_templates(db, saved)?;
             }
+            Ok((saved, conflicts))
         })?;
         Ok((id.uuid().to_string(), conflicts))
     }
@@ -465,6 +462,7 @@ impl Vault {
     }
 }
 
+/// In the templates' group: not in the trash, a template.
 fn is_template(entry: &EntryRef<'_>) -> bool {
     in_group(entry, entry.database().meta.entry_templates_group)
 }
@@ -697,10 +695,18 @@ pub mod tests {
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
         assert_eq!(vault.field(&id, fields::USERNAME).unwrap().as_str(), "holder");
 
+        // The editor's group does not move it out.
+        edited.group = vec!["Work".into()];
+        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
+
         // Deleted into the trash, where it is not edited.
         vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         assert_eq!(kind_of(&vault, &id), Some(Kind::Trash));
         assert!(vault.edit_data(&id).is_none());
+        // Deleted elsewhere while the editor had it open: saving brings it back.
+        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
     }
 
     #[test]
