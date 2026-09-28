@@ -276,6 +276,12 @@ impl Vault {
         self.change(|db, hidden| edit::replace_attachment(db, id, name, data, hidden))
     }
 
+    /// Stars an entry or takes its star off, and saves the file.
+    pub fn set_favorite(&mut self, id: &str, on: bool) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::set_favorite(db, id, on, hidden))
+    }
+
     /// Moves an entry to the recycle bin and saves the file. An entry already
     /// gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entry(&mut self, id: &str) -> Result<(), String> {
@@ -474,10 +480,6 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
     };
     let url = text(fields::URL);
     let group = group_path(e);
-    let expires = match (e.times.expires, e.times.expiry) {
-        (Some(true), Some(at)) => Some(at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
-        _ => None,
-    };
     EntrySummary {
         id: e.id().uuid().to_string(),
         title: text(fields::TITLE),
@@ -496,7 +498,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         kind: kind(e),
         otp: e.fields.contains_key(fields::OTP),
         passkey: e.fields.keys().any(|name| name.starts_with(PASSKEY)),
-        expires,
+        expires: edit::expiry_of(&e.times),
     }
 }
 

@@ -5,7 +5,7 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, isAsking } from './modal'
-import { formatSize } from './entry-text'
+import { formatDate, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from './search'
 import { renderSettings } from './settings'
@@ -242,7 +242,7 @@ async function loadSiteIcon(host: string) {
 
 function listItem(entry: Entry): HTMLLIElement {
   const title = el('div', { className: 'title' }, entry.title || '(no title)')
-  const expires = entry.kind === 'entry' ? expiry(entry, Date.now()) : null
+  const expires = editable(entry) ? expiry(entry, Date.now()) : null
   if (expires) title.append(el('span', { className: `badge ${expires}` }, expires === 'soon' ? 'Expires soon' : 'Expired'))
   const li = el(
     'li',
@@ -251,9 +251,33 @@ function listItem(entry: Entry): HTMLLIElement {
     title,
     el('div', { className: 'subtitle' }, entry.username || entry.host || ''),
   )
+  if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
   li.addEventListener('mousedown', () => select(entry.id))
   return li
+}
+
+const isFavorite = (entry: Entry) => entry.tags.includes(FAVORITE)
+
+/** The star: in the list and the entry view, it stars the entry or takes the
+ *  star off, as a tag (no sync until the next sync moment). */
+function starButton(entry: Entry): HTMLButtonElement {
+  const on = isFavorite(entry)
+  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', () => toggleFavorite(entry), 'ghost star')
+  star.setAttribute('aria-pressed', String(on))
+  // Clicking the star in the list does not select the entry.
+  star.addEventListener('mousedown', (e) => e.stopPropagation())
+  return star
+}
+
+async function toggleFavorite(entry: Entry) {
+  if (isEditing()) return
+  const on = !isFavorite(entry)
+  try {
+    applyListing(await api.setFavorite(entry.id, on), on ? 'Added to Favorites' : 'Removed from Favorites', false)
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 function select(id: string | null) {
@@ -348,7 +372,14 @@ function renderDetail() {
   const meta = [PLACES[entry.kind], tags].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
-  const rows: Node[] = [el('header', {}, iconImage(entry), heading)]
+  if (entry.expires) {
+    const state = expiry(entry, Date.now())
+    const text = `${state === 'expired' ? 'Expired' : 'Expires'} ${formatDate(entry.expires)}`
+    heading.append(el('span', { className: `expiry ${state ?? ''}` }, text))
+  }
+  const header = el('header', {}, iconImage(entry), heading)
+  if (editable(entry)) header.append(starButton(entry))
+  const rows: Node[] = [header]
   if (entry.username) {
     rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
@@ -477,7 +508,7 @@ function startEditor(id: string | null, focusPassword = false) {
 }
 
 /** Only entries in use are edited here: not templates, not the trash's. */
-function editable(entry: EntryDetail | null): entry is EntryDetail {
+function editable<T extends Entry>(entry: T | null): entry is T {
   return entry?.kind === 'entry'
 }
 

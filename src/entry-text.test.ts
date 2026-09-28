@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatGroup, formatSize, formatTags, keep, parseGroup, parseTags, singleLine, textareaLines } from './entry-text'
+import { dateOf, formatGroup, formatSize, formatTags, keep, parseGroup, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
 
 describe('entry text', () => {
   it('reads and writes group paths', () => {
@@ -19,6 +19,12 @@ describe('entry text', () => {
   it('reads and writes tags', () => {
     expect(parseTags('a, b;c ,, a')).toEqual(['a', 'b', 'c'])
     expect(formatTags(['a', 'b'])).toBe('a, b')
+  })
+
+  it('reads and writes expiry days on this PC', () => {
+    expect(dateOf(startOfDay('2030-01-02'))).toBe('2030-01-02')
+    expect(new Date(startOfDay('2030-01-02')).getHours()).toBe(0)
+    expect(dateOf(new Date(2030, 11, 31, 23, 59).toISOString())).toBe('2030-12-31')
   })
 
   it('writes file sizes', () => {

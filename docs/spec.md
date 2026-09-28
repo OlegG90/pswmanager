@@ -200,7 +200,7 @@ entries in use (not templates, not the trash) is listed under the groups, with i
 - Values the editor only reformats (line breaks an input cannot hold, spaces around a URL, tag
   spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
   unchanged. An edited entry stays in its KDBX group.
-- Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*; none
+- Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*, set to the start of the chosen day on this PC; a time another client set stays while the day is unchanged; none
   by default), TOTP secret, additional attributes (add / rename / remove, protected or not). The group is
   not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the

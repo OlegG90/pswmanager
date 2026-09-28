@@ -41,6 +41,22 @@ export const parseTags = (text: string) => [
   ),
 ]
 
+/** An expiry time as a date input shows it: the day on this PC, `2030-01-02`. */
+export function dateOf(iso: string): string {
+  const at = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
+}
+
+/** A date input's day as an expiry time: its start on this PC. */
+export function startOfDay(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(year, month - 1, day).toISOString()
+}
+
+/** The day an expiry time falls on, as people read it. */
+export const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
+
 /** A file size as people read it: `820 B`, `14 KB`, `2.4 MB`. */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

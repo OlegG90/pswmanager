@@ -4,6 +4,7 @@
 use crate::otp;
 use base64::Engine;
 use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
+use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -16,6 +17,9 @@ const RECYCLE_BIN_ICON: usize = 43;
 pub const MAX_ATTACHMENT: usize = 20 << 20;
 
 pub const NOT_FOUND: &str = "That entry is no longer in the database";
+
+/// The star is this tag, as `sic2kdbx` writes SafeInCloud's; other clients see a tag.
+pub const FAVORITE: &str = "Favorite";
 
 /// Everything the editor shows and sends back, secrets included: while an
 /// entry is being edited its values are in the window anyway.
@@ -36,6 +40,9 @@ pub struct EntryData {
     pub fields: Vec<FieldData>,
     #[zeroize(skip)]
     pub icon: IconChoice,
+    /// When the entry expires (UTC, RFC 3339); `None` when it does not.
+    #[zeroize(skip)]
+    pub expires: Option<String>,
 }
 
 /// The entry's icon as the editor chooses it.
@@ -102,6 +109,41 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
         group,
         fields: additional,
         icon: icon_choice(entry),
+        expires: expiry_of(&entry.times),
+    }
+}
+
+/// When KeePass's *Expires* is on: the time, as the window gets it.
+pub fn expiry_of(times: &Times) -> Option<String> {
+    match (times.expires, times.expiry) {
+        (Some(true), Some(at)) => Some(at.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true)),
+        _ => None,
+    }
+}
+
+/// The time an expiry the window sent stands for, to the second (as the file keeps it).
+fn parse_expiry(text: &str) -> Result<NaiveDateTime, String> {
+    let at = chrono::DateTime::parse_from_rfc3339(text).map_err(|_| "The expiry date is not a date")?;
+    Ok(at.naive_utc().with_nanosecond(0).expect("zero is a valid nanosecond"))
+}
+
+/// An expiry written the way [expiry_of] writes it; one that is not a time
+/// stays as it is (saving it is refused).
+fn same_form(expires: &Option<String>) -> Option<String> {
+    let text = expires.as_deref()?;
+    Some(parse_expiry(text).map_or_else(|_| text.to_string(), |at| at.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true)))
+}
+
+/// The expiry the entry has, compared as times rather than as text.
+fn expiry_time(times: &Times) -> Option<NaiveDateTime> {
+    times.expiry.filter(|_| times.expires == Some(true))
+}
+
+/// Turns *Expires* on at `at`, or off (keeping the old time, as KeePass does).
+fn set_expiry(times: &mut Times, at: Option<NaiveDateTime>) {
+    times.expires = Some(at.is_some());
+    if at.is_some() {
+        times.expiry = at;
     }
 }
 
@@ -121,6 +163,14 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
     let tags = pick(&mut conflicts, "Tags", &current.tags, &base.tags, &edited.tags);
     let group = pick(&mut conflicts, "Group", &current.group, &base.group, &edited.group);
     let icon = pick(&mut conflicts, "Icon", &current.icon, &base.icon, &edited.icon);
+    // Compared as times: the window writes them with milliseconds.
+    let expires = pick(
+        &mut conflicts,
+        "Expires",
+        &same_form(&current.expires),
+        &same_form(&base.expires),
+        &same_form(&edited.expires),
+    );
 
     // Additional fields, by name: removed, added or changed in the editor
     // apply; the rest are as they are now.
@@ -148,7 +198,7 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
             None => fields.push(new.clone()),
         }
     }
-    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields, icon };
+    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields, icon, expires };
     (merged, conflicts)
 }
 
@@ -177,6 +227,7 @@ pub fn hidden_groups(db: &Database) -> HashSet<GroupId> {
 pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &HashSet<GroupId>) -> Result<EntryId, String> {
     check_field_names(&data.fields)?;
     let icon = IconSetting::of(db, &data.icon)?;
+    let expiry = data.expires.as_deref().map(parse_expiry).transpose()?;
     let existing = id.and_then(|id| db.entry(id));
     // A TOTP value the entry already has is kept as it is, even one this app
     // cannot read; a new one must work and is stored as a URI.
@@ -203,6 +254,7 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         };
         entry.fields = wanted;
         entry.tags = tags;
+        set_expiry(&mut entry.times, expiry);
         let id = entry.id();
         db.deleted_objects.remove(&id.uuid());
         let mut entry = db.entry_mut(id).expect("just added");
@@ -223,7 +275,8 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
     let wanted = wanted_fields(db, Some(&entry), data, otp)?;
     let moved = entry.parent().id() != group;
     let icon_changed = icon_choice(&entry) != data.icon;
-    if entry.fields == wanted && entry.tags == tags && !moved && !icon_changed {
+    let expiry_changed = expiry_time(&entry.times) != expiry;
+    if entry.fields == wanted && entry.tags == tags && !moved && !icon_changed && !expiry_changed {
         return Ok(id);
     }
     let mut entry = db.entry_mut(id).expect("checked above");
@@ -234,13 +287,16 @@ pub fn apply(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidden: &
         entry.move_to(group).map_err(|e| e.to_string())?;
         entry.times.location_changed = Some(Times::now());
     }
-    if entry.fields != wanted || entry.tags != tags || icon_changed {
+    if entry.fields != wanted || entry.tags != tags || icon_changed || expiry_changed {
         let mut tracked = entry.track_changes();
         tracked.edit(|e| {
             e.fields = wanted;
             e.tags = tags;
             if icon_changed {
                 icon.set(e);
+            }
+            if expiry_changed {
+                set_expiry(&mut e.times, expiry);
             }
         });
     } // dropping the tracker files the old version into the history
@@ -708,6 +764,31 @@ fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
     joined
 }
 
+/// Stars the entry or takes its star off (the tag [FAVORITE]), its previous
+/// version kept in history. Nothing changes when it already is as asked.
+pub fn set_favorite(db: &mut Database, id: EntryId, on: bool, hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let entry = db.entry(id).ok_or(NOT_FOUND)?;
+    if ancestors(db, entry.parent().id()).iter().any(|g| hidden.contains(g)) {
+        return Err(NOT_FOUND.into());
+    }
+    if entry.tags.iter().any(|t| t == FAVORITE) == on {
+        return Ok(());
+    }
+    {
+        let mut entry = db.entry_mut(id).expect("checked above");
+        let mut tracked = entry.track_changes();
+        tracked.edit(|e| {
+            if on {
+                e.tags.push(FAVORITE.into());
+            } else {
+                e.tags.retain(|t| t != FAVORITE);
+            }
+        });
+    } // dropping the tracker files the old version into the history
+    trim_history(db, id);
+    Ok(())
+}
+
 /// True when an edit (`data` against the entry as the editor opened it,
 /// `base`) changed only the tags.
 pub fn only_tags_changed(base: &EntryData, data: &EntryData) -> bool {
@@ -819,6 +900,55 @@ mod tests {
         let same = read(&db.entry(id).unwrap(), vec![]);
         apply(&mut db, Some(id), &same, &HashSet::new()).unwrap();
         assert_eq!(db, before);
+    }
+
+    #[test]
+    fn expiry_is_set_kept_and_turned_off() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &with("x", |d| d.expires = Some("2030-01-02T03:04:05.678Z".into())), &HashSet::new()).unwrap();
+        let times = &db.entry(id).unwrap().times;
+        assert_eq!(times.expires, Some(true));
+        assert_eq!(expiry_of(times).as_deref(), Some("2030-01-02T03:04:05Z"));
+
+        // The same time written another way changes nothing.
+        let same = with("x", |d| d.expires = Some("2030-01-02T05:04:05+02:00".into()));
+        apply(&mut db, Some(id), &same, &HashSet::new()).unwrap();
+        assert_eq!(history_len(&db, id), 0);
+
+        // Turned off: the old version keeps it; KeePass's time stays.
+        apply(&mut db, Some(id), &data("x"), &HashSet::new()).unwrap();
+        let entry = db.entry(id).unwrap();
+        assert_eq!(read(&entry, vec![]).expires, None);
+        assert!(entry.times.expiry.is_some());
+        assert_eq!(expiry_of(&entry.historical(0).unwrap().times).as_deref(), Some("2030-01-02T03:04:05Z"));
+        assert!(apply(&mut db, Some(id), &with("x", |d| d.expires = Some("soon".into())), &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn merge3_compares_expiry_as_times() {
+        let base = data("x");
+        let current = with("x", |d| d.expires = Some("2030-01-01T22:00:00Z".into()));
+        let edited = with("x", |d| d.expires = Some("2030-01-01T22:00:00.000Z".into()));
+        let (merged, conflicts) = merge3(&current, &base, &edited);
+        assert_eq!(merged.expires.as_deref(), Some("2030-01-01T22:00:00Z"));
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn the_star_is_a_tag_with_history() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &with("x", |d| d.tags = vec!["work".into()]), &HashSet::new()).unwrap();
+        set_favorite(&mut db, id, true, &HashSet::new()).unwrap();
+        assert_eq!(db.entry(id).unwrap().tags, ["work", FAVORITE]);
+        assert_eq!(history_len(&db, id), 1);
+        // Already starred: nothing changes.
+        set_favorite(&mut db, id, true, &HashSet::new()).unwrap();
+        assert_eq!(history_len(&db, id), 1);
+        set_favorite(&mut db, id, false, &HashSet::new()).unwrap();
+        assert_eq!(db.entry(id).unwrap().tags, ["work"]);
+        // Not in the recycle bin.
+        let group = db.entry(id).unwrap().parent().id();
+        assert!(set_favorite(&mut db, id, true, &HashSet::from([group])).is_err());
     }
 
     #[test]

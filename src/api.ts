@@ -131,6 +131,8 @@ export interface EntryData {
   group: string[]
   fields: FieldData[]
   icon: IconChoice
+  /** When it expires (RFC 3339); null when it does not. */
+  expires: string | null
 }
 
 /** An additional field with its value, for the editor. */
@@ -262,6 +264,8 @@ export const api = {
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData) =>
     invoke<Saved>('save_entry', { id, base, data }),
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  /** Stars the entry or takes its star off (the tag Favorite). */
+  setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
   /** Asks where to save the file and writes it there; false when cancelled. */
   saveAttachment: (id: string, name: string) => invoke<boolean>('save_attachment', { id, name }),
   /** Opens the file in the app Windows uses for its type, from a read-only
