@@ -7,6 +7,7 @@ export type Filter = { kind: 'group'; group: Group } | { kind: 'tag'; tag: strin
 
 export const ALL: Filter = { kind: 'group', group: 'all' }
 export const TRASH: Filter = { kind: 'group', group: 'trash' }
+export const TEMPLATES: Filter = { kind: 'group', group: 'templates' }
 
 export const GROUPS: { group: Group; label: string }[] = [
   { group: 'all', label: 'All' },

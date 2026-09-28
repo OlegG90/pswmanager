@@ -644,7 +644,8 @@ fn trim_history(db: &mut Database, id: EntryId) {
 /// deletion for good this device recorded ([keep_deletions]). Returns the ids
 /// of the entries it kept or removed.
 pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
-    let hidden = hidden_groups(theirs);
+    // Only the recycle bin: a template made here goes among the templates there.
+    let hidden: HashSet<GroupId> = theirs.meta.recyclebin_uuid.map(GroupId::from).into_iter().collect();
     let mut kept = Vec::new();
     for e in ours.iter_all_entries() {
         let id = e.id();
@@ -700,7 +701,24 @@ pub fn keep_newer(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
         }
     }
     kept.extend(keep_deletions(theirs, ours));
+    keep_templates_group(theirs, ours);
     kept
+}
+
+/// A templates' group made here (for a template made here) is one there too:
+/// the group at the same place, which keeping the template made.
+fn keep_templates_group(theirs: &mut Database, ours: &Database) {
+    if theirs.meta.entry_templates_group.is_some_and(|g| theirs.group(GroupId::from(g)).is_some()) {
+        return;
+    }
+    let Some(path) = ours.meta.entry_templates_group.map(GroupId::from).filter(|g| ours.group(*g).is_some()).map(|g| path_of(ours, g)) else {
+        return;
+    };
+    let found = theirs.iter_all_groups().find(|g| g.parent().is_some() && path_of(theirs, g.id()) == path).map(|g| g.id());
+    if let Some(group) = found {
+        theirs.meta.entry_templates_group = Some(group.uuid());
+        theirs.meta.entry_templates_group_changed = ours.meta.entry_templates_group_changed;
+    }
 }
 
 /// True when the entry is in its database's recycle bin.
@@ -881,6 +899,38 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     };
     let mut entry = db.entry_mut(id).expect("checked above");
     entry.move_to(bin).map_err(|e| e.to_string())?;
+    entry.times.location_changed = Some(Times::now());
+    Ok(())
+}
+
+/// The group templates are kept in (KeePass's `EntryTemplatesGroup`), made
+/// at the top when the database has none, or only one in the recycle bin.
+pub fn templates_group(db: &mut Database) -> GroupId {
+    let bin = db.meta.recyclebin_uuid.map(GroupId::from);
+    let usable = |g: &GroupId| db.group(*g).is_some() && !bin.is_some_and(|bin| ancestors(db, *g).contains(&bin));
+    if let Some(group) = db.meta.entry_templates_group.map(GroupId::from).filter(usable) {
+        return group;
+    }
+    let mut root = db.root_mut();
+    let mut group = root.add_group();
+    group.name = "Templates".into();
+    group.enable_autotype = Some(false);
+    group.enable_searching = Some(false);
+    let group = group.id();
+    db.meta.entry_templates_group = Some(group.uuid());
+    db.meta.entry_templates_group_changed = Some(Times::now());
+    group
+}
+
+/// Moves the entry into the templates' group unless it is in it already.
+pub fn put_among_templates(db: &mut Database, id: EntryId) -> Result<(), String> {
+    let group = templates_group(db);
+    let entry = db.entry(id).ok_or(NOT_FOUND)?;
+    if ancestors(db, entry.parent().id()).contains(&group) {
+        return Ok(());
+    }
+    let mut entry = db.entry_mut(id).expect("checked above");
+    entry.move_to(group).map_err(|e| e.to_string())?;
     entry.times.location_changed = Some(Times::now());
     Ok(())
 }
@@ -1388,6 +1438,22 @@ mod tests {
         assert!(theirs.entry(removed).is_none());
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn keep_newer_keeps_a_template_made_here() {
+        let mut theirs = Database::new();
+        apply(&mut theirs, None, &data("entry"), &HashSet::new()).unwrap();
+        let mut ours = theirs.clone();
+        let card = apply(&mut ours, None, &data("Card"), &HashSet::new()).unwrap();
+        put_among_templates(&mut ours, card).unwrap();
+        let templates = GroupId::from(ours.meta.entry_templates_group.unwrap());
+
+        keep_newer(&mut theirs, &ours);
+        let there = theirs.entry(card).unwrap();
+        let group = GroupId::from(theirs.meta.entry_templates_group.expect("carried over"));
+        assert!(ancestors(&theirs, there.parent().id()).contains(&group));
+        assert_eq!(path_of(&theirs, group), path_of(&ours, templates));
     }
 
     #[test]

@@ -1,13 +1,13 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, type Filter } from './search'
+import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -204,6 +204,9 @@ function refresh() {
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
   $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
+  const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
+  $('new-entry').textContent = newLabel
+  $('new-entry').title = `${newLabel} (Ctrl+N)`
   if (shown.length === 0) {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
@@ -462,6 +465,13 @@ function renderDetail() {
         button('Attach file…', 'Attach a file to this entry', attachFile),
         button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
     )
+  } else if (isTemplate(entry)) {
+    rows.push(
+      el('div', { className: 'buttons' },
+        button('New entry from it', 'A new entry with its fields, icon and tags', () => newFromTemplate(entry.id), 'primary'),
+        button('Edit', 'Edit the template (Ctrl+E)', editEntry),
+        button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
+    )
   } else if (inTrash(entry)) {
     rows.push(
       el('div', { className: 'buttons' },
@@ -503,8 +513,10 @@ function renderSeveral() {
   const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
     el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
   const rows: Node[] = [el('header', {}, heading)]
-  if (inUse.length + trashed.length < chosen.length) {
-    rows.push(el('p', { className: 'muted' }, 'Templates are not changed here.'))
+  const templates = chosenTemplates()
+  if (templates.length) {
+    rows.push(el('div', { className: 'buttons' },
+      button('Delete…', 'Move these templates to the recycle bin (Del)', () => deleteSeveral(templates.map((e) => e.id)), 'danger')))
   }
   if (trashed.length) {
     const ids = trashed.map((e) => e.id)
@@ -534,6 +546,10 @@ function chosenInUse(): Entry[] {
 
 function chosenInTrash(): Entry[] {
   return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && inTrash(e)) : []
+}
+
+function chosenTemplates(): Entry[] {
+  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && isTemplate(e)) : []
 }
 
 async function tagSeveral(ids: string[]) {
@@ -695,13 +711,13 @@ async function copyTotp() {
 
 // ---------------------------------------------------------------- editing
 
-function startEditor(id: string | null, focusPassword = false) {
+function startEditor(id: string | null, start: { focusPassword?: boolean; from?: EntryData; template?: boolean } = {}) {
   if (isEditing()) return
   several = null
   stopTotp()
   openEditor(detail, {
     id,
-    focusPassword,
+    ...start,
     // New entries go to the top group.
     group: [],
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
@@ -714,13 +730,40 @@ function startEditor(id: string | null, focusPassword = false) {
   }).catch((e) => notify(String(e)))
 }
 
-/** Only entries in use are edited here: not templates, not the trash's. */
+/** An entry in use: starred, tagged, given files. Templates are edited and
+ *  deleted too (see [isTemplate]); the trash's are only restored or deleted. */
 function editable<T extends Entry>(entry: T | null): entry is T & { kind: 'entry' } {
   return entry?.kind === 'entry'
 }
 
+function isTemplate<T extends Entry>(entry: T | null): entry is T & { kind: 'template' } {
+  return entry?.kind === 'template'
+}
+
 function editEntry() {
-  if (editable(current)) startEditor(current.id)
+  if (editable(current) || isTemplate(current)) startEditor(current.id, { template: isTemplate(current) })
+}
+
+/** New entry (Ctrl+N): blank, or from one of the templates; in the
+ *  Templates group, a new template. */
+async function newEntry() {
+  if (isEditing()) return
+  if (sameFilter(filter, TEMPLATES)) return startEditor(null, { template: true })
+  const templates = listing.entries.filter(isTemplate)
+  if (!templates.length) return startEditor(null)
+  const i = await choose('New entry:', ['Blank entry', ...templates.map((t) => t.title || '(no title)')])
+  if (i === null) return searchInput.focus()
+  if (i === 0) startEditor(null)
+  else newFromTemplate(templates[i - 1].id)
+}
+
+/** A new entry with the template's fields, icon and tags, not its title. */
+async function newFromTemplate(id: string) {
+  try {
+    startEditor(null, { from: await api.editEntry(id) })
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 /** Shows a listing the backend sent after a change, then says what happened.
@@ -736,10 +779,10 @@ function applyListing(next: Listing, message: string, focusSearch = true) {
 
 function afterSave(saved: Saved) {
   selectedId = saved.id
-  // The saved entry shows: among All, without the search, when the sidebar's
-  // choice or the search leaves it out.
+  // The saved entry shows: among All (a template among the templates),
+  // without the search, when the sidebar's choice or the search leaves it out.
   if (!search(saved.listing.entries, searchInput.value, filter).some((e) => e.id === saved.id)) {
-    filter = ALL
+    filter = saved.listing.entries.some((e) => e.id === saved.id && isTemplate(e)) ? TEMPLATES : ALL
     searchInput.value = ''
   }
   const replaced = saved.conflicts.join(', ')
@@ -750,7 +793,7 @@ function afterSave(saved: Saved) {
 async function deleteEntry() {
   const entry = current
   if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id])
-  if (!editable(entry) || isEditing()) return
+  if (!(editable(entry) || isTemplate(entry)) || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
   if (!yes || selectedId !== entry.id) return searchInput.focus()
@@ -924,7 +967,7 @@ function changePassword(id: string) {
   fillSidebar()
   refresh()
   select(id)
-  startEditor(id, true)
+  startEditor(id, { focusPassword: true })
 }
 
 // ---------------------------------------------------------------- settings
@@ -968,7 +1011,7 @@ function closeSettings() {
 
 searchInput.addEventListener('input', refresh)
 $('lock-button').addEventListener('click', lock)
-$('new-entry').addEventListener('click', () => startEditor(null))
+$('new-entry').addEventListener('click', newEntry)
 $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
@@ -1001,7 +1044,7 @@ function perform(action: Action, e: KeyboardEvent) {
       if (current && hasTotp(current)) copyTotp()
       break
     case 'new-entry':
-      startEditor(null)
+      newEntry()
       break
     case 'edit-entry':
       editEntry()
@@ -1010,8 +1053,8 @@ function perform(action: Action, e: KeyboardEvent) {
       // Several chosen: in the trash, they are deleted for good; elsewhere,
       // moved to it. The list shows one or the other, never both.
       if (several) {
-        const [inUse, trashed] = [chosenInUse(), chosenInTrash()]
-        if (inUse.length) deleteSeveral(inUse.map((x) => x.id))
+        const [moved, trashed] = [[...chosenInUse(), ...chosenTemplates()], chosenInTrash()]
+        if (moved.length) deleteSeveral(moved.map((x) => x.id))
         else if (trashed.length) deleteForGood(trashed.map((x) => x.id))
       } else deleteEntry()
       break

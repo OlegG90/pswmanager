@@ -220,7 +220,7 @@ impl Vault {
     /// The entry with every value, for the editor: not a template or one in
     /// the recycle bin.
     pub fn edit_data(&self, id: &str) -> Option<EntryData> {
-        let entry = self.entry(id).filter(|e| !is_in(e, &self.hidden_groups()))?;
+        let entry = self.entry(id).filter(|e| kind(e) != Kind::Trash)?;
         Some(edit::read(&entry, group_path(&entry)))
     }
 
@@ -229,20 +229,36 @@ impl Vault {
     /// changed against it is applied, so changes another device made since
     /// stay. Returns the entry's id and the fields both changed (the
     /// editor's version won). Nothing changes when saving fails.
-    pub fn save_entry(&mut self, id: Option<&str>, base: Option<&EntryData>, data: &EntryData) -> Result<(String, Vec<String>), String> {
+    /// A `template` (a new one, or one being edited) is kept in the templates'
+    /// group, made when missing; the editor's group does not move it.
+    pub fn save_entry(
+        &mut self,
+        id: Option<&str>,
+        base: Option<&EntryData>,
+        data: &EntryData,
+        template: bool,
+    ) -> Result<(String, Vec<String>), String> {
         let id = id.map(parse_id).transpose()?;
         let (id, conflicts) = self.change(|db, hidden| {
             let current = id.and_then(|id| db.entry(id));
-            if current.as_ref().is_some_and(|e| is_template(e)) {
-                return Err(NOT_FOUND.into());
+            let template = template || current.as_ref().is_some_and(|e| is_template(e));
+            let mut data = data.clone();
+            if template {
+                // Where it is now (the top for a new one): nothing moves until
+                // it is put among the templates, by the group's id.
+                data.group = current.as_ref().map_or_else(Vec::new, group_path);
             }
-            match (current, base) {
+            let (saved, conflicts) = match (current, base) {
                 (Some(entry), Some(base)) => {
-                    let (merged, conflicts) = edit::merge3(&edit::read(&entry, group_path(&entry)), base, data);
-                    Ok((edit::apply(db, id, &merged, hidden)?, conflicts))
+                    let (merged, conflicts) = edit::merge3(&edit::read(&entry, group_path(&entry)), base, &data);
+                    (edit::apply(db, id, &merged, hidden)?, conflicts)
                 }
-                _ => Ok((edit::apply(db, id, data, hidden)?, Vec::new())),
+                _ => (edit::apply(db, id, &data, hidden)?, Vec::new()),
+            };
+            if template {
+                edit::put_among_templates(db, saved)?;
             }
+            Ok((saved, conflicts))
         })?;
         Ok((id.uuid().to_string(), conflicts))
     }
@@ -319,13 +335,13 @@ impl Vault {
         })
     }
 
-    /// Moves entries to the recycle bin and saves the file, as one change. An
-    /// entry already gone (deleted or binned elsewhere) needs nothing.
+    /// Moves entries (templates too) to the recycle bin and saves the file, as
+    /// one change. An entry already gone (deleted or binned elsewhere) needs nothing.
     pub fn delete_entries(&mut self, ids: &[String]) -> Result<(), String> {
         let ids = parse_ids(ids)?;
-        self.change(|db, hidden| {
+        self.change(|db, _| {
             for &id in &ids {
-                if db.entry(id).is_some_and(|entry| !is_in(&entry, hidden)) {
+                if db.entry(id).is_some_and(|entry| kind(&entry) != Kind::Trash) {
                     edit::recycle(db, id)?;
                 }
             }
@@ -446,7 +462,7 @@ impl Vault {
     }
 }
 
-/// Templates are not edited as entries.
+/// In the templates' group: not in the trash, a template.
 fn is_template(entry: &EntryRef<'_>) -> bool {
     in_group(entry, entry.database().meta.entry_templates_group)
 }
@@ -660,6 +676,40 @@ pub mod tests {
     }
 
     #[test]
+    fn templates_are_made_edited_and_deleted_as_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, file) = crate::dbfile::tests::saved(dir.path(), &sample());
+        let mut vault = Vault { db, file: Some(file), unsaved: false };
+        let mut card = EntryData::default();
+        card.title = "Card".into();
+        card.group = vec!["Work".into()]; // ignored: a template goes among the templates
+        let (id, _) = vault.save_entry(None, None, &card, true).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
+        let templates = vault.db.meta.entry_templates_group.expect("made on demand");
+        assert_eq!(vault.db.group(GroupId::from(templates)).unwrap().name, "Templates");
+
+        // Edited like an entry; it stays a template.
+        let mut edited = vault.edit_data(&id).unwrap();
+        edited.username = "holder".into();
+        vault.save_entry(Some(&id), None, &edited, false).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
+        assert_eq!(vault.field(&id, fields::USERNAME).unwrap().as_str(), "holder");
+
+        // The editor's group does not move it out.
+        edited.group = vec!["Work".into()];
+        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
+
+        // Deleted into the trash, where it is not edited.
+        vault.delete_entries(std::slice::from_ref(&id)).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Trash));
+        assert!(vault.edit_data(&id).is_none());
+        // Deleted elsewhere while the editor had it open: saving brings it back.
+        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
+    }
+
+    #[test]
     fn listing_marks_templates_2fa_passkeys_and_expiry() {
         let mut db = sample();
         let mut root = db.root_mut();
@@ -800,7 +850,7 @@ pub mod tests {
 
         let mut data = vault.edit_data(&id).unwrap();
         data.password = "changed".into();
-        vault.save_entry(Some(&id), None, &data).unwrap();
+        vault.save_entry(Some(&id), None, &data, false).unwrap();
 
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let entry = reopened.db.entry(old.id()).unwrap();
@@ -896,7 +946,7 @@ pub mod tests {
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let id = in_use(&vault)[0].id.clone();
         let data = vault.edit_data(&id).unwrap();
-        vault.save_entry(Some(&id), None, &data).unwrap();
+        vault.save_entry(Some(&id), None, &data, false).unwrap();
         assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
     }
 
@@ -911,7 +961,7 @@ pub mod tests {
         for (id, icon) in [(&mail, edit::IconChoice::Custom { data: png }), (&router, edit::IconChoice::Builtin { id: 37 })] {
             let mut data = vault.edit_data(id).unwrap();
             data.icon = icon;
-            vault.save_entry(Some(id), None, &data).unwrap();
+            vault.save_entry(Some(id), None, &data, false).unwrap();
         }
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let listing = reopened.listing();
@@ -931,7 +981,7 @@ pub mod tests {
         // It takes entries, and deleting one makes the recycle bin.
         let mut first = edit::EntryData::default();
         first.title = "First".into();
-        let (id, _) = vault.save_entry(None, None, &first).unwrap();
+        let (id, _) = vault.save_entry(None, None, &first, false).unwrap();
         vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         assert!(Vault::create(&path, "Again", Some("pw"), None).unwrap_err().contains("already there"));
         assert!(Vault::create(&dir.path().join("b.kdbx"), "B", None, None).is_err());
@@ -992,7 +1042,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "from this PC".into();
-        vault.save_entry(Some(&mail), None, &data).unwrap();
+        vault.save_entry(Some(&mail), None, &data, false).unwrap();
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let titles: Vec<String> = reopened.listing().entries.into_iter().map(|e| e.title).collect();
@@ -1012,7 +1062,7 @@ pub mod tests {
         });
         let mut data = base.clone();
         data.password = "from this PC".into();
-        let (_, conflicts) = vault.save_entry(Some(&mail.uuid().to_string()), Some(&base), &data).unwrap();
+        let (_, conflicts) = vault.save_entry(Some(&mail.uuid().to_string()), Some(&base), &data, false).unwrap();
         assert_eq!(conflicts, ["Password"]);
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
@@ -1033,7 +1083,7 @@ pub mod tests {
             let bin = db.recycle_bin().unwrap().id();
             db.entry_mut(mail).unwrap().move_to(bin).unwrap();
         });
-        vault.save_entry(Some(&mail.uuid().to_string()), None, &data).unwrap();
+        vault.save_entry(Some(&mail.uuid().to_string()), None, &data, false).unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(kind_of(&reopened, &mail.uuid().to_string()), Some(Kind::Entry));
     }
@@ -1063,7 +1113,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "saved here".into();
-        vault.save_entry(Some(&mail), None, &data).unwrap();
+        vault.save_entry(Some(&mail), None, &data, false).unwrap();
 
         std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
         vault.reload().unwrap();
@@ -1082,7 +1132,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "x".into();
-        assert!(vault.save_entry(Some(&mail), None, &data).unwrap_err().contains("cannot be read now"));
+        assert!(vault.save_entry(Some(&mail), None, &data, false).unwrap_err().contains("cannot be read now"));
         assert_eq!(std::fs::read(&path).unwrap(), b"half-synced");
     }
 
@@ -1094,7 +1144,7 @@ pub mod tests {
         let mut data = vault.edit_data(&router).unwrap();
         data.group = vec!["Elsewhere".into()];
         data.password = "and changed".into();
-        vault.save_entry(Some(&router), None, &data).unwrap();
+        vault.save_entry(Some(&router), None, &data, false).unwrap();
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let detail = reopened.detail(&router).unwrap();
         assert_eq!(detail.summary.group, ["Elsewhere"]);
@@ -1118,7 +1168,7 @@ pub mod tests {
         });
         let mut data = base.clone();
         data.password = "changed on the PC".into();
-        let (_, conflicts) = vault.save_entry(Some(&router.uuid().to_string()), Some(&base), &data).unwrap();
+        let (_, conflicts) = vault.save_entry(Some(&router.uuid().to_string()), Some(&base), &data, false).unwrap();
         assert!(conflicts.is_empty());
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();

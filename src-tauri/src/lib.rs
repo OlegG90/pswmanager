@@ -718,9 +718,10 @@ fn save_entry(
     id: Option<String>,
     base: Option<EntryData>,
     data: EntryData,
+    template: Option<bool>,
 ) -> Result<Saved, String> {
     let saved = session.with_mut(|v| {
-        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data)?;
+        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template.unwrap_or(false))?;
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
     fetch_icons(&app, &saved.listing);

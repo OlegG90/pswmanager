@@ -261,8 +261,8 @@ export const api = {
   /** Creates an entry when `id` is null. */
   /** Creates an entry when `id` is null. `base` is the entry as the editor
    *  opened it: only what changed against it is saved. */
-  saveEntry: (id: string | null, base: EntryData | null, data: EntryData) =>
-    invoke<Saved>('save_entry', { id, base, data }),
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, template = false) =>
+    invoke<Saved>('save_entry', { id, base, data, template }),
   /** Moves the entries to the recycle bin, as one change. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts entries from the trash back where they were. */
