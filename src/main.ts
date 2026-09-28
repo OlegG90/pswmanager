@@ -1,5 +1,6 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
+import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
@@ -1312,6 +1313,9 @@ listen<string>('icon-ready', (e) => {
   siteIcons.delete(e.payload)
   loadSiteIcon(e.payload)
 })
+
+// Which copy this is, under the name on the unlock screen.
+getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})
 
 api.status().then(async (status) => {
   if (status.unlocked) showVault(await api.listing())

@@ -291,6 +291,12 @@ input[type='range']:focus-visible {
   margin: 0;
 }
 
+/* The version, close under the name. */
+#app-version {
+  margin: -12px 0 0;
+  font-size: 12px;
+}
+
 .file-row {
   display: flex;
   flex-wrap: wrap;
