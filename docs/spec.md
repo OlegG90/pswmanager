@@ -75,7 +75,9 @@ uploads anything, and setting up sync never picks another database.
 - Three columns: the **sidebar** (the fixed groups, then the tags), the **list** of entries the sidebar's
   choice shows, and the selected **entry** (see *Groups and tags*). There is no filter menu.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
-  notes, additional attributes and attached files (name and size). Protected attributes are masked like the
+  notes, additional attributes, attached files (name and size) and when the entry was last changed
+  (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
+  **History** (see *Entry history*). Protected attributes are masked like the
   password. **Open** next to a file opens it in the app Windows uses for its type; the **⋯** menu beside it
   has **Save…** (writes it where the user chooses), **Replace…** (gives it the content of another file),
   **Rename…** and **Remove…** (after a confirmation). **Attach file…** adds one (see *Editing*). A file's
@@ -127,6 +129,27 @@ entries in use (not templates, not the trash) is listed under the groups, with i
   and `Ctrl+N` there) makes one there, in KeePass's templates group, made when the database has none.
   They are never listed
   under All, and nothing else treats them as entries (search, health report, favorites).
+
+### Entry history
+
+Every change to an entry keeps its previous version in the entry's history (KeePass's own history, which
+KeePassXC and Keepass2Android keep too, so their changes show here as well), up to the database's limit
+(`HistoryMaxItems`, 10 when the database does not say).
+
+- **History (N)** in the entry view lists the older versions, newest first: when each was saved and what
+  changed from it to the next newer version — the names of the fields (title, user name, password, URL,
+  notes, TOTP, additional attributes), tags, icon, expiry and files added or removed. Never the values.
+- Opening a version shows it like the entry view, read only: protected values stay masked until
+  revealed, **Copy** works as in the entry view (clipboard clearing included), and the version's files
+  can be opened or saved. An unprotected value (user name, URL, notes, an unprotected attribute) that
+  differs from the entry's current one shows the current value beside it; a protected one only says that
+  it differs.
+- **Restore this version** makes it the entry's current content (fields, tags, icon, expiry, files); the
+  version it replaces goes into the history, as with an edit. It is saved and synced like an edit.
+  Offered for entries in use and templates, not in the trash.
+- Versions are not deleted one by one; the history is trimmed to the database's limit.
+- As everywhere, the window gets the dates and the names of what changed; a value leaves the backend
+  only when it is shown, revealed or copied.
 
 ### Entry icons
 
@@ -458,3 +481,5 @@ the release.
    Templates, Trash) and tags in the sidebar; the favorite star and expiry date; tags on several entries
    at once, renaming and removing a tag; restore, delete permanently and empty in the trash; new entries
    from templates; no group field
+9. Entry history: when an entry was last changed in the entry view; its older versions listed with what
+   changed; a version shown read only, with its files; restoring a version
