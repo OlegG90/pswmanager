@@ -9,7 +9,7 @@ use crate::{icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::path::Path;
 use uuid::Uuid;
@@ -89,6 +89,38 @@ pub struct EntryDetail {
     pub attachments: Vec<Attachment>,
     /// When the entry was last changed (UTC, RFC 3339), if the file says.
     pub modified: Option<String>,
+    /// How many older versions its history keeps.
+    pub versions: usize,
+}
+
+/// An older version of an entry, as its history lists it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Version {
+    /// When it was saved (UTC, RFC 3339).
+    pub modified: Option<String>,
+    /// What changed from it to the next newer version: names, never values.
+    pub changed: Vec<String>,
+}
+
+/// An older version shown read only, with how it differs from the entry now.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionDetail {
+    #[serde(flatten)]
+    pub detail: EntryDetail,
+    pub differs: Vec<Difference>,
+}
+
+/// A field whose value in a version is not the entry's current one.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Difference {
+    pub name: String,
+    /// The current value, when it is not a secret (and the entry has the field).
+    pub current: Option<String>,
+    /// The current value is a secret: the window only says it differs.
+    pub protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,35 +211,72 @@ impl Vault {
 
     pub fn detail(&self, id: &str) -> Option<EntryDetail> {
         let entry = self.entry(id)?;
-        // Everything the summary does not carry, except the password (which has its own row).
-        let mut fields: Vec<Field> = entry
-            .fields
-            .iter()
-            .filter(|(name, value)| !in_summary(name, value) && name.as_str() != fields::PASSWORD)
-            .map(|(name, value)| {
-                let secret = is_secret(name, value);
-                Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()) }
-            })
-            .collect();
-        fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        let mut attachments: Vec<Attachment> =
-            entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
-        attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        let modified = entry.times.last_modification.map(edit::time_text);
-        Some(EntryDetail { summary: summary(&entry), fields, attachments, modified })
+        Some(detail_of(&entry))
     }
 
-    /// The content of one of the entry's files, for saving it to disk.
-    pub fn attachment(&self, id: &str, name: &str) -> Option<Zeroizing<Vec<u8>>> {
+    /// The entry's older versions, newest first: when each was saved and what
+    /// changed from it to the next newer one (names only, never values).
+    pub fn history(&self, id: &str) -> Option<Vec<Version>> {
         let entry = self.entry(id)?;
-        entry.attachment_by_name(name).map(|a| Zeroizing::new(a.data.get().clone()))
+        let versions: Vec<EntryRef<'_>> = (0..versions_of(&entry)).filter_map(|i| entry.historical(i)).collect();
+        let listed = versions.iter().enumerate().map(|(i, version)| {
+            let newer = if i == 0 { &entry } else { &versions[i - 1] };
+            Version { modified: version.times.last_modification.map(edit::time_text), changed: changes(version, newer) }
+        });
+        Some(listed.collect())
+    }
+
+    /// An older version (`index` in the history, newest first), read only,
+    /// with the fields whose value differs from the entry's now.
+    pub fn version(&self, id: &str, index: usize) -> Option<VersionDetail> {
+        let entry = self.entry(id)?;
+        let version = entry.historical(index)?;
+        let names: BTreeSet<&String> = version.fields.keys().chain(entry.fields.keys()).collect();
+        let differs = names
+            .into_iter()
+            .filter(|name| version.fields.get(*name) != entry.fields.get(*name))
+            .map(|name| {
+                let now = entry.fields.get(name);
+                let protected = now.is_some_and(|value| is_secret(name, value));
+                Difference { name: name.clone(), current: now.filter(|_| !protected).map(|value| value.get().clone()), protected }
+            })
+            .collect();
+        Some(VersionDetail { detail: detail_of(&version), differs })
+    }
+
+    /// The content of one of the entry's files (in an older version with
+    /// `version`), for saving it to disk.
+    pub fn attachment(&self, id: &str, version: Option<usize>, name: &str) -> Option<Zeroizing<Vec<u8>>> {
+        let entry = self.entry(id)?;
+        let file = |at: &EntryRef<'_>| at.attachment_by_name(name).map(|a| Zeroizing::new(a.data.get().clone()));
+        match version {
+            Some(index) => file(&entry.historical(index)?),
+            None => file(&entry),
+        }
     }
 
     /// One field's value, protected or not (`Password`, `UserName`, `URL` or
-    /// an additional attribute).
-    pub fn field(&self, id: &str, name: &str) -> Option<Zeroizing<String>> {
+    /// an additional attribute), in an older version with `version`.
+    pub fn field_in(&self, id: &str, version: Option<usize>, name: &str) -> Option<Zeroizing<String>> {
         let entry = self.entry(id)?;
-        entry.fields.get(name).map(|v| Zeroizing::new(v.get().clone()))
+        let value = |at: &EntryRef<'_>| at.fields.get(name).map(|v| Zeroizing::new(v.get().clone()));
+        match version {
+            Some(index) => value(&entry.historical(index)?),
+            None => value(&entry),
+        }
+    }
+
+    /// One of the entry's own field values.
+    pub fn field(&self, id: &str, name: &str) -> Option<Zeroizing<String>> {
+        self.field_in(id, None, name)
+    }
+
+    /// Makes an older version the entry's current content and saves the file
+    /// (see [edit::restore_version]).
+    /// `saved` is when the version shown was saved (see [edit::restore_version]).
+    pub fn restore_version(&mut self, id: &str, index: usize, saved: Option<&str>) -> Result<(), String> {
+        let id = parse_id(id)?;
+        self.change(|db, hidden| edit::restore_version(db, id, index, saved, hidden))
     }
 
     /// The entry's URL as a web address, if it is one.
@@ -497,6 +566,64 @@ fn changed_entries(old: &Database, new: &Database) -> Vec<String> {
     changed
 }
 
+/// What the entry view shows of an entry or of one of its versions.
+fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
+    // Everything the summary does not carry, except the password (which has its own row).
+    let mut fields: Vec<Field> = entry
+        .fields
+        .iter()
+        .filter(|(name, value)| !in_summary(name, value) && name.as_str() != fields::PASSWORD)
+        .map(|(name, value)| {
+            let secret = is_secret(name, value);
+            Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()) }
+        })
+        .collect();
+    fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    let mut attachments: Vec<Attachment> =
+        entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
+    attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    let modified = entry.times.last_modification.map(edit::time_text);
+    EntryDetail { summary: summary(entry), fields, attachments, modified, versions: versions_of(entry) }
+}
+
+fn versions_of(entry: &EntryRef<'_>) -> usize {
+    entry.history.as_ref().map_or(0, |h| h.get_entries().len())
+}
+
+/// What changed from `old` to `new`, by name: the standard fields first, then
+/// the others, the tags, the icon, the expiry and the files.
+fn changes(old: &EntryRef<'_>, new: &EntryRef<'_>) -> Vec<String> {
+    const STANDARD: [(&str, &str); 6] = [
+        (fields::TITLE, "Title"),
+        (fields::USERNAME, "User name"),
+        (fields::PASSWORD, "Password"),
+        (fields::URL, "URL"),
+        (fields::NOTES, "Notes"),
+        (fields::OTP, "TOTP"),
+    ];
+    let differs = |name: &str| old.fields.get(name) != new.fields.get(name);
+    let mut changed: Vec<String> = STANDARD.iter().filter(|(name, _)| differs(name)).map(|(_, label)| label.to_string()).collect();
+    let others: BTreeSet<&String> =
+        old.fields.keys().chain(new.fields.keys()).filter(|name| !STANDARD.iter().any(|(s, _)| s == name)).collect();
+    let mut others: Vec<&String> = others.into_iter().filter(|name| differs(name)).collect();
+    others.sort_by_key(|name| name.to_lowercase());
+    changed.extend(others.into_iter().cloned());
+    let files = |e: &EntryRef<'_>| {
+        let mut all: Vec<(String, Zeroizing<Vec<u8>>)> =
+            e.attachments_named().map(|(n, a)| (n.to_string(), Zeroizing::new(a.data.get().clone()))).collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+        all
+    };
+    let more = [
+        (old.tags != new.tags, "Tags"),
+        (old.icon() != new.icon(), "Icon"),
+        (edit::expiry_of(&old.times) != edit::expiry_of(&new.times), "Expires"),
+        (files(old) != files(new), "Files"),
+    ];
+    changed.extend(more.into_iter().filter(|(differ, _)| *differ).map(|(_, label)| label.to_string()));
+    changed
+}
+
 /// Group names from the top, without the root group.
 fn group_path(entry: &EntryRef<'_>) -> Vec<String> {
     edit::path_of(entry.database(), entry.parent().id())
@@ -703,6 +830,51 @@ pub mod tests {
     }
 
     #[test]
+    fn history_lists_versions_shows_one_and_restores_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, file) = crate::dbfile::tests::saved(dir.path(), &sample());
+        let mut vault = Vault { db, file: Some(file), unsaved: false };
+        let id = in_use(&vault).into_iter().find(|e| e.title == "Mail").unwrap().id;
+        let mut data = vault.edit_data(&id).unwrap();
+        data.password = "newer".into();
+        data.url = "example.org".into();
+        vault.save_entry(Some(&id), None, &data, false).unwrap();
+        vault.attach(&id, "a.txt", b"file").unwrap();
+
+        assert_eq!(vault.detail(&id).unwrap().versions, 2);
+        let history = vault.history(&id).unwrap();
+        assert_eq!(history.iter().map(|v| v.changed.clone()).collect::<Vec<_>>(), [vec!["Files"], vec!["Password", "URL"]]);
+        assert!(history[1].modified.is_some());
+        let json = serde_json::to_string(&history).unwrap();
+        assert!(!json.contains("s3cret") && !json.contains("newer"), "{json}");
+
+        // The oldest version: its values on request, how it differs from now.
+        let old = vault.version(&id, 1).unwrap();
+        assert_eq!(old.detail.summary.url, "example.com/login");
+        assert!(old.detail.attachments.is_empty());
+        assert_eq!(
+            old.differs,
+            [
+                Difference { name: fields::PASSWORD.into(), current: None, protected: true },
+                Difference { name: fields::URL.into(), current: Some("example.org".into()), protected: false },
+            ]
+        );
+        assert_eq!(vault.field_in(&id, Some(1), fields::PASSWORD).unwrap().as_str(), "s3cret");
+        assert_eq!(vault.attachment(&id, Some(0), "a.txt"), None);
+        assert!(vault.version(&id, 5).is_none());
+
+        // Restored: its content is current again, the replaced one in history.
+        // The version shown is checked: the history may have moved on meanwhile.
+        assert!(vault.restore_version(&id, 1, Some("2000-01-01T00:00:00Z")).unwrap_err().contains("history changed"));
+        vault.restore_version(&id, 1, history[1].modified.as_deref()).unwrap();
+        assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "s3cret");
+        assert!(vault.detail(&id).unwrap().attachments.is_empty());
+        assert_eq!(vault.detail(&id).unwrap().versions, 3);
+        assert_eq!(vault.field_in(&id, Some(0), fields::PASSWORD).unwrap().as_str(), "newer");
+        assert_eq!(vault.attachment(&id, Some(0), "a.txt").unwrap().as_slice(), b"file");
+    }
+
+    #[test]
     fn listing_marks_templates_2fa_passkeys_and_expiry() {
         let mut db = sample();
         let mut root = db.root_mut();
@@ -880,8 +1052,8 @@ pub mod tests {
         assert_eq!(vault.attach(&mail, "key.txt", b"recovery codes").unwrap(), "key.txt");
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(reopened.detail(&mail).unwrap().attachments, [Attachment { name: "key.txt".into(), size: 14 }]);
-        assert_eq!(reopened.attachment(&mail, "key.txt").unwrap().as_slice(), b"recovery codes");
-        assert!(reopened.attachment(&mail, "other.txt").is_none());
+        assert_eq!(reopened.attachment(&mail, None, "key.txt").unwrap().as_slice(), b"recovery codes");
+        assert!(reopened.attachment(&mail, None, "other.txt").is_none());
         let mut expected = before;
         expected.push(("Mail".into(), "key.txt".into(), b"recovery codes".to_vec()));
         expected.sort();
@@ -915,7 +1087,7 @@ pub mod tests {
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(files(&reopened, router), [kept]);
         assert_eq!(reopened.detail(&id).unwrap().attachments.len(), 1);
-        assert_eq!(reopened.attachment(&mail, "later.txt").unwrap().as_slice(), b"attached later");
+        assert_eq!(reopened.attachment(&mail, None, "later.txt").unwrap().as_slice(), b"attached later");
         let previous = reopened.db.entry(router).unwrap().historical(0).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect::<Vec<_>>();
         assert!(previous.contains(&gone), "{previous:?}");
         // Attaching and renaming after a removal still number the files right.
@@ -923,14 +1095,14 @@ pub mod tests {
         reopened.attach(&id, "new.txt", b"new").unwrap();
         assert_eq!(reopened.rename_attachment(&mail, "later.txt", "renamed.txt").unwrap(), "renamed.txt");
         let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
-        assert_eq!(again.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
-        assert_eq!(again.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"attached later");
-        assert!(again.attachment(&mail, "later.txt").is_none());
+        assert_eq!(again.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");
+        assert_eq!(again.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"attached later");
+        assert!(again.attachment(&mail, None, "later.txt").is_none());
         let mut again = again;
         again.replace_attachment(&mail, "renamed.txt", b"replaced").unwrap();
         let last = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
-        assert_eq!(last.attachment(&mail, "renamed.txt").unwrap().as_slice(), b"replaced");
-        assert_eq!(last.attachment(&id, "new.txt").unwrap().as_slice(), b"new");
+        assert_eq!(last.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"replaced");
+        assert_eq!(last.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");
     }
 
     #[test]

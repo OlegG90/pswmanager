@@ -63,7 +63,7 @@ pub enum IconChoice {
 /// The largest image an entry's own icon may be.
 pub const MAX_ICON: usize = 256 << 10;
 
-fn icon_choice(entry: &EntryRef<'_>) -> IconChoice {
+pub fn icon_choice(entry: &EntryRef<'_>) -> IconChoice {
     if let Some(custom) = entry.custom_icon() {
         return IconChoice::Custom { data: base64::engine::general_purpose::STANDARD.encode(&custom.data) };
     }
@@ -787,6 +787,36 @@ fn join_history(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
         joined.push(id);
     }
     joined
+}
+
+/// Makes an older version (`index` in the history, newest first) the entry's
+/// current content: fields, tags, icon, expiry and files. The version it
+/// replaces goes into the history, as with an edit; the entry stays in its
+/// group. Not for an entry in the trash.
+/// `saved` is when the version shown was saved: the file is read again before
+/// a change, and another device's edit may have shifted the history since.
+pub fn restore_version(db: &mut Database, id: EntryId, index: usize, saved: Option<&str>, hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let snapshot = db.clone();
+    let entry = snapshot.entry(id).ok_or(NOT_FOUND)?;
+    if is_binned(&snapshot, &entry) {
+        return Err("An entry in the trash is not changed; restore it first".into());
+    }
+    let version = entry
+        .historical(index)
+        .filter(|v| v.times.last_modification.map(time_text).as_deref() == saved)
+        .ok_or("The entry's history changed meanwhile; open it again")?;
+    let data = read(&version, path_of(&snapshot, entry.parent().id()));
+    // As the tracker files it: without its own history.
+    let mut before = (*entry).clone();
+    before.history = None;
+    apply(db, Some(id), &data, hidden)?;
+    // When only the files differ, apply changed nothing and filed nothing.
+    let filed = db.entry(id).and_then(|e| e.history.as_ref().and_then(|h| h.get_entries().first().cloned())).is_some_and(|newest| newest == before);
+    if take_attachments(db, &version) && !filed {
+        file_in_history(db, id, before);
+        trim_history(db, id);
+    }
+    Ok(())
 }
 
 /// Gives the entries the tag, or takes it off (the tag [FAVORITE] is the

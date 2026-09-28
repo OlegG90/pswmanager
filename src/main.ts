@@ -1,6 +1,6 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
@@ -48,6 +48,16 @@ let selectedId: string | null = null
 /** Several entries chosen with Ctrl / Shift+click; null while one (or none) is. */
 let several: Choice | null = null
 let current: EntryDetail | null = null
+/** What the right column shows of the current entry: itself, its history, or
+ *  one of its older versions (`index` in the history, 0 the newest). */
+type View =
+  | { kind: 'entry' }
+  | { kind: 'history'; versions: Version[] }
+  | { kind: 'version'; versions: Version[]; index: number; at: VersionDetail }
+const ENTRY_VIEW: View = { kind: 'entry' }
+let view: View = ENTRY_VIEW
+/** The older version shown, for fetching its values and files. */
+const shownVersion = () => (view.kind === 'version' ? view.index : null)
 /** Values revealed in the current entry, by field name. */
 const revealed = new Map<string, string>()
 
@@ -360,6 +370,7 @@ function select(id: string | null) {
     .then((entry) => {
       if (selectedId !== id) return
       current = entry
+      view = ENTRY_VIEW
       renderDetail()
     })
     .catch((e) => notify(String(e)))
@@ -413,19 +424,24 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
   return row(label, value ?? '••••••••', () => copy(field, label), { actions: [reveal], copyKey: keys?.copy, valueClass: 'secret' })
 }
 
-/** How a field is labelled; the standard ones only appear here when protected. */
-const LABELS: Record<string, string> = { [USERNAME]: 'User name', [URL_FIELD]: 'URL', [OTP]: 'TOTP' }
 
 /** Shown before the tags of an entry that is not in use. */
 const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
 
 const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
-const labelOf = (field: string) => LABELS[field] ?? field
+/** Fields by the names people know them by (the standard ones appear among
+ *  the others only when protected, or as a version's differences). */
+const NAMES: Record<string, string> = { Title: 'Title', [USERNAME]: 'User name', [PASSWORD]: 'Password', [URL_FIELD]: 'URL', Notes: 'Notes', [OTP]: 'TOTP' }
+const labelOf = (field: string) => NAMES[field] ?? field
 
 function renderDetail() {
-  const entry = current
+  const shown = current
   // An entry fetched just as the editor opened must not draw over it.
-  if (!entry || isEditing()) return
+  if (!shown || isEditing()) return
+  if (view.kind === 'history') return renderHistory(shown, view.versions)
+  const version = view.kind === 'version' ? view : null
+  // An older version is shown like the entry, read only.
+  const entry = version ? version.at : shown
   const tags = entry.tags.filter((t) => t !== FAVORITE).join(', ')
   const meta = [PLACES[entry.kind], tags].filter(Boolean).join(' · ')
   const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
@@ -435,19 +451,29 @@ function renderDetail() {
     const text = `${state === 'expired' ? 'Expired' : 'Expires'} ${formatDate(entry.expires)}`
     heading.append(el('span', { className: `expiry ${state ?? ''}` }, text))
   }
-  if (entry.modified) heading.append(el('span', { className: 'meta changed' }, `Changed ${formatDateTime(entry.modified)}`))
+  const when = entry.modified ? formatDateTime(entry.modified) : null
+  if (version) {
+    heading.append(el('span', { className: 'meta changed' }, `Version saved ${when ?? '(no date)'} · read only`))
+  } else {
+    if (when) heading.append(el('span', { className: 'meta changed' }, `Changed ${when}`))
+    if (entry.versions) {
+      heading.append(button(`History (${entry.versions})`, 'Older versions of this entry', openHistory, 'ghost history'))
+    }
+  }
   const header = el('header', {}, iconImage(entry), heading)
-  if (editable(entry)) header.append(starButton(entry))
+  if (!version && editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
   if (entry.username) {
     rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
   if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
-    const actions = entry.host ? [button('Open', 'Open in the browser (Ctrl+U)', openUrl)] : []
+    // The entry's own address: not offered for an older version.
+    const actions = entry.host && !version ? [button('Open', 'Open in the browser (Ctrl+U)', openUrl)] : []
     rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
-  if (hasTotp(entry)) rows.push(totpRow(entry.id))
+  // An older version's TOTP secret is shown as a secret, not as codes.
+  if (hasTotp(entry)) rows.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
       rows.push(secretRow(labelOf(field.name), field.name))
@@ -457,9 +483,20 @@ function renderDetail() {
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   if (entry.attachments.length) {
-    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map((file) => fileRow(file, editable(entry))))
+    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map((file) => fileRow(file, !version && editable(entry))))
   }
-  if (editable(entry)) {
+  if (version) {
+    if (version.at.differs.length) {
+      rows.push(el('h3', {}, 'The entry now'), ...version.at.differs.map((d) =>
+        el('div', { className: 'row now' },
+          el('span', { className: 'label' }, labelOf(d.name)),
+          el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now'))))
+    }
+    const restorable = editable(shown) || isTemplate(shown)
+    rows.push(el('div', { className: 'buttons' },
+      ...(restorable ? [button('Restore this version', 'Make it the entry\'s content again; the current one goes into its history', restoreVersion, 'primary')] : []),
+      button('Back', 'Back to the history (Esc)', back)))
+  } else if (editable(entry)) {
     rows.push(
       el('div', { className: 'buttons' },
         button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
@@ -481,6 +518,88 @@ function renderDetail() {
     )
   }
   detail.replaceChildren(...rows)
+}
+
+// ---------------------------------------------------------------- history
+
+/** The entry's older versions, newest first: when, and what changed after. */
+function renderHistory(entry: EntryDetail, versions: Version[]) {
+  const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'),
+    el('span', { className: 'meta' }, `History · ${versions.length} older ${versions.length === 1 ? 'version' : 'versions'}`))
+  const items = versions.map((v, i) => {
+    const item = el('button', { type: 'button', className: 'version', title: 'Show this version' },
+      el('span', { className: 'when' }, v.modified ? formatDateTime(v.modified) : '(no date)'),
+      el('span', { className: 'what' }, v.changed.length ? `then changed: ${v.changed.join(', ')}` : 'nothing shown changed after it'))
+    item.addEventListener('click', () => openVersion(i))
+    return el('li', {}, item)
+  })
+  detail.replaceChildren(
+    el('header', {}, iconImage(entry), heading),
+    el('ul', { className: 'versions' }, ...items),
+    el('div', { className: 'buttons' }, button('Back', 'Back to the entry (Esc)', back)),
+  )
+}
+
+async function openHistory() {
+  const entry = current
+  if (!entry || isEditing()) return
+  try {
+    const versions = await api.entryHistory(entry.id)
+    if (current !== entry) return
+    view = { kind: 'history', versions }
+    revealed.clear()
+    stopTotp()
+    renderDetail()
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+async function openVersion(index: number) {
+  const entry = current
+  if (!entry || view.kind !== 'history') return
+  const versions = view.versions
+  try {
+    const at = await api.entryVersion(entry.id, index)
+    if (current !== entry) return
+    view = { kind: 'version', versions, index, at }
+    revealed.clear()
+    renderDetail()
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+/** One step back: from a version to the history, from the history to the
+ *  entry. False when the entry itself is shown. */
+function back(): boolean {
+  if (view.kind === 'entry') return false
+  view = view.kind === 'version' ? { kind: 'history', versions: view.versions } : ENTRY_VIEW
+  revealed.clear()
+  renderDetail()
+  return true
+}
+
+/** Asks first: the entry's current content goes into its history. */
+async function restoreVersion() {
+  const entry = current
+  if (!entry || view.kind !== 'version') return
+  const { index, at } = view
+  const when = at.modified ? formatDateTime(at.modified) : 'this version'
+  const yes = await ask(`Restore the version saved ${when}? The entry's current content goes into its history.`, 'Restore')
+  if (!yes || current !== entry) return
+  try {
+    const next = await api.restoreVersion(entry.id, index, at.modified)
+    view = ENTRY_VIEW
+    applyListing(next, 'Restored the older version · the replaced one is in the history')
+  } catch (e) {
+    notify(String(e), 6)
+    // The history may have moved on: show it as it is now.
+    if (current === entry) {
+      view = ENTRY_VIEW
+      openHistory()
+    }
+  }
 }
 
 /** An attached file: its name and size; the content is only ever saved to disk.
@@ -744,6 +863,7 @@ function isTemplate<T extends Entry>(entry: T | null): entry is T & { kind: 'tem
 }
 
 function editEntry() {
+  if (view.kind !== 'entry') return
   if (editable(current) || isTemplate(current)) startEditor(current.id, { template: isTemplate(current) })
 }
 
@@ -774,6 +894,9 @@ async function newFromTemplate(id: string) {
 function applyListing(next: Listing, message: string, focusSearch = true) {
   listing = next
   fillSidebar()
+  // The entry is shown again from the top: a version's revealed values go.
+  if (view.kind !== 'entry') revealed.clear()
+  view = ENTRY_VIEW
   current = null
   refresh()
   if (focusSearch) searchInput.focus()
@@ -795,6 +918,7 @@ function afterSave(saved: Saved) {
 /** Del / the Delete button: asks first. In the trash, deletes for good. */
 async function deleteEntry() {
   const entry = current
+  if (view.kind !== 'entry') return
   if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id])
   if (!(editable(entry) || isTemplate(entry)) || isEditing()) return
   const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
@@ -860,7 +984,7 @@ async function removeAttachment(name: string) {
 async function openAttachment(name: string) {
   if (!current) return
   try {
-    await api.openAttachment(current.id, name)
+    await api.openAttachment(current.id, name, shownVersion())
     notify(`Opened a read-only copy of ${name} · deleted when the database locks`, 5)
   } catch (e) {
     notify(String(e))
@@ -870,7 +994,7 @@ async function openAttachment(name: string) {
 async function saveAttachment(name: string) {
   if (!current) return
   try {
-    if (await api.saveAttachment(current.id, name)) notify(`Saved ${name}`)
+    if (await api.saveAttachment(current.id, name, shownVersion())) notify(`Saved ${name}`)
   } catch (e) {
     notify(String(e))
   }
@@ -882,7 +1006,7 @@ async function toggleReveal(field: string) {
     revealed.delete(field)
   } else {
     const id = current.id
-    const value = await api.reveal(id, field).catch((e) => (notify(String(e)), null))
+    const value = await api.reveal(id, field, shownVersion()).catch((e) => (notify(String(e)), null))
     if (value === null || current?.id !== id) return
     revealed.set(field, value)
   }
@@ -892,7 +1016,7 @@ async function toggleReveal(field: string) {
 async function copy(field: string, label: string) {
   if (!current) return
   try {
-    const seconds = await api.copy(current.id, field)
+    const seconds = await api.copy(current.id, field, shownVersion())
     notify(`${label} copied · clears in ${seconds} s`)
   } catch (e) {
     notify(String(e))
@@ -900,8 +1024,11 @@ async function copy(field: string, label: string) {
 }
 
 function openUrl() {
-  if (current?.host) api.openUrl(current.id).catch((e) => notify(String(e)))
+  if (view.kind === 'entry' && current?.host) api.openUrl(current.id).catch((e) => notify(String(e)))
 }
+
+/** What the entry view shows now: the entry, or the older version open. */
+const shownDetail = (): EntryDetail | null => (view.kind === 'version' ? view.at : current)
 
 let toastTimer: number | undefined
 function notify(message: string, seconds = 3) {
@@ -1029,22 +1156,23 @@ function perform(action: Action, e: KeyboardEvent) {
   switch (action) {
     case 'copy-username':
       // A protected user name is among the fields instead.
-      if (current?.username || current?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
+      if (shownDetail()?.username || shownDetail()?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
       break
     case 'copy-password':
-      if (current?.hasPassword) copy(PASSWORD, 'Password')
+      if (shownDetail()?.hasPassword) copy(PASSWORD, 'Password')
       break
     case 'open-url':
       openUrl()
       break
     case 'toggle-password':
-      if (current?.hasPassword) toggleReveal(PASSWORD)
+      if (shownDetail()?.hasPassword) toggleReveal(PASSWORD)
       break
     case 'lock':
       lock()
       break
     case 'copy-totp':
-      if (current && hasTotp(current)) copyTotp()
+      // The code is the entry's own: not while an older version is shown.
+      if (view.kind === 'entry' && current && hasTotp(current)) copyTotp()
       break
     case 'new-entry':
       newEntry()
@@ -1068,6 +1196,8 @@ function perform(action: Action, e: KeyboardEvent) {
       move(1)
       break
     case 'escape':
+      // From a version to the history, from the history to the entry first.
+      if (back()) break
       if (searchInput.value) {
         searchInput.value = ''
         refresh()
