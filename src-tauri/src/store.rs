@@ -51,7 +51,17 @@ impl Known {
 
     /// The database's name, or its file's when it has none.
     pub fn title(&self) -> String {
-        self.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| crate::remote::file_name(&self.file))
+        self.name.clone().unwrap_or_else(|| crate::remote::file_name(&self.file))
+    }
+
+    /// Remembers the database's name and description (empty: none); true
+    /// when they changed.
+    pub fn remember(&mut self, name: &str, description: &str) -> bool {
+        let non_empty = |text: &str| Some(text.to_string()).filter(|t| !t.is_empty());
+        let (name, description) = (non_empty(name), non_empty(description));
+        let changed = (&name, &description) != (&self.name, &self.description);
+        (self.name, self.description) = (name, description);
+        changed
     }
 }
 
@@ -163,8 +173,19 @@ impl Store {
 
     /// Applies a change and writes the whole state to disk.
     pub fn update(&self, f: impl FnOnce(&mut State)) -> io::Result<()> {
+        self.update_if(|state| {
+            f(state);
+            true
+        })
+    }
+
+    /// Applies a change, and writes the state to disk only when `f` says
+    /// it changed something.
+    pub fn update_if(&self, f: impl FnOnce(&mut State) -> bool) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        f(&mut state);
+        if !f(&mut state) {
+            return Ok(());
+        }
         write_atomically(&self.path, &serde_json::to_vec_pretty(&*state)?)
     }
 }

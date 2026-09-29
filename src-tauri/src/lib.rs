@@ -617,16 +617,7 @@ fn show_changes(app: &AppHandle, changed: Vec<String>) {
 /// description remembered for the unlock screen.
 fn show_database(app: &AppHandle, settings: &vault::DatabaseSettings) {
     let store = app.state::<Store>();
-    let text = |value: &str| Some(value.to_string()).filter(|v| !v.is_empty());
-    let (name, description) = (text(&settings.name), text(&settings.description));
-    let known = store.read(|s| s.current().cloned());
-    if known.as_ref().is_some_and(|k| k.name != name || k.description != description) {
-        let _ = store.update(|s| {
-            if let Some(current) = s.current_mut() {
-                (current.name, current.description) = (name, description);
-            }
-        });
-    }
+    let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&settings.name, &settings.description)));
     let title = store.read(|s| s.current().map(store::Known::title));
     window::set_title(app, title.as_deref());
 }

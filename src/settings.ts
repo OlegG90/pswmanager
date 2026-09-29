@@ -44,7 +44,7 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
 /** A text field saved when it changes (Enter, or leaving it); a textarea for several lines. */
-function text(label: string, value: string, change: (value: string) => void, lines = 1) {
+function textField(label: string, value: string, change: (value: string) => void, lines = 1) {
   const field = lines > 1
     ? el('textarea', { ariaLabel: label, value, rows: lines, spellcheck: false })
     : el('input', { ariaLabel: label, value, spellcheck: false })
@@ -92,28 +92,37 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
 /**
  * Fills `container` with the settings screen. Each change is saved at once;
  * `onError` reports one that failed, and the screen then shows what is in effect.
+ * `onDatabase` gets the open database's settings after one of them changed.
  */
-export async function renderSettings(container: HTMLElement, onDone: () => void, onError: (message: string) => void) {
+export async function renderSettings(
+  container: HTMLElement,
+  onDone: () => void,
+  onError: (message: string) => void,
+  onDatabase: (settings: DatabaseSettings) => void = () => {},
+) {
   const waiting = el('p', { className: 'muted', hidden: true })
-  const [settings, status, version] = await Promise.all([api.settings(), api.status(), getVersion()])
-  /** What the open database's file keeps; null while locked. */
-  let database = status.unlocked ? await api.databaseSettings().catch(() => null) : null
+  // Locked: no database settings to show.
+  const [settings, status, version, saved] = await Promise.all([
+    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null)])
+  let database = saved
   draw(settings, status)
 
-  /** Settings kept in the database file: saved and synced like an edit. */
-  function databaseGroup(s: Settings, status: Status, d: DatabaseSettings): HTMLElement {
+  /** Settings kept in the database file: saved and synced like an edit.
+   *  Redrawn after each, which shows the value as saved (trimmed). */
+  function databaseGroup(d: DatabaseSettings, redraw: (d: DatabaseSettings) => void): HTMLElement {
     const set = (setting: DatabaseSetting) => async (value: string) => {
       try {
-        database = await api.setDatabaseSetting(setting, value)
+        d = await api.setDatabaseSetting(setting, value)
+        onDatabase(d)
       } catch (e) {
         onError(String(e))
       }
-      draw(s, await api.status())
+      redraw(d)
     }
     return group('Database',
-      row('Name', 'On the unlock screen and in the title; the file keeps its name', text('Name', d.name, set('name'))),
-      row('Description', 'Under the name on the unlock screen', text('Description', d.description, set('description'), 2)),
-      row('Default user name', 'Filled in on a new blank entry', text('Default user name', d.defaultUsername, set('defaultUsername'))))
+      row('Name', 'On the unlock screen and in the title; the file keeps its name', textField('Name', d.name, set('name'))),
+      row('Description', 'Under the name on the unlock screen', textField('Description', d.description, set('description'), 2)),
+      row('Default user name', 'Filled in on a new blank entry', textField('Default user name', d.defaultUsername, set('defaultUsername'))))
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
@@ -165,7 +174,10 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
           toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
         row('Download site icons', 'Directly from each site, never through a third party',
           toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
-      ...(database ? [databaseGroup(s, status, database)] : []),
+      ...(database ? [databaseGroup(database, (d) => {
+        database = d
+        draw(s, status)
+      })] : []),
       group('Sync',
         row('This database', status.database ?? '', syncControl(status)),
         waiting,

@@ -224,11 +224,11 @@ impl Vault {
     /// The settings kept in the database file, empty where it has none.
     pub fn settings(&self) -> DatabaseSettings {
         let meta = &self.db.meta;
-        let text = |value: &Option<String>| value.clone().unwrap_or_default();
+        let or_empty = |value: &Option<String>| value.clone().unwrap_or_default();
         DatabaseSettings {
-            name: text(&meta.database_name),
-            description: text(&meta.database_description),
-            default_username: text(&meta.default_username),
+            name: or_empty(&meta.database_name),
+            description: or_empty(&meta.database_description),
+            default_username: or_empty(&meta.default_username),
         }
     }
 

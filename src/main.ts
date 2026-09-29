@@ -80,9 +80,9 @@ function showStatus(status: Status) {
   // Its name, as last unlocked (the file name until then), with the file under it.
   const current = status.databases.find((d) => d.file === status.database)
   $('database-name').textContent = current?.name ?? ''
-  $('database-description').textContent = current?.description ?? ''
-  $('database-description').title = current?.description ?? ''
-  $('database-description').hidden = !current?.description
+  const description = $('database-description')
+  description.textContent = description.title = current?.description ?? ''
+  description.hidden = !current?.description
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
@@ -1111,10 +1111,15 @@ function changePassword(id: string) {
 
 // ---------------------------------------------------------------- settings
 
+/** The settings screen; a changed database setting (the default user name a
+ *  new entry gets) goes into the listing. */
+const drawSettings = () =>
+  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), (database) => (listing = { ...listing, database }))
+
 async function openSettings() {
   if (settingsOpen) return
   try {
-    await renderSettings(settingsView, closeSettings, (message) => notify(message, 6))
+    await drawSettings()
   } catch (e) {
     return notify(String(e))
   }
@@ -1136,8 +1141,6 @@ function closeSettings() {
   if (unlocked) {
     vault.hidden = false
     searchInput.focus()
-    // The default user name a new entry gets may have changed there.
-    api.databaseSettings().then((database) => (listing = { ...listing, database }), () => {})
   } else if (chooseView.childElementCount) {
     chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()
@@ -1316,7 +1319,7 @@ listen('open-settings', () => {
 })
 // Changed from the tray while the screen is open.
 listen('settings-changed', () => {
-  if (settingsOpen) renderSettings(settingsView, closeSettings, (message) => notify(message, 6)).catch((e) => notify(String(e)))
+  if (settingsOpen) drawSettings().catch((e) => notify(String(e)))
 })
 
 listen<string>('icon-ready', (e) => {

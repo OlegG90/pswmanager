@@ -209,7 +209,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     const blank = !options.from && !options.template
     data = options.id
       ? await api.editEntry(options.id)
-      : { ...EMPTY, ...(blank ? { username: options.defaultUsername ?? '' } : {}), ...fromTemplate(options.from), group: options.group }
+      : { ...EMPTY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
   } catch (e) {
     if (active === loading) active = null
     throw e

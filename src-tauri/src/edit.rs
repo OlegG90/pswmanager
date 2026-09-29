@@ -3,7 +3,7 @@
 
 use crate::otp;
 use base64::Engine;
-use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
+use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Meta, Times, Value};
 use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
@@ -736,15 +736,32 @@ pub enum Setting {
     DefaultUsername,
 }
 
+impl Setting {
+    const ALL: [Setting; 3] = [Setting::Name, Setting::Description, Setting::DefaultUsername];
+
+    /// The setting's value in `meta`, and when it was last changed.
+    fn in_meta(self, meta: &mut Meta) -> (&mut Option<String>, &mut Option<NaiveDateTime>) {
+        match self {
+            Setting::Name => (&mut meta.database_name, &mut meta.database_name_changed),
+            Setting::Description => (&mut meta.database_description, &mut meta.database_description_changed),
+            Setting::DefaultUsername => (&mut meta.default_username, &mut meta.default_username_changed),
+        }
+    }
+
+    /// Like [Setting::in_meta], to read.
+    fn of(self, meta: &Meta) -> (&Option<String>, Option<NaiveDateTime>) {
+        match self {
+            Setting::Name => (&meta.database_name, meta.database_name_changed),
+            Setting::Description => (&meta.database_description, meta.database_description_changed),
+            Setting::DefaultUsername => (&meta.default_username, meta.default_username_changed),
+        }
+    }
+}
+
 /// Sets a database setting (trimmed) and when it changed; the value it
 /// already has changes nothing.
 pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
-    let meta = &mut db.meta;
-    let (field, changed) = match setting {
-        Setting::Name => (&mut meta.database_name, &mut meta.database_name_changed),
-        Setting::Description => (&mut meta.database_description, &mut meta.database_description_changed),
-        Setting::DefaultUsername => (&mut meta.default_username, &mut meta.default_username_changed),
-    };
+    let (field, changed) = setting.in_meta(&mut db.meta);
     let value = value.trim();
     if field.as_deref().unwrap_or_default() != value {
         *field = Some(value.to_string());
@@ -755,17 +772,15 @@ pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
 /// Keeps the database settings `ours` changed later than `theirs` did, each
 /// by its own time, as KeePass merges them. Returns true when it kept any.
 pub fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
-    fn keep(theirs: (&mut Option<String>, &mut Option<NaiveDateTime>), ours: (&Option<String>, Option<NaiveDateTime>)) -> bool {
-        let newer = ours.1 > *theirs.1 && ours.0 != theirs.0;
+    Setting::ALL.into_iter().fold(false, |kept, setting| {
+        let (value, at) = setting.of(&ours.meta);
+        let (their_value, their_at) = setting.in_meta(&mut theirs.meta);
+        let newer = at > *their_at && value != their_value;
         if newer {
-            (*theirs.0, *theirs.1) = (ours.0.clone(), ours.1);
+            (*their_value, *their_at) = (value.clone(), at);
         }
-        newer
-    }
-    let (t, o) = (&mut theirs.meta, &ours.meta);
-    keep((&mut t.database_name, &mut t.database_name_changed), (&o.database_name, o.database_name_changed))
-        | keep((&mut t.database_description, &mut t.database_description_changed), (&o.database_description, o.database_description_changed))
-        | keep((&mut t.default_username, &mut t.default_username_changed), (&o.default_username, o.default_username_changed))
+        kept | newer
+    })
 }
 
 /// True when the entry is in its database's recycle bin.
