@@ -31,7 +31,11 @@ const healthView = $('health')
 const toast = $('toast')
 
 
-const EMPTY: Listing = { entries: [], customIcons: {}, database: { name: '', description: '', defaultUsername: '' } }
+const EMPTY: Listing = {
+  entries: [],
+  customIcons: {},
+  database: { name: '', description: '', defaultUsername: '', historyMaxItems: 10, historyMaxSize: 6 << 20 },
+}
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
@@ -1109,10 +1113,14 @@ function changePassword(id: string) {
 
 // ---------------------------------------------------------------- settings
 
-/** The settings screen; a changed database setting (the default user name a
- *  new entry gets) goes into the listing. */
+/** The settings screen. A changed database setting goes into the listing (the
+ *  default user name a new entry gets), and the entry shown is fetched again
+ *  when it closes (new history limits may have trimmed its history). */
 const drawSettings = () =>
-  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), (database) => (listing = { ...listing, database }))
+  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), (database) => {
+    listing = { ...listing, database }
+    current = null
+  })
 
 async function openSettings() {
   if (settingsOpen) return
@@ -1139,6 +1147,7 @@ function closeSettings() {
   if (unlocked) {
     vault.hidden = false
     searchInput.focus()
+    if (!current) select(selectedId)
   } else if (chooseView.childElementCount) {
     chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()

@@ -1,6 +1,7 @@
 import { api, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
+import { ask } from './modal'
 import { setUpSync } from './sync-setup'
 
 type Choice<T = number> = [value: T, label: string]
@@ -11,6 +12,15 @@ const LOCK_AFTER = minutes('Never')
 const SYNC_EVERY = minutes('Off')
 const CLEAR_AFTER: Choice[] = [5, 10, 20, 30, 60, 120].map((s) => [s, `${s} s`])
 const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
+const MIB = 2 ** 20
+const HISTORY_ITEMS: Choice[] = [0, 3, 5, 10, 20, 50, 100].map((n): Choice => [n, n === 0 ? 'None' : `${n} versions`])
+const HISTORY_SIZE: Choice[] = [1, 2, 4, 6, 10, 20, 64].map((m): Choice => [m * MIB, `${m} MiB`])
+
+/** `choices` with the file's own value among them: another client may have
+ *  set no limit (-1), or a limit these do not offer. */
+function withValue(choices: Choice[], value: number, label: (value: number) => string): Choice[] {
+  return choices.some(([v]) => v === value) ? choices : [...choices, [value, value < 0 ? 'No limit' : label(value)]]
+}
 
 /** A switch: a button that is on or off. */
 function toggle(label: string, on: boolean, change: (on: boolean) => void): HTMLButtonElement {
@@ -119,10 +129,31 @@ export async function renderSettings(
       }
       redraw(d)
     }
+    /** New history limits; when they remove versions, only after saying how many. */
+    const setLimits = async (maxItems: number, maxSize: number) => {
+      try {
+        const going = await api.historyLimitsPreview(maxItems, maxSize)
+        const versions = going === 1 ? '1 older version' : `${going} older versions`
+        if (!going || await ask(`${versions} will be removed from the entries' history, in this file and in its synced copies.`, 'Remove')) {
+          d = await api.setHistoryLimits(maxItems, maxSize)
+          onDatabase(d)
+        }
+      } catch (e) {
+        onError(String(e))
+      }
+      redraw(d)
+    }
+    const size = (bytes: number) => `${(bytes / MIB).toFixed(1)} MiB`
     return group('Database',
       row('Name', 'On the unlock screen and in the title; the file keeps its name', textField('Name', d.name, set('name'))),
       row('Description', 'Under the name on the unlock screen', textField('Description', d.description, set('description'), 2)),
-      row('Default user name', 'Filled in on a new blank entry', textField('Default user name', d.defaultUsername, set('defaultUsername'))))
+      row('Default user name', 'Filled in on a new blank entry', textField('Default user name', d.defaultUsername, set('defaultUsername'))),
+      row('History: versions per entry', 'Older versions each entry keeps',
+        select('History: versions per entry', d.historyMaxItems, withValue(HISTORY_ITEMS, d.historyMaxItems, (n) => `${n} versions`), '',
+          (n) => setLimits(n, d.historyMaxSize))),
+      row('History: size per entry', 'The oldest versions go first when they are larger together',
+        select('History: size per entry', d.historyMaxSize, withValue(HISTORY_SIZE, d.historyMaxSize, size), '',
+          (bytes) => setLimits(d.historyMaxItems, bytes))))
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */

@@ -141,6 +141,10 @@ pub struct DatabaseSettings {
     pub name: String,
     pub description: String,
     pub default_username: String,
+    /// Old versions kept per entry; -1 for no limit.
+    pub history_max_items: isize,
+    /// Bytes of old versions kept per entry; -1 for no limit.
+    pub history_max_size: isize,
 }
 
 impl Vault {
@@ -225,11 +229,32 @@ impl Vault {
     pub fn settings(&self) -> DatabaseSettings {
         let meta = &self.db.meta;
         let or_empty = |value: &Option<String>| value.clone().unwrap_or_default();
+        let (max_items, max_size) = edit::history_limits(meta);
+        let or_none = |limit: Option<usize>| limit.map_or(-1, |n| n as isize);
         DatabaseSettings {
             name: or_empty(&meta.database_name),
             description: or_empty(&meta.database_description),
             default_username: or_empty(&meta.default_username),
+            history_max_items: or_none(max_items),
+            history_max_size: or_none(max_size),
         }
+    }
+
+    /// How many old versions these history limits would remove.
+    pub fn versions_over_limits(&self, max_items: isize, max_size: isize) -> usize {
+        edit::versions_over_limits(&self.db, max_items, max_size)
+    }
+
+    /// Sets the history limits and saves the file, every entry's history
+    /// trimmed to them.
+    pub fn set_history_limits(&mut self, max_items: isize, max_size: isize) -> Result<(), String> {
+        if max_items < -1 || max_size < -1 || max_size == 0 {
+            return Err("Not a history limit".into());
+        }
+        self.change(|db, _| {
+            edit::set_history_limits(db, max_items, max_size);
+            Ok(())
+        })
     }
 
     /// Changes a setting kept in the database file and saves the file.
@@ -495,7 +520,12 @@ impl Vault {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             edit::keep_newer_settings(&mut theirs, &self.db) || kept_entries
         };
-        let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
+        let written = if kept_ours {
+            edit::trim_all_history(&mut theirs);
+            file.save(&mut theirs)
+        } else {
+            file.write(raw)
+        };
         match written {
             Ok(()) => {}
             Err(SaveError::Changed) => return Ok(None),
@@ -536,6 +566,9 @@ impl Vault {
             if db == self.db && !self.unsaved {
                 return Ok(result);
             }
+            // Every save keeps the history within the limits, so versions a
+            // merge brought back are trimmed again.
+            edit::trim_all_history(&mut db);
             match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
                 Ok(()) => {
                     self.db = db;

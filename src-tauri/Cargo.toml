@@ -56,10 +56,11 @@ tempfile = "3.27.0"
 # keepass-rs 0.15 misnumbers the other entries' files in the saved file after
 # an attachment is removed from the database, and keeps the files only a
 # removed entry's history used. The fork carries both fixes, offered upstream
-# as sseemayer/keepass-rs#374 and #375 (branch pswmanager-0.15: the fixes on
-# v0.15.0); back to crates.io once released.
+# as sseemayer/keepass-rs#374 and #375, and Database::remove_unused_attachments,
+# which trimming history needs (branch pswmanager-0.15: these on v0.15.0);
+# back to crates.io once released.
 [patch.crates-io]
-keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "7479151d064f2b5d2a4a3094a7fb3ddc62661b08" }
+keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "d4c3822ce3ea36a09b1c934ce44757ae729fe463" }
 
 # The crates that unlock and save a database (Argon2, the ciphers, hashing,
 # gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
