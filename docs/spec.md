@@ -104,8 +104,14 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   password or a key file remains. The list of databases then uses the new key file. `MasterKeyChanged` is set. The confirmation warns
   that other devices need the new key, and that the old one still opens the `.bak` files and the store's
   version history.
-- **Changing the encryption:** Argon2 memory above 256 MiB or an unlock slower than about 2 s on this PC
-  (a **Test** button measures it) warns that a phone may be slow or run out of memory.
+- **Changing the encryption** (*Change…* beside *Encryption* in *Settings → Database*, a dialog): the cipher
+  (AES-256 or ChaCha20; a database with Twofish, which KeePassXC offers, keeps it) and the key derivation
+  (Argon2id, Argon2d or AES-KDF) with its iterations or rounds, and Argon2's memory and threads; a kind the
+  database does not have yet starts from KeePassXC's defaults. Argon2 memory above 256 MiB or an unlock
+  slower than about 2 s on this PC (a **Test** button measures it: an empty database is written with these settings,
+  which derives the key as an unlock does, and timed; saving measures it too when Test did not) warns that a phone may be slow or run out of
+  memory, and asks before saving. Saved and synced like an edit; a sync merge keeps this device's encryption
+  unless the other device changed its key later (see *Merge*).
 - **With sync**, a change of key syncs first, then the file with the new key goes up at once. While the
   database stays unlocked the app keeps the old key in memory to read a remote file another device changed
   meanwhile; after a lock, a remote file that does not open with the current key is reported, and the app

@@ -4,6 +4,7 @@ import { button, el } from './dom'
 import { formatSize } from './entry-text'
 import { ask } from './modal'
 import { changeMasterKey } from './change-key'
+import { changeEncryption, describeEncryption } from './change-encryption'
 import { setUpSync } from './sync-setup'
 
 type Choice<T = number> = [value: T, label: string]
@@ -145,6 +146,14 @@ export async function renderSettings(
       }
       redraw(d)
     }
+    /** The cipher and key derivation, in a dialog. */
+    const changeCrypto = async () => {
+      const next = await changeEncryption(d.encryption)
+      if (next) {
+        onDatabase(next)
+        redraw(next)
+      }
+    }
     /** The master password and / or key file, in a dialog; the key file shown follows. */
     const changeKey = async () => {
       const status = await changeMasterKey(keyFile)
@@ -161,7 +170,9 @@ export async function renderSettings(
         select('History: size per entry', d.historyMaxSize, withValue(HISTORY_SIZE, d.historyMaxSize, formatSize), '',
           (bytes) => setLimits(d.historyMaxItems, bytes))),
       row('Master password and key file', keyFile ? `Key file: ${keyFile}` : 'No key file',
-        button('Change…', 'Change the master password and / or key file', changeKey)))
+        button('Change…', 'Change the master password and / or key file', changeKey)),
+      row('Encryption', describeEncryption(d.encryption),
+        button('Change…', 'Change the cipher and key derivation', changeCrypto)))
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */

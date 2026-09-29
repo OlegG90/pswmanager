@@ -59,7 +59,7 @@ export async function changeMasterKey(keyFile: string | null): Promise<Status | 
       buttons: [change],
       focus: current,
     }
-  }, 'Cancel', 'change-key')
+  }, 'Cancel', 'form')
   current.value = ''
   typed.clear()
   return status

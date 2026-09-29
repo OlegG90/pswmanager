@@ -34,7 +34,8 @@ const toast = $('toast')
 const EMPTY: Listing = {
   entries: [],
   customIcons: {},
-  database: { name: '', description: '', defaultUsername: '', historyMaxItems: -1, historyMaxSize: -1 }, // the limits: unused here, Settings fetches them
+  database: { name: '', description: '', defaultUsername: '', historyMaxItems: -1, historyMaxSize: -1,
+    encryption: { cipher: 'aes256', kdf: 'argon2id', iterations: 0, memory: 0, parallelism: 0 } }, // all but the user name: unused here, Settings fetches them
 }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */

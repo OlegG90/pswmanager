@@ -5,7 +5,7 @@
 use crate::dbfile::{DbFile, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::sync::Outcome;
-use crate::{icons, otp};
+use crate::{encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::{Database, DatabaseKey};
 use serde::Serialize;
@@ -135,7 +135,7 @@ pub struct Listing {
 
 /// The settings kept in the database file itself (see [edit::Setting]);
 /// empty when the file has none.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseSettings {
     pub name: String,
@@ -145,6 +145,8 @@ pub struct DatabaseSettings {
     pub history_max_items: isize,
     /// Bytes of old versions kept per entry; -1 for no limit.
     pub history_max_size: isize,
+    /// The cipher and key derivation, from the file's header.
+    pub encryption: encryption::Encryption,
 }
 
 impl Vault {
@@ -236,7 +238,14 @@ impl Vault {
             default_username: or_empty(&meta.default_username),
             history_max_items: as_stored(max_items),
             history_max_size: as_stored(max_size),
+            encryption: encryption::of(&self.db.config),
         }
+    }
+
+    /// Saves the database with another cipher and / or key derivation, as a
+    /// change on the file as it is now.
+    pub fn set_encryption(&mut self, wanted: &encryption::Encryption) -> Result<(), String> {
+        self.change(|db, _| encryption::apply(&mut db.config, wanted))
     }
 
     /// Saves the database with a new master password and / or key file (at
@@ -541,7 +550,8 @@ impl Vault {
         }
         let kept_ours = merge && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
-            edit::keep_newer_settings(&mut theirs, &self.db) || kept_entries
+            let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
+            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries
         };
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
@@ -836,16 +846,13 @@ fn key_file_xml(data: &[u8; 32]) -> Zeroizing<String> {
     xml
 }
 
-/// What a new database is made with: KDBX 4.1, AES-256, ChaCha20 for
-/// protected values, and Argon2id tuned like KeePassXC's default (64 MiB)
-/// so a phone opens it in a few seconds.
+/// What a new database is made with: KDBX 4.1, ChaCha20 for protected
+/// values, and [encryption::DEFAULT].
 fn new_database_config() -> keepass::config::DatabaseConfig {
-    use keepass::config::{DatabaseConfig, DatabaseVersion, KdfConfig, OuterCipherConfig};
+    use keepass::config::{DatabaseConfig, DatabaseVersion};
     let mut config = DatabaseConfig::default();
-    let KdfConfig::Argon2 { version, .. } = config.kdf_config else { unreachable!("keepass-rs defaults to Argon2") };
     config.version = DatabaseVersion::KDB4(1);
-    config.outer_cipher_config = OuterCipherConfig::AES256;
-    config.kdf_config = KdfConfig::Argon2id { iterations: 10, memory: 64 << 20, parallelism: 2, version };
+    encryption::apply(&mut config, &encryption::DEFAULT).expect("the defaults are within bounds");
     config
 }
 
@@ -1439,6 +1446,19 @@ pub mod tests {
         assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
         // The previous file, with the old key, is the backup.
         assert!(Vault::open(&dir.path().join("sic2kdbx.kdbx.bak"), Some("test"), None).is_ok());
+    }
+
+    #[test]
+    fn new_encryption_is_saved_and_opens_with_the_same_key() {
+        use crate::encryption::{Cipher, Encryption, Kdf};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let wanted = Encryption { cipher: Cipher::ChaCha20, kdf: Kdf::Argon2d, iterations: 3, memory: 8 << 20, parallelism: 1 };
+        vault.set_encryption(&wanted).unwrap();
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        assert_eq!(reopened.settings().encryption, wanted);
+        assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
     }
 
     #[test]
