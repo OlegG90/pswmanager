@@ -45,9 +45,40 @@ use zeroize::Zeroizing;
 const CHECK_EVERY: Duration = Duration::from_secs(10);
 
 /// The unlocked database, if any. Locking drops it, and with it every
-/// decrypted value.
+/// decrypted value. With it, which copies need a key ([KeyNeeded]).
 #[derive(Default)]
-struct Session(Mutex<Option<Vault>>);
+struct Session(Mutex<Option<Vault>>, Mutex<KeyNeeded>);
+
+/// Which copies of the unlocked database open with a key this device does not
+/// know yet (another device changed it): the window offers to enter it. Each
+/// unlock starts with none.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct KeyNeeded {
+    /// The file on this PC, replaced by another program.
+    local: bool,
+    /// The remote file, at the last sync.
+    remote: bool,
+}
+
+/// Changes which copies need a key, while the database is unlocked, and tells
+/// the window: `key-needed`.
+fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
+    let session = app.state::<Session>();
+    if !session.is_unlocked() {
+        return;
+    }
+    let now = {
+        let mut needed = session.1.lock().unwrap();
+        change(&mut needed);
+        *needed
+    };
+    let _ = app.emit("key-needed", now);
+}
+
+/// [need_key] for the remote file: whether the last sync found it on another key.
+pub fn need_remote_key(app: &AppHandle, needed: bool) {
+    need_key(app, |k| k.remote = needed);
+}
 
 impl Session {
     fn with<R>(&self, f: impl FnOnce(&Vault) -> Option<R>) -> Result<R, String> {
@@ -68,6 +99,7 @@ impl Session {
 
     fn set(&self, vault: Option<Vault>) {
         *self.0.lock().unwrap() = vault;
+        *self.1.lock().unwrap() = KeyNeeded::default();
     }
 
     fn is_unlocked(&self) -> bool {
@@ -423,6 +455,7 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
             OpenError::Other(message) => message,
         });
     }
+    need_key(&app, |k| k.local = false); // the remote file's is the sync's
     let key_taken = session.read(|v| v.uses_key(&given))??;
     choose(app, |s| {
         if let Some(d) = s.current_mut().filter(|_| key_taken) {
@@ -647,6 +680,11 @@ fn sync_status(app: AppHandle) -> sync::Status {
     sync::status(&app)
 }
 
+#[tauri::command]
+fn key_needed(session: State<Session>) -> KeyNeeded {
+    *session.1.lock().unwrap()
+}
+
 #[tauri::command(async)]
 fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "Key file", &[])?;
@@ -720,11 +758,10 @@ fn check_disk(app: &AppHandle) {
         let report = |error: OpenError| {
             if session.is_unlocked() {
                 // A file on a key this device does not know: the window asks for it.
-                let (event, message) = match error {
-                    OpenError::OtherKey(message) => ("needs-key", message),
-                    OpenError::Other(message) => ("database-error", message),
-                };
-                let _ = app.emit(event, message);
+                if let OpenError::OtherKey(_) = error {
+                    need_key(&app, |k| k.local = true);
+                }
+                let _ = app.emit("database-error", error.to_string());
             }
         };
         let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
@@ -1328,6 +1365,7 @@ pub fn run() {
             stop_sync,
             sync_now,
             sync_status,
+            key_needed,
             pick_key_file,
             clear_key_file,
             unlock,

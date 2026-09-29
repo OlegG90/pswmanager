@@ -324,9 +324,6 @@ pub struct Status {
     pub text: String,
     /// The last sync did not finish: offline or an error.
     pub problem: bool,
-    /// The remote file opens with a key this device does not know yet: the
-    /// window asks for it.
-    pub needs_key: bool,
 }
 
 #[derive(Default)]
@@ -383,6 +380,8 @@ fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
         std::mem::take(&mut f.again)
     });
     set_status(app, |s| *s = Status { busy: go_on && again, ..status });
+    // The remote file on a key this device does not know: the window asks for it.
+    crate::need_remote_key(app, matches!(result, Err(SyncError::OtherKey)));
     (result, again)
 }
 
@@ -438,8 +437,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Err(SyncError::OtherKey) => (format!("The file in {name} has another master password or key file"), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
-    let needs_key = matches!(result, Err(SyncError::OtherKey));
-    Status { text, problem, needs_key, ..Status::default() } // `remote` is filled in when it is shown
+    Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {

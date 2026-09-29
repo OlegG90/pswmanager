@@ -88,8 +88,14 @@ export interface SyncStatus {
   text: string
   /** The last sync did not finish: offline or an error. */
   problem: boolean
-  /** The remote file opens with a key this device does not know yet. */
-  needsKey: boolean
+}
+
+/** Which copies of the unlocked database open with a key this device does not know yet. */
+export interface KeyNeeded {
+  /** The file on this PC, replaced by another program. */
+  local: boolean
+  /** The remote file, at the last sync. */
+  remote: boolean
 }
 
 export interface Entry {
@@ -320,6 +326,7 @@ export const api = {
   cancelCloud: (cloud: Cloud) => invoke<void>('cancel_cloud', { cloud }),
   syncNow: () => invoke<void>('sync_now'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
+  keyNeeded: () => invoke<KeyNeeded>('key_needed'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
