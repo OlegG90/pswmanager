@@ -12,6 +12,7 @@ import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
+import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -157,6 +158,8 @@ function showVault(next: Listing) {
   unlocked = true
   unlockForm.hidden = true
   vault.hidden = false
+  askedForKey = false
+  $('key-button').hidden = true
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
   filter = ALL
@@ -1059,6 +1062,25 @@ function showSyncStatus(status: SyncStatus) {
   line.classList.toggle('problem', status.problem && !status.busy)
   $('sync-button').hidden = !status.remote
   $<HTMLButtonElement>('sync-button').disabled = status.busy
+  if (status.busy) return
+  $('key-button').hidden = !status.needsKey
+  if (status.needsKey && !askedForKey) askForOtherKey('the remote file')
+}
+
+/** Asked for the key of a copy on another key since the unlock: asked once, then the button stays. */
+let askedForKey = false
+/** Which copy the button asks about: the remote file, or the file on this PC. */
+let keyAskedFor = 'the remote file'
+
+/** Asks for the key another device changed a copy to (`where`); the button hides once it is read. */
+async function askForOtherKey(where: string) {
+  keyAskedFor = where
+  if (!unlocked || isAsking() || isEditing() || settingsOpen) return
+  askedForKey = true
+  if (await enterOtherKey(where)) {
+    $('key-button').hidden = true
+    notify('Read with the key given')
+  }
 }
 
 /** The file changed on disk and was read again: show the new state in place. */
@@ -1168,6 +1190,7 @@ $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
+$('key-button').addEventListener('click', () => askForOtherKey(keyAskedFor))
 
 /** Esc with nothing left to close: back to the tray. */
 function hideWindow() {
@@ -1305,6 +1328,14 @@ listen('locked', showLocked)
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
+// The file on this PC was replaced by one on a key this device does not know.
+listen<string>('needs-key', (e) => {
+  if (!unlocked) return
+  notify(e.payload, 10)
+  $('key-button').hidden = false
+  if (!askedForKey) askForOtherKey('the file on this PC')
+  else keyAskedFor = 'the file on this PC'
+})
 listen('window-shown', () => {
   if (settingsOpen || healthOpen) return
   if (unlocked) searchInput.focus()

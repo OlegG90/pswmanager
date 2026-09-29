@@ -30,7 +30,20 @@ impl From<String> for SaveError {
 pub struct DbFile {
     path: PathBuf,
     key: DatabaseKey,
+    /// Other keys a copy of the database may have, tried after `key`: the one
+    /// before a change of key, and ones the user gave for a copy that did not
+    /// open. Kept in memory only, while the database is unlocked.
+    other_keys: Vec<DatabaseKey>,
     hash: [u8; 32],
+}
+
+/// Why a copy of the database did not open: none of the keys known opens it
+/// (another device changed the key). See [needs_other_key].
+pub const OTHER_KEY: &str = "It opens with another master password or key file";
+
+/// True when `message` says a copy opens with a key this device does not know.
+pub fn needs_other_key(message: &str) -> bool {
+    message.ends_with(OTHER_KEY)
 }
 
 fn hash(bytes: &[u8]) -> [u8; 32] {
@@ -65,7 +78,7 @@ impl DbFile {
     pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), String> {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
-        Ok((db, DbFile { path: path.to_path_buf(), key, hash: hash(&bytes) }))
+        Ok((db, DbFile { path: path.to_path_buf(), key, other_keys: Vec::new(), hash: hash(&bytes) }))
     }
 
     /// The file as it is now, if it changed since it was last read or written
@@ -73,22 +86,44 @@ impl DbFile {
     #[cfg(test)]
     pub fn reload(&mut self) -> Result<Option<Database>, String> {
         let since = self.snapshot();
-        Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)))
+        Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)).map(|(db, _)| db))
     }
 
     /// What reading the file again needs, so the slow part (deriving the key)
     /// can run without holding anything; see [Snapshot::read_changed].
     pub fn snapshot(&self) -> Snapshot {
-        Snapshot { path: self.path.clone(), key: self.key.clone(), hash: self.hash }
+        let keys = std::iter::once(&self.key).chain(&self.other_keys).cloned().collect();
+        Snapshot { path: self.path.clone(), keys, hash: self.hash }
     }
 
     /// Takes a file read with [Snapshot::read_changed], unless the file was
-    /// read or written again since the snapshot (then that is newer).
-    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Database> {
+    /// read or written again since the snapshot (then that is newer); with the
+    /// other key it opened with, if it was not the file's own.
+    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, Option<DatabaseKey>)> {
         (self.hash == since.hash).then(|| {
             self.hash = read.hash;
-            read.db
+            (read.db, read.other_key)
         })
+    }
+
+    /// Keeps `key` among the other keys a copy may have (see [DbFile::snapshot]).
+    pub fn remember_key(&mut self, key: DatabaseKey) {
+        if key != self.key && !self.other_keys.contains(&key) {
+            self.other_keys.push(key);
+        }
+    }
+
+    /// Lets go of a key [DbFile::remember_key] kept (one that opened nothing).
+    pub fn forget_key(&mut self, key: &DatabaseKey) {
+        self.other_keys.retain(|k| k != key);
+    }
+
+    /// Writes the file with `key` from now on (another device's newer one),
+    /// keeping the one it had among the others.
+    pub fn use_key(&mut self, key: DatabaseKey) {
+        self.other_keys.retain(|k| k != &key);
+        let old = std::mem::replace(&mut self.key, key);
+        self.remember_key(old);
     }
 
     /// Writes `db` over the file. Refuses when the file changed since it was
@@ -104,9 +139,10 @@ impl DbFile {
 
     /// Like [DbFile::save], with `key` in place of the file's key from now on
     /// (kept only when the file was written).
+    /// The key it had is kept among the others, for a copy still on it.
     pub fn save_with_key(&mut self, db: &mut Database, key: DatabaseKey) -> Result<(), SaveError> {
         self.save_as(db, &key)?;
-        self.key = key;
+        self.use_key(key);
         Ok(())
     }
 
@@ -236,10 +272,11 @@ pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// A database file as it was when the snapshot was taken, with its key.
+/// A database file as it was when the snapshot was taken, with the keys a
+/// copy of it may have: its own first.
 pub struct Snapshot {
     path: PathBuf,
-    key: DatabaseKey,
+    keys: Vec<DatabaseKey>,
     hash: [u8; 32],
 }
 
@@ -247,6 +284,8 @@ pub struct Snapshot {
 pub struct Read {
     db: Database,
     hash: [u8; 32],
+    /// The key it opened with, when it was not the file's own.
+    other_key: Option<DatabaseKey>,
 }
 
 impl Snapshot {
@@ -259,14 +298,22 @@ impl Snapshot {
         if now == self.hash {
             return Ok(None);
         }
-        let db = Database::parse(&bytes, self.key.clone())
-            .map_err(|e| format!("The database file changed on disk and cannot be read now: {}", open_error(&e)))?;
-        Ok(Some(Read { db, hash: now }))
+        let (db, other_key) = self.parse(&bytes).map_err(|e| format!("The database file changed on disk and cannot be read now: {e}"))?;
+        Ok(Some(Read { db, hash: now, other_key }))
     }
 
-    /// Opens another copy of the database (a downloaded one) with this key.
-    pub fn parse(&self, bytes: &[u8]) -> Result<Database, String> {
-        Database::parse(bytes, self.key.clone()).map_err(|e| open_error(&e))
+    /// Opens another copy of the database (a downloaded one) with the first
+    /// key that opens it; with that key when it is not the file's own. None
+    /// opening it is [OTHER_KEY].
+    pub fn parse(&self, bytes: &[u8]) -> Result<(Database, Option<DatabaseKey>), String> {
+        for (i, key) in self.keys.iter().enumerate() {
+            match Database::parse(bytes, key.clone()) {
+                Ok(db) => return Ok((db, (i > 0).then(|| key.clone()))),
+                Err(DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey)) => continue,
+                Err(e) => return Err(open_error(&e)),
+            }
+        }
+        Err(OTHER_KEY.into())
     }
 }
 

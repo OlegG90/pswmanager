@@ -378,7 +378,7 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     let key_file = key_file.map(PathBuf::from);
     // In step with the remote file first: after the change, the remote file,
     // still on the old key, opens no more.
-    sync::sync_first(&app)?;
+    sync::sync_first(&app).map_err(|e| format!("The database could not sync first ({e}); the key is unchanged"))?;
     app.state::<Session>().with_mut(|v| v.change_key(current, non_empty(&password), key_file.as_deref()))?;
     let status = choose(app.clone(), |s| {
         if let Some(d) = s.current_mut() {
@@ -387,6 +387,42 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     })?;
     sync::request(&app);
     Ok(status)
+}
+
+/// The key of a copy that opened with no key known — the remote file, or the
+/// file on this PC another program replaced — after another device changed
+/// it. The copy is read again with it (synced, or read from disk): the key
+/// follows the newer change, so the database may take it from now on, and
+/// then the list takes its key file. Refused when it does not open the copy.
+#[tauri::command(async)]
+fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -> Result<Status, String> {
+    let password = Zeroizing::new(password);
+    let password = (!password.is_empty()).then_some(password.as_str());
+    let key_file = key_file.map(PathBuf::from);
+    let session = app.state::<Session>();
+    session.with_mut(|v| v.remember_key(password, key_file.as_deref()))?;
+    let read = if app.state::<Store>().read(|s| s.remote().is_some()) {
+        sync::sync_first(&app)
+    } else {
+        session
+            .with_mut(|v| {
+                let changed = v.reload()?;
+                v.save_pending()?;
+                Ok(changed)
+            })
+            .map(|changed| changed.into_iter().for_each(|changed| show_changes(&app, changed)))
+    };
+    if let Err(e) = read {
+        // A key that opened nothing is not kept.
+        session.with_mut(|v| v.forget_key(password, key_file.as_deref()))?;
+        return Err(if dbfile::needs_other_key(&e) { "This master password or key file does not open it either".into() } else { e });
+    }
+    let taken = session.read(|v| v.uses_key(password, key_file.as_deref()))??;
+    choose(app, |s| {
+        if let Some(d) = s.current_mut().filter(|_| taken) {
+            d.key_file = key_file;
+        }
+    })
 }
 
 /// Creates a new, empty database at `file` and adds it to the list as the
@@ -677,7 +713,9 @@ fn check_disk(app: &AppHandle) {
         // A lock meanwhile makes any error moot.
         let report = |message: String| {
             if session.is_unlocked() {
-                let _ = app.emit("database-error", message);
+                // A file on a key this device does not know: the window asks for it.
+                let event = if dbfile::needs_other_key(&message) { "needs-key" } else { "database-error" };
+                let _ = app.emit(event, message);
             }
         };
         let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
@@ -1288,6 +1326,7 @@ pub fn run() {
             set_history_limits,
             create_key_file,
             change_master_key,
+            enter_other_key,
             encryption_unlock_time,
             set_encryption,
             entry,

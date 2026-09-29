@@ -120,7 +120,10 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   did (the password was changed in Keepass2Android, say), the app takes that key — the working copy is saved
   with it, the result goes up with it, and the next unlock asks for it — so a key change is never undone
   silently. A working copy another program replaced with a file that no longer opens asks for its key the
-  same way.
+  same way. It is asked in a dialog once per unlock (*Not now* leaves an *Enter key…* button beside the
+  sync status); a key given is kept in memory only, and when the database takes it, the list takes its key
+  file. A copy on an older key (it came back from before the change) is never taken byte for byte: it is
+  written again with this device's key.
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
   `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key follows
   `MasterKeyChanged` the same way, and the encryption goes with the key; with equal times, or none on the

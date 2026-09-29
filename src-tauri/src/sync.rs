@@ -38,6 +38,9 @@ pub enum SyncError {
     Offline(String),
     /// The account needs signing in again.
     SignIn(String),
+    /// The remote file opens with none of the keys known: another device
+    /// changed the key. The user is asked for it once.
+    OtherKey,
     Failed(String),
 }
 
@@ -82,8 +85,11 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
-            let theirs = since.parse(&bytes).map_err(|e| failed(format!("The remote copy cannot be opened: {e}")))?;
-            outcome = match session.with_mut(|v| v.take_remote(&since, theirs, &bytes, changed_here)) {
+            let (theirs, other_key) = since.parse(&bytes).map_err(|e| match e {
+                _ if crate::dbfile::needs_other_key(&e) => SyncError::OtherKey,
+                _ => failed(format!("The remote copy cannot be opened: {e}")),
+            })?;
+            outcome = match session.with_mut(|v| v.take_remote(&since, theirs, other_key, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
                 Ok(None) => return Ok(None),
                 Err(_) if !session.is_unlocked() => return Ok(Some(Outcome::WaitingForUnlock)),
@@ -232,7 +238,10 @@ pub fn link(
     // otherwise every sync would fail, or Keep this file would replace a
     // database with other credentials.
     if let Some(key) = key {
-        key.parse(&bytes).map_err(|e| format!("The remote file does not open with this database's key ({e})"))?;
+        let (_, other_key) = key.parse(&bytes).map_err(|e| format!("The remote file does not open with this database's key ({e})"))?;
+        if other_key.is_some() {
+            return Err("The remote file opens only with an older key of this database".into());
+        }
     }
     let (revision, synced) = if hash_hex(&bytes) == local {
         (Some(revision), Some(local))
@@ -318,6 +327,9 @@ pub struct Status {
     pub text: String,
     /// The last sync did not finish: offline or an error.
     pub problem: bool,
+    /// The remote file opens with a key this device does not know yet: the
+    /// window asks for it.
+    pub needs_key: bool,
 }
 
 #[derive(Default)]
@@ -393,9 +405,8 @@ pub fn sync_first(app: &AppHandle) -> Result<(), String> {
     }
     match result {
         Ok(_) => Ok(()),
-        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => {
-            Err(format!("The database could not sync first ({message}); the key is unchanged"))
-        }
+        Err(SyncError::OtherKey) => Err(crate::dbfile::OTHER_KEY.into()),
+        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(message),
     }
 }
 
@@ -426,9 +437,11 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Err(SyncError::Offline(message)) if has_pending(&store) => (format!("Offline — changes waiting ({message})"), true),
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
         Err(SyncError::SignIn(message)) => (message.clone(), true),
+        Err(SyncError::OtherKey) => (format!("The file in {name} has another master password or key file"), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
-    Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
+    let needs_key = matches!(result, Err(SyncError::OtherKey));
+    Status { text, problem, needs_key, ..Status::default() } // `remote` is filled in when it is shown
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
@@ -540,10 +553,16 @@ mod tests {
 
         /// Another device changes the remote file.
         fn elsewhere(&self, change: impl FnOnce(&mut Database)) {
-            let mut db = Database::open(&mut File::open(&self.remote.path).unwrap(), key()).unwrap();
+            self.elsewhere_keyed(key(), key(), change);
+        }
+
+        /// Another device opens the remote file with `open`, changes it and
+        /// writes it with `save`.
+        fn elsewhere_keyed(&self, open: DatabaseKey, save: DatabaseKey, change: impl FnOnce(&mut Database)) {
+            let mut db = Database::open(&mut File::open(&self.remote.path).unwrap(), open).unwrap();
             change(&mut db);
             db.config.version = keepass::config::DatabaseVersion::KDB4(1);
-            db.save(&mut File::create(&self.remote.path).unwrap(), key()).unwrap();
+            db.save(&mut File::create(&self.remote.path).unwrap(), save).unwrap();
         }
 
         fn edit_here(&self, title: &str, password: &str) {
@@ -644,6 +663,38 @@ mod tests {
         let remote = Vault::open(&s.remote.path, Some("test"), None).unwrap();
         assert_eq!(remote.settings().encryption, wanted);
         assert!(s.remote_titles().contains(&"Added on the phone".to_string()));
+    }
+
+    #[test]
+    fn a_remote_file_still_on_the_old_key_is_merged_and_goes_up_with_the_new_one() {
+        let s = setup();
+        s.session.with_mut(|v| v.change_key((Some("test"), None), Some("new"), None)).unwrap();
+        // The phone, still on the old key, changes the remote file meanwhile.
+        s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
+        assert!(matches!(s.sync(), Ok(Outcome::Merged(_) | Outcome::Downloaded(_))));
+        assert_eq!(s.sync(), Ok(Outcome::UpToDate));
+        let remote = Vault::open(&s.remote.path, Some("new"), None).unwrap();
+        assert!(remote.listing().entries.iter().any(|e| e.title == "Added on the phone"));
+        assert!(Vault::open(&s.remote.path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn a_key_changed_later_on_another_device_is_asked_for_and_taken() {
+        let s = setup();
+        s.elsewhere_keyed(key(), DatabaseKey::new().with_password("phone"), |db| {
+            db.meta.master_key_changed = Some(keepass::db::Times::now());
+            db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone");
+        });
+        assert_eq!(s.sync(), Err(SyncError::OtherKey));
+
+        s.session.with_mut(|v| v.remember_key(Some("phone"), None)).unwrap();
+        assert!(s.sync().is_ok());
+        // This device takes the newer key: its file opens with it from now on.
+        assert!(s.session.read(|v| v.uses_key(Some("phone"), None)).unwrap().unwrap());
+        let working = s.store.read(|st| st.current.clone()).unwrap();
+        assert!(Vault::open(&working, Some("phone"), None).is_ok());
+        assert!(Vault::open(&working, Some("test"), None).is_err());
+        assert!(!s.password_here("Mail").is_empty(), "the database reads as before");
     }
 
     #[test]
