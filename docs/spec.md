@@ -58,7 +58,8 @@ uploads anything, and setting up sync never picks another database.
 - Unlocked with a master password, a key file, or both.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1
   (`save_kdbx4` feature; 4.1 is the only version it writes, so a 4.0 file becomes 4.1 on its first save —
-  KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept.
+  KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept
+  unless changed in *Database settings*.
 - A file whose elements are out of KeePass's order (as older `sic2kdbx` versions wrote) is refused with a
   message, because keepass-rs would decrypt its protected values in the wrong order.
 - **Nothing is lost on a round trip.** Data the app does not show or change — entry history, custom
@@ -67,6 +68,45 @@ uploads anything, and setting up sync never picks another database.
 - The key and every decrypted value stay in the Rust backend. The frontend receives only what it has to
   show; a password reaches the frontend only while it is revealed or being edited. Secrets in Rust are held
   in `zeroize`-on-drop types.
+
+### Database settings
+
+What belongs to the database itself, not to this PC, is kept **in the file** (KeePass's `Meta` and header),
+so KeePassXC and Keepass2Android see the same values and change them too. *Settings → Database*, for the
+open database (unlocked: every change is a save), next to *Settings → Sync*.
+
+| Setting | Stored as | Used by the app |
+|---|---|---|
+| Name | `DatabaseName` | the unlock screen, the list of databases and the window title show it, with the file name under it; the file name when empty |
+| Description | `DatabaseDescription` | shown under the name on the unlock screen |
+| Default user name | `DefaultUserName` | filled in on a new blank entry (not one from a template) |
+| History: versions per entry | `HistoryMaxItems` (10 by default, 0–100) | see *Entry history* |
+| History: size per entry | `HistoryMaxSize` (6 MiB by default, as KeePass; 1–64 MiB) | the oldest versions go first when an entry's history is larger |
+| Master password and key file | the key | see below |
+| Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
+
+- **Renaming the database** changes its name, not its file. **Rename file…** in the list of databases renames
+  the local file (and its `.bak`), refused when a file of that name is there; a synced database keeps syncing
+  with the same remote file, whose name stays.
+- **History limits:** lowering one trims every entry's history on the next save, after a confirmation that
+  says how many versions go. Every save trims to the limits, so a merge does not bring trimmed versions back.
+- **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.
+- **Changing the master password or key file:** the current master password is asked first; the new one is
+  typed twice, with the strength indicator. A key file can be added, replaced (an existing file, or a new
+  one the app makes — KeePass's XML key file, version 2.0, which KeePassXC and Keepass2Android read — where the user chooses, never over a file already there)
+  or removed, as long as a password or a key file remains. `MasterKeyChanged` is set. The confirmation warns
+  that other devices need the new key, and that the old one still opens the `.bak` files and the store's
+  version history.
+- **Changing the encryption:** Argon2 memory above 256 MiB or an unlock slower than about 2 s on this PC
+  (a **Test** button measures it) warns that a phone may be slow or run out of memory.
+- **With sync**, a change of key syncs first, then the file with the new key goes up at once. While the
+  database stays unlocked the app keeps the old key in memory to read a remote file another device changed
+  meanwhile; after a lock, a remote file that does not open with the current key is reported, and the app
+  asks once for that file's key to merge it and upload the result with the current key. The same applies
+  when another device changed the key: the working copy that no longer opens asks for the new key.
+- **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
+  `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key and the
+  encryption are those of the file the merge writes (this device's).
 
 ## Window
 
@@ -133,8 +173,8 @@ entries in use (not templates, not the trash) is listed under the groups, with i
 ### Entry history
 
 Every change to an entry keeps its previous version in the entry's history (KeePass's own history, which
-KeePassXC and Keepass2Android keep too, so their changes show here as well), up to the database's limit
-(`HistoryMaxItems`, 10 when the database does not say).
+KeePassXC and Keepass2Android keep too, so their changes show here as well), up to the database's limits
+(`HistoryMaxItems`, 10 when the database does not say, and `HistoryMaxSize`; see *Database settings*).
 
 - **History (N)** in the entry view lists the older versions, newest first: when each was saved and what
   changed from it to the next newer version — the names of the fields (title, user name, password, URL,
@@ -464,6 +504,8 @@ the release.
 - Automated (Rust): KDBX round trip preserves everything listed under *Database*; merge cases (edit / edit,
   edit / delete, move, new on both sides, history union); atomic save and `.bak`; change detection;
   the sync decision, conditional upload and retry against a fake store; merging two databases;
+  database settings (merge by their times, history trimmed by count and size, a key change synced with a
+  remote file still on the old key);
   generator character sets; TOTP against RFC 6238 vectors; icon choice order and `<link rel="icon">`
   parsing; data-location selection; CLI parsing.
 - Automated (TypeScript): search / filter, keyboard handling.
@@ -488,3 +530,6 @@ the release.
    from templates; no group field
 9. Entry history: when an entry was last changed in the entry view; its older versions listed with what
    changed; a version shown read only, with its files; restoring a version
+10. Database settings: name, description and default user name kept in the file and merged by their
+    times; renaming the local file; history limits by count and size; changing the master password / key
+    file and the encryption, also with sync (the old key kept for the remote file, asked for after a lock)
