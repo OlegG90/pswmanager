@@ -861,10 +861,11 @@ input[type='range']:focus-visible {
   flex-direction: column;
 }
 
+/* The icon keeps to the top, level with the title, whatever lines follow it. */
 #detail > header {
   display: flex;
   gap: 14px;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 18px;
 }
 
@@ -875,16 +876,23 @@ input[type='range']:focus-visible {
   border-color: var(--color-accent);
 }
 
+/* Under the title up to four small lines: where it is and its tags, the
+   expiry, when it changed, History. The heading always takes room for all of
+   them, so the fields below start at the same place for every entry. */
 #detail .heading {
+  --title-line: 31px;
+  --small-line: 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  min-height: calc(var(--title-line) + 4 * (var(--small-line) + 2px) + 2px);
 }
 
 #detail h2 {
   margin: 0;
   font-size: 26px;
+  line-height: var(--title-line);
   overflow-wrap: anywhere;
 }
 
@@ -895,6 +903,7 @@ input[type='range']:focus-visible {
 #detail .meta,
 #detail .expiry {
   font-size: 12px;
+  line-height: var(--small-line);
   color: var(--color-neutral-700);
 }
 
@@ -1003,6 +1012,7 @@ button.star[aria-pressed='true'] {
   border: 0;
   background: none;
   font-size: 12px;
+  line-height: var(--small-line);
   color: var(--color-accent-700);
   text-decoration: underline;
   text-underline-offset: 2px;
