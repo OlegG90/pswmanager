@@ -17,12 +17,14 @@ export type Action =
 
 /** One line of the shortcuts panel: the keys as shown, what they do, and the
  *  actions they give ([actionFor]); `ctrl` is the physical key pressed with Ctrl. */
+export const SHORTCUT_GROUPS = ['Window', 'List', 'Entry'] as const
+
 export interface Shortcut {
-  group: 'Window' | 'List' | 'Entry'
+  group: (typeof SHORTCUT_GROUPS)[number]
   keys: string
   does: string
   actions: Action[]
-  ctrl?: string
+  ctrl?: `Key${string}` | 'Comma'
 }
 
 /** Every shortcut of the unlocked window. [actionFor] reads the Ctrl ones from

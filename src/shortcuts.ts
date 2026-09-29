@@ -1,9 +1,7 @@
 import { api } from './api'
 import { el } from './dom'
-import { shownCombo, SHORTCUTS, type Shortcut } from './keys'
+import { SHORTCUT_GROUPS, shownCombo, SHORTCUTS, type Shortcut } from './keys'
 import { dialog } from './modal'
-
-const SHORTCUT_GROUPS: Shortcut['group'][] = ['Window', 'List', 'Entry']
 
 /** The dialog is on its way or up: a second F1 or click does not open another. */
 let showing = false
@@ -15,8 +13,8 @@ export async function showShortcuts() {
   showing = true
   try {
     const hotkey = await api.settings().then((s) => shownCombo(s.hotkey), () => null)
-    const lines = [
-      ...(hotkey ? [{ group: 'Window', keys: hotkey, does: 'Show / hide the window, from any app' }] : []),
+    const lines: Pick<Shortcut, 'group' | 'keys' | 'does'>[] = [
+      ...(hotkey ? [{ group: 'Window' as const, keys: hotkey, does: 'Show / hide the window, from any app' }] : []),
       ...SHORTCUTS,
     ]
     const groups = SHORTCUT_GROUPS.map((group) =>
