@@ -360,6 +360,17 @@ input[type='range']:focus-visible {
   font-size: 15px;
 }
 
+/* Without a key file: a quiet link at the fields' edge, and what it is for
+   close under it. */
+#pick-key-file.ghost {
+  padding-inline: 0;
+}
+
+#key-file-hint {
+  margin: -10px 0 0;
+  font-size: 12px;
+}
+
 #unlock-button {
   height: 42px;
   font-size: 17px;
