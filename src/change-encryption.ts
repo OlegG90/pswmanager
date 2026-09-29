@@ -1,6 +1,7 @@
 import { api, type Cipher, type DatabaseSettings, type Encryption, type Kdf } from './api'
-import { button, el } from './dom'
+import { el } from './dom'
 import { formatSize } from './entry-text'
+import { busyButton, errorLine } from './form'
 import { ask, dialog } from './modal'
 
 const MB = 2 ** 20
@@ -63,7 +64,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
     el('label', { className: 'field' }, el('span', {}, 'Threads'), threads)]
   const measured = el('p', { className: 'muted' })
   const warning = el('p', { className: 'error', hidden: true }, 'A phone may be slow to unlock it, or run out of memory.')
-  const error = el('p', { className: 'error', role: 'alert', hidden: true })
+  const error = errorLine()
   /** The last Test: the values it timed and how long an unlock took. */
   let tested: { values: Encryption; ms: number } | null = null
 
@@ -83,7 +84,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
     for (const field of argon2Only) field.hidden = !isArgon2(chosen())
     if (testedMs() === null) measured.textContent = ''
     warning.hidden = !heavy(testedMs())
-    error.hidden = true
+    error.hide()
   }
   // Another kind of key derivation starts from the database's own values when
   // it has that kind already, otherwise from KeePassXC's defaults.
@@ -97,10 +98,6 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
   update()
 
   return dialog<DatabaseSettings | null>('Change how the database file is encrypted.', null, (answer) => {
-    const fail = (message: string) => {
-      error.textContent = message
-      error.hidden = false
-    }
     /** Times an unlock with the values shown, unless done already; null when it failed. */
     const measure = async (): Promise<number | null> => {
       const known = testedMs()
@@ -114,31 +111,20 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
         return tested.ms
       } catch (e) {
         measured.textContent = ''
-        fail(String(e))
+        error.show(String(e))
         return null
       }
     }
-    const test = button('Test', 'Time an unlock with these settings on this PC', async () => {
-      test.disabled = true
-      await measure()
-      test.disabled = false
-    })
+    const test = busyButton('Test', 'Time an unlock with these settings on this PC', measure, error)
     // Timed before saving too, so a slow choice is always said.
-    const save = button('Change', 'Save the database with this encryption', async () => {
-      save.disabled = true
-      try {
-        const ms = same(wanted(), now) ? 0 : await measure()
-        if (ms === null) return
-        if (heavy(ms) && !(await ask('A phone may be slow to unlock the database with this, or run out of memory. Change anyway?', 'Change'))) {
-          return
-        }
-        answer(await api.setEncryption(wanted()))
-      } catch (e) {
-        fail(String(e))
-      } finally {
-        save.disabled = false
+    const save = busyButton('Change', 'Save the database with this encryption', async () => {
+      const ms = same(wanted(), now) ? 0 : await measure()
+      if (ms === null) return
+      if (heavy(ms) && !(await ask('A phone may be slow to unlock the database with this, or run out of memory. Change anyway?', 'Change'))) {
+        return
       }
-    }, 'primary')
+      answer(await api.setEncryption(wanted()))
+    }, error, 'primary')
     return {
       body: [
         el('label', { className: 'field' }, el('span', {}, 'Cipher'), cipher),
@@ -147,7 +133,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
         ...argon2Only,
         el('div', { className: 'file-row' }, measured, test),
         warning,
-        error,
+        error.line,
       ],
       buttons: [save],
       focus: cipher,

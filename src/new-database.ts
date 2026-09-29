@@ -1,5 +1,6 @@
 import { api, type Status } from './api'
 import { button, el } from './dom'
+import { busyButton, enterPresses, errorLine } from './form'
 import { keyFileChoice, keyProblem, newPassword } from './key-fields'
 
 /**
@@ -11,17 +12,13 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
   return new Promise((resolve) => {
     let file: string | null = null
     const where = el('span', { className: 'path muted' }, 'Choose where the file goes')
-    const error = el('p', { className: 'error', role: 'alert', hidden: true })
-    const fail = (message: string) => {
-      error.textContent = message
-      error.hidden = false
-    }
+    const error = errorLine()
     const typed = newPassword()
-    const keyChoice = keyFileChoice(null, fail)
+    const keyChoice = keyFileChoice(null, error.show)
 
     const chooseFile = button('Choose…', 'Where the new database file goes', async () => {
-      error.hidden = true
-      const picked = await api.pickNewFile('Passwords.kdbx', true).catch((e) => (fail(String(e)), null))
+      error.hide()
+      const picked = await api.pickNewFile('Passwords.kdbx', true).catch((e) => (error.show(String(e)), null))
       if (picked) {
         file = picked
         where.textContent = picked
@@ -41,20 +38,13 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       resolve(status)
     }
 
-    const create = button('Create', 'Create the database', async () => {
-      error.hidden = true
-      if (!file) return fail('Choose where the file goes')
+    const create = busyButton('Create', 'Create the database', async () => {
+      error.hide()
+      if (!file) return error.show('Choose where the file goes')
       const problem = keyProblem(typed, keyChoice.value())
-      if (problem) return fail(problem)
-      create.disabled = true
-      try {
-        done(await api.createDatabase(file, typed.password.value, keyChoice.value()))
-      } catch (e) {
-        fail(String(e))
-      } finally {
-        create.disabled = false
-      }
-    }, 'primary')
+      if (problem) return error.show(problem)
+      done(await api.createDatabase(file, typed.password.value, keyChoice.value()))
+    }, error, 'primary')
 
     container.replaceChildren(
       el('div', { className: 'intro' },
@@ -67,19 +57,12 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
       typed.strength,
       keyChoice.row,
-      error,
+      error.line,
       el('div', { className: 'footer' }, el('span'),
         el('div', { className: 'buttons' }, button('Back', 'Back (Esc)', () => done(null)), create)),
     )
     // Enter in a password field creates.
-    for (const input of [typed.password, typed.repeat]) {
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          create.click()
-        }
-      })
-    }
+    enterPresses(create, typed.password, typed.repeat)
     container.addEventListener('keydown', escape, true)
     chooseFile.focus()
   })
