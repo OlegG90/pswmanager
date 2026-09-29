@@ -159,8 +159,7 @@ function showVault(next: Listing) {
   unlockForm.hidden = true
   vault.hidden = false
   keyDialogShown = false
-  keyNeeded.local = keyNeeded.remote = false
-  showKeyButton()
+  clearKeyNeeded()
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
   filter = ALL
@@ -1080,16 +1079,19 @@ function showKeyButton() {
   $('key-button').hidden = !keyNeeded.remote && !keyNeeded.local
 }
 
+/** No copy needs a key (unlocked afresh, or both read with the key given). */
+function clearKeyNeeded() {
+  keyNeeded.local = keyNeeded.remote = false
+  showKeyButton()
+}
+
 /** Asks for the key another device changed a copy to (`where`), in a dialog
  *  once per unlock unless `again` (the button). */
 async function askForOtherKey(where: string, again = false) {
   if (!unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
   keyDialogShown = true
   if (await enterOtherKey(where)) {
-    // Both copies were read again with it.
-    keyNeeded.local = false
-    keyNeeded.remote = false
-    showKeyButton()
+    clearKeyNeeded() // both copies were read again with it
     notify('Read with the key given')
   }
 }

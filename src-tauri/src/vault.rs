@@ -263,7 +263,7 @@ impl Vault {
     /// a change on the file as it is now; the time of the change is kept in the
     /// file (KeePass's `MasterKeyChanged`).
     pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let file = self.file.as_ref().ok_or("This database cannot be saved")?;
+        let file = self.file()?;
         if !file.has_key(&key(current.0, current.1)?) {
             return Err("The current master password is not right".into());
         }
@@ -547,7 +547,8 @@ impl Vault {
                 false
             }
             KeyChange::Keep => {
-                Self::keep_our_key(&mut db, &self.db);
+                Self::keep_our_key_time(&mut db, &self.db);
+                encryption::keep_ours(&mut db, &self.db);
                 true
             }
             KeyChange::Same => false,
@@ -578,8 +579,7 @@ impl Vault {
         merge: bool,
     ) -> Result<Option<Outcome>, String> {
         let key_change = Self::key_goes_to(&theirs, &self.db, other_key);
-        let file = self.file.as_mut().ok_or("This database cannot be saved")?;
-        if !file.is_at(since) {
+        if !self.file_mut()?.is_at(since) {
             return Ok(None);
         }
         // A copy on an older key comes from before this device's change of key:
@@ -588,16 +588,16 @@ impl Vault {
         let kept_ours = merge && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            let kept_key = matches!(key_change, KeyChange::Keep) && Self::keep_our_key(&mut theirs, &self.db);
+            let kept_key = matches!(key_change, KeyChange::Keep) && Self::keep_our_key_time(&mut theirs, &self.db);
             encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
         };
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
         let rewritten = kept_ours || !matches!(key_change, KeyChange::Same);
+        let file = self.file_mut()?;
         let written = match key_change {
             KeyChange::Take(key) => file.save_with_key(&mut theirs, key),
-            KeyChange::Keep => file.save(&mut theirs),
-            KeyChange::Same if kept_ours => file.save(&mut theirs),
-            KeyChange::Same => file.write(raw),
+            _ if rewritten => file.save(&mut theirs),
+            _ => file.write(raw),
         };
         match written {
             Ok(()) => {}
@@ -622,32 +622,38 @@ impl Vault {
         }
     }
 
-    /// A copy on an older key takes this device's key time, and the
-    /// encryption that goes with the key. True when it changed anything.
-    fn keep_our_key(theirs: &mut Database, ours: &Database) -> bool {
+    /// A copy on an older key takes this device's key time (the encryption
+    /// that goes with the key is [encryption::keep_ours]'s). True when it changed.
+    fn keep_our_key_time(theirs: &mut Database, ours: &Database) -> bool {
         let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
         theirs.meta.master_key_changed = ours.meta.master_key_changed;
-        encryption::keep_ours(theirs, ours) || older
+        older
+    }
+
+    fn file(&self) -> Result<&DbFile, String> {
+        self.file.as_ref().ok_or_else(|| "This database cannot be saved".into())
+    }
+
+    fn file_mut(&mut self) -> Result<&mut DbFile, String> {
+        self.file.as_mut().ok_or_else(|| "This database cannot be saved".into())
     }
 
     /// Keeps a key the user gave for a copy that opened with no key known
     /// (another device changed it), to try on the next read of that copy.
-    pub fn remember_key(&mut self, password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let new = key(password, key_file)?;
-        self.file.as_mut().ok_or("This database cannot be saved")?.remember_key(new);
+    pub fn remember_key(&mut self, key: DatabaseKey) -> Result<(), String> {
+        self.file_mut()?.remember_key(key);
         Ok(())
     }
 
     /// Lets go of a key [Vault::remember_key] kept, when it opened nothing.
-    pub fn forget_key(&mut self, password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let old = key(password, key_file)?;
-        self.file.as_mut().ok_or("This database cannot be saved")?.forget_key(&old);
+    pub fn forget_key(&mut self, key: &DatabaseKey) -> Result<(), String> {
+        self.file_mut()?.forget_key(key);
         Ok(())
     }
 
-    /// True when the file is written with this password and key file.
-    pub fn uses_key(&self, password: Option<&str>, key_file: Option<&Path>) -> Result<bool, String> {
-        Ok(self.file.as_ref().ok_or("This database cannot be saved")?.has_key(&key(password, key_file)?))
+    /// True when the file is written with `key`.
+    pub fn uses_key(&self, key: &DatabaseKey) -> Result<bool, String> {
+        Ok(self.file()?.has_key(key))
     }
 
     /// True when the database holds changes its file lacks (kept from an
@@ -688,7 +694,7 @@ impl Vault {
             if db == self.db && !self.unsaved && key.is_none() {
                 return Ok(result);
             }
-            let file = self.file.as_mut().ok_or("This database cannot be saved")?;
+            let file = self.file_mut()?;
             let saved = match key {
                 Some(key) => file.save_with_key(&mut db, key.clone()),
                 None => file.save(&mut db),
@@ -881,7 +887,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
 const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
-fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
+pub(crate) fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
     let mut key = DatabaseKey::new();
     if let Some(password) = password {
         key = key.with_password(password);
@@ -1559,9 +1565,9 @@ pub mod tests {
 
         let refused = vault.reload().unwrap_err();
         assert!(crate::dbfile::needs_other_key(&refused), "{refused}");
-        vault.remember_key(Some("other"), None).unwrap();
+        vault.remember_key(DatabaseKey::new().with_password("other")).unwrap();
         vault.reload().unwrap();
-        assert!(vault.uses_key(Some("other"), None).unwrap());
+        assert!(vault.uses_key(&DatabaseKey::new().with_password("other")).unwrap());
     }
 
     #[test]

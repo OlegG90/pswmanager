@@ -326,6 +326,11 @@ fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
     Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
 }
 
+/// A password as the key takes it: an empty one is none.
+fn non_empty(text: &str) -> Option<&str> {
+    Some(text).filter(|t| !t.is_empty())
+}
+
 /// How long unlocking takes on this PC with this encryption, in
 /// milliseconds; as slow as an unlock.
 #[tauri::command(async)]
@@ -371,9 +376,6 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
     let store = app.state::<Store>();
     let known = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    fn non_empty(text: &str) -> Option<&str> {
-        Some(text).filter(|t| !t.is_empty())
-    }
     let current = (non_empty(&current), known.key_file.as_deref());
     let key_file = key_file.map(PathBuf::from);
     // In step with the remote file first: after the change, the remote file,
@@ -397,26 +399,31 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
 #[tauri::command(async)]
 fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -> Result<Status, String> {
     let password = Zeroizing::new(password);
-    let password = (!password.is_empty()).then_some(password.as_str());
     let key_file = key_file.map(PathBuf::from);
+    let given = vault::key(non_empty(&password), key_file.as_deref())?;
     let session = app.state::<Session>();
-    session.with_mut(|v| v.remember_key(password, key_file.as_deref()))?;
+    session.with_mut(|v| v.remember_key(given.clone()))?;
     // The file on this PC first (another program may have replaced it), then
-    // the remote file.
-    let read_again = session
-        .with_mut(|v| {
-            let changed = v.reload()?;
-            v.save_pending()?;
-            Ok(changed)
-        })
-        .map(|changed| changed.into_iter().for_each(|changed| show_changes(&app, changed)))
-        .and_then(|()| sync::sync_first(&app));
-    if let Err(e) = read_again {
+    // the remote file. Reading derives keys: done without holding the database.
+    let read_again = || -> Result<(), String> {
+        let Some(since) = session.read(Vault::snapshot)? else { return Ok(()) };
+        if let Some(read) = since.read_changed()? {
+            if let Some(changed) = session.with_mut(|v| {
+                let changed = v.adopt(&since, read);
+                v.save_pending()?;
+                Ok(changed)
+            })? {
+                show_changes(&app, changed);
+            }
+        }
+        sync::sync_first(&app)
+    };
+    if let Err(e) = read_again() {
         // A key that opened nothing is not kept.
-        session.with_mut(|v| v.forget_key(password, key_file.as_deref()))?;
+        session.with_mut(|v| v.forget_key(&given))?;
         return Err(if dbfile::needs_other_key(&e) { "This master password or key file does not open it either".into() } else { e });
     }
-    let key_taken = session.read(|v| v.uses_key(password, key_file.as_deref()))??;
+    let key_taken = session.read(|v| v.uses_key(&given))??;
     choose(app, |s| {
         if let Some(d) = s.current_mut().filter(|_| key_taken) {
             d.key_file = key_file;

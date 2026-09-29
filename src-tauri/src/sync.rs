@@ -709,10 +709,10 @@ mod tests {
         });
         assert_eq!(s.sync(), Err(SyncError::OtherKey));
 
-        s.session.with_mut(|v| v.remember_key(Some("phone"), None)).unwrap();
+        s.session.with_mut(|v| v.remember_key(DatabaseKey::new().with_password("phone"))).unwrap();
         assert!(s.sync().is_ok());
         // This device takes the newer key: its file opens with it from now on.
-        assert!(s.session.read(|v| v.uses_key(Some("phone"), None)).unwrap().unwrap());
+        assert!(s.session.read(|v| v.uses_key(&DatabaseKey::new().with_password("phone"))).unwrap().unwrap());
         let working = s.store.read(|st| st.current.clone()).unwrap();
         assert!(Vault::open(&working, Some("phone"), None).is_ok());
         assert!(Vault::open(&working, Some("test"), None).is_err());

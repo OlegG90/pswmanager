@@ -121,7 +121,7 @@ impl DbFile {
     /// Writes the file with `key` from now on (another device's newer one),
     /// keeping the one it had among the others.
     pub fn use_key(&mut self, key: DatabaseKey) {
-        self.other_keys.retain(|k| k != &key);
+        self.forget_key(&key);
         let old = std::mem::replace(&mut self.key, key);
         self.remember_key(old);
     }
