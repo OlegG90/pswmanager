@@ -87,7 +87,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             // Deriving the key takes a while: done without holding the database.
             let (theirs, other_key) = since.parse(&bytes).map_err(|e| match e {
                 OpenError::OtherKey(_) => SyncError::OtherKey,
-                OpenError::Other(e) => failed(format!("The remote copy cannot be opened: {e}")),
+                OpenError::Other(message) => failed(format!("The remote copy cannot be opened: {message}")),
             })?;
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, other_key, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,

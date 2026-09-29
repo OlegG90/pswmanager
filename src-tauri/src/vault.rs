@@ -662,10 +662,11 @@ impl Vault {
         self.unsaved
     }
 
-    /// Writes changes kept from an older file, if any.
-    pub fn save_pending(&mut self) -> Result<(), String> {
+    /// Writes changes kept from an older file, if any. The file may have been
+    /// replaced again meanwhile, on another key: [OpenError::OtherKey].
+    pub fn save_pending(&mut self) -> Result<(), OpenError> {
         if self.unsaved {
-            self.change(|_, _| Ok(()))?;
+            self.save_change(None, |_, _| Ok(()))?;
         }
         Ok(())
     }
@@ -686,6 +687,15 @@ impl Vault {
         key: Option<&DatabaseKey>,
         change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
     ) -> Result<R, String> {
+        Ok(self.save_change(key, change)?)
+    }
+
+    /// [Vault::change_with_key], telling a file on another key apart.
+    fn save_change<R>(
+        &mut self,
+        key: Option<&DatabaseKey>,
+        change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
+    ) -> Result<R, OpenError> {
         const ATTEMPTS: usize = 3;
         for _ in 0..ATTEMPTS {
             self.reload()?;
@@ -706,10 +716,10 @@ impl Vault {
                     return Ok(result);
                 }
                 Err(SaveError::Changed) => continue,
-                Err(SaveError::Failed(message)) => return Err(message),
+                Err(SaveError::Failed(message)) => return Err(OpenError::Other(message)),
             }
         }
-        Err("The database file keeps changing on disk; try again in a moment".into())
+        Err(OpenError::Other("The database file keeps changing on disk; try again in a moment".into()))
     }
 
     /// The entry's current TOTP code, or `None` when it has no secret.
@@ -1584,6 +1594,23 @@ pub mod tests {
         vault.save_pending().unwrap();
         assert!(Vault::open(&path, Some("new"), None).is_ok());
         assert!(Vault::open(&path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn saving_what_was_kept_tells_a_file_on_another_key_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        vault.change_key((Some("test"), None), Some("new"), None).unwrap();
+        std::fs::write(&path, &older).unwrap();
+        vault.reload().unwrap();
+
+        // Before it is written, the file is replaced again, on a key not known here.
+        let mut db = vault.db.clone();
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
+        assert!(matches!(vault.save_pending(), Err(OpenError::OtherKey(_))));
     }
 
     #[test]

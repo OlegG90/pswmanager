@@ -409,11 +409,7 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     let read_again = || -> Result<(), OpenError> {
         let Some(since) = session.read(Vault::snapshot)? else { return Ok(()) };
         if let Some(read) = since.read_changed()? {
-            if let Some(changed) = session.with_mut(|v| {
-                let changed = v.adopt(&since, read);
-                v.save_pending()?;
-                Ok(changed)
-            })? {
+            if let Some(changed) = adopt(&session, &since, read)? {
                 show_changes(&app, changed);
             }
         }
@@ -735,19 +731,24 @@ fn check_disk(app: &AppHandle) {
         let read = match since.read_changed() {
             Ok(Some(read)) => read,
             Ok(None) => return,
-            Err(message) => return report(message),
+            Err(error) => return report(error),
         };
-        let adopted = session.with_mut(|v| {
-            let Some(changed) = v.adopt(&since, read) else { return Ok(None) };
-            v.save_pending()?;
-            Ok(Some(changed))
-        });
-        match adopted {
+        match adopt(&session, &since, read) {
             Ok(Some(changed)) => show_changes(&app, changed),
             Ok(None) => {}
-            Err(message) => report(OpenError::Other(message)),
+            Err(error) => report(error),
         }
     });
+}
+
+/// Takes a file read since `since` and writes what this device kept from
+/// before ([Vault::adopt], [Vault::save_pending]); the ids of the entries that
+/// differ, or `None` when the file was read or written since.
+fn adopt(session: &Session, since: &dbfile::Snapshot, read: dbfile::Read) -> Result<Option<Vec<String>>, OpenError> {
+    session.with_mut(|v| {
+        let Some(changed) = v.adopt(since, read) else { return Ok(Ok(None)) };
+        Ok(v.save_pending().map(|()| Some(changed)))
+    })?
 }
 
 /// Tells the window the database changed under it (another device's change

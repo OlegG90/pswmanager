@@ -42,10 +42,12 @@ pub struct DbFile {
 pub enum OpenError {
     /// None of the keys known opens it: another device changed the key.
     OtherKey(String),
+    /// Anything else: the file is missing, damaged, half-written.
     Other(String),
 }
 
 impl OpenError {
+    /// [OpenError::OtherKey], as a copy that none of the keys opens says it.
     pub fn other_key() -> Self {
         OpenError::OtherKey("It opens with another master password or key file".into())
     }
