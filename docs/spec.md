@@ -102,11 +102,16 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - **With sync**, a change of key syncs first, then the file with the new key goes up at once. While the
   database stays unlocked the app keeps the old key in memory to read a remote file another device changed
   meanwhile; after a lock, a remote file that does not open with the current key is reported, and the app
-  asks once for that file's key to merge it and upload the result with the current key. The same applies
-  when another device changed the key: the working copy that no longer opens asks for the new key.
+  asks once for that file's key to merge it. The result's key follows the newer `MasterKeyChanged` (see
+  *Merge* below): when this device changed its key later, the result goes up with it; when another device
+  did (the password was changed in Keepass2Android, say), the app takes that key — the working copy is saved
+  with it, the result goes up with it, and the next unlock asks for it — so a key change is never undone
+  silently. A working copy another program replaced with a file that no longer opens asks for its key the
+  same way.
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
-  `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key and the
-  encryption are those of the file the merge writes (this device's).
+  `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key follows
+  `MasterKeyChanged` the same way, and the encryption goes with the key; with equal times, or none on the
+  other side, the key and the encryption stay this device's.
 
 ## Window
 
@@ -505,7 +510,8 @@ the release.
   edit / delete, move, new on both sides, history union); atomic save and `.bak`; change detection;
   the sync decision, conditional upload and retry against a fake store; merging two databases;
   database settings (merge by their times, history trimmed by count and size, a key change synced with a
-  remote file still on the old key);
+  remote file still on the old key, a key changed on another device taken over by the newer
+  `MasterKeyChanged`);
   generator character sets; TOTP against RFC 6238 vectors; icon choice order and `<link rel="icon">`
   parsing; data-location selection; CLI parsing.
 - Automated (TypeScript): search / filter, keyboard handling.
