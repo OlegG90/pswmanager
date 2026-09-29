@@ -476,7 +476,7 @@ function renderDetail() {
       heading.append(button(`History (${entry.versions})`, 'Older versions of this entry', openHistory, 'ghost history'))
     }
   }
-  const header = el('header', {}, iconImage(entry), heading)
+  const header = el('header', { className: 'entry' }, iconImage(entry), heading)
   if (!version && editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
   if (entry.username) {
@@ -550,7 +550,7 @@ function renderHistory(entry: EntryDetail, versions: Version[]) {
     return el('li', {}, item)
   })
   detail.replaceChildren(
-    el('header', {}, iconImage(entry), heading),
+    el('header', { className: 'entry' }, iconImage(entry), heading),
     el('ul', { className: 'versions' }, ...items),
     el('div', { className: 'buttons' }, button('Back', 'Back to the entry (Esc)', back)),
   )

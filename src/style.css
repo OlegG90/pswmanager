@@ -879,7 +879,7 @@ input[type='range']:focus-visible {
 /* The title and the small lines under it, at fixed heights so the room they
    take can be counted below. */
 #detail .heading {
-  --title-line: 31px;
+  --title-line: 30px;
   --small-line: 17px;
   --small-gap: 2px;
   flex: 1;
@@ -889,12 +889,12 @@ input[type='range']:focus-visible {
   min-width: 0;
 }
 
-/* An entry's heading (with its icon; also its older versions and history) has
+/* An entry's heading (also its older versions' and its history's) has
    up to four small lines under the title: where it is and its tags, the
    expiry, when it changed, History (with its own gap above). It always takes
    room for all of them, so the fields below start at the same place for every
    entry. A title that wraps still takes more. */
-#detail > header:has(> .icon) .heading {
+#detail > header.entry .heading {
   min-height: calc(var(--title-line) + 4 * (var(--small-gap) + var(--small-line)) + var(--small-gap));
 }
 
