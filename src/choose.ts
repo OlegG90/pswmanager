@@ -1,5 +1,5 @@
 import { api, type Cloud, type Status } from './api'
-import { button, el } from './dom'
+import { button, busyButton, el, enterPresses, errorLine } from './dom'
 import { askText, beforeExtension, choose } from './modal'
 import { createDatabase } from './new-database'
 
@@ -68,44 +68,27 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
   const first = !status.database
   let source: Source = status.syncKind ?? 'local'
 
-  const error = el('p', { className: 'error', role: 'alert', hidden: true })
+  const error = errorLine()
   const waiting = el('p', { className: 'muted', hidden: true })
-  const fail = (e: unknown) => {
-    error.textContent = String(e)
-    error.hidden = false
-  }
+
+  const next = busyButton('Continue', 'Continue (Enter)', async () => {
+    error.hide()
+    const chosen = source === 'new' ? await createDatabase(container)
+      : source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
+      : changedOrNull(await (source === 'local' ? api.pickDatabase() : api.syncWithFolder()))
+    // Back from the new-database form: this screen again.
+    if (source === 'new' && !chosen) return renderChoose(container, status, options)
+    if (chosen?.database) options.chosen(chosen)
+  }, error.show, 'primary')
 
   const sources = SOURCES.map(([value, title, hint]) => {
     const radio = el('input', { type: 'radio', name: 'source', value, checked: value === source })
     radio.addEventListener('change', () => (source = value))
-    radio.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return
-      // Consumed: the unlock screen that follows must not see it as a submit.
-      e.preventDefault()
-      go()
-    })
+    // Enter continues; consumed, so the unlock screen that follows does not see it as a submit.
+    enterPresses(next, radio)
     return el('label', { className: 'source' }, radio, el('span', { className: 'dot' }),
       el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint)))
   })
-
-  const next = button('Continue', 'Continue (Enter)', go, 'primary')
-  async function go() {
-    if (next.disabled) return
-    error.hidden = true
-    next.disabled = true
-    try {
-      const chosen = source === 'new' ? await createDatabase(container)
-        : source in CLOUDS ? await syncWithCloud(source as Cloud, waiting)
-        : changedOrNull(await (source === 'local' ? api.pickDatabase() : api.syncWithFolder()))
-      // Back from the new-database form: this screen again.
-      if (source === 'new' && !chosen) return renderChoose(container, status, options)
-      if (chosen?.database) options.chosen(chosen)
-    } catch (e) {
-      fail(e)
-    } finally {
-      next.disabled = false
-    }
-  }
   const changedOrNull = (next: Status) => (changed(status, next) ? next : null)
 
   const footer = el('div', { className: 'footer' },
@@ -118,7 +101,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
       if (next.database) options.chosen(next)
       else renderChoose(container, next, options) // the list is empty now
     } catch (e) {
-      fail(e)
+      error.show(String(e))
     }
   }
   const current = status.databases.find((d) => d.file === status.database)
@@ -143,7 +126,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
         'Each database is a KeePass (KDBX 4) file on this PC; the unlock screen switches between the ones added here.')),
     el('div', { className: 'sources', role: 'radiogroup', ariaLabel: 'Where the database lives' }, ...sources),
     ...remove,
-    error,
+    error.line,
     waiting,
     footer,
   )

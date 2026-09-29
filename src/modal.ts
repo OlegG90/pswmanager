@@ -1,4 +1,4 @@
-import { button, el } from './dom'
+import { button, el, enterPresses } from './dom'
 
 /** True while a question is on screen: the page's own keys wait. */
 export const isAsking = () => document.querySelector('dialog[open]') !== null
@@ -71,13 +71,9 @@ export function askText(
     const input = el('input', { value, spellcheck: false, className: 'text' })
     const list = el('datalist', { id: 'ask-suggestions' }, ...suggestions.map((s) => new Option(s)))
     input.setAttribute('list', list.id)
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        answer(input.value)
-      }
-    })
+    const confirm = button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')
+    enterPresses(confirm, input)
     requestAnimationFrame(() => input.setSelectionRange(0, selected))
-    return { body: [input, list], buttons: [button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')], focus: input }
+    return { body: [input, list], buttons: [confirm], focus: input }
   })
 }
