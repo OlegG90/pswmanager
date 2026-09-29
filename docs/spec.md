@@ -55,7 +55,10 @@ uploads anything, and setting up sync never picks another database.
     chose to replace is kept as `<name>.kdbx.bak`. A synced database whose file went missing is downloaded
     to it again at the next unlock.
 - **Removing a database from the list** forgets it (and its sync); the file itself stays where it is.
-- Unlocked with a master password, a key file, or both.
+- Unlocked with a master password, a key file, or both. The unlock screen shows the database's key file with
+  *Key file…* and *Remove*; for a database without one, a link *Use a key file…* and a line saying what it is:
+  only for a database set up with one, a `.keyx` or `.key` file kept apart from it, new ones made in
+  *Settings → Database*.
 - The file is read with the [`keepass`](https://crates.io/crates/keepass) crate and written as KDBX 4.1
   (`save_kdbx4` feature; 4.1 is the only version it writes, so a 4.0 file becomes 4.1 on its first save —
   KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android read it). The cipher and key derivation are kept

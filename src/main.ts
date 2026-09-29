@@ -89,10 +89,22 @@ function showStatus(status: Status) {
   const description = $('database-description')
   description.textContent = description.title = current?.description ?? ''
   description.hidden = !current?.description
-  $('key-file-path').textContent = status.keyFile ?? 'No key file'
-  $('clear-key-file').hidden = !status.keyFile
+  showKeyFile(status.keyFile)
   $('notice').textContent = status.notice ?? ''
   $('notice').hidden = !status.notice
+}
+
+/** The database's key file with Key file… and Remove; without one, a link to
+ *  choose one and what a key file is, as most databases have none. */
+function showKeyFile(keyFile: string | null) {
+  const path = $('key-file-path')
+  path.textContent = path.title = keyFile ?? ''
+  path.hidden = !keyFile
+  const pick = $('pick-key-file')
+  pick.textContent = keyFile ? 'Key file…' : 'Use a key file…'
+  pick.classList.toggle('ghost', !keyFile)
+  $('clear-key-file').hidden = !keyFile
+  $('key-file-hint').hidden = !!keyFile
 }
 
 /** The unlock screen, or the choose-database screen while there is no database. */
