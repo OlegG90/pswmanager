@@ -84,7 +84,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             };
             // A remote file no key here opened is not downloaded again until
             // it changes or a key is added.
-            if revision.as_deref().is_some_and(|r| since.opens_with_none(r)) {
+            if revision.as_deref().is_some_and(|r| since.known_unopened(r)) {
                 return Err(SyncError::OtherKey);
             }
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
@@ -93,7 +93,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let (theirs, key_change) = match since.parse(&bytes) {
                 Ok(read) => read,
                 Err(OpenError::OtherKey(_)) => {
-                    since.opened_with_none(&revision);
+                    since.note_unopened(&revision);
                     return Err(SyncError::OtherKey);
                 }
                 Err(OpenError::Other(message)) => return Err(failed(format!("The remote copy cannot be opened: {message}"))),

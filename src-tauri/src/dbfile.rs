@@ -47,7 +47,9 @@ pub struct DbFile {
 /// Copies of the database (by hash) each key did not open, so the same bytes
 /// are not tried with the same key again: each key derivation takes a second
 /// or more, and a copy on another device's key is read on every sync and
-/// every change on disk. A key added later is tried at once.
+/// every change on disk. A key added later is tried at once. Also the remote
+/// file's revisions no key opened, so they are not downloaded again
+/// ([Snapshot::known_unopened]). Kept while the database is unlocked.
 #[derive(Clone, Default)]
 struct Failed(Arc<Mutex<Vec<Attempt>>>);
 
@@ -63,6 +65,7 @@ fn revision_id(revision: &str) -> [u8; 32] {
 impl Failed {
     /// The most kept, the oldest let go of first: two copies (the file on this
     /// PC and the remote one) and the remote revision, with a few keys each.
+    /// One let go of too early costs one more download or derivation.
     const KEPT: usize = 24;
 
     /// True when `key` did not open `copy`.
@@ -443,15 +446,15 @@ impl Snapshot {
     }
 
     /// True when none of the keys opened the remote file at `revision` before
-    /// ([Snapshot::opened_with_none]): it need not be downloaded again until
+    /// ([Snapshot::note_unopened]): it need not be downloaded again until
     /// it changes or a key is added.
-    pub fn opens_with_none(&self, revision: &str) -> bool {
+    pub fn known_unopened(&self, revision: &str) -> bool {
         let id = revision_id(revision);
         self.keys.iter().all(|key| self.failed.contains(key, &id))
     }
 
     /// Keeps that none of the keys opened the remote file at `revision`.
-    pub fn opened_with_none(&self, revision: &str) {
+    pub fn note_unopened(&self, revision: &str) {
         let id = revision_id(revision);
         for key in &self.keys {
             self.failed.add(key, id);
