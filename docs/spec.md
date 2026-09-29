@@ -128,7 +128,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
   `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key follows
   `MasterKeyChanged` the same way, and the encryption goes with the key; with equal times, or none on the
-  other side, the key and the encryption stay this device's.
+  other side, the key and the encryption stay this device's. A file on this PC that another program changed on
+  the same key is taken as it is now, its encryption too.
 
 ## Window
 

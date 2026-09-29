@@ -3,7 +3,7 @@
 //! whole entry only while it is being edited.
 
 use crate::dbfile::{DbFile, KeyChange, OpenError, Read, SaveError, Snapshot};
-use crate::edit::{self, EntryData, NOT_FOUND};
+use crate::edit::{self, EntryData, Taking, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
@@ -531,8 +531,9 @@ impl Vault {
     /// again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
         let (mut db, older_key) = self.file.as_mut()?.adopt(since, read)?;
-        let kept_meta = edit::keep_newer_meta(&mut db, &self.db, older_key, false);
+        // Entries first: they are trimmed to the history limits of the file as it came.
         let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
+        let kept_meta = edit::keep_our_meta(&mut db, &self.db, Taking::Adopted, older_key);
         if kept_meta || kept_entries || older_key {
             self.unsaved = true;
         }
@@ -565,7 +566,7 @@ impl Vault {
         let older = key_change.is_older();
         let kept_ours = (merge || older) && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
-            edit::keep_newer_meta(&mut theirs, &self.db, older, true) || kept_entries
+            edit::keep_our_meta(&mut theirs, &self.db, Taking::Merged, older) || kept_entries
         };
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
         let rewritten = match self.file_mut()?.save_copy(&mut theirs, raw, key_change, kept_ours) {

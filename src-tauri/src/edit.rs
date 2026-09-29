@@ -848,26 +848,36 @@ pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
     }
 }
 
-/// Keeps in `theirs` — a copy of the database from elsewhere that this device
-/// takes — the database's own metadata that stays this device's: each setting
-/// `ours` changed later ([keep_newer_settings]); on a copy with an
-/// `older_key`, this device's key time; and, when `merging` both or on an
-/// older key, the encryption, which goes with the key
-/// ([crate::encryption::keep_ours]). A file changed on disk on the same key
-/// (not `merging`) keeps its own encryption. True when it kept any.
-pub fn keep_newer_meta(theirs: &mut Database, ours: &Database, older_key: bool, merging: bool) -> bool {
+/// How this device takes a copy of the database from elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Taking {
+    /// The file on this PC, changed by another program: taken as it is now,
+    /// keeping only what this device changed later.
+    Adopted,
+    /// Merged with this device's changes (a sync where both changed).
+    Merged,
+}
+
+/// Keeps in `theirs` — a copy of the database this device takes — the
+/// database's own metadata that stays this device's: each setting `ours`
+/// changed later ([keep_newer_settings]); on a copy with an `older_key`, this
+/// device's key time; and the encryption, which goes with the key
+/// ([crate::encryption::keep_ours]), unless the copy was [Taking::Adopted] on
+/// the same key. True when it kept any.
+pub fn keep_our_meta(theirs: &mut Database, ours: &Database, taking: Taking, older_key: bool) -> bool {
     let settings = keep_newer_settings(theirs, ours);
     let key_time = older_key && keep_key_time(theirs, ours);
     // After the key time: a copy on an older key now has this device's.
-    let encryption = (merging || older_key) && crate::encryption::keep_ours(theirs, ours);
+    let encryption = (taking == Taking::Merged || older_key) && crate::encryption::keep_ours(theirs, ours);
     settings || key_time || encryption
 }
 
-/// A copy on an older key takes this device's key time. True when it changed.
+/// A copy on an older key takes this device's key time (the encryption that
+/// goes with the key is [crate::encryption::keep_ours]'s). True when it changed.
 fn keep_key_time(theirs: &mut Database, ours: &Database) -> bool {
-    let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
+    let changed = theirs.meta.master_key_changed != ours.meta.master_key_changed;
     theirs.meta.master_key_changed = ours.meta.master_key_changed;
-    older
+    changed
 }
 
 /// Keeps the database settings `ours` changed later than `theirs` did, each
