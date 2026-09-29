@@ -85,11 +85,11 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
-            let (theirs, other_key) = since.parse(&bytes).map_err(|e| match e {
+            let (theirs, key_change) = since.parse(&bytes).map_err(|e| match e {
                 OpenError::OtherKey(_) => SyncError::OtherKey,
                 OpenError::Other(message) => failed(format!("The remote copy cannot be opened: {message}")),
             })?;
-            outcome = match session.with_mut(|v| v.take_remote(&since, theirs, other_key, &bytes, changed_here)) {
+            outcome = match session.with_mut(|v| v.take_remote(&since, theirs, key_change, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
                 Ok(None) => return Ok(None),
                 Err(_) if !session.is_unlocked() => return Ok(Some(Outcome::WaitingForUnlock)),
