@@ -32,9 +32,14 @@ export interface DatabaseSettings {
   name: string
   description: string
   defaultUsername: string
+  /** Old versions kept per entry; -1 for no limit. */
+  historyMaxItems: number
+  /** Bytes of old versions kept per entry; -1 for no limit. */
+  historyMaxSize: number
 }
 
-export type DatabaseSetting = keyof DatabaseSettings
+/** The settings of the database file set one at a time, as text. */
+export type DatabaseSetting = 'name' | 'description' | 'defaultUsername'
 
 /** A remote file a database can link to. */
 export type SyncTarget = { kind: 'folder'; path: string } | { kind: 'cloud'; cloud: Cloud; file: CloudFile }
@@ -293,6 +298,10 @@ export const api = {
   databaseSettings: () => invoke<DatabaseSettings>('database_settings'),
   /** Saved in the database file and synced like an edit. */
   setDatabaseSetting: (setting: DatabaseSetting, value: string) => invoke<DatabaseSettings>('set_database_setting', { setting, value }),
+  /** How many old versions these history limits would remove. */
+  historyLimitsPreview: (maxItems: number, maxSize: number) => invoke<number>('history_limits_preview', { maxItems, maxSize }),
+  /** Every entry's history is trimmed to them; saved and synced like an edit. */
+  setHistoryLimits: (maxItems: number, maxSize: number) => invoke<DatabaseSettings>('set_history_limits', { maxItems, maxSize }),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),
   /** With `version`, the value in that older version (0 is the newest). */
   reveal: (id: string, field: string, version: number | null = null) => invoke<string>('reveal', { id, field, version }),

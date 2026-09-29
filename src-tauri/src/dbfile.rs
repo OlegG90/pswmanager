@@ -99,6 +99,9 @@ impl DbFile {
     /// cipher and key derivation stay as they were.
     pub fn save(&mut self, db: &mut Database) -> Result<(), SaveError> {
         db.config.version = DatabaseVersion::KDB4(1);
+        // Every saved file keeps the history within the database's limits,
+        // so versions a merge brought back are trimmed again.
+        crate::edit::trim_all_history(db);
         let db = &*db;
         self.check_unchanged()?;
         let mut bytes = Vec::new();
@@ -296,7 +299,7 @@ fn same_group(a: &GroupRef<'_>, b: &GroupRef<'_>) -> bool {
 }
 
 fn same_history(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
-    let count = |e: &EntryRef<'_>| e.history.as_ref().map_or(0, |h| h.get_entries().len());
+    let count = crate::edit::history_count;
     count(a) == count(b)
         && (0..count(a)).all(|i| match (a.historical(i), b.historical(i)) {
             (Some(x), Some(y)) => same_version(&x, &y),

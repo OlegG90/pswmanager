@@ -141,6 +141,10 @@ pub struct DatabaseSettings {
     pub name: String,
     pub description: String,
     pub default_username: String,
+    /// Old versions kept per entry; -1 for no limit.
+    pub history_max_items: isize,
+    /// Bytes of old versions kept per entry; -1 for no limit.
+    pub history_max_size: isize,
 }
 
 impl Vault {
@@ -225,11 +229,36 @@ impl Vault {
     pub fn settings(&self) -> DatabaseSettings {
         let meta = &self.db.meta;
         let or_empty = |value: &Option<String>| value.clone().unwrap_or_default();
+        let (max_items, max_size) = edit::history_limits(meta);
         DatabaseSettings {
             name: or_empty(&meta.database_name),
             description: or_empty(&meta.database_description),
             default_username: or_empty(&meta.default_username),
+            history_max_items: as_stored(max_items),
+            history_max_size: as_stored(max_size),
         }
+    }
+
+    /// How many old versions these history limits would remove.
+    pub fn versions_over_limits(&self, max_items: isize, max_size: isize) -> usize {
+        edit::versions_over_limits(&self.db, max_items, max_size)
+    }
+
+    /// Sets the history limits and saves the file, every entry's history
+    /// trimmed to them.
+    pub fn set_history_limits(&mut self, max_items: isize, max_size: isize) -> Result<(), String> {
+        // What the lists offer (no history at all, but some room for it), or
+        // what the file has already: another client may have set it.
+        let (items_now, size_now) = edit::history_limits(&self.db.meta);
+        let items_ok = (0..=100).contains(&max_items) || max_items == as_stored(items_now);
+        let size_ok = (1 << 20..=64 << 20).contains(&max_size) || max_size == as_stored(size_now);
+        if !items_ok || !size_ok {
+            return Err("Not a history limit".into());
+        }
+        self.change(|db, _| {
+            edit::set_history_limits(db, max_items, max_size);
+            Ok(())
+        })
     }
 
     /// Changes a setting kept in the database file and saves the file.
@@ -621,8 +650,13 @@ fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
     EntryDetail { summary: summary(entry), fields, attachments, modified, versions: versions_of(entry) }
 }
 
+/// A history limit as the window and the file write it: -1 for no limit.
+fn as_stored(limit: Option<usize>) -> isize {
+    limit.map_or(-1, |n| n as isize)
+}
+
 fn versions_of(entry: &EntryRef<'_>) -> usize {
-    entry.history.as_ref().map_or(0, |h| h.get_entries().len())
+    edit::history_count(entry)
 }
 
 /// What changed from `old` to `new`, by name: the standard fields first, then
@@ -1314,6 +1348,41 @@ pub mod tests {
         vault.save_pending().unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+    }
+
+    #[test]
+    fn versions_another_device_kept_are_trimmed_by_the_next_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        vault.set_history_limits(1, 1 << 20).unwrap();
+        let mail = id_of(&vault, "Mail");
+        // A client that ignores the limit keeps three versions.
+        elsewhere(&path, |db| {
+            for i in 0..3 {
+                db.entry_mut(mail).unwrap().edit_tracking(|e| e.set_unprotected(fields::NOTES, format!("phone {i}")));
+            }
+        });
+        let router = id_of(&vault, "Router").uuid().to_string();
+        let mut data = vault.edit_data(&router).unwrap();
+        data.notes = "a change here".into();
+        vault.save_entry(Some(&router), None, &data, false).unwrap();
+
+        let reopened = Vault::open(&path, Some("test"), None).unwrap();
+        assert_eq!(reopened.detail(&mail.uuid().to_string()).unwrap().versions, 1);
+    }
+
+    #[test]
+    fn history_limits_outside_the_lists_are_refused_unless_the_file_has_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        assert!(vault.set_history_limits(500, 6 << 20).is_err());
+        assert!(vault.set_history_limits(10, 1).is_err());
+        vault.set_history_limits(0, 1 << 20).unwrap();
+        // Another client's own limit is kept while the other one changes.
+        vault.db.meta.history_max_items = Some(-1);
+        vault.set_history_limits(-1, 2 << 20).unwrap();
+        assert_eq!((vault.settings().history_max_items, vault.settings().history_max_size), (-1, 2 << 20));
     }
 
     #[test]

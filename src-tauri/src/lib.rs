@@ -229,6 +229,25 @@ fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
     Ok(status)
 }
 
+/// How many old versions these history limits (-1: none) would remove, to
+/// ask before lowering one.
+#[tauri::command(async)]
+fn history_limits_preview(session: State<Session>, max_items: isize, max_size: isize) -> Result<usize, String> {
+    session.read(|v| v.versions_over_limits(max_items, max_size))
+}
+
+/// Sets the open database's history limits (-1: none); every entry's history
+/// is trimmed to them, saved and synced like an edit.
+#[tauri::command(async)]
+fn set_history_limits(app: AppHandle, session: State<Session>, max_items: isize, max_size: isize) -> Result<vault::DatabaseSettings, String> {
+    let settings = session.with_mut(|v| {
+        v.set_history_limits(max_items, max_size)?;
+        Ok(v.settings())
+    })?;
+    sync::upload_soon(&app);
+    Ok(settings)
+}
+
 /// Renames the current database's file (and its backups) in its folder;
 /// the list follows, and a synced one keeps its remote file.
 #[tauri::command(async)]
@@ -1201,6 +1220,8 @@ pub fn run() {
             database_settings,
             set_database_setting,
             rename_database_file,
+            history_limits_preview,
+            set_history_limits,
             entry,
             reveal,
             entry_history,
