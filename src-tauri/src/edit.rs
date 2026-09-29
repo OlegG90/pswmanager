@@ -726,6 +726,48 @@ fn keep_templates_group(theirs: &mut Database, ours: &Database) {
     }
 }
 
+/// A setting of the database itself, kept in the file (KeePass's `Meta`)
+/// with the time it was last changed, so other clients see and change it too.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Setting {
+    Name,
+    Description,
+    DefaultUsername,
+}
+
+/// Sets a database setting (trimmed) and when it changed; the value it
+/// already has changes nothing.
+pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
+    let meta = &mut db.meta;
+    let (field, changed) = match setting {
+        Setting::Name => (&mut meta.database_name, &mut meta.database_name_changed),
+        Setting::Description => (&mut meta.database_description, &mut meta.database_description_changed),
+        Setting::DefaultUsername => (&mut meta.default_username, &mut meta.default_username_changed),
+    };
+    let value = value.trim();
+    if field.as_deref().unwrap_or_default() != value {
+        *field = Some(value.to_string());
+        *changed = Some(Times::now());
+    }
+}
+
+/// Keeps the database settings `ours` changed later than `theirs` did, each
+/// by its own time, as KeePass merges them. Returns true when it kept any.
+pub fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
+    fn keep(theirs: (&mut Option<String>, &mut Option<NaiveDateTime>), ours: (&Option<String>, Option<NaiveDateTime>)) -> bool {
+        let newer = ours.1 > *theirs.1 && ours.0 != theirs.0;
+        if newer {
+            (*theirs.0, *theirs.1) = (ours.0.clone(), ours.1);
+        }
+        newer
+    }
+    let (t, o) = (&mut theirs.meta, &ours.meta);
+    keep((&mut t.database_name, &mut t.database_name_changed), (&o.database_name, o.database_name_changed))
+        | keep((&mut t.database_description, &mut t.database_description_changed), (&o.database_description, o.database_description_changed))
+        | keep((&mut t.default_username, &mut t.default_username_changed), (&o.default_username, o.default_username_changed))
+}
+
 /// True when the entry is in its database's recycle bin.
 fn is_binned(db: &Database, entry: &EntryRef<'_>) -> bool {
     let bin = db.meta.recyclebin_uuid.map(GroupId::from);
@@ -1458,6 +1500,39 @@ mod tests {
         assert!(theirs.entry(removed).is_none());
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn a_setting_is_trimmed_and_timed_and_the_same_value_changes_nothing() {
+        let mut db = Database::new();
+        set_setting(&mut db, Setting::Name, "  Home  ");
+        assert_eq!(db.meta.database_name.as_deref(), Some("Home"));
+        assert!(db.meta.database_name_changed.is_some());
+        let before = db.clone();
+        set_setting(&mut db, Setting::Name, "Home");
+        assert_eq!(db, before);
+    }
+
+    #[test]
+    fn keep_newer_settings_takes_each_newer_one() {
+        let mut theirs = Database::new();
+        set_setting(&mut theirs, Setting::Name, "Named there");
+        set_setting(&mut theirs, Setting::Description, "Described there");
+        let mut ours = theirs.clone();
+        set_setting(&mut ours, Setting::Name, "Named here");
+        set_setting(&mut ours, Setting::Description, "Described here");
+        set_setting(&mut ours, Setting::DefaultUsername, "me");
+        // Times have one-second precision: set which side is newer by hand.
+        let (earlier, later) = (Some(Times::epoch()), Some(Times::now()));
+        (ours.meta.database_name_changed, theirs.meta.database_name_changed) = (later, earlier);
+        (ours.meta.database_description_changed, theirs.meta.database_description_changed) = (earlier, later);
+
+        assert!(keep_newer_settings(&mut theirs, &ours));
+        assert_eq!(theirs.meta.database_name.as_deref(), Some("Named here"));
+        assert_eq!(theirs.meta.database_description.as_deref(), Some("Described there"));
+        // A setting the other side never had: this device's.
+        assert_eq!(theirs.meta.default_username.as_deref(), Some("me"));
+        assert!(!keep_newer_settings(&mut theirs, &ours));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { api, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
 import { setUpSync } from './sync-setup'
@@ -42,6 +42,15 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 }
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
+
+/** A text field saved when it changes (Enter, or leaving it); a textarea for several lines. */
+function text(label: string, value: string, change: (value: string) => void, lines = 1) {
+  const field = lines > 1
+    ? el('textarea', { ariaLabel: label, value, rows: lines, spellcheck: false })
+    : el('input', { ariaLabel: label, value, spellcheck: false })
+  field.addEventListener('change', () => change(field.value))
+  return field
+}
 
 const MODIFIER_KEYS = ['Control', 'Alt', 'Shift', 'Meta', 'AltGraph']
 
@@ -87,7 +96,25 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
 export async function renderSettings(container: HTMLElement, onDone: () => void, onError: (message: string) => void) {
   const waiting = el('p', { className: 'muted', hidden: true })
   const [settings, status, version] = await Promise.all([api.settings(), api.status(), getVersion()])
+  /** What the open database's file keeps; null while locked. */
+  let database = status.unlocked ? await api.databaseSettings().catch(() => null) : null
   draw(settings, status)
+
+  /** Settings kept in the database file: saved and synced like an edit. */
+  function databaseGroup(s: Settings, status: Status, d: DatabaseSettings): HTMLElement {
+    const set = (setting: DatabaseSetting) => async (value: string) => {
+      try {
+        database = await api.setDatabaseSetting(setting, value)
+      } catch (e) {
+        onError(String(e))
+      }
+      draw(s, await api.status())
+    }
+    return group('Database',
+      row('Name', 'On the unlock screen and in the title; the file keeps its name', text('Name', d.name, set('name'))),
+      row('Description', 'Under the name on the unlock screen', text('Description', d.description, set('description'), 2)),
+      row('Default user name', 'Filled in on a new blank entry', text('Default user name', d.defaultUsername, set('defaultUsername'))))
+  }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
   function syncControl(status: Status): HTMLElement {
@@ -138,6 +165,7 @@ export async function renderSettings(container: HTMLElement, onDone: () => void,
           toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
         row('Download site icons', 'Directly from each site, never through a third party',
           toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
+      ...(database ? [databaseGroup(s, status, database)] : []),
       group('Sync',
         row('This database', status.database ?? '', syncControl(status)),
         waiting,

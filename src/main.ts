@@ -1,7 +1,7 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
@@ -31,7 +31,7 @@ const healthView = $('health')
 const toast = $('toast')
 
 
-const EMPTY: Listing = { entries: [], customIcons: {} }
+const EMPTY: Listing = { entries: [], customIcons: {}, database: { name: '', description: '', defaultUsername: '' } }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
@@ -74,8 +74,15 @@ function showStatus(status: Status) {
   // With more than one database, a list picks which one opens.
   const select = $<HTMLSelectElement>('database-select')
   select.hidden = status.databases.length < 2
-  select.replaceChildren(...status.databases.map((d) => new Option(d.name, d.file, false, d.file === status.database)))
+  const label = (d: DatabaseInfo) => (d.name === d.fileName ? d.name : `${d.name} (${d.fileName})`)
+  select.replaceChildren(...status.databases.map((d) => new Option(label(d), d.file, false, d.file === status.database)))
   select.title = status.database ?? ''
+  // Its name, as last unlocked (the file name until then), with the file under it.
+  const current = status.databases.find((d) => d.file === status.database)
+  $('database-name').textContent = current?.name ?? ''
+  $('database-description').textContent = current?.description ?? ''
+  $('database-description').title = current?.description ?? ''
+  $('database-description').hidden = !current?.description
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
@@ -844,6 +851,7 @@ function startEditor(id: string | null, start: { focusPassword?: boolean; from?:
     // New entries go to the top group.
     group: [],
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
+    defaultUsername: listing.database.defaultUsername,
     autoIcon: autoIcon(id ? (listing.entries.find((e) => e.id === id) ?? null) : null),
     onSaved: afterSave,
     onClose: () => {
@@ -1128,6 +1136,8 @@ function closeSettings() {
   if (unlocked) {
     vault.hidden = false
     searchInput.focus()
+    // The default user name a new entry gets may have changed there.
+    api.databaseSettings().then((database) => (listing = { ...listing, database }), () => {})
   } else if (chooseView.childElementCount) {
     chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()

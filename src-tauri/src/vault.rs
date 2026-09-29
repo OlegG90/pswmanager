@@ -129,6 +129,17 @@ pub struct Listing {
     pub entries: Vec<EntrySummary>,
     /// The database's own icons used by the entries, as `data:` URLs.
     pub custom_icons: BTreeMap<String, String>,
+    pub database: DatabaseSettings,
+}
+
+/// The settings kept in the database file itself (see [edit::Setting]);
+/// empty when the file has none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseSettings {
+    pub name: String,
+    pub description: String,
+    pub default_username: String,
 }
 
 impl Vault {
@@ -206,7 +217,25 @@ impl Vault {
                 entry.custom_icon = None;
             }
         }
-        Listing { entries, custom_icons }
+        Listing { entries, custom_icons, database: self.settings() }
+    }
+
+    pub fn settings(&self) -> DatabaseSettings {
+        let meta = &self.db.meta;
+        let text = |value: &Option<String>| value.clone().unwrap_or_default();
+        DatabaseSettings {
+            name: text(&meta.database_name),
+            description: text(&meta.database_description),
+            default_username: text(&meta.default_username),
+        }
+    }
+
+    /// Changes a setting kept in the database file and saves the file.
+    pub fn set_setting(&mut self, setting: edit::Setting, value: &str) -> Result<(), String> {
+        self.change(|db, _| {
+            edit::set_setting(db, setting, value);
+            Ok(())
+        })
     }
 
     pub fn detail(&self, id: &str) -> Option<EntryDetail> {
@@ -440,7 +469,8 @@ impl Vault {
     /// differ from before, or `None` when the file was read or written since.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
         let mut db = self.file.as_mut()?.adopt(since, read)?;
-        if !edit::keep_newer(&mut db, &self.db).is_empty() {
+        let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
+        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -459,7 +489,10 @@ impl Vault {
         if !file.is_at(since) {
             return Ok(None);
         }
-        let kept_ours = merge && !edit::merge(&mut theirs, &self.db).is_empty();
+        let kept_ours = merge && {
+            let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
+            edit::keep_newer_settings(&mut theirs, &self.db) || kept_entries
+        };
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
             Ok(()) => {}

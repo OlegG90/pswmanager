@@ -103,8 +103,11 @@ struct Status {
 #[serde(rename_all = "camelCase")]
 struct DatabaseInfo {
     file: String,
-    /// The file name, for the list.
+    /// Its name as last unlocked, or the file name.
     name: String,
+    file_name: String,
+    /// As last unlocked; empty when it has none.
+    description: String,
     sync_kind: Option<&'static str>,
 }
 
@@ -119,7 +122,9 @@ fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -
             .iter()
             .map(|d| DatabaseInfo {
                 file: shown(&d.file),
-                name: remote::file_name(&d.file),
+                name: d.title(),
+                file_name: remote::file_name(&d.file),
+                description: d.description.clone().unwrap_or_default(),
                 sync_kind: d.remote.as_ref().map(|r| r.location.kind()),
             })
             .collect();
@@ -534,6 +539,7 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     let vault = Vault::open(&database, password, key_file.as_deref())?;
     let listing = vault.listing();
     fetch_icons(&app, &listing);
+    show_database(&app, &listing.database);
     // Touched first, so the inactivity check never sees a fresh vault as idle.
     app.state::<Activity>().touch();
     session.set(Some(vault));
@@ -603,7 +609,26 @@ fn check_disk(app: &AppHandle) {
 fn show_changes(app: &AppHandle, changed: Vec<String>) {
     let Ok(listing) = app.state::<Session>().read(Vault::listing) else { return }; // locked meanwhile
     fetch_icons(app, &listing);
+    show_database(app, &listing.database);
     let _ = app.emit("database-changed", DiskChange { listing, changed });
+}
+
+/// The open database's name in the window title, and its name and
+/// description remembered for the unlock screen.
+fn show_database(app: &AppHandle, settings: &vault::DatabaseSettings) {
+    let store = app.state::<Store>();
+    let text = |value: &str| Some(value.to_string()).filter(|v| !v.is_empty());
+    let (name, description) = (text(&settings.name), text(&settings.description));
+    let known = store.read(|s| s.current().cloned());
+    if known.as_ref().is_some_and(|k| k.name != name || k.description != description) {
+        let _ = store.update(|s| {
+            if let Some(current) = s.current_mut() {
+                (current.name, current.description) = (name, description);
+            }
+        });
+    }
+    let title = store.read(|s| s.current().map(store::Known::title));
+    window::set_title(app, title.as_deref());
 }
 
 /// Fetches the listed sites' missing icons in the background, if the user
@@ -639,6 +664,7 @@ fn lock_now(app: &AppHandle) {
     if session.is_unlocked() {
         session.set(None);
         *app.state::<FileWatch>().0.lock().unwrap() = None;
+        window::set_title(app, None);
         let _ = app.emit("locked", ());
         // What changed here goes up; a merge waits for the next unlock.
         sync::request(app);
@@ -662,6 +688,25 @@ fn hide_window(app: AppHandle) {
 #[tauri::command(async)]
 fn listing(session: State<Session>) -> Result<Listing, String> {
     session.read(Vault::listing)
+}
+
+/// The settings kept in the open database's file.
+#[tauri::command(async)]
+fn database_settings(session: State<Session>) -> Result<vault::DatabaseSettings, String> {
+    session.read(Vault::settings)
+}
+
+/// Changes a setting kept in the open database's file; the change is saved
+/// and synced like an edit.
+#[tauri::command(async)]
+fn set_database_setting(app: AppHandle, session: State<Session>, setting: edit::Setting, value: String) -> Result<vault::DatabaseSettings, String> {
+    let settings = session.with_mut(|v| {
+        v.set_setting(setting, &value)?;
+        Ok(v.settings())
+    })?;
+    show_database(&app, &settings);
+    sync::upload_soon(&app);
+    Ok(settings)
 }
 
 #[tauri::command(async)]
@@ -1150,6 +1195,8 @@ pub fn run() {
             unlock,
             lock,
             listing,
+            database_settings,
+            set_database_setting,
             entry,
             reveal,
             entry_history,
