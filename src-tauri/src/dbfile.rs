@@ -39,35 +39,47 @@ pub struct DbFile {
     /// before a change of key, and ones the user gave for a copy that did not
     /// open. Kept in memory only, while the database is unlocked.
     other_keys: Vec<DatabaseKey>,
-    /// Counts changes to the keys above: what did not open with one set may
-    /// open with the next.
+    /// Counts keys added to the two above (one let go of cannot open more):
+    /// what did not open with one set may open with the next.
     keys_version: u64,
     /// Copies none of the keys opened, shared with each [Snapshot].
     unopened: Unopened,
     hash: [u8; 32],
 }
 
-/// Copies of the database (by hash) that none of the keys opened, with the
-/// [DbFile::keys_version] they were tried with, so the same bytes are not
+/// A copy of the database (by hash) that none of the keys at `keys_version`
+/// opened.
+#[derive(Clone, Copy, PartialEq)]
+struct Tried {
+    copy: [u8; 32],
+    keys_version: u64,
+}
+
+/// The copies none of the keys opened ([Tried]), so the same bytes are not
 /// tried again — each key derivation takes a second or more — until the keys
 /// change. The file on this PC and the remote one: two at most.
 #[derive(Clone, Default)]
-struct Unopened(Arc<Mutex<Vec<(Hash, u64)>>>);
-
-type Hash = [u8; 32];
+struct Unopened(Arc<Mutex<Vec<Tried>>>);
 
 impl Unopened {
-    fn contains(&self, copy: Hash, keys_version: u64) -> bool {
-        self.0.lock().unwrap().contains(&(copy, keys_version))
+    /// True when these bytes did not open with these keys.
+    fn contains(&self, tried: Tried) -> bool {
+        self.0.lock().unwrap().contains(&tried)
     }
 
-    fn add(&self, copy: Hash, keys_version: u64) {
+    /// Keeps `tried`, and lets go of copies tried with fewer keys. Not kept
+    /// when tried with fewer keys than one already there (a slow read that
+    /// began before a key was added).
+    fn add(&self, tried: Tried) {
         let mut unopened = self.0.lock().unwrap();
-        unopened.retain(|&(c, v)| v == keys_version && c != copy);
+        if unopened.iter().any(|t| t.keys_version > tried.keys_version) {
+            return;
+        }
+        unopened.retain(|t| t.keys_version == tried.keys_version && t.copy != tried.copy);
         if unopened.len() == 2 {
             unopened.remove(0);
         }
-        unopened.push((copy, keys_version));
+        unopened.push(tried);
     }
 }
 
@@ -239,7 +251,6 @@ impl DbFile {
         self.forget_key(&key);
         let old = std::mem::replace(&mut self.key, key);
         self.remember_key(old);
-        self.keys_version += 1;
     }
 
     /// Writes `db` over the file. Refuses when the file changed since it was
@@ -448,8 +459,9 @@ impl Snapshot {
     }
 
     /// [Snapshot::parse], the hash of `bytes` known.
-    fn parse_hashed(&self, bytes: &[u8], copy: Hash) -> Result<(Database, KeyChange), OpenError> {
-        if self.unopened.contains(copy, self.keys_version) {
+    fn parse_hashed(&self, bytes: &[u8], copy: [u8; 32]) -> Result<(Database, KeyChange), OpenError> {
+        let tried = Tried { copy, keys_version: self.keys_version };
+        if self.unopened.contains(tried) {
             return Err(OpenError::other_key());
         }
         for (i, key) in self.keys.iter().enumerate() {
@@ -466,7 +478,7 @@ impl Snapshot {
                 Err(e) => return Err(open_error(&e).into()),
             }
         }
-        self.unopened.add(copy, self.keys_version);
+        self.unopened.add(tried);
         Err(OpenError::other_key())
     }
 }
@@ -733,8 +745,16 @@ pub mod tests {
 
         let since = file.snapshot();
         assert!(matches!(since.parse(&copy), Err(OpenError::OtherKey(_))));
-        assert!(since.unopened.contains(hash(&copy), since.keys_version));
+        let tried = Tried { copy: hash(&copy), keys_version: since.keys_version };
+        assert!(since.unopened.contains(tried));
         assert!(matches!(file.snapshot().parse(&copy), Err(OpenError::OtherKey(_))));
+
+        // A read that began before a key was added does not push out a newer one.
+        let later = Tried { copy: [1; 32], keys_version: tried.keys_version + 1 };
+        since.unopened.add(later);
+        since.unopened.add(tried);
+        assert!(since.unopened.contains(later) && !since.unopened.contains(tried));
+        since.unopened.0.lock().unwrap().clear();
 
         file.remember_key(other);
         assert!(file.snapshot().parse(&copy).is_ok());
