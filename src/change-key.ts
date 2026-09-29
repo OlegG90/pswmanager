@@ -1,6 +1,7 @@
 import { api, type Status } from './api'
 import { button, el } from './dom'
 import { keyFileChoice, newPassword } from './key-fields'
+import { ask } from './modal'
 
 /**
  * Asks for the current master password and the new master password and / or
@@ -19,7 +20,7 @@ export function changeMasterKey(keyFile: string | null): Promise<Status | null> 
     // A wrong current password is said until it is typed again.
     current.addEventListener('input', () => (error.hidden = true))
     const typed = newPassword()
-    const newKeyFile = keyFileChoice(keyFile, fail, true)
+    const keyChoice = keyFileChoice(keyFile, fail, true)
     const done = (status: Status | null) => {
       current.value = ''
       typed.clear()
@@ -30,11 +31,15 @@ export function changeMasterKey(keyFile: string | null): Promise<Status | null> 
 
     const change = button('Change', 'Save the database with the new key', async () => {
       error.hidden = true
-      if (!typed.password.value && !newKeyFile.value()) return fail('Give a master password, a key file, or both')
+      if (!typed.password.value && !keyChoice.value()) return fail('Give a master password, a key file, or both')
       if (!typed.matches()) return fail('The two new passwords differ')
+      const keyFileOnly = typed.password.value ? '' : ' The database will then have no master password: only the key file opens it.'
+      const sure = await ask('Other devices, Keepass2Android too, will need the new key. The old one still opens the .bak files and ' +
+        `the store's version history.${keyFileOnly}`, 'Change key')
+      if (!sure) return
       change.disabled = true
       try {
-        done(await api.changeMasterKey(current.value, typed.password.value, newKeyFile.value()))
+        done(await api.changeMasterKey(current.value, typed.password.value, keyChoice.value()))
       } catch (e) {
         fail(String(e))
       } finally {
@@ -48,9 +53,8 @@ export function changeMasterKey(keyFile: string | null): Promise<Status | null> 
       el('label', { className: 'field' }, el('span', {}, 'New master password'), typed.password),
       el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
       typed.strength,
-      newKeyFile.row,
-      el('p', { className: 'muted' },
-        'Other devices, Keepass2Android too, will need the new key. The old one still opens the .bak files and the store\'s version history.'),
+      keyChoice.row,
+      el('p', { className: 'muted' }, 'Leave the new password empty for a key file alone.'),
       error,
       el('div', { className: 'buttons' }, change, button('Cancel', 'Cancel (Esc)', () => done(null))),
     )

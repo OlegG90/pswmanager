@@ -345,7 +345,7 @@ fn create_key_file(window: Window) -> Result<Option<String>, String> {
 /// Gives the open database a new master password and / or key file, after
 /// the current master password (with the key file it has now) proved right.
 /// An empty password means none; `key_file` is the one to use from now on.
-/// A synced database's file goes up at once.
+/// A synced database syncs first, and its file goes up at once after.
 #[tauri::command(async)]
 fn change_master_key(app: AppHandle, current: String, password: String, key_file: Option<String>) -> Result<Status, String> {
     let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
@@ -358,6 +358,9 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     }
     let key_file = key_file.map(PathBuf::from);
     let password = (!password.is_empty()).then_some(password.as_str());
+    // In step with the remote file first: after the change, the remote file,
+    // still on the old key, opens no more.
+    sync::sync_first(&app)?;
     session.with_mut(|v| v.change_key(password, key_file.as_deref()))?;
     let status = choose(app.clone(), |s| {
         if let Some(d) = s.current_mut() {

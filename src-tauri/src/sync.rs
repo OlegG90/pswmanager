@@ -374,6 +374,36 @@ pub fn request(app: &AppHandle) {
     });
 }
 
+/// Syncs now, in the calling thread, for a change that needs the remote file
+/// in step first (a new key: after it, a remote file changed on another device
+/// no longer opens). Nothing to do for a local file; refused while a sync runs.
+pub fn sync_first(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Store>().read(|s| s.remote().is_none()) {
+        return Ok(());
+    }
+    if !flags(app, |f| !std::mem::replace(&mut f.running, true)) {
+        return Err("A sync is running; try again in a moment".into());
+    }
+    set_status(app, |s| s.busy = true);
+    let result = run_once(app);
+    let status = describe(app, &result);
+    let again = flags(app, |f| {
+        f.last_run = Some(Instant::now());
+        f.running = false;
+        std::mem::take(&mut f.again)
+    });
+    set_status(app, |s| *s = status);
+    if again {
+        request(app);
+    }
+    match result {
+        Ok(_) => Ok(()),
+        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => {
+            Err(format!("The database could not sync first ({message}); the key is unchanged"))
+        }
+    }
+}
+
 fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
     let store = app.state::<Store>();
     let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {

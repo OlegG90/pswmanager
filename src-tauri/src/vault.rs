@@ -253,21 +253,10 @@ impl Vault {
             return Err("A database needs a master password, a key file, or both".into());
         }
         let new = key(password, key_file)?;
-        for _ in 0..3 {
-            self.reload()?;
-            let mut db = self.db.clone();
+        self.change_with_key(Some(&new), |db, _| {
             db.meta.master_key_changed = Some(keepass::db::Times::now());
-            match self.file.as_mut().ok_or("This database cannot be saved")?.save_with_key(&mut db, new.clone()) {
-                Ok(()) => {
-                    self.db = db;
-                    self.unsaved = false;
-                    return Ok(());
-                }
-                Err(SaveError::Changed) => continue,
-                Err(SaveError::Failed(message)) => return Err(message),
-            }
-        }
-        Err("The database file keeps changing on disk; try again in a moment".into())
+            Ok(())
+        })
     }
 
     /// How many old versions these history limits would remove.
@@ -588,15 +577,29 @@ impl Vault {
     /// An untouched database does not rewrite the file (and wake the sync
     /// client). Nothing changes when saving fails.
     fn change<R>(&mut self, change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>) -> Result<R, String> {
+        self.change_with_key(None, change)
+    }
+
+    /// [Vault::change], the file written with `key` from now on when one is given.
+    fn change_with_key<R>(
+        &mut self,
+        key: Option<&DatabaseKey>,
+        change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
+    ) -> Result<R, String> {
         const ATTEMPTS: usize = 3;
         for _ in 0..ATTEMPTS {
             self.reload()?;
             let mut db = self.db.clone();
             let result = change(&mut db, &self.hidden_groups())?;
-            if db == self.db && !self.unsaved {
+            if db == self.db && !self.unsaved && key.is_none() {
                 return Ok(result);
             }
-            match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
+            let file = self.file.as_mut().ok_or("This database cannot be saved")?;
+            let saved = match key {
+                Some(key) => file.save_with_key(&mut db, key.clone()),
+                None => file.save(&mut db),
+            };
+            match saved {
                 Ok(()) => {
                     self.db = db;
                     self.unsaved = false;
@@ -802,7 +805,7 @@ fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, S
 pub fn create_key_file(path: &Path) -> Result<(), String> {
     let mut data = Zeroizing::new([0u8; 32]);
     getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
-    let xml = Zeroizing::new(key_file_xml(&data));
+    let xml = key_file_xml(&data);
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -812,17 +815,25 @@ pub fn create_key_file(path: &Path) -> Result<(), String> {
 }
 
 /// KeePass's XML key file, version 2.0: the key in hex, in groups of four
-/// bytes, and the first four bytes of its SHA-256 to check it.
-fn key_file_xml(data: &[u8; 32]) -> String {
+/// bytes, two lines of four, and the first four bytes of its SHA-256 to check
+/// it. Written straight into memory that is wiped: the hex is the key.
+fn key_file_xml(data: &[u8; 32]) -> Zeroizing<String> {
     use sha2::Digest;
-    let hex = |bytes: &[u8]| crate::dbfile::hex(bytes).to_uppercase();
-    let groups: Vec<String> = data.chunks(4).map(hex).collect();
-    let hash = hex(&sha2::Sha256::digest(data)[..4]);
-    format!(
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<KeyFile>\r\n\t<Meta>\r\n\t\t<Version>2.0</Version>\r\n\t</Meta>\r\n\t<Key>\r\n\t\t<Data Hash=\"{hash}\">\r\n\t\t\t{}\r\n\t\t\t{}\r\n\t\t</Data>\r\n\t</Key>\r\n</KeyFile>\r\n",
-        groups[..4].join(" "),
-        groups[4..].join(" "),
-    )
+    use std::fmt::Write;
+    let hash = sha2::Sha256::digest(data);
+    let mut xml = Zeroizing::new(String::with_capacity(400));
+    xml.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<KeyFile>\r\n\t<Meta>\r\n\t\t<Version>2.0</Version>\r\n\t</Meta>\r\n\t<Key>\r\n");
+    let _ = write!(xml, "\t\t<Data Hash=\"{:02X}{:02X}{:02X}{:02X}\">", hash[0], hash[1], hash[2], hash[3]);
+    for (i, byte) in data.iter().enumerate() {
+        match i {
+            _ if i % 16 == 0 => xml.push_str("\r\n\t\t\t"),
+            _ if i % 4 == 0 => xml.push(' '),
+            _ => {}
+        }
+        let _ = write!(xml, "{byte:02X}");
+    }
+    xml.push_str("\r\n\t\t</Data>\r\n\t</Key>\r\n</KeyFile>\r\n");
+    xml
 }
 
 /// What a new database is made with: KDBX 4.1, AES-256, ChaCha20 for
@@ -1448,8 +1459,8 @@ pub mod tests {
         let data: [u8; 32] = std::array::from_fn(|i| i as u8);
         let xml = key_file_xml(&data);
         let hash = crate::dbfile::hex(&<sha2::Sha256 as sha2::Digest>::digest(data)[..4]).to_uppercase();
-        assert!(xml.contains(&format!("<Data Hash=\"{hash}\">")), "{xml}");
-        assert!(xml.contains("00010203 04050607 08090A0B 0C0D0E0F\r\n"), "{xml}");
+        assert!(xml.contains(&format!("<Data Hash=\"{hash}\">")), "{}", xml.as_str());
+        assert!(xml.contains("00010203 04050607 08090A0B 0C0D0E0F\r\n"), "{}", xml.as_str());
         assert!(xml.contains("<Version>2.0</Version>"));
     }
 

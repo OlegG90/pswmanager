@@ -18,7 +18,7 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
     }
     const typed = newPassword()
     const { password, repeat, strength } = typed
-    const keyFile = keyFileChoice(null, fail)
+    const keyChoice = keyFileChoice(null, fail)
 
     const chooseFile = button('Choose…', 'Where the new database file goes', async () => {
       error.hidden = true
@@ -45,11 +45,11 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
     const create = button('Create', 'Create the database', async () => {
       error.hidden = true
       if (!file) return fail('Choose where the file goes')
-      if (!password.value && !keyFile.value()) return fail('Give a master password, a key file, or both')
+      if (!password.value && !keyChoice.value()) return fail('Give a master password, a key file, or both')
       if (!typed.matches()) return fail('The two passwords differ')
       create.disabled = true
       try {
-        done(await api.createDatabase(file, password.value, keyFile.value()))
+        done(await api.createDatabase(file, password.value, keyChoice.value()))
       } catch (e) {
         fail(String(e))
       } finally {
@@ -67,7 +67,7 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       el('label', { className: 'field' }, el('span', {}, 'Master password'), password),
       el('label', { className: 'field' }, el('span', {}, 'Repeat it'), repeat),
       strength,
-      keyFile.row,
+      keyChoice.row,
       error,
       el('div', { className: 'footer' }, el('span'),
         el('div', { className: 'buttons' }, button('Back', 'Back (Esc)', () => done(null)), create)),
