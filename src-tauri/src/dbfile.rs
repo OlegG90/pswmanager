@@ -74,12 +74,6 @@ impl From<String> for OpenError {
     }
 }
 
-impl From<OpenError> for String {
-    fn from(e: OpenError) -> Self {
-        e.to_string()
-    }
-}
-
 fn hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }

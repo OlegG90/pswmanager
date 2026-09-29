@@ -395,7 +395,7 @@ pub fn sync_first(app: &AppHandle) -> Result<(), OpenError> {
         return Ok(());
     }
     if !flags(app, |f| !std::mem::replace(&mut f.running, true)) {
-        return Err(OpenError::Other("A sync is running; try again in a moment".into()));
+        return Err(String::from("A sync is running; try again in a moment").into());
     }
     let (result, again) = pass(app, false);
     if again {
@@ -404,7 +404,7 @@ pub fn sync_first(app: &AppHandle) -> Result<(), OpenError> {
     match result {
         Ok(_) => Ok(()),
         Err(SyncError::OtherKey) => Err(OpenError::other_key()),
-        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(OpenError::Other(message)),
+        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(message.into()),
     }
 }
 

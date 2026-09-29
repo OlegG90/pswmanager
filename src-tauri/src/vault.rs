@@ -271,10 +271,11 @@ impl Vault {
             return Err("A database needs a master password, a key file, or both".into());
         }
         let new = key(password, key_file)?;
-        self.change_with_key(Some(&new), |db, _| {
+        self.save_change(Some(&new), |db, _| {
             db.meta.master_key_changed = Some(keepass::db::Times::now());
             Ok(())
         })
+        .map_err(|e| e.to_string())
     }
 
     /// How many old versions these history limits would remove.
@@ -678,19 +679,12 @@ impl Vault {
     /// An untouched database does not rewrite the file (and wake the sync
     /// client). Nothing changes when saving fails.
     fn change<R>(&mut self, change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>) -> Result<R, String> {
-        self.change_with_key(None, change)
+        // A command only shows why: a file on another key is not told apart.
+        self.save_change(None, change).map_err(|e| e.to_string())
     }
 
-    /// [Vault::change], the file written with `key` from now on when one is given.
-    fn change_with_key<R>(
-        &mut self,
-        key: Option<&DatabaseKey>,
-        change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
-    ) -> Result<R, String> {
-        Ok(self.save_change(key, change)?)
-    }
-
-    /// [Vault::change_with_key], telling a file on another key apart.
+    /// [Vault::change], the file written with `key` from now on when one is
+    /// given, telling a file on another key apart.
     fn save_change<R>(
         &mut self,
         key: Option<&DatabaseKey>,
@@ -716,10 +710,10 @@ impl Vault {
                     return Ok(result);
                 }
                 Err(SaveError::Changed) => continue,
-                Err(SaveError::Failed(message)) => return Err(OpenError::Other(message)),
+                Err(SaveError::Failed(message)) => return Err(message.into()),
             }
         }
-        Err(OpenError::Other("The database file keeps changing on disk; try again in a moment".into()))
+        Err(String::from("The database file keeps changing on disk; try again in a moment").into())
     }
 
     /// The entry's current TOTP code, or `None` when it has no secret.
