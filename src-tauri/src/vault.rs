@@ -2,7 +2,7 @@
 //! summaries without secrets, a secret only when asked for one field, and a
 //! whole entry only while it is being edited.
 
-use crate::dbfile::{DbFile, Read, SaveError, Snapshot};
+use crate::dbfile::{DbFile, OpenError, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
@@ -522,7 +522,7 @@ impl Vault {
     /// The file as it is now, if it changed on disk since it was last read or
     /// written: it becomes the database, and the ids of the entries that
     /// differ are returned (added, changed, moved or gone).
-    pub fn reload(&mut self) -> Result<Option<Vec<String>>, String> {
+    pub fn reload(&mut self) -> Result<Option<Vec<String>>, OpenError> {
         let Some(since) = self.snapshot() else { return Ok(None) };
         Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)))
     }
@@ -1564,7 +1564,7 @@ pub mod tests {
         db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
 
         let refused = vault.reload().unwrap_err();
-        assert!(crate::dbfile::needs_other_key(&refused), "{refused}");
+        assert!(matches!(refused, OpenError::OtherKey(_)), "{refused}");
         vault.remember_key(DatabaseKey::new().with_password("other")).unwrap();
         vault.reload().unwrap();
         assert!(vault.uses_key(&DatabaseKey::new().with_password("other")).unwrap());

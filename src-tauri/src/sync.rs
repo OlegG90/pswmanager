@@ -2,7 +2,7 @@
 //! compares both with where the last sync left them: an unchanged side takes
 //! the other's file, and when both changed they are merged.
 
-use crate::dbfile::{hash_hex, same_file, sibling, BAK, REMOTE_BAK};
+use crate::dbfile::{hash_hex, same_file, sibling, OpenError, BAK, REMOTE_BAK};
 use crate::remote::{Remote, RemoteError};
 use crate::settings::Settings;
 use crate::store::{self, Store};
@@ -85,12 +85,9 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
-            let (theirs, other_key) = since.parse(&bytes).map_err(|e| {
-                if crate::dbfile::needs_other_key(&e) {
-                    SyncError::OtherKey
-                } else {
-                    failed(format!("The remote copy cannot be opened: {e}"))
-                }
+            let (theirs, other_key) = since.parse(&bytes).map_err(|e| match e {
+                OpenError::OtherKey(_) => SyncError::OtherKey,
+                OpenError::Other(e) => failed(format!("The remote copy cannot be opened: {e}")),
             })?;
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, other_key, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
@@ -392,12 +389,13 @@ fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
 /// Syncs now, in the calling thread, for a change that needs the remote file
 /// in step first (a new key: after it, a remote file changed on another device
 /// no longer opens). Nothing to do for a local file; refused while a sync runs.
-pub fn sync_first(app: &AppHandle) -> Result<(), String> {
+/// A remote file on a key this device does not know is [OpenError::OtherKey].
+pub fn sync_first(app: &AppHandle) -> Result<(), OpenError> {
     if app.state::<Store>().read(|s| s.remote().is_none()) {
         return Ok(());
     }
     if !flags(app, |f| !std::mem::replace(&mut f.running, true)) {
-        return Err("A sync is running; try again in a moment".into());
+        return Err(OpenError::Other("A sync is running; try again in a moment".into()));
     }
     let (result, again) = pass(app, false);
     if again {
@@ -405,8 +403,8 @@ pub fn sync_first(app: &AppHandle) -> Result<(), String> {
     }
     match result {
         Ok(_) => Ok(()),
-        Err(SyncError::OtherKey) => Err(crate::dbfile::OTHER_KEY.into()),
-        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(message),
+        Err(SyncError::OtherKey) => Err(OpenError::other_key()),
+        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(OpenError::Other(message)),
     }
 }
 
