@@ -33,6 +33,13 @@ export function newPassword() {
   }
 }
 
+/** What is wrong with a new key, if anything: it needs a password or a key file. */
+export function keyProblem(typed: ReturnType<typeof newPassword>, keyFile: string | null): string | null {
+  if (!typed.password.value && !keyFile) return 'Give a master password, a key file, or both'
+  if (!typed.matches()) return 'The two passwords differ'
+  return null
+}
+
 /**
  * The key file a database is to use: none, an existing file, or (with
  * `offerNew`) a new one the app makes. `fail` reports a dialog that failed.
@@ -57,8 +64,9 @@ export function keyFileChoice(initial: string | null, fail: (message: string) =>
     show()
   })
   const choose = button('Key file…', 'An existing key file', take(api.pickKeyFilePath))
-  const make = button('New…', 'Make a new key file where you choose; keep it apart from the database', take(api.createKeyFile))
-  make.hidden = !offerNew
+  const make = offerNew
+    ? [button('New…', 'Make a new key file where you choose; keep it apart from the database', take(api.createKeyFile))]
+    : []
   show()
-  return { row: el('div', { className: 'file-row' }, shown, choose, make, remove), value: () => keyFile }
+  return { row: el('div', { className: 'file-row' }, shown, choose, ...make, remove), value: () => keyFile }
 }

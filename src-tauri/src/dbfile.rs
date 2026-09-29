@@ -98,6 +98,20 @@ impl DbFile {
     /// the only version keepass-rs writes, and `db` says so afterwards; the
     /// cipher and key derivation stay as they were.
     pub fn save(&mut self, db: &mut Database) -> Result<(), SaveError> {
+        let key = self.key.clone();
+        self.save_as(db, &key)
+    }
+
+    /// Like [DbFile::save], with `key` in place of the file's key from now on
+    /// (kept only when the file was written).
+    pub fn save_with_key(&mut self, db: &mut Database, key: DatabaseKey) -> Result<(), SaveError> {
+        self.save_as(db, &key)?;
+        self.key = key;
+        Ok(())
+    }
+
+    /// [DbFile::save], the file written with `key`.
+    fn save_as(&mut self, db: &mut Database, key: &DatabaseKey) -> Result<(), SaveError> {
         db.config.version = DatabaseVersion::KDB4(1);
         // Every saved file keeps the history within the database's limits,
         // so versions a merge brought back are trimmed again.
@@ -105,8 +119,8 @@ impl DbFile {
         let db = &*db;
         self.check_unchanged()?;
         let mut bytes = Vec::new();
-        db.save(&mut bytes, self.key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
-        let reread = Database::parse(&bytes, self.key.clone())
+        db.save(&mut bytes, key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
+        let reread = Database::parse(&bytes, key.clone())
             .map_err(|e| format!("The new file did not open again ({e}); nothing was saved"))?;
         if !same_content(&reread, db) {
             return Err(SaveError::Failed("The new file did not read back the same; nothing was saved".into()));
@@ -114,17 +128,6 @@ impl DbFile {
         // Writing and checking takes seconds (the key is derived twice):
         // `write` looks again, so a change brought in meanwhile is not lost.
         self.write(&bytes)
-    }
-
-    /// Like [DbFile::save], with `key` in place of the file's key from now on
-    /// (kept only when the file was written).
-    pub fn save_with_key(&mut self, db: &mut Database, key: DatabaseKey) -> Result<(), SaveError> {
-        let old = std::mem::replace(&mut self.key, key);
-        let saved = self.save(db);
-        if saved.is_err() {
-            self.key = old;
-        }
-        saved
     }
 
     /// True when the file opens with `key`.

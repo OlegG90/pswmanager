@@ -1,6 +1,6 @@
 import { api, type Status } from './api'
 import { button, el } from './dom'
-import { keyFileChoice, newPassword } from './key-fields'
+import { keyFileChoice, keyProblem, newPassword } from './key-fields'
 
 /**
  * The form that creates a new database: where its file goes, the master
@@ -17,7 +17,6 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       error.hidden = false
     }
     const typed = newPassword()
-    const { password, repeat, strength } = typed
     const keyChoice = keyFileChoice(null, fail)
 
     const chooseFile = button('Choose…', 'Where the new database file goes', async () => {
@@ -45,11 +44,11 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
     const create = button('Create', 'Create the database', async () => {
       error.hidden = true
       if (!file) return fail('Choose where the file goes')
-      if (!password.value && !keyChoice.value()) return fail('Give a master password, a key file, or both')
-      if (!typed.matches()) return fail('The two passwords differ')
+      const problem = keyProblem(typed, keyChoice.value())
+      if (problem) return fail(problem)
       create.disabled = true
       try {
-        done(await api.createDatabase(file, password.value, keyChoice.value()))
+        done(await api.createDatabase(file, typed.password.value, keyChoice.value()))
       } catch (e) {
         fail(String(e))
       } finally {
@@ -64,16 +63,16 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
         el('p', { className: 'muted' },
           'An empty KeePass (KDBX 4) file, which KeePassXC and Keepass2Android open too. Keep the master password safe: nothing can recover it.')),
       el('div', { className: 'file-row' }, where, chooseFile),
-      el('label', { className: 'field' }, el('span', {}, 'Master password'), password),
-      el('label', { className: 'field' }, el('span', {}, 'Repeat it'), repeat),
-      strength,
+      el('label', { className: 'field' }, el('span', {}, 'Master password'), typed.password),
+      el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
+      typed.strength,
       keyChoice.row,
       error,
       el('div', { className: 'footer' }, el('span'),
         el('div', { className: 'buttons' }, button('Back', 'Back (Esc)', () => done(null)), create)),
     )
     // Enter in a password field creates.
-    for (const input of [password, repeat]) {
+    for (const input of [typed.password, typed.repeat]) {
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault()

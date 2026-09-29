@@ -239,16 +239,15 @@ impl Vault {
         }
     }
 
-    /// True when the database opens with this password and key file.
-    pub fn has_key(&self, password: Option<&str>, key_file: Option<&Path>) -> Result<bool, String> {
-        let file = self.file.as_ref().ok_or("This database cannot be saved")?;
-        Ok(file.has_key(&key(password, key_file)?))
-    }
-
     /// Saves the database with a new master password and / or key file (at
-    /// least one of them), as a change on the file as it is now; the time of
-    /// the change is kept in the file (KeePass's `MasterKeyChanged`).
-    pub fn change_key(&mut self, password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
+    /// least one of them), once the current ones (`current`) proved right, as
+    /// a change on the file as it is now; the time of the change is kept in the
+    /// file (KeePass's `MasterKeyChanged`).
+    pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
+        let file = self.file.as_ref().ok_or("This database cannot be saved")?;
+        if !file.has_key(&key(current.0, current.1)?) {
+            return Err("The current master password is not right".into());
+        }
         if password.is_none() && key_file.is_none() {
             return Err("A database needs a master password, a key file, or both".into());
         }
@@ -820,15 +819,16 @@ pub fn create_key_file(path: &Path) -> Result<(), String> {
 fn key_file_xml(data: &[u8; 32]) -> Zeroizing<String> {
     use sha2::Digest;
     use std::fmt::Write;
-    let hash = sha2::Sha256::digest(data);
+    // The hash checks the key, it does not reveal it.
+    let hash = crate::dbfile::hex(&sha2::Sha256::digest(data)[..4]).to_uppercase();
     let mut xml = Zeroizing::new(String::with_capacity(400));
     xml.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<KeyFile>\r\n\t<Meta>\r\n\t\t<Version>2.0</Version>\r\n\t</Meta>\r\n\t<Key>\r\n");
-    let _ = write!(xml, "\t\t<Data Hash=\"{:02X}{:02X}{:02X}{:02X}\">", hash[0], hash[1], hash[2], hash[3]);
+    let _ = write!(xml, "\t\t<Data Hash=\"{hash}\">");
     for (i, byte) in data.iter().enumerate() {
-        match i {
-            _ if i % 16 == 0 => xml.push_str("\r\n\t\t\t"),
-            _ if i % 4 == 0 => xml.push(' '),
-            _ => {}
+        if i % 16 == 0 {
+            xml.push_str("\r\n\t\t\t");
+        } else if i % 4 == 0 {
+            xml.push(' ');
         }
         let _ = write!(xml, "{byte:02X}");
     }
@@ -1426,13 +1426,14 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sic2kdbx.kdbx");
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
-        assert!(vault.has_key(Some("test"), None).unwrap());
-        assert!(!vault.has_key(Some("nope"), None).unwrap());
-        assert!(vault.change_key(None, None).is_err(), "a database needs a key");
+        let wrong = vault.change_key((Some("nope"), None), Some("new one"), None).unwrap_err();
+        assert!(wrong.contains("not right"), "{wrong}");
+        assert!(vault.change_key((Some("test"), None), None, None).is_err(), "a database needs a key");
 
-        vault.change_key(Some("new one"), None).unwrap();
+        vault.change_key((Some("test"), None), Some("new one"), None).unwrap();
         assert!(vault.db.meta.master_key_changed.is_some());
-        assert!(vault.has_key(Some("new one"), None).unwrap());
+        // The file's key is the new one from now on.
+        assert!(vault.change_key((Some("test"), None), Some("x"), None).is_err());
         assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), "Wrong password or key file");
         let reopened = Vault::open(&path, Some("new one"), None).unwrap();
         assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
@@ -1449,7 +1450,7 @@ pub mod tests {
         create_key_file(&key_file).unwrap();
         assert!(create_key_file(&key_file).is_err(), "never over a file already there");
 
-        vault.change_key(None, Some(&key_file)).unwrap();
+        vault.change_key((Some("test"), None), None, Some(&key_file)).unwrap();
         assert!(Vault::open(&path, None, Some(&key_file)).is_ok());
         assert!(Vault::open(&path, Some("test"), None).is_err());
     }

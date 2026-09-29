@@ -358,20 +358,23 @@ pub fn request(app: &AppHandle) {
         return;
     }
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        set_status(&app, |s| s.busy = true);
-        let result = run_once(&app);
-        let status = describe(&app, &result);
-        let again = flags(&app, |f| {
-            f.last_run = Some(Instant::now());
-            f.running = f.again;
-            std::mem::take(&mut f.again)
-        });
-        set_status(&app, |s| *s = Status { busy: again, ..status.clone() });
-        if !again {
-            break;
-        }
+    std::thread::spawn(move || while pass(&app, true).1 {});
+}
+
+/// One sync, its status shown. Returns its result and whether another was
+/// asked for meantime; with `go_on` the caller runs that one next (it keeps
+/// the sync marked running), otherwise the sync is over.
+fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
+    set_status(app, |s| s.busy = true);
+    let result = run_once(app);
+    let status = describe(app, &result);
+    let again = flags(app, |f| {
+        f.last_run = Some(Instant::now());
+        f.running = go_on && f.again;
+        std::mem::take(&mut f.again)
     });
+    set_status(app, |s| *s = Status { busy: go_on && again, ..status });
+    (result, again)
 }
 
 /// Syncs now, in the calling thread, for a change that needs the remote file
@@ -384,15 +387,7 @@ pub fn sync_first(app: &AppHandle) -> Result<(), String> {
     if !flags(app, |f| !std::mem::replace(&mut f.running, true)) {
         return Err("A sync is running; try again in a moment".into());
     }
-    set_status(app, |s| s.busy = true);
-    let result = run_once(app);
-    let status = describe(app, &result);
-    let again = flags(app, |f| {
-        f.last_run = Some(Instant::now());
-        f.running = false;
-        std::mem::take(&mut f.again)
-    });
-    set_status(app, |s| *s = status);
+    let (result, again) = pass(app, false);
     if again {
         request(app);
     }

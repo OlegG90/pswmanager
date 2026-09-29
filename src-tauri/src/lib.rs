@@ -351,25 +351,21 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
     let store = app.state::<Store>();
     let known = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    let session = app.state::<Session>();
-    let given = (!current.is_empty()).then_some(current.as_str());
-    if !session.read(|v| v.has_key(given, known.key_file.as_deref()))?? {
-        return Err("The current master password is not right".into());
+    fn non_empty(text: &str) -> Option<&str> {
+        Some(text).filter(|t| !t.is_empty())
     }
+    let current = (non_empty(&current), known.key_file.as_deref());
     let key_file = key_file.map(PathBuf::from);
-    let password = (!password.is_empty()).then_some(password.as_str());
     // In step with the remote file first: after the change, the remote file,
     // still on the old key, opens no more.
     sync::sync_first(&app)?;
-    session.with_mut(|v| v.change_key(password, key_file.as_deref()))?;
+    app.state::<Session>().with_mut(|v| v.change_key(current, non_empty(&password), key_file.as_deref()))?;
     let status = choose(app.clone(), |s| {
         if let Some(d) = s.current_mut() {
             d.key_file = key_file;
         }
     })?;
-    if known.remote.is_some() {
-        sync::request(&app);
-    }
+    sync::request(&app);
     Ok(status)
 }
 

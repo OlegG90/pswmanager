@@ -6,17 +6,19 @@ export const isAsking = () => document.querySelector('dialog[open]') !== null
 /**
  * Shows `message` in a modal dialog with what `build` adds, and resolves to
  * what the user picked. The Cancel button gives `cancelled`, has the focus and is what
- * Esc gives, so a key pressed by habit never loses anything.
+ * Esc gives, so a key pressed by habit never loses anything. `className`
+ * styles the box beside `modal`.
  * (`window.confirm` cannot be used: in this webview it answers "yes" unasked.)
  */
-function dialog<T>(
+export function dialog<T>(
   message: string,
   cancelled: T,
   build: (answer: (value: T) => void) => { body?: Node[]; buttons?: Node[]; focus?: HTMLElement },
   cancelLabel = 'Cancel',
+  className = '',
 ): Promise<T> {
   return new Promise((resolve) => {
-    const box = el('dialog', { className: 'modal' })
+    const box = el('dialog', { className: `modal ${className}`.trim() })
     const answer = (value: T) => {
       box.close()
       box.remove()
