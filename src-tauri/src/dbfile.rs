@@ -47,17 +47,26 @@ pub struct DbFile {
 /// Copies of the database (by hash) each key did not open, so the same bytes
 /// are not tried with the same key again: each key derivation takes a second
 /// or more, and a copy on another device's key is read on every sync and
-/// every change on disk. A key added later is tried at once.
+/// every change on disk. A key added later is tried at once. Also the remote
+/// file's revisions no key opened, so they are not downloaded again
+/// ([Snapshot::known_unopened]). Kept while the database is unlocked.
 #[derive(Clone, Default)]
 struct Failed(Arc<Mutex<Vec<Attempt>>>);
 
-/// A key, and the hash of a copy it was tried on.
+/// A key, and the hash of a copy it was tried on (or of a remote revision,
+/// [revision_id]).
 type Attempt = (DatabaseKey, [u8; 32]);
+
+/// A remote file's revision as [Failed] keeps it, apart from any copy's hash.
+fn revision_id(revision: &str) -> [u8; 32] {
+    hash(format!("remote revision {revision}").as_bytes())
+}
 
 impl Failed {
     /// The most kept, the oldest let go of first: two copies (the file on this
-    /// PC and the remote one) with a few keys each.
-    const KEPT: usize = 16;
+    /// PC and the remote one) and the remote revision, with a few keys each.
+    /// One let go of too early costs one more download or derivation.
+    const KEPT: usize = 24;
 
     /// True when `key` did not open `copy`.
     fn contains(&self, key: &DatabaseKey, copy: &[u8; 32]) -> bool {
@@ -434,6 +443,22 @@ impl Snapshot {
         }
         let (db, key_change) = self.parse(&bytes).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
         Ok(Some(Read { db, hash: now, key_change }))
+    }
+
+    /// True when none of the keys opened the remote file at `revision` before
+    /// ([Snapshot::note_unopened]): it need not be downloaded again until
+    /// it changes or a key is added.
+    pub fn known_unopened(&self, revision: &str) -> bool {
+        let id = revision_id(revision);
+        self.keys.iter().all(|key| self.failed.contains(key, &id))
+    }
+
+    /// Keeps that none of the keys opened the remote file at `revision`.
+    pub fn note_unopened(&self, revision: &str) {
+        let id = revision_id(revision);
+        for key in &self.keys {
+            self.failed.add(key, id);
+        }
     }
 
     /// Opens another copy of the database (a downloaded one) with the first
