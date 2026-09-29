@@ -82,13 +82,22 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let Ok(Some((since, unsaved))) = session.read(|v| v.snapshot().map(|s| (s, v.has_unsaved()))) else {
                 return Ok(Some(Outcome::WaitingForUnlock));
             };
+            // A remote file no key here opened is not downloaded again until
+            // it changes or a key is added.
+            if revision.as_deref().is_some_and(|r| since.opens_with_none(r)) {
+                return Err(SyncError::OtherKey);
+            }
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
-            let (theirs, key_change) = since.parse(&bytes).map_err(|e| match e {
-                OpenError::OtherKey(_) => SyncError::OtherKey,
-                OpenError::Other(message) => failed(format!("The remote copy cannot be opened: {message}")),
-            })?;
+            let (theirs, key_change) = match since.parse(&bytes) {
+                Ok(read) => read,
+                Err(OpenError::OtherKey(_)) => {
+                    since.opened_with_none(&revision);
+                    return Err(SyncError::OtherKey);
+                }
+                Err(OpenError::Other(message)) => return Err(failed(format!("The remote copy cannot be opened: {message}"))),
+            };
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, key_change, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
                 Ok(None) => return Ok(None),
@@ -717,6 +726,44 @@ mod tests {
         assert!(Vault::open(&working, Some("phone"), None).is_ok());
         assert!(Vault::open(&working, Some("test"), None).is_err());
         assert!(!s.password_here("Mail").is_empty(), "the database reads as before");
+    }
+
+    #[test]
+    fn a_remote_file_no_key_opens_is_downloaded_again_only_when_it_changes_or_a_key_is_added() {
+        /// Counts the downloads.
+        struct Counting<'a>(&'a Folder, Mutex<usize>);
+        impl Remote for Counting<'_> {
+            fn revision(&self) -> Result<Option<String>, RemoteError> {
+                self.0.revision()
+            }
+            fn download(&self) -> Result<(Vec<u8>, String), RemoteError> {
+                *self.1.lock().unwrap() += 1;
+                self.0.download()
+            }
+            fn upload(&self, bytes: &[u8], expected: Option<&str>) -> Result<String, RemoteError> {
+                self.0.upload(bytes, expected)
+            }
+        }
+        let s = setup();
+        let counting = Counting(&s.remote, Mutex::new(0));
+        let downloads = || *counting.1.lock().unwrap();
+        let phone = DatabaseKey::new().with_password("phone");
+        s.elsewhere_keyed(key(), phone.clone(), |db| db.meta.master_key_changed = Some(keepass::db::Times::now()));
+
+        assert_eq!(sync(&counting, &s.store, &s.session), Err(SyncError::OtherKey));
+        assert_eq!(sync(&counting, &s.store, &s.session), Err(SyncError::OtherKey));
+        assert_eq!(downloads(), 1, "the same revision is not downloaded again");
+
+        // Another upload on that key: a new revision, downloaded once.
+        s.elsewhere_keyed(phone.clone(), phone.clone(), |db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
+        assert_eq!(sync(&counting, &s.store, &s.session), Err(SyncError::OtherKey));
+        assert_eq!(sync(&counting, &s.store, &s.session), Err(SyncError::OtherKey));
+        assert_eq!(downloads(), 2);
+
+        // A key added: downloaded and read with it.
+        s.session.with_mut(|v| v.remember_key(phone.clone())).unwrap();
+        assert!(sync(&counting, &s.store, &s.session).is_ok());
+        assert_eq!(downloads(), 3);
     }
 
     #[test]
