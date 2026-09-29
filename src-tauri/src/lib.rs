@@ -325,6 +325,51 @@ fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
     Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
 }
 
+/// Makes a new key file where the user chooses (never over a file already
+/// there); its path, or `None` when the dialog was cancelled.
+#[tauri::command(async)]
+fn create_key_file(window: Window) -> Result<Option<String>, String> {
+    let dialog = window.dialog().file().set_parent(&window).add_filter("Key file", &["keyx"]).set_file_name("PswManager.keyx");
+    let Some(picked) = dialog.blocking_save_file() else { return Ok(None) };
+    let mut path = picked.into_path().map_err(|e| e.to_string())?;
+    if path.extension().is_none() {
+        path.set_extension("keyx");
+    }
+    if path.exists() {
+        return Err(format!("{} is already there: choose a name that is free", path.display()));
+    }
+    vault::create_key_file(&path)?;
+    Ok(Some(path.display().to_string()))
+}
+
+/// Gives the open database a new master password and / or key file, after
+/// the current master password (with the key file it has now) proved right.
+/// An empty password means none; `key_file` is the one to use from now on.
+/// A synced database's file goes up at once.
+#[tauri::command(async)]
+fn change_master_key(app: AppHandle, current: String, password: String, key_file: Option<String>) -> Result<Status, String> {
+    let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
+    let store = app.state::<Store>();
+    let known = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
+    let session = app.state::<Session>();
+    let given = (!current.is_empty()).then_some(current.as_str());
+    if !session.read(|v| v.has_key(given, known.key_file.as_deref()))?? {
+        return Err("The current master password is not right".into());
+    }
+    let key_file = key_file.map(PathBuf::from);
+    let password = (!password.is_empty()).then_some(password.as_str());
+    session.with_mut(|v| v.change_key(password, key_file.as_deref()))?;
+    let status = choose(app.clone(), |s| {
+        if let Some(d) = s.current_mut() {
+            d.key_file = key_file;
+        }
+    })?;
+    if known.remote.is_some() {
+        sync::request(&app);
+    }
+    Ok(status)
+}
+
 /// Creates a new, empty database at `file` and adds it to the list as the
 /// current one.
 #[tauri::command(async)]
@@ -1222,6 +1267,8 @@ pub fn run() {
             rename_database_file,
             history_limits_preview,
             set_history_limits,
+            create_key_file,
+            change_master_key,
             entry,
             reveal,
             entry_history,

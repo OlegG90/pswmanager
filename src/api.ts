@@ -268,6 +268,11 @@ export const api = {
   /** Where a new file goes on this PC (a save dialog); null when cancelled. */
   pickNewFile: (name: string, fresh = false) => invoke<string | null>('pick_new_file', { name, fresh }),
   pickKeyFilePath: () => invoke<string | null>('pick_key_file_path'),
+  /** Makes a new key file where the user chooses; its path, null when cancelled. */
+  createKeyFile: () => invoke<string | null>('create_key_file'),
+  /** After `current` proves right: an empty `password` means none, `keyFile` is the one from now on. */
+  changeMasterKey: (current: string, password: string, keyFile: string | null) =>
+    invoke<Status>('change_master_key', { current, password, keyFile }),
   createDatabase: (file: string, password: string, keyFile: string | null) =>
     invoke<Status>('create_database', { file, password, keyFile }),
   selectDatabase: (file: string) => invoke<Status>('select_database', { file }),

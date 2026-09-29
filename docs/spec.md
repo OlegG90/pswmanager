@@ -96,10 +96,12 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   versions used leave the file (the keepass-rs fork's `Database::remove_unused_attachments`). A limit another
   client set that the lists do not offer (no limit, say) shows as one more choice.
 - **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.
-- **Changing the master password or key file:** the current master password is asked first; the new one is
-  typed twice, with the strength indicator. A key file can be added, replaced (an existing file, or a new
-  one the app makes — KeePass's XML key file, version 2.0, which KeePassXC and Keepass2Android read — where the user chooses, never over a file already there)
-  or removed, as long as a password or a key file remains. `MasterKeyChanged` is set. The confirmation warns
+- **Changing the master password or key file** (*Change…* in *Settings → Database*, a dialog): the current
+  master password is asked first (checked with the key file the database uses now); the new one is typed
+  twice, with the strength indicator, and left empty for none. A key file can be added, replaced (an existing
+  file, or a new one the app makes — KeePass's XML key file, version 2.0, a `.keyx` which KeePassXC and
+  Keepass2Android read — where the user chooses, never over a file already there) or removed, as long as a
+  password or a key file remains. The list of databases then uses the new key file. `MasterKeyChanged` is set. The confirmation warns
   that other devices need the new key, and that the old one still opens the `.bak` files and the store's
   version history.
 - **Changing the encryption:** Argon2 memory above 256 MiB or an unlock slower than about 2 s on this PC

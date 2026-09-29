@@ -116,6 +116,22 @@ impl DbFile {
         self.write(&bytes)
     }
 
+    /// Like [DbFile::save], with `key` in place of the file's key from now on
+    /// (kept only when the file was written).
+    pub fn save_with_key(&mut self, db: &mut Database, key: DatabaseKey) -> Result<(), SaveError> {
+        let old = std::mem::replace(&mut self.key, key);
+        let saved = self.save(db);
+        if saved.is_err() {
+            self.key = old;
+        }
+        saved
+    }
+
+    /// True when the file opens with `key`.
+    pub fn has_key(&self, key: &DatabaseKey) -> bool {
+        &self.key == key
+    }
+
     /// True when the file was not read or written since `since` was taken.
     pub fn is_at(&self, since: &Snapshot) -> bool {
         self.hash == since.hash
