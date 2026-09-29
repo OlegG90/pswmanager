@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// Why a save did not happen.
 #[derive(Debug, PartialEq)]
@@ -38,7 +39,36 @@ pub struct DbFile {
     /// before a change of key, and ones the user gave for a copy that did not
     /// open. Kept in memory only, while the database is unlocked.
     other_keys: Vec<DatabaseKey>,
+    /// Counts changes to the keys above: what did not open with one set may
+    /// open with the next.
+    keys_version: u64,
+    /// Copies none of the keys opened, shared with each [Snapshot].
+    unopened: Unopened,
     hash: [u8; 32],
+}
+
+/// Copies of the database (by hash) that none of the keys opened, with the
+/// [DbFile::keys_version] they were tried with, so the same bytes are not
+/// tried again — each key derivation takes a second or more — until the keys
+/// change. The file on this PC and the remote one: two at most.
+#[derive(Clone, Default)]
+struct Unopened(Arc<Mutex<Vec<(Hash, u64)>>>);
+
+type Hash = [u8; 32];
+
+impl Unopened {
+    fn contains(&self, copy: Hash, keys_version: u64) -> bool {
+        self.0.lock().unwrap().contains(&(copy, keys_version))
+    }
+
+    fn add(&self, copy: Hash, keys_version: u64) {
+        let mut unopened = self.0.lock().unwrap();
+        unopened.retain(|&(c, v)| v == keys_version && c != copy);
+        if unopened.len() == 2 {
+            unopened.remove(0);
+        }
+        unopened.push((copy, keys_version));
+    }
 }
 
 /// Which key a copy of the database leaves the file on. The key follows the
@@ -133,7 +163,16 @@ impl DbFile {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
         let key_changed = db.meta.master_key_changed;
-        Ok((db, DbFile { path: path.to_path_buf(), key, key_changed, other_keys: Vec::new(), hash: hash(&bytes) }))
+        let file = DbFile {
+            path: path.to_path_buf(),
+            key,
+            key_changed,
+            other_keys: Vec::new(),
+            keys_version: 0,
+            unopened: Unopened::default(),
+            hash: hash(&bytes),
+        };
+        Ok((db, file))
     }
 
     /// The file as it is now, if it changed since it was last read or written
@@ -148,7 +187,14 @@ impl DbFile {
     /// can run without holding anything; see [Snapshot::read_changed].
     pub fn snapshot(&self) -> Snapshot {
         let keys = std::iter::once(&self.key).chain(&self.other_keys).cloned().collect();
-        Snapshot { path: self.path.clone(), keys, key_changed: self.key_changed, hash: self.hash }
+        Snapshot {
+            path: self.path.clone(),
+            keys,
+            key_changed: self.key_changed,
+            keys_version: self.keys_version,
+            unopened: self.unopened.clone(),
+            hash: self.hash,
+        }
     }
 
     /// Takes a file read with [Snapshot::read_changed], unless the file was
@@ -178,6 +224,7 @@ impl DbFile {
     pub fn remember_key(&mut self, key: DatabaseKey) {
         if key != self.key && !self.other_keys.contains(&key) {
             self.other_keys.push(key);
+            self.keys_version += 1;
         }
     }
 
@@ -192,6 +239,7 @@ impl DbFile {
         self.forget_key(&key);
         let old = std::mem::replace(&mut self.key, key);
         self.remember_key(old);
+        self.keys_version += 1;
     }
 
     /// Writes `db` over the file. Refuses when the file changed since it was
@@ -364,6 +412,8 @@ pub struct Snapshot {
     path: PathBuf,
     keys: Vec<DatabaseKey>,
     key_changed: Option<NaiveDateTime>,
+    keys_version: u64,
+    unopened: Unopened,
     hash: [u8; 32],
 }
 
@@ -384,14 +434,24 @@ impl Snapshot {
         if now == self.hash {
             return Ok(None);
         }
-        let (db, key_change) = self.parse(&bytes).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
+        let (db, key_change) =
+            self.parse_hashed(&bytes, now).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
         Ok(Some(Read { db, hash: now, key_change }))
     }
 
     /// Opens another copy of the database (a downloaded one) with the first
     /// key that opens it, and says which key that leaves the file on. None
-    /// opening it is [OpenError::OtherKey].
+    /// opening it is [OpenError::OtherKey]; the same bytes are then refused
+    /// at once until the keys change.
     pub fn parse(&self, bytes: &[u8]) -> Result<(Database, KeyChange), OpenError> {
+        self.parse_hashed(bytes, hash(bytes))
+    }
+
+    /// [Snapshot::parse], the hash of `bytes` known.
+    fn parse_hashed(&self, bytes: &[u8], copy: Hash) -> Result<(Database, KeyChange), OpenError> {
+        if self.unopened.contains(copy, self.keys_version) {
+            return Err(OpenError::other_key());
+        }
         for (i, key) in self.keys.iter().enumerate() {
             match Database::parse(bytes, key.clone()) {
                 Ok(db) => {
@@ -406,6 +466,7 @@ impl Snapshot {
                 Err(e) => return Err(open_error(&e).into()),
             }
         }
+        self.unopened.add(copy, self.keys_version);
         Err(OpenError::other_key())
     }
 }
@@ -658,6 +719,25 @@ pub mod tests {
 
         assert_eq!(file.save(&mut db), Err(SaveError::Changed));
         assert_eq!(fs::read(dir.path().join("t.kdbx")).unwrap(), theirs);
+    }
+
+    #[test]
+    fn a_copy_no_key_opens_is_not_tried_again_until_the_keys_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, mut file) = saved(dir.path(), &Database::new());
+        let other = DatabaseKey::new().with_password("other");
+        let mut copy = Vec::new();
+        let mut db = Database::new();
+        db.config.version = DatabaseVersion::KDB4(1);
+        db.save(&mut copy, other.clone()).unwrap();
+
+        let since = file.snapshot();
+        assert!(matches!(since.parse(&copy), Err(OpenError::OtherKey(_))));
+        assert!(since.unopened.contains(hash(&copy), since.keys_version));
+        assert!(matches!(file.snapshot().parse(&copy), Err(OpenError::OtherKey(_))));
+
+        file.remember_key(other);
+        assert!(file.snapshot().parse(&copy).is_ok());
     }
 
     #[test]
