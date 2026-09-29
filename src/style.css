@@ -1500,6 +1500,15 @@ dialog.modal .buttons {
   margin-bottom: 16px;
 }
 
+dialog.modal.change-key {
+  width: min(520px, 92vw);
+}
+
+.modal.change-key .field,
+.modal.change-key .file-row {
+  margin-bottom: 12px;
+}
+
 .modal .choices {
   display: flex;
   flex-direction: column;

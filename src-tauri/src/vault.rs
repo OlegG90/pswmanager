@@ -239,6 +239,25 @@ impl Vault {
         }
     }
 
+    /// Saves the database with a new master password and / or key file (at
+    /// least one of them), once the current ones (`current`) proved right, as
+    /// a change on the file as it is now; the time of the change is kept in the
+    /// file (KeePass's `MasterKeyChanged`).
+    pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
+        let file = self.file.as_ref().ok_or("This database cannot be saved")?;
+        if !file.has_key(&key(current.0, current.1)?) {
+            return Err("The current master password is not right".into());
+        }
+        if password.is_none() && key_file.is_none() {
+            return Err("A database needs a master password, a key file, or both".into());
+        }
+        let new = key(password, key_file)?;
+        self.change_with_key(Some(&new), |db, _| {
+            db.meta.master_key_changed = Some(keepass::db::Times::now());
+            Ok(())
+        })
+    }
+
     /// How many old versions these history limits would remove.
     pub fn versions_over_limits(&self, max_items: isize, max_size: isize) -> usize {
         edit::versions_over_limits(&self.db, max_items, max_size)
@@ -557,15 +576,29 @@ impl Vault {
     /// An untouched database does not rewrite the file (and wake the sync
     /// client). Nothing changes when saving fails.
     fn change<R>(&mut self, change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>) -> Result<R, String> {
+        self.change_with_key(None, change)
+    }
+
+    /// [Vault::change], the file written with `key` from now on when one is given.
+    fn change_with_key<R>(
+        &mut self,
+        key: Option<&DatabaseKey>,
+        change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
+    ) -> Result<R, String> {
         const ATTEMPTS: usize = 3;
         for _ in 0..ATTEMPTS {
             self.reload()?;
             let mut db = self.db.clone();
             let result = change(&mut db, &self.hidden_groups())?;
-            if db == self.db && !self.unsaved {
+            if db == self.db && !self.unsaved && key.is_none() {
                 return Ok(result);
             }
-            match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
+            let file = self.file.as_mut().ok_or("This database cannot be saved")?;
+            let saved = match key {
+                Some(key) => file.save_with_key(&mut db, key.clone()),
+                None => file.save(&mut db),
+            };
+            match saved {
                 Ok(()) => {
                     self.db = db;
                     self.unsaved = false;
@@ -763,6 +796,44 @@ fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, S
         key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
     }
     Ok(key)
+}
+
+/// Makes a new key file at `path` (never over a file already there): 32
+/// random bytes in KeePass's XML key file, version 2.0, which KeePassXC and
+/// Keepass2Android read too.
+pub fn create_key_file(path: &Path) -> Result<(), String> {
+    let mut data = Zeroizing::new([0u8; 32]);
+    getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
+    let xml = key_file_xml(&data);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("Cannot make {}: {e}", path.display()))?;
+    std::io::Write::write_all(&mut file, xml.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", path.display()))
+}
+
+/// KeePass's XML key file, version 2.0: the key in hex, in groups of four
+/// bytes, two lines of four, and the first four bytes of its SHA-256 to check
+/// it. Written straight into memory that is wiped: the hex is the key.
+fn key_file_xml(data: &[u8; 32]) -> Zeroizing<String> {
+    use sha2::Digest;
+    use std::fmt::Write;
+    // The hash checks the key, it does not reveal it.
+    let hash = crate::dbfile::hex(&sha2::Sha256::digest(data)[..4]).to_uppercase();
+    let mut xml = Zeroizing::new(String::with_capacity(400));
+    xml.push_str("<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<KeyFile>\r\n\t<Meta>\r\n\t\t<Version>2.0</Version>\r\n\t</Meta>\r\n\t<Key>\r\n");
+    let _ = write!(xml, "\t\t<Data Hash=\"{hash}\">");
+    for (i, byte) in data.iter().enumerate() {
+        if i % 16 == 0 {
+            xml.push_str("\r\n\t\t\t");
+        } else if i % 4 == 0 {
+            xml.push(' ');
+        }
+        let _ = write!(xml, "{byte:02X}");
+    }
+    xml.push_str("\r\n\t\t</Data>\r\n\t</Key>\r\n</KeyFile>\r\n");
+    xml
 }
 
 /// What a new database is made with: KDBX 4.1, AES-256, ChaCha20 for
@@ -1348,6 +1419,50 @@ pub mod tests {
         vault.save_pending().unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+    }
+
+    #[test]
+    fn a_new_master_password_opens_the_file_and_the_old_one_no_longer_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let wrong = vault.change_key((Some("nope"), None), Some("new one"), None).unwrap_err();
+        assert!(wrong.contains("not right"), "{wrong}");
+        assert!(vault.change_key((Some("test"), None), None, None).is_err(), "a database needs a key");
+
+        vault.change_key((Some("test"), None), Some("new one"), None).unwrap();
+        assert!(vault.db.meta.master_key_changed.is_some());
+        // The file's key is the new one from now on.
+        assert!(vault.change_key((Some("test"), None), Some("x"), None).is_err());
+        assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), "Wrong password or key file");
+        let reopened = Vault::open(&path, Some("new one"), None).unwrap();
+        assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
+        // The previous file, with the old key, is the backup.
+        assert!(Vault::open(&dir.path().join("sic2kdbx.kdbx.bak"), Some("test"), None).is_ok());
+    }
+
+    #[test]
+    fn a_new_key_file_alone_opens_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let key_file = dir.path().join("PswManager.keyx");
+        create_key_file(&key_file).unwrap();
+        assert!(create_key_file(&key_file).is_err(), "never over a file already there");
+
+        vault.change_key((Some("test"), None), None, Some(&key_file)).unwrap();
+        assert!(Vault::open(&path, None, Some(&key_file)).is_ok());
+        assert!(Vault::open(&path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn a_key_file_carries_the_hash_keepass_checks() {
+        let data: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let xml = key_file_xml(&data);
+        let hash = crate::dbfile::hex(&<sha2::Sha256 as sha2::Digest>::digest(data)[..4]).to_uppercase();
+        assert!(xml.contains(&format!("<Data Hash=\"{hash}\">")), "{}", xml.as_str());
+        assert!(xml.contains("00010203 04050607 08090A0B 0C0D0E0F\r\n"), "{}", xml.as_str());
+        assert!(xml.contains("<Version>2.0</Version>"));
     }
 
     #[test]

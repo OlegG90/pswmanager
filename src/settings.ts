@@ -3,6 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
 import { formatSize } from './entry-text'
 import { ask } from './modal'
+import { changeMasterKey } from './change-key'
 import { setUpSync } from './sync-setup'
 
 type Choice<T = number> = [value: T, label: string]
@@ -120,7 +121,7 @@ export async function renderSettings(
 
   /** Settings kept in the database file: saved and synced like an edit.
    *  Redrawn after each, which shows the value as saved (trimmed). */
-  function databaseGroup(d: DatabaseSettings, redraw: (d: DatabaseSettings) => void): HTMLElement {
+  function databaseGroup(d: DatabaseSettings, keyFile: string | null, redraw: (d: DatabaseSettings, status?: Status) => void): HTMLElement {
     const set = (setting: DatabaseSetting) => async (value: string) => {
       try {
         d = await api.setDatabaseSetting(setting, value)
@@ -144,6 +145,11 @@ export async function renderSettings(
       }
       redraw(d)
     }
+    /** The master password and / or key file, in a dialog; the key file shown follows. */
+    const changeKey = async () => {
+      const status = await changeMasterKey(keyFile)
+      if (status) redraw(d, status)
+    }
     return group('Database',
       row('Name', 'On the unlock screen and in the title; the file keeps its name', textField('Name', d.name, set('name'))),
       row('Description', 'Under the name on the unlock screen', textField('Description', d.description, set('description'), 2)),
@@ -153,7 +159,9 @@ export async function renderSettings(
           (n) => setLimits(n, d.historyMaxSize))),
       row('History: size per entry', 'The oldest versions go first when they are larger together',
         select('History: size per entry', d.historyMaxSize, withValue(HISTORY_SIZE, d.historyMaxSize, formatSize), '',
-          (bytes) => setLimits(d.historyMaxItems, bytes))))
+          (bytes) => setLimits(d.historyMaxItems, bytes))),
+      row('Master password and key file', keyFile ? `Key file: ${keyFile}` : 'No key file',
+        button('Change…', 'Change the master password and / or key file', changeKey)))
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
@@ -205,9 +213,9 @@ export async function renderSettings(
           toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
         row('Download site icons', 'Directly from each site, never through a third party',
           toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
-      ...(database ? [databaseGroup(database, (d) => {
+      ...(database ? [databaseGroup(database, status.keyFile, (d, next = status) => {
         database = d
-        draw(s, status)
+        draw(s, next)
       })] : []),
       group('Sync',
         row('This database', status.database ?? '', syncControl(status)),
