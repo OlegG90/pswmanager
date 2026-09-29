@@ -85,9 +85,10 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 | Master password and key file | the key | see below |
 | Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
 
-- **Renaming the database** changes its name, not its file. **Rename file…** in the list of databases renames
-  the local file (and its `.bak`), refused when a file of that name is there; a synced database keeps syncing
-  with the same remote file, whose name stays.
+- **Renaming the database** changes its name, not its file. **Rename file…** (on the choose-database screen,
+  beside *Remove from the list*, while locked) renames the local file in its folder, and its `.bak` and
+  `.remote.bak` with it; refused when a file of any of those names is there, or another database in the list
+  has it. A synced database keeps syncing with the same remote file, whose name stays.
 - **History limits:** lowering one trims every entry's history on the next save, after a confirmation that
   says how many versions go. Every save trims to the limits, so a merge does not bring trimmed versions back.
 - **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.

@@ -229,6 +229,21 @@ fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
     Ok(status)
 }
 
+/// Renames the current database's file (and its backups) in its folder;
+/// the list follows, and a synced one keeps its remote file.
+#[tauri::command(async)]
+fn rename_database_file(app: AppHandle, name: String) -> Result<Status, String> {
+    can_switch(&app)?;
+    let store = app.state::<Store>();
+    let from = store.read(|s| s.current().map(|d| d.file.clone())).ok_or("Choose a database first")?;
+    let to = dbfile::renamed(&from, &name)?;
+    if store.read(|s| s.databases.iter().any(|d| d.file != from && sync::same_file(&d.file, &to))) {
+        return Err(format!("{} is already in the list: choose another name", to.display()));
+    }
+    dbfile::rename(&from, &to)?;
+    choose(app, |s| s.rename(&from, to))
+}
+
 /// A database named on the command line (at start, or by a second launch),
 /// opened when the app may switch to it.
 fn open_from_command_line(app: &AppHandle, path: PathBuf) -> Result<(), String> {
@@ -262,18 +277,8 @@ fn save_as(app: &AppHandle, window: &Window, name: &str) -> Result<Option<PathBu
         dialog = dialog.set_directory(folder);
     }
     let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    Ok(picked.map(with_kdbx))
-}
-
-/// The dialog may hand back a name without the extension: it is added,
-/// never put in place of a dot in the name ("Work.2024").
-fn with_kdbx(path: PathBuf) -> PathBuf {
-    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
-        return path;
-    }
-    let mut name = path.into_os_string();
-    name.push(".kdbx");
-    PathBuf::from(name)
+    // The dialog may hand back a name without the extension.
+    Ok(picked.map(dbfile::with_kdbx))
 }
 
 /// Where a new database, or the local file of one opened from a cloud
@@ -491,7 +496,7 @@ fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
 fn pick_new_place(window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
     let dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
     let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    Ok(picked.map(with_kdbx))
+    Ok(picked.map(dbfile::with_kdbx))
 }
 
 /// A database file in a folder to link to; `None` when cancelled.
@@ -1188,6 +1193,7 @@ pub fn run() {
             listing,
             database_settings,
             set_database_setting,
+            rename_database_file,
             entry,
             reveal,
             entry_history,

@@ -152,6 +152,52 @@ pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// The path with `.kdbx` added unless it already ends so: added, never put
+/// in place of a dot in the name ("Work.2024").
+pub fn with_kdbx(path: PathBuf) -> PathBuf {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
+        return path;
+    }
+    let mut name = path.into_os_string();
+    name.push(".kdbx");
+    PathBuf::from(name)
+}
+
+/// What a database file keeps beside it: its previous version, and the remote
+/// file as it was before the last merge.
+const KEPT_BESIDE: [&str; 2] = [".bak", ".remote.bak"];
+
+/// Where a database file goes when renamed to `name` in its folder (`.kdbx`
+/// added when missing). A name with a folder in it is refused.
+pub fn renamed(path: &Path, name: &str) -> Result<PathBuf, String> {
+    let name = name.trim();
+    if name.is_empty() || Path::new(name).file_name() != Some(name.as_ref()) {
+        return Err("Type a file name, without a folder".into());
+    }
+    Ok(with_kdbx(path.with_file_name(name)))
+}
+
+/// Renames a database file, and the files kept beside it, within its folder.
+/// Refused when any of the new names is taken by another file (the file
+/// itself may take its own name in another case). Nothing is renamed when the
+/// file itself cannot be.
+pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
+    let pairs: Vec<(PathBuf, PathBuf)> = std::iter::once((from.to_path_buf(), to.to_path_buf()))
+        .chain(KEPT_BESIDE.iter().map(|suffix| (sibling(from, suffix), sibling(to, suffix))))
+        .collect();
+    if let Some((_, taken)) = pairs.iter().find(|(old, new)| new.exists() && !crate::sync::same_file(old, new)) {
+        return Err(format!("{} is already there: choose another name", taken.display()));
+    }
+    fs::rename(from, to).map_err(|e| format!("Cannot rename {}: {e}", from.display()))?;
+    // A backup that cannot follow stays under the old name; the database is renamed.
+    for (old, new) in &pairs[1..] {
+        if old.exists() {
+            let _ = fs::rename(old, new);
+        }
+    }
+    Ok(())
+}
+
 /// A database file as it was when the snapshot was taken, with its key.
 pub struct Snapshot {
     path: PathBuf,
@@ -292,6 +338,42 @@ pub mod tests {
         let path = dir.join("t.kdbx");
         db.save(&mut File::create(&path).unwrap(), key()).unwrap();
         DbFile::open(&path, key()).unwrap()
+    }
+
+    #[test]
+    fn a_new_name_stays_in_the_folder_and_ends_in_kdbx() {
+        let path = Path::new(r"C:\Vault\base.kdbx");
+        assert_eq!(renamed(path, " Home "), Ok(PathBuf::from(r"C:\Vault\Home.kdbx")));
+        assert_eq!(renamed(path, "Work.2024"), Ok(PathBuf::from(r"C:\Vault\Work.2024.kdbx")));
+        assert_eq!(renamed(path, "home.KDBX"), Ok(PathBuf::from(r"C:\Vault\home.KDBX")));
+        for bad in ["", "  ", r"..\up", r"D:\other.kdbx", "sub/x"] {
+            assert!(renamed(path, bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn renaming_takes_the_backups_along_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("base.kdbx"), dir.path().join("home.kdbx"));
+        for (path, text) in [(&from, "db"), (&sibling(&from, ".bak"), "bak"), (&sibling(&from, ".remote.bak"), "remote")] {
+            fs::write(path, text).unwrap();
+        }
+        rename(&from, &to).unwrap();
+        assert!(!from.exists() && !sibling(&from, ".bak").exists());
+        assert_eq!(fs::read_to_string(&to).unwrap(), "db");
+        assert_eq!(fs::read_to_string(sibling(&to, ".bak")).unwrap(), "bak");
+        assert_eq!(fs::read_to_string(sibling(&to, ".remote.bak")).unwrap(), "remote");
+
+        // A backup of that name is there: nothing moves.
+        let other = dir.path().join("other.kdbx");
+        fs::write(sibling(&other, ".bak"), "someone else's").unwrap();
+        assert!(rename(&to, &other).unwrap_err().contains("already there"));
+        assert!(to.exists() && !other.exists());
+
+        // Only the case changes: the file keeps its own name.
+        let upper = dir.path().join("Home.kdbx");
+        rename(&to, &upper).unwrap();
+        assert!(fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name() == "Home.kdbx"));
     }
 
     #[test]

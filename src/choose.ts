@@ -1,6 +1,6 @@
 import { api, type Cloud, type Status } from './api'
 import { button, el } from './dom'
-import { choose } from './modal'
+import { askText, choose } from './modal'
 import { createDatabase } from './new-database'
 
 type Source = 'new' | 'local' | 'folder' | Cloud
@@ -121,10 +121,18 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
       fail(e)
     }
   }
-  const current = status.database
+  const current = status.databases.find((d) => d.file === status.database)
+  /** Asks for the file's new name (the extension stays out of the way). */
+  const rename = async () => {
+    if (!current) return
+    const stem = current.fileName.replace(/\.kdbx$/i, '')
+    const name = await askText(`New name for ${current.fileName}, in the same folder:`, current.fileName, 'Rename', stem.length)
+    if (name !== null && name.trim() !== current.fileName) await act(() => api.renameDatabaseFile(name))()
+  }
   const remove = current
-    ? [el('p', { className: 'stop muted' }, `${status.databases.find((d) => d.file === current)?.name ?? current} is in the list. `,
-        button('Remove from the list', 'Forget this database here; its file stays where it is', act(() => api.removeDatabase(current))))]
+    ? [el('p', { className: 'stop muted' }, `${current.name} is in the list. `,
+        button('Rename file…', 'Give its file another name in the same folder; its backups and sync follow', rename),
+        button('Remove from the list', 'Forget this database here; its file stays where it is', act(() => api.removeDatabase(current.file))))]
     : []
 
   container.replaceChildren(

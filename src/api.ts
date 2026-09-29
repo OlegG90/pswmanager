@@ -268,6 +268,8 @@ export const api = {
   selectDatabase: (file: string) => invoke<Status>('select_database', { file }),
   /** Takes a database off the list; its file stays. */
   removeDatabase: (file: string) => invoke<Status>('remove_database', { file }),
+  /** Renames the current database's file (and its backups) in its folder. */
+  renameDatabaseFile: (name: string) => invoke<Status>('rename_database_file', { name }),
   syncWithFolder: () => invoke<Status>('sync_with_folder'),
   stopSync: () => invoke<Status>('stop_sync'),
   /** Links the open database to an existing remote file; false (nothing changed) when they differ and no choice was given. */
