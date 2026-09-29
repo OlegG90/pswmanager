@@ -129,6 +129,7 @@ pub struct Listing {
     pub entries: Vec<EntrySummary>,
     /// The database's own icons used by the entries, as `data:` URLs.
     pub custom_icons: BTreeMap<String, String>,
+    /// The name, description and default user name the file keeps.
     pub database: DatabaseSettings,
 }
 
@@ -220,6 +221,7 @@ impl Vault {
         Listing { entries, custom_icons, database: self.settings() }
     }
 
+    /// The settings kept in the database file, empty where it has none.
     pub fn settings(&self) -> DatabaseSettings {
         let meta = &self.db.meta;
         let text = |value: &Option<String>| value.clone().unwrap_or_default();
@@ -1312,6 +1314,22 @@ pub mod tests {
         vault.save_pending().unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+    }
+
+    #[test]
+    fn a_setting_changed_here_survives_an_older_file_coming_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        vault.set_setting(edit::Setting::Name, "Named here").unwrap();
+
+        std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
+        vault.reload().unwrap();
+        assert_eq!(vault.settings().name, "Named here");
+        assert!(vault.has_unsaved());
+        vault.save_pending().unwrap();
+        assert_eq!(Vault::open(&path, Some("test"), None).unwrap().settings().name, "Named here");
     }
 
     #[test]
