@@ -42,6 +42,10 @@ pub struct Encryption {
 
 const MIB: u64 = 1 << 20;
 
+/// What a new database gets: AES-256 and Argon2id tuned like KeePassXC's
+/// default (64 MiB), so a phone opens it in a few seconds.
+pub const DEFAULT: Encryption = Encryption { cipher: Cipher::Aes256, kdf: Kdf::Argon2id, iterations: 10, memory: 64 * MIB, parallelism: 2 };
+
 /// The encryption a database has.
 pub fn of(config: &DatabaseConfig) -> Encryption {
     let cipher = match config.outer_cipher_config {
@@ -90,17 +94,16 @@ pub fn apply(config: &mut DatabaseConfig, wanted: &Encryption) -> Result<(), Str
     Ok(())
 }
 
-/// How long unlocking a database with `wanted` takes on this PC: an empty
-/// one is written with it and opened again, the opening timed. As slow as
-/// the unlock itself (and the writing before it).
+/// How long unlocking a database with `wanted` takes on this PC: an empty one
+/// is written with it and the writing timed, which derives the key as an
+/// unlock does (the rest of an empty file takes next to nothing).
 pub fn unlock_time(wanted: &Encryption) -> Result<Duration, String> {
     let mut config = DatabaseConfig::default();
     apply(&mut config, &Encryption { cipher: Cipher::Aes256, ..wanted.clone() })?;
-    let key = DatabaseKey::new().with_password("measure");
-    let mut bytes = Vec::new();
-    Database::with_config(config).save(&mut bytes, key.clone()).map_err(|e| format!("Cannot measure: {e}"))?;
     let start = Instant::now();
-    Database::parse(&bytes, key).map_err(|e| format!("Cannot measure: {e}"))?;
+    Database::with_config(config)
+        .save(&mut Vec::new(), DatabaseKey::new().with_password("measure"))
+        .map_err(|e| format!("Cannot measure: {e}"))?;
     Ok(start.elapsed())
 }
 

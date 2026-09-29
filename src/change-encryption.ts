@@ -15,8 +15,7 @@ const ARGON2 = { iterations: 10, memory: 64 * MB, parallelism: 2 }
 const AES_KDF = { iterations: 100_000, memory: 0, parallelism: 0 }
 
 const isArgon2 = (kdf: Kdf) => kdf === 'argon2id' || kdf === 'argon2d'
-const same = (a: Encryption, b: Encryption) =>
-  a.cipher === b.cipher && a.kdf === b.kdf && a.iterations === b.iterations && a.memory === b.memory && a.parallelism === b.parallelism
+const same = (a: Encryption, b: Encryption) => (Object.keys(a) as (keyof Encryption)[]).every((k) => a[k] === b[k])
 
 /** The encryption in a few words: "AES-256 · Argon2id, 64 MB, 10 iterations, 2 threads". */
 export function describeEncryption(e: Encryption): string {
@@ -33,8 +32,9 @@ function pick<T extends string>(label: string, value: T, labels: Record<T, strin
   return el('select', { ariaLabel: label }, ...shown.map((v) => new Option(labels[v], v, false, v === value)))
 }
 
-function numberInput(label: string, value: number, max: number) {
-  return el('input', { type: 'number', ariaLabel: label, value: String(value), min: '1', max: String(max), step: '1' })
+/** A whole number from 1; its value and maximum are set as the key derivation is. */
+function numberInput(label: string) {
+  return el('input', { type: 'number', ariaLabel: label, min: '1', step: '1' })
 }
 
 /**
@@ -46,9 +46,12 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
   const cipher = pick('Cipher', now.cipher, CIPHERS, ['aes256', 'chaCha20'])
   const kdf = pick('Key derivation', now.kdf, KDFS, ['argon2id', 'argon2d', 'aes'])
   const chosen = () => kdf.value as Kdf
-  const iterations = numberInput('Iterations', now.iterations, 1_000_000_000)
-  const memory = numberInput('Memory (MB)', 1, 4096)
-  const threads = numberInput('Threads', 1, 64)
+  const iterations = numberInput('Iterations')
+  iterations.value = String(now.iterations)
+  const memory = numberInput('Memory (MB)')
+  memory.max = '4096'
+  const threads = numberInput('Threads')
+  threads.max = '64'
   /** Argon2's memory and threads from `from`, at least 1 of each. */
   const showArgon2 = (from: Encryption | typeof ARGON2) => {
     memory.value = String(Math.max(1, Math.round(from.memory / MB)))

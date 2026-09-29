@@ -846,16 +846,13 @@ fn key_file_xml(data: &[u8; 32]) -> Zeroizing<String> {
     xml
 }
 
-/// What a new database is made with: KDBX 4.1, AES-256, ChaCha20 for
-/// protected values, and Argon2id tuned like KeePassXC's default (64 MiB)
-/// so a phone opens it in a few seconds.
+/// What a new database is made with: KDBX 4.1, ChaCha20 for protected
+/// values, and [encryption::DEFAULT].
 fn new_database_config() -> keepass::config::DatabaseConfig {
-    use keepass::config::{DatabaseConfig, DatabaseVersion, KdfConfig, OuterCipherConfig};
+    use keepass::config::{DatabaseConfig, DatabaseVersion};
     let mut config = DatabaseConfig::default();
-    let KdfConfig::Argon2 { version, .. } = config.kdf_config else { unreachable!("keepass-rs defaults to Argon2") };
     config.version = DatabaseVersion::KDB4(1);
-    config.outer_cipher_config = OuterCipherConfig::AES256;
-    config.kdf_config = KdfConfig::Argon2id { iterations: 10, memory: 64 << 20, parallelism: 2, version };
+    encryption::apply(&mut config, &encryption::DEFAULT).expect("the defaults are within bounds");
     config
 }
 
