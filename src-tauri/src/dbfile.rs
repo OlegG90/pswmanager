@@ -1,6 +1,7 @@
 //! The database file on disk: opened once with its key, and saved so that the
 //! file is always either the old version or the complete new one.
 
+use chrono::NaiveDateTime;
 use keepass::config::DatabaseVersion;
 use keepass::db::{CustomIconRef, EntryRef, GroupRef, Icon};
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
@@ -30,11 +31,36 @@ impl From<String> for SaveError {
 pub struct DbFile {
     path: PathBuf,
     key: DatabaseKey,
+    /// When `key` was set (the file's `MasterKeyChanged`): a copy on another
+    /// key is weighed against it.
+    key_changed: Option<NaiveDateTime>,
     /// Other keys a copy of the database may have, tried after `key`: the one
     /// before a change of key, and ones the user gave for a copy that did not
     /// open. Kept in memory only, while the database is unlocked.
     other_keys: Vec<DatabaseKey>,
     hash: [u8; 32],
+}
+
+/// Which key a copy of the database leaves the file on. The key follows the
+/// newer `MasterKeyChanged`: a key another device changed later is taken, and
+/// one it changed earlier (an older copy) gives way to this device's.
+#[derive(Debug)]
+pub enum KeyChange {
+    /// The copy is on the file's own key.
+    Same,
+    /// Another device changed the key later: the file takes it.
+    Newer(DatabaseKey),
+    /// The copy is on an older key: the file keeps its own, and the copy is
+    /// written again with it.
+    Older,
+}
+
+impl KeyChange {
+    /// True when the copy is on an older key ([KeyChange::Older]): it comes
+    /// from before this device's change of key.
+    pub fn is_older(&self) -> bool {
+        matches!(self, KeyChange::Older)
+    }
 }
 
 /// Why a copy of the database did not open, with the message to show.
@@ -106,7 +132,8 @@ impl DbFile {
     pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), String> {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
-        Ok((db, DbFile { path: path.to_path_buf(), key, other_keys: Vec::new(), hash: hash(&bytes) }))
+        let key_changed = db.meta.master_key_changed;
+        Ok((db, DbFile { path: path.to_path_buf(), key, key_changed, other_keys: Vec::new(), hash: hash(&bytes) }))
     }
 
     /// The file as it is now, if it changed since it was last read or written
@@ -121,16 +148,29 @@ impl DbFile {
     /// can run without holding anything; see [Snapshot::read_changed].
     pub fn snapshot(&self) -> Snapshot {
         let keys = std::iter::once(&self.key).chain(&self.other_keys).cloned().collect();
-        Snapshot { path: self.path.clone(), keys, hash: self.hash }
+        Snapshot { path: self.path.clone(), keys, key_changed: self.key_changed, hash: self.hash }
     }
 
     /// Takes a file read with [Snapshot::read_changed], unless the file was
-    /// read or written again since the snapshot (then that is newer); with the
-    /// other key it opened with, if it was not the file's own.
-    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, Option<DatabaseKey>)> {
+    /// read or written again since the snapshot (then that is newer), and the
+    /// newer key when it is on one (see [KeyChange]). True when the file is
+    /// on an older key: it keeps its own, and the database is to be written
+    /// again with it.
+    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, bool)> {
         (self.hash == since.hash).then(|| {
             self.hash = read.hash;
-            (read.db, read.other_key)
+            let older = match read.key_change {
+                KeyChange::Older => true,
+                KeyChange::Newer(key) => {
+                    self.use_key(key);
+                    false
+                }
+                KeyChange::Same => false,
+            };
+            if !older {
+                self.key_changed = read.db.meta.master_key_changed;
+            }
+            (read.db, older)
         })
     }
 
@@ -148,7 +188,7 @@ impl DbFile {
 
     /// Writes the file with `key` from now on (another device's newer one),
     /// keeping the one it had among the others.
-    pub fn use_key(&mut self, key: DatabaseKey) {
+    fn use_key(&mut self, key: DatabaseKey) {
         self.forget_key(&key);
         let old = std::mem::replace(&mut self.key, key);
         self.remember_key(old);
@@ -174,6 +214,22 @@ impl DbFile {
         Ok(())
     }
 
+    /// Writes a copy of the database, parsed from `raw` with [Snapshot::parse],
+    /// over the file, with the key it leaves the file on: byte for byte when
+    /// it is on the file's own key and was not `merged` into, otherwise saved
+    /// again. True when it was saved again (the file is not `raw`).
+    pub fn save_copy(&mut self, copy: &mut Database, raw: &[u8], key_change: KeyChange, merged: bool) -> Result<bool, SaveError> {
+        match key_change {
+            KeyChange::Same if !merged => {
+                self.write(raw)?;
+                self.key_changed = copy.meta.master_key_changed;
+                Ok(false)
+            }
+            KeyChange::Same | KeyChange::Older => self.save(copy).map(|()| true),
+            KeyChange::Newer(key) => self.save_with_key(copy, key).map(|()| true),
+        }
+    }
+
     /// [DbFile::save], the file written with `key`.
     fn save_as(&mut self, db: &mut Database, key: &DatabaseKey) -> Result<(), SaveError> {
         db.config.version = DatabaseVersion::KDB4(1);
@@ -191,7 +247,9 @@ impl DbFile {
         }
         // Writing and checking takes seconds (the key is derived twice):
         // `write` looks again, so a change brought in meanwhile is not lost.
-        self.write(&bytes)
+        self.write(&bytes)?;
+        self.key_changed = db.meta.master_key_changed;
+        Ok(())
     }
 
     /// True when the file opens with `key`.
@@ -216,7 +274,7 @@ impl DbFile {
     /// Replaces the file with `bytes` — a whole database, already opened with
     /// the key — atomically, keeping the old file as `<name>.bak`, when the file
     /// did not change since it was last read or written.
-    pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
         let current = self.check_unchanged()?;
         fs::write(self.sibling(BAK), &current)
             .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))
@@ -301,10 +359,11 @@ pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// A database file as it was when the snapshot was taken, with the keys a
-/// copy of it may have: its own first.
+/// copy of it may have: its own first, set at `key_changed`.
 pub struct Snapshot {
     path: PathBuf,
     keys: Vec<DatabaseKey>,
+    key_changed: Option<NaiveDateTime>,
     hash: [u8; 32],
 }
 
@@ -312,8 +371,7 @@ pub struct Snapshot {
 pub struct Read {
     db: Database,
     hash: [u8; 32],
-    /// The key it opened with, when it was not the file's own.
-    other_key: Option<DatabaseKey>,
+    key_change: KeyChange,
 }
 
 impl Snapshot {
@@ -326,17 +384,24 @@ impl Snapshot {
         if now == self.hash {
             return Ok(None);
         }
-        let (db, other_key) = self.parse(&bytes).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
-        Ok(Some(Read { db, hash: now, other_key }))
+        let (db, key_change) = self.parse(&bytes).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
+        Ok(Some(Read { db, hash: now, key_change }))
     }
 
     /// Opens another copy of the database (a downloaded one) with the first
-    /// key that opens it; with that key when it is not the file's own. None
+    /// key that opens it, and says which key that leaves the file on. None
     /// opening it is [OpenError::OtherKey].
-    pub fn parse(&self, bytes: &[u8]) -> Result<(Database, Option<DatabaseKey>), OpenError> {
+    pub fn parse(&self, bytes: &[u8]) -> Result<(Database, KeyChange), OpenError> {
         for (i, key) in self.keys.iter().enumerate() {
             match Database::parse(bytes, key.clone()) {
-                Ok(db) => return Ok((db, (i > 0).then(|| key.clone()))),
+                Ok(db) => {
+                    let key_change = match i {
+                        0 => KeyChange::Same,
+                        _ if db.meta.master_key_changed > self.key_changed => KeyChange::Newer(key.clone()),
+                        _ => KeyChange::Older,
+                    };
+                    return Ok((db, key_change));
+                }
                 Err(DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey)) => continue,
                 Err(e) => return Err(open_error(&e).into()),
             }
