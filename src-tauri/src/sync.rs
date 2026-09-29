@@ -383,7 +383,7 @@ fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
     set_status(app, |s| *s = Status { busy, ..status });
     // After the last pass of a run: the remote file on a key this device does not know.
     if !busy {
-        crate::need_remote_key(app, matches!(result, Err(SyncError::OtherKey)));
+        crate::need_key(app, |k| k.remote = matches!(result, Err(SyncError::OtherKey)));
     }
     (result, again)
 }
@@ -465,7 +465,7 @@ pub fn status(app: &AppHandle) -> Status {
 /// Forgets the last status (after choosing another database, or stopping sync).
 pub fn reset(app: &AppHandle) {
     set_status(app, |s| *s = Status::default());
-    crate::need_remote_key(app, false);
+    crate::need_key(app, |k| k.remote = false);
 }
 
 /// An entry was created, changed or deleted: it goes up shortly.

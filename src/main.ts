@@ -1073,7 +1073,7 @@ let keyDialogShown = false
 function showKeyNeeded({ local, remote }: KeyNeeded) {
   keyNeededFor = local ? 'the file on this PC' : remote ? 'the remote file' : null
   $('key-button').hidden = !keyNeededFor
-  if (keyNeededFor) askForOtherKey()
+  askForOtherKey()
 }
 
 /** Asks for the key another device changed a copy to, in a dialog once per

@@ -45,14 +45,19 @@ use zeroize::Zeroizing;
 const CHECK_EVERY: Duration = Duration::from_secs(10);
 
 /// The unlocked database, if any. Locking drops it, and with it every
-/// decrypted value. With it, which copies need a key ([KeyNeeded]).
+/// decrypted value.
 #[derive(Default)]
-struct Session(Mutex<Option<Vault>>, Mutex<KeyNeeded>);
+struct Session(Mutex<Option<Unlocked>>);
+
+/// What there is while the database is unlocked: each unlock starts afresh.
+struct Unlocked {
+    vault: Vault,
+    key_needed: KeyNeeded,
+}
 
 /// Which copies of the unlocked database open with a key this device does not
-/// know yet (another device changed it): the window offers to enter it. Each
-/// unlock starts with none.
-#[derive(Clone, Copy, Default, Serialize)]
+/// know yet (another device changed it): the window offers to enter it.
+#[derive(Clone, Copy, Default, PartialEq, Serialize)]
 pub struct KeyNeeded {
     /// The file on this PC, replaced by another program.
     local: bool,
@@ -61,55 +66,50 @@ pub struct KeyNeeded {
 }
 
 /// Changes which copies need a key, while the database is unlocked, and tells
-/// the window: `key-needed`.
+/// the window (`key-needed`) when that changed or a copy needs one (so the
+/// window may ask again what it could not ask before).
 fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
-    if let Some(now) = app.state::<Session>().change_key_needed(change) {
+    let Some((before, now)) = app.state::<Session>().change_key_needed(change) else { return };
+    if now != before || now != KeyNeeded::default() {
         let _ = app.emit("key-needed", now);
     }
 }
 
-/// [need_key] for the remote file: whether the last sync found it on another key.
-pub fn need_remote_key(app: &AppHandle, needed: bool) {
-    need_key(app, |k| k.remote = needed);
-}
-
 impl Session {
     fn with<R>(&self, f: impl FnOnce(&Vault) -> Option<R>) -> Result<R, String> {
-        let vault = self.0.lock().unwrap();
-        let vault = vault.as_ref().ok_or("The database is locked")?;
-        f(vault).ok_or_else(|| edit::NOT_FOUND.into())
+        self.read(f)?.ok_or_else(|| edit::NOT_FOUND.into())
     }
 
     /// Like `with`, for reads that can only fail because the database is locked.
     fn read<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
-        self.0.lock().unwrap().as_ref().map(f).ok_or_else(|| "The database is locked".into())
+        self.0.lock().unwrap().as_ref().map(|u| f(&u.vault)).ok_or_else(|| "The database is locked".into())
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut Vault) -> Result<R, String>) -> Result<R, String> {
-        let mut vault = self.0.lock().unwrap();
-        f(vault.as_mut().ok_or("The database is locked")?)
+        let mut unlocked = self.0.lock().unwrap();
+        f(&mut unlocked.as_mut().ok_or("The database is locked")?.vault)
     }
 
     fn set(&self, vault: Option<Vault>) {
-        *self.0.lock().unwrap() = vault;
-        *self.1.lock().unwrap() = KeyNeeded::default();
+        *self.0.lock().unwrap() = vault.map(|vault| Unlocked { vault, key_needed: KeyNeeded::default() });
     }
 
     fn is_unlocked(&self) -> bool {
         self.0.lock().unwrap().is_some()
     }
 
+    /// None while locked.
     fn key_needed(&self) -> KeyNeeded {
-        *self.1.lock().unwrap()
+        self.0.lock().unwrap().as_ref().map(|u| u.key_needed).unwrap_or_default()
     }
 
-    /// Changes [KeyNeeded] while unlocked; what it is then, or `None` when locked.
-    fn change_key_needed(&self, change: impl FnOnce(&mut KeyNeeded)) -> Option<KeyNeeded> {
-        let vault = self.0.lock().unwrap(); // held, so a lock waits
-        vault.as_ref()?;
-        let mut needed = self.1.lock().unwrap();
-        change(&mut needed);
-        Some(*needed)
+    /// Changes [KeyNeeded] while unlocked: what it was and is, or `None` when locked.
+    fn change_key_needed(&self, change: impl FnOnce(&mut KeyNeeded)) -> Option<(KeyNeeded, KeyNeeded)> {
+        let mut unlocked = self.0.lock().unwrap();
+        let needed = &mut unlocked.as_mut()?.key_needed;
+        let before = *needed;
+        change(needed);
+        Some((before, *needed))
     }
 }
 
