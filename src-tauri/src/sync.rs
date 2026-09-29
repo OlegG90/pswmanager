@@ -324,9 +324,6 @@ pub struct Status {
     pub text: String,
     /// The last sync did not finish: offline or an error.
     pub problem: bool,
-    /// The remote file opens with a key this device does not know yet: the
-    /// window asks for it.
-    pub needs_key: bool,
 }
 
 #[derive(Default)]
@@ -382,7 +379,12 @@ fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
         f.running = go_on && f.again;
         std::mem::take(&mut f.again)
     });
-    set_status(app, |s| *s = Status { busy: go_on && again, ..status });
+    let busy = go_on && again;
+    set_status(app, |s| *s = Status { busy, ..status });
+    // After the last pass of a run: the remote file on a key this device does not know.
+    if !busy {
+        crate::need_key(app, |k| k.remote = matches!(result, Err(SyncError::OtherKey)));
+    }
     (result, again)
 }
 
@@ -438,8 +440,7 @@ fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
         Err(SyncError::OtherKey) => (format!("The file in {name} has another master password or key file"), true),
         Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
     };
-    let needs_key = matches!(result, Err(SyncError::OtherKey));
-    Status { text, problem, needs_key, ..Status::default() } // `remote` is filled in when it is shown
+    Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
 }
 
 fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
@@ -461,9 +462,10 @@ pub fn status(app: &AppHandle) -> Status {
     Status { remote, ..flags(app, |f| f.status.clone()) }
 }
 
-/// Forgets the last status (after choosing another database).
+/// Forgets the last status (after choosing another database, or stopping sync).
 pub fn reset(app: &AppHandle) {
     set_status(app, |s| *s = Status::default());
+    crate::need_key(app, |k| k.remote = false);
 }
 
 /// An entry was created, changed or deleted: it goes up shortly.

@@ -1,7 +1,7 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
@@ -159,7 +159,7 @@ function showVault(next: Listing) {
   unlockForm.hidden = true
   vault.hidden = false
   keyDialogShown = false
-  clearKeyNeeded()
+  api.keyNeeded().then(showKeyNeeded, () => {})
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
   filter = ALL
@@ -1062,38 +1062,27 @@ function showSyncStatus(status: SyncStatus) {
   line.classList.toggle('problem', status.problem && !status.busy)
   $('sync-button').hidden = !status.remote
   $<HTMLButtonElement>('sync-button').disabled = status.busy
-  if (status.busy) return
-  keyNeeded.remote = status.needsKey
-  showKeyButton()
-  if (status.needsKey) askForOtherKey(REMOTE_COPY)
 }
 
-/** The copies that open with a key this device does not know yet. */
-const REMOTE_COPY = 'the remote file'
-const LOCAL_COPY = 'the file on this PC'
-const keyNeeded = { remote: false, local: false }
+/** The copy that needs a key, as the app last said (`key-needed`); null when none does. */
+let keyNeededFor: string | null = null
 /** A key was asked for in a dialog since the unlock: that happens once, then the button stays. */
 let keyDialogShown = false
 
-function showKeyButton() {
-  $('key-button').hidden = !keyNeeded.remote && !keyNeeded.local
+/** The *Enter key…* button while a copy needs a key, and the dialog the first time. */
+function showKeyNeeded({ local, remote }: KeyNeeded) {
+  keyNeededFor = local ? 'the file on this PC' : remote ? 'the remote file' : null
+  $('key-button').hidden = !keyNeededFor
+  askForOtherKey()
 }
 
-/** No copy needs a key (unlocked afresh, or both read with the key given). */
-function clearKeyNeeded() {
-  keyNeeded.local = keyNeeded.remote = false
-  showKeyButton()
-}
-
-/** Asks for the key another device changed a copy to (`where`), in a dialog
- *  once per unlock unless `again` (the button). */
-async function askForOtherKey(where: string, again = false) {
-  if (!unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
+/** Asks for the key another device changed a copy to, in a dialog once per
+ *  unlock unless `again` (the button). */
+async function askForOtherKey(again = false) {
+  if (!keyNeededFor || !unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
   keyDialogShown = true
-  if (await enterOtherKey(where)) {
-    clearKeyNeeded() // both copies were read again with it
-    notify('Read with the key given')
-  }
+  // The app tells the window what the key given changed (`key-needed`).
+  if (await enterOtherKey(keyNeededFor)) notify('Read with the key given')
 }
 
 /** The file changed on disk and was read again: show the new state in place. */
@@ -1203,7 +1192,7 @@ $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
-$('key-button').addEventListener('click', () => askForOtherKey(keyNeeded.local ? LOCAL_COPY : REMOTE_COPY, true))
+$('key-button').addEventListener('click', () => askForOtherKey(true))
 
 /** Esc with nothing left to close: back to the tray. */
 function hideWindow() {
@@ -1341,14 +1330,8 @@ listen('locked', showLocked)
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
-// The file on this PC was replaced by one on a key this device does not know.
-listen<string>('needs-key', (e) => {
-  if (!unlocked) return
-  notify(e.payload, 10)
-  keyNeeded.local = true
-  showKeyButton()
-  askForOtherKey(LOCAL_COPY)
-})
+// A copy opens with a key this device does not know, or no longer does.
+listen<KeyNeeded>('key-needed', (e) => showKeyNeeded(e.payload))
 listen('window-shown', () => {
   if (settingsOpen || healthOpen) return
   if (unlocked) searchInput.focus()

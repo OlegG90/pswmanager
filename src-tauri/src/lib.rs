@@ -47,31 +47,69 @@ const CHECK_EVERY: Duration = Duration::from_secs(10);
 /// The unlocked database, if any. Locking drops it, and with it every
 /// decrypted value.
 #[derive(Default)]
-struct Session(Mutex<Option<Vault>>);
+struct Session(Mutex<Option<Unlocked>>);
+
+/// What there is while the database is unlocked: each unlock starts afresh.
+struct Unlocked {
+    vault: Vault,
+    key_needed: KeyNeeded,
+}
+
+/// Which copies of the unlocked database open with a key this device does not
+/// know yet (another device changed it): the window offers to enter it.
+#[derive(Clone, Copy, Default, PartialEq, Serialize)]
+pub struct KeyNeeded {
+    /// The file on this PC, replaced by another program.
+    local: bool,
+    /// The remote file, at the last sync.
+    remote: bool,
+}
+
+/// Changes which copies need a key, while the database is unlocked, and tells
+/// the window (`key-needed`) when that changed or a copy needs one (so the
+/// window may ask again what it could not ask before).
+fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
+    let Some((before, now)) = app.state::<Session>().change_key_needed(change) else { return };
+    if now != before || now != KeyNeeded::default() {
+        let _ = app.emit("key-needed", now);
+    }
+}
 
 impl Session {
     fn with<R>(&self, f: impl FnOnce(&Vault) -> Option<R>) -> Result<R, String> {
-        let vault = self.0.lock().unwrap();
-        let vault = vault.as_ref().ok_or("The database is locked")?;
-        f(vault).ok_or_else(|| edit::NOT_FOUND.into())
+        self.read(f)?.ok_or_else(|| edit::NOT_FOUND.into())
     }
 
     /// Like `with`, for reads that can only fail because the database is locked.
     fn read<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
-        self.0.lock().unwrap().as_ref().map(f).ok_or_else(|| "The database is locked".into())
+        self.0.lock().unwrap().as_ref().map(|u| f(&u.vault)).ok_or_else(|| "The database is locked".into())
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut Vault) -> Result<R, String>) -> Result<R, String> {
-        let mut vault = self.0.lock().unwrap();
-        f(vault.as_mut().ok_or("The database is locked")?)
+        let mut unlocked = self.0.lock().unwrap();
+        f(&mut unlocked.as_mut().ok_or("The database is locked")?.vault)
     }
 
     fn set(&self, vault: Option<Vault>) {
-        *self.0.lock().unwrap() = vault;
+        *self.0.lock().unwrap() = vault.map(|vault| Unlocked { vault, key_needed: KeyNeeded::default() });
     }
 
     fn is_unlocked(&self) -> bool {
         self.0.lock().unwrap().is_some()
+    }
+
+    /// None while locked.
+    fn key_needed(&self) -> KeyNeeded {
+        self.0.lock().unwrap().as_ref().map(|u| u.key_needed).unwrap_or_default()
+    }
+
+    /// Changes [KeyNeeded] while unlocked: what it was and is, or `None` when locked.
+    fn change_key_needed(&self, change: impl FnOnce(&mut KeyNeeded)) -> Option<(KeyNeeded, KeyNeeded)> {
+        let mut unlocked = self.0.lock().unwrap();
+        let needed = &mut unlocked.as_mut()?.key_needed;
+        let before = *needed;
+        change(needed);
+        Some((before, *needed))
     }
 }
 
@@ -423,6 +461,7 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
             OpenError::Other(message) => message,
         });
     }
+    need_key(&app, |k| k.local = false); // the remote file's is the sync's
     let key_taken = session.read(|v| v.uses_key(&given))??;
     choose(app, |s| {
         if let Some(d) = s.current_mut().filter(|_| key_taken) {
@@ -647,6 +686,11 @@ fn sync_status(app: AppHandle) -> sync::Status {
     sync::status(&app)
 }
 
+#[tauri::command]
+fn key_needed(session: State<Session>) -> KeyNeeded {
+    session.key_needed()
+}
+
 #[tauri::command(async)]
 fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "Key file", &[])?;
@@ -719,12 +763,11 @@ fn check_disk(app: &AppHandle) {
         // A lock meanwhile makes any error moot.
         let report = |error: OpenError| {
             if session.is_unlocked() {
-                // A file on a key this device does not know: the window asks for it.
-                let (event, message) = match error {
-                    OpenError::OtherKey(message) => ("needs-key", message),
-                    OpenError::Other(message) => ("database-error", message),
-                };
-                let _ = app.emit(event, message);
+                // A file on a key this device does not know: kept, so the window offers to enter it.
+                if let OpenError::OtherKey(_) = error {
+                    need_key(&app, |k| k.local = true);
+                }
+                let _ = app.emit("database-error", error.to_string());
             }
         };
         let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
@@ -1328,6 +1371,7 @@ pub fn run() {
             stop_sync,
             sync_now,
             sync_status,
+            key_needed,
             pick_key_file,
             clear_key_file,
             unlock,
