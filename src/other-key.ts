@@ -6,7 +6,7 @@ import { dialog } from './modal'
 /**
  * Asks, in a modal dialog, for the master password and / or key file of a
  * copy of the database that another device changed the key of (`where`: "the
- * file in Dropbox", "the file on this PC"), and reads the copy with it.
+ * remote file", "the file on this PC"), and reads both copies with it.
  * Resolves with the new status, or null when the user cancelled.
  */
 export async function enterOtherKey(where: string): Promise<Status | null> {

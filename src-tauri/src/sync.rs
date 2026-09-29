@@ -85,9 +85,12 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
-            let (theirs, other_key) = since.parse(&bytes).map_err(|e| match e {
-                _ if crate::dbfile::needs_other_key(&e) => SyncError::OtherKey,
-                _ => failed(format!("The remote copy cannot be opened: {e}")),
+            let (theirs, other_key) = since.parse(&bytes).map_err(|e| {
+                if crate::dbfile::needs_other_key(&e) {
+                    SyncError::OtherKey
+                } else {
+                    failed(format!("The remote copy cannot be opened: {e}"))
+                }
             })?;
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, other_key, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
@@ -238,10 +241,7 @@ pub fn link(
     // otherwise every sync would fail, or Keep this file would replace a
     // database with other credentials.
     if let Some(key) = key {
-        let (_, other_key) = key.parse(&bytes).map_err(|e| format!("The remote file does not open with this database's key ({e})"))?;
-        if other_key.is_some() {
-            return Err("The remote file opens only with an older key of this database".into());
-        }
+        key.parse(&bytes).map_err(|e| format!("The remote file does not open with this database's key ({e})"))?;
     }
     let (revision, synced) = if hash_hex(&bytes) == local {
         (Some(revision), Some(local))
@@ -676,6 +676,28 @@ mod tests {
         let remote = Vault::open(&s.remote.path, Some("new"), None).unwrap();
         assert!(remote.listing().entries.iter().any(|e| e.title == "Added on the phone"));
         assert!(Vault::open(&s.remote.path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn an_old_key_copy_coming_back_after_the_upload_is_merged_not_taken() {
+        let s = setup();
+        let old_copy = fs::read(&s.remote.path).unwrap();
+        s.edit_here("Mail", "from the PC");
+        s.session.with_mut(|v| v.change_key((Some("test"), None), Some("new"), None)).unwrap();
+        s.sync().unwrap(); // the new key goes up
+        // The phone, on the old key and without this device's edit, writes its copy back.
+        fs::write(&s.remote.path, &old_copy).unwrap();
+        s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
+
+        assert!(matches!(s.sync(), Ok(Outcome::Merged(_))));
+        let remote = Vault::open(&s.remote.path, Some("new"), None).unwrap();
+        assert!(remote.listing().entries.iter().any(|e| e.title == "Added on the phone"));
+        let mail = remote.listing().entries.into_iter().find(|e| e.title == "Mail").unwrap().id;
+        assert_eq!(remote.field(&mail, fields::PASSWORD).unwrap().as_str(), "from the PC");
+        let ours = s.session.read(|v| v.settings().encryption).unwrap();
+        assert_eq!(remote.settings().encryption, ours);
+        let working = s.store.read(|st| st.current.clone()).unwrap();
+        assert!(sibling(&working, crate::dbfile::REMOTE_BAK).exists(), "the remote file is kept before it is replaced");
     }
 
     #[test]

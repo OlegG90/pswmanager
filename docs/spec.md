@@ -123,7 +123,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   same way. It is asked in a dialog once per unlock (*Not now* leaves an *Enter key…* button beside the
   sync status); a key given is kept in memory only, and when the database takes it, the list takes its key
   file. A copy on an older key (it came back from before the change) is never taken byte for byte: it is
-  written again with this device's key.
+  merged like an older file coming back, takes this device's key time and the encryption that goes with the
+  key, and is written again with this device's key (a remote one kept as `.remote.bak` first).
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
   `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key follows
   `MasterKeyChanged` the same way, and the encryption goes with the key; with equal times, or none on the

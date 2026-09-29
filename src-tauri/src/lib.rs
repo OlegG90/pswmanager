@@ -401,25 +401,24 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     let key_file = key_file.map(PathBuf::from);
     let session = app.state::<Session>();
     session.with_mut(|v| v.remember_key(password, key_file.as_deref()))?;
-    let read = if app.state::<Store>().read(|s| s.remote().is_some()) {
-        sync::sync_first(&app)
-    } else {
-        session
-            .with_mut(|v| {
-                let changed = v.reload()?;
-                v.save_pending()?;
-                Ok(changed)
-            })
-            .map(|changed| changed.into_iter().for_each(|changed| show_changes(&app, changed)))
-    };
-    if let Err(e) = read {
+    // The file on this PC first (another program may have replaced it), then
+    // the remote file.
+    let read_again = session
+        .with_mut(|v| {
+            let changed = v.reload()?;
+            v.save_pending()?;
+            Ok(changed)
+        })
+        .map(|changed| changed.into_iter().for_each(|changed| show_changes(&app, changed)))
+        .and_then(|()| sync::sync_first(&app));
+    if let Err(e) = read_again {
         // A key that opened nothing is not kept.
         session.with_mut(|v| v.forget_key(password, key_file.as_deref()))?;
         return Err(if dbfile::needs_other_key(&e) { "This master password or key file does not open it either".into() } else { e });
     }
-    let taken = session.read(|v| v.uses_key(password, key_file.as_deref()))??;
+    let key_taken = session.read(|v| v.uses_key(password, key_file.as_deref()))??;
     choose(app, |s| {
-        if let Some(d) = s.current_mut().filter(|_| taken) {
+        if let Some(d) = s.current_mut().filter(|_| key_taken) {
             d.key_file = key_file;
         }
     })

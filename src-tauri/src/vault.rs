@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 /// What a copy of the database on another key does to the file's key.
 enum KeyChange {
     /// The copy is on the file's own key.
-    None,
+    Same,
     /// Another device changed the key later: the file takes it.
     Take(DatabaseKey),
     /// The copy is on an older key: the file keeps its own and is written again.
@@ -546,8 +546,11 @@ impl Vault {
                 file.use_key(key);
                 false
             }
-            KeyChange::Keep => true,
-            KeyChange::None => false,
+            KeyChange::Keep => {
+                Self::keep_our_key(&mut db, &self.db);
+                true
+            }
+            KeyChange::Same => false,
         };
         let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
         if edit::keep_newer_settings(&mut db, &self.db) || kept_entries || rewrite {
@@ -579,16 +582,22 @@ impl Vault {
         if !file.is_at(since) {
             return Ok(None);
         }
+        // A copy on an older key comes from before this device's change of key:
+        // it is merged like an older file coming back, whatever changed here.
+        let merge = merge || matches!(key_change, KeyChange::Keep);
         let kept_ours = merge && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries
+            let kept_key = matches!(key_change, KeyChange::Keep) && Self::keep_our_key(&mut theirs, &self.db);
+            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
         };
+        // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
+        let rewritten = kept_ours || !matches!(key_change, KeyChange::Same);
         let written = match key_change {
             KeyChange::Take(key) => file.save_with_key(&mut theirs, key),
             KeyChange::Keep => file.save(&mut theirs),
-            KeyChange::None if kept_ours => file.save(&mut theirs),
-            KeyChange::None => file.write(raw),
+            KeyChange::Same if kept_ours => file.save(&mut theirs),
+            KeyChange::Same => file.write(raw),
         };
         match written {
             Ok(()) => {}
@@ -598,7 +607,7 @@ impl Vault {
         let changed = changed_entries(&self.db, &theirs);
         self.db = theirs;
         self.unsaved = false;
-        Ok(Some(if kept_ours { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
+        Ok(Some(if rewritten { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
     }
 
     /// Which key a copy that opened with `other_key` (not the file's own)
@@ -607,10 +616,18 @@ impl Vault {
     /// (an older copy) gives way to this device's.
     fn key_goes_to(theirs: &Database, ours: &Database, other_key: Option<DatabaseKey>) -> KeyChange {
         match other_key {
-            None => KeyChange::None,
+            None => KeyChange::Same,
             Some(key) if theirs.meta.master_key_changed > ours.meta.master_key_changed => KeyChange::Take(key),
             Some(_) => KeyChange::Keep,
         }
+    }
+
+    /// A copy on an older key takes this device's key time, and the
+    /// encryption that goes with the key. True when it changed anything.
+    fn keep_our_key(theirs: &mut Database, ours: &Database) -> bool {
+        let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
+        theirs.meta.master_key_changed = ours.meta.master_key_changed;
+        encryption::keep_ours(theirs, ours) || older
     }
 
     /// Keeps a key the user gave for a copy that opened with no key known
