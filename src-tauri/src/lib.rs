@@ -52,7 +52,7 @@ struct Session(Mutex<Option<Vault>>, Mutex<KeyNeeded>);
 /// Which copies of the unlocked database open with a key this device does not
 /// know yet (another device changed it): the window offers to enter it. Each
 /// unlock starts with none.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Clone, Copy, Default, Serialize)]
 pub struct KeyNeeded {
     /// The file on this PC, replaced by another program.
     local: bool,
@@ -63,16 +63,9 @@ pub struct KeyNeeded {
 /// Changes which copies need a key, while the database is unlocked, and tells
 /// the window: `key-needed`.
 fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
-    let session = app.state::<Session>();
-    if !session.is_unlocked() {
-        return;
+    if let Some(now) = app.state::<Session>().change_key_needed(change) {
+        let _ = app.emit("key-needed", now);
     }
-    let now = {
-        let mut needed = session.1.lock().unwrap();
-        change(&mut needed);
-        *needed
-    };
-    let _ = app.emit("key-needed", now);
 }
 
 /// [need_key] for the remote file: whether the last sync found it on another key.
@@ -104,6 +97,19 @@ impl Session {
 
     fn is_unlocked(&self) -> bool {
         self.0.lock().unwrap().is_some()
+    }
+
+    fn key_needed(&self) -> KeyNeeded {
+        *self.1.lock().unwrap()
+    }
+
+    /// Changes [KeyNeeded] while unlocked; what it is then, or `None` when locked.
+    fn change_key_needed(&self, change: impl FnOnce(&mut KeyNeeded)) -> Option<KeyNeeded> {
+        let vault = self.0.lock().unwrap(); // held, so a lock waits
+        vault.as_ref()?;
+        let mut needed = self.1.lock().unwrap();
+        change(&mut needed);
+        Some(*needed)
     }
 }
 
@@ -682,7 +688,7 @@ fn sync_status(app: AppHandle) -> sync::Status {
 
 #[tauri::command]
 fn key_needed(session: State<Session>) -> KeyNeeded {
-    *session.1.lock().unwrap()
+    session.key_needed()
 }
 
 #[tauri::command(async)]
@@ -757,7 +763,7 @@ fn check_disk(app: &AppHandle) {
         // A lock meanwhile makes any error moot.
         let report = |error: OpenError| {
             if session.is_unlocked() {
-                // A file on a key this device does not know: the window asks for it.
+                // A file on a key this device does not know: kept, so the window offers to enter it.
                 if let OpenError::OtherKey(_) = error {
                     need_key(&app, |k| k.local = true);
                 }

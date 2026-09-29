@@ -379,9 +379,12 @@ fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
         f.running = go_on && f.again;
         std::mem::take(&mut f.again)
     });
-    set_status(app, |s| *s = Status { busy: go_on && again, ..status });
-    // The remote file on a key this device does not know: the window asks for it.
-    crate::need_remote_key(app, matches!(result, Err(SyncError::OtherKey)));
+    let busy = go_on && again;
+    set_status(app, |s| *s = Status { busy, ..status });
+    // After the last pass of a run: the remote file on a key this device does not know.
+    if !busy {
+        crate::need_remote_key(app, matches!(result, Err(SyncError::OtherKey)));
+    }
     (result, again)
 }
 
@@ -459,9 +462,10 @@ pub fn status(app: &AppHandle) -> Status {
     Status { remote, ..flags(app, |f| f.status.clone()) }
 }
 
-/// Forgets the last status (after choosing another database).
+/// Forgets the last status (after choosing another database, or stopping sync).
 pub fn reset(app: &AppHandle) {
     set_status(app, |s| *s = Status::default());
+    crate::need_remote_key(app, false);
 }
 
 /// An entry was created, changed or deleted: it goes up shortly.

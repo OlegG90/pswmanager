@@ -1064,27 +1064,25 @@ function showSyncStatus(status: SyncStatus) {
   $<HTMLButtonElement>('sync-button').disabled = status.busy
 }
 
-/** The copies that open with a key this device does not know yet, as the app keeps them. */
-const REMOTE_COPY = 'the remote file'
-const LOCAL_COPY = 'the file on this PC'
-let keyNeeded: KeyNeeded = { local: false, remote: false }
+/** The copy that needs a key, as the app last said (`key-needed`); null when none does. */
+let keyNeededFor: string | null = null
 /** A key was asked for in a dialog since the unlock: that happens once, then the button stays. */
 let keyDialogShown = false
 
 /** The *Enter key…* button while a copy needs a key, and the dialog the first time. */
-function showKeyNeeded(next: KeyNeeded) {
-  keyNeeded = next
-  $('key-button').hidden = !next.local && !next.remote
-  if (next.local || next.remote) askForOtherKey()
+function showKeyNeeded({ local, remote }: KeyNeeded) {
+  keyNeededFor = local ? 'the file on this PC' : remote ? 'the remote file' : null
+  $('key-button').hidden = !keyNeededFor
+  if (keyNeededFor) askForOtherKey()
 }
 
 /** Asks for the key another device changed a copy to, in a dialog once per
  *  unlock unless `again` (the button). */
 async function askForOtherKey(again = false) {
-  if (!unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
+  if (!keyNeededFor || !unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
   keyDialogShown = true
   // The app tells the window what the key given changed (`key-needed`).
-  if (await enterOtherKey(keyNeeded.local ? LOCAL_COPY : REMOTE_COPY)) notify('Read with the key given')
+  if (await enterOtherKey(keyNeededFor)) notify('Read with the key given')
 }
 
 /** The file changed on disk and was read again: show the new state in place. */
