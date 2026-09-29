@@ -531,10 +531,7 @@ impl Vault {
     /// again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
         let (mut db, older_key) = self.file.as_mut()?.adopt(since, read)?;
-        // Entries first: they are trimmed to the history limits of the file as it came.
-        let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
-        let kept_meta = edit::keep_our_meta(&mut db, &self.db, Taking::Adopted, older_key);
-        if kept_meta || kept_entries || older_key {
+        if edit::keep_ours(&mut db, &self.db, Taking::Adopted, older_key) {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -564,10 +561,7 @@ impl Vault {
         // A copy on an older key comes from before this device's change of key:
         // it is merged like an older file coming back, whatever changed here.
         let older = key_change.is_older();
-        let kept_ours = (merge || older) && {
-            let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
-            edit::keep_our_meta(&mut theirs, &self.db, Taking::Merged, older) || kept_entries
-        };
+        let kept_ours = (merge || older) && edit::keep_ours(&mut theirs, &self.db, Taking::Merged, older);
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
         let rewritten = match self.file_mut()?.save_copy(&mut theirs, raw, key_change, kept_ours) {
             Ok(rewritten) => rewritten,
