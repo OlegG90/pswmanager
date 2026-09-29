@@ -2,7 +2,7 @@
 //! compares both with where the last sync left them: an unchanged side takes
 //! the other's file, and when both changed they are merged.
 
-use crate::dbfile::{hash_hex, sibling};
+use crate::dbfile::{hash_hex, same_file, sibling, BAK, REMOTE_BAK};
 use crate::remote::{Remote, RemoteError};
 use crate::settings::Settings;
 use crate::store::{self, Store};
@@ -92,7 +92,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let merged = matches!(outcome, Outcome::Merged(_));
             if merged {
                 // What the upload below replaces, in case the merge got it wrong.
-                fs::write(sibling(&working, ".remote.bak"), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
+                fs::write(sibling(&working, REMOTE_BAK), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
             }
             update(store, &working, |r| {
                 r.revision = Some(revision);
@@ -170,14 +170,14 @@ pub fn is_pending(known: &store::Known) -> bool {
 /// it is downloaded to `local`, a file the user chose, which it then syncs
 /// with. A file already at `local` is kept as `<name>.bak`.
 pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -> Result<(), String> {
-    if store.read(|s| s.databases.iter().any(|d| same_file(&d.file, &local))) {
+    if store.read(|s| s.lists(&local, None)) {
         return Err(format!("{} is already in the list: choose another place", local.display()));
     }
     if matches!(&location, crate::remote::Location::Folder { path } if same_file(path, &local)) {
         return Err("The copy on this PC must be another file than the one in the folder".into());
     }
     if local.exists() {
-        fs::copy(&local, sibling(&local, ".bak")).map_err(|e| format!("Cannot keep the file that was there: {e}"))?;
+        fs::copy(&local, sibling(&local, BAK)).map_err(|e| format!("Cannot keep the file that was there: {e}"))?;
     }
     let remote = download_into(&local, location)?;
     store
@@ -245,7 +245,7 @@ pub fn link(
             Some(LinkChoice::UseRemote) => (None, Some(local)),
             // Only the local file counts as changed: the sync uploads it.
             Some(LinkChoice::KeepLocal) => {
-                fs::write(sibling(file, ".remote.bak"), &bytes).map_err(|e| format!("Cannot keep the remote copy: {e}"))?;
+                fs::write(sibling(file, REMOTE_BAK), &bytes).map_err(|e| format!("Cannot keep the remote copy: {e}"))?;
                 (Some(revision), None)
             }
         }
@@ -258,12 +258,6 @@ pub fn link(
         })
         .map_err(|e| format!("Cannot save the sync state: {e}"))?;
     Ok(true)
-}
-
-/// True when two paths name the same file as Windows sees it (letter case
-/// does not matter).
-pub fn same_file(a: &Path, b: &Path) -> bool {
-    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// Downloads the remote file into `working`; the sync state that goes with it.

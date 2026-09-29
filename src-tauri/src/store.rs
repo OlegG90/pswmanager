@@ -92,6 +92,23 @@ impl State {
         self.databases.iter_mut().find(|d| d.file == file).expect("just added")
     }
 
+    /// True when a database in the list (other than `except`'s) has the file
+    /// at `path`, in any letter case.
+    pub fn lists(&self, path: &Path, except: Option<&Path>) -> bool {
+        self.databases.iter().any(|d| Some(d.file.as_path()) != except && crate::dbfile::same_file(&d.file, path))
+    }
+
+    /// The database whose file was `from` is now at `to`; it stays current
+    /// if it was.
+    pub fn rename(&mut self, from: &Path, to: PathBuf) {
+        if let Some(known) = self.databases.iter_mut().find(|d| d.file == from) {
+            known.file = to.clone();
+        }
+        if self.current.as_deref() == Some(from) {
+            self.current = Some(to);
+        }
+    }
+
     /// Forgets `file`; the next database in the list becomes current.
     pub fn remove(&mut self, file: &Path) {
         self.databases.retain(|d| d.file != file);
@@ -267,6 +284,19 @@ mod tests {
         assert!(!fs::read_to_string(&path).unwrap().contains("\"name\""));
         store.update(|s| s.current_mut().unwrap().name = Some("Home".into())).unwrap();
         assert_eq!(Store::load(path).read(|s| s.current().unwrap().title()), "Home");
+    }
+
+    #[test]
+    fn a_renamed_file_keeps_its_place_and_sync() {
+        let mut state = State::default();
+        state.select("a.kdbx".into()).key_file = Some("a.key".into());
+        state.select("b.kdbx".into());
+        state.select("a.kdbx".into());
+        state.rename(Path::new("a.kdbx"), "home.kdbx".into());
+        assert_eq!(state.current.as_deref(), Some(Path::new("home.kdbx")));
+        let files: Vec<_> = state.databases.iter().map(|d| d.file.clone()).collect();
+        assert_eq!(files, [PathBuf::from("home.kdbx"), PathBuf::from("b.kdbx")]);
+        assert_eq!(state.current().unwrap().key_file.as_deref(), Some(Path::new("a.key")));
     }
 
     #[test]

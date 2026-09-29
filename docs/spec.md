@@ -85,9 +85,11 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 | Master password and key file | the key | see below |
 | Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
 
-- **Renaming the database** changes its name, not its file. **Rename file…** in the list of databases renames
-  the local file (and its `.bak`), refused when a file of that name is there; a synced database keeps syncing
-  with the same remote file, whose name stays.
+- **Renaming the database** changes its name, not its file. **Rename file…** (on the choose-database screen,
+  beside *Remove from the list*, while locked) renames the local file in its folder, and its `.bak` and
+  `.remote.bak` with it — all of them or none; refused when the file is missing (it is opened, or downloaded
+  again, first), when a file of any of those names is there, when another database in the list has it, or
+  when it is the remote file a folder-synced database syncs with. A synced database keeps syncing with the same remote file, whose name stays.
 - **History limits:** lowering one trims every entry's history on the next save, after a confirmation that
   says how many versions go. Every save trims to the limits, so a merge does not bring trimmed versions back.
 - **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.
@@ -387,8 +389,8 @@ working copy has changed since that sync.
   newer `LastModificationTime` wins and the other goes into its history (histories are joined); moves
   follow `LocationChanged`; an entry deleted on one side (`DeletedObjects`, or moved to the recycle bin)
   stays deleted unless the other side changed it later; new entries from both sides are kept. The window
-  lists the entries that were merged. The remote file as it was before is kept as `<name>.remote.bak` in the
-  data folder (the clouds also keep their own version history).
+  lists the entries that were merged. The remote file as it was before is kept as `<name>.kdbx.remote.bak`
+  beside the database's file (the clouds also keep their own version history).
 - **Upload is conditional:** it succeeds only if the remote file is still at the revision the decision was
   made on (Dropbox `update` mode with `rev`, OneDrive `If-Match`; Google Drive: the revision is checked
   right before the upload; a LAN file: its hash is checked before the rename). Otherwise the sync starts
@@ -446,7 +448,7 @@ store sets it up too):
 - **Link to an existing remote file**: pick a file in the store. When it and the local file differ, the
   app asks what to do: **Merge both** (the usual KeePass merge, then upload), **Use the remote file** (it
   replaces the local file; the local one is kept as `<name>.kdbx.bak`), or **Keep the local file** (it
-  replaces the remote file; the remote one is kept as `<name>.remote.bak`). Linking never happens
+  replaces the remote file; the remote one is kept as `<name>.kdbx.remote.bak`). Linking never happens
   silently.
 - **Stop syncing**: the database stays where it is, as a plain local file; the remote file is left alone.
   Refused while the local file has changes the remote file lacks — unlocking syncs them first.

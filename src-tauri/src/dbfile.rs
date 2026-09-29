@@ -132,7 +132,7 @@ impl DbFile {
     /// did not change since it was last read or written.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
         let current = self.check_unchanged()?;
-        fs::write(self.sibling(".bak"), &current)
+        fs::write(self.sibling(BAK), &current)
             .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))
             .map_err(|e| SaveError::Failed(format!("Cannot save the database: {e}")))?;
         self.hash = hash(bytes);
@@ -150,6 +150,68 @@ pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(suffix);
     path.with_file_name(name)
+}
+
+/// True when two paths name the same file as Windows sees it (letter case
+/// does not matter).
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+
+/// The path with `.kdbx` added unless it already ends so: added, never put
+/// in place of a dot in the name ("Work.2024").
+pub fn with_kdbx(path: PathBuf) -> PathBuf {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kdbx")) {
+        return path;
+    }
+    let mut name = path.into_os_string();
+    name.push(".kdbx");
+    PathBuf::from(name)
+}
+
+/// Beside a database file: its previous version, kept before each save.
+pub const BAK: &str = ".bak";
+/// Beside a synced database's file: the remote file as it was before the
+/// last merge (or before linking replaced it).
+pub const REMOTE_BAK: &str = ".remote.bak";
+/// What moves with a database file: itself (no suffix) and what it keeps beside it.
+const MOVES_TOGETHER: [&str; 3] = ["", BAK, REMOTE_BAK];
+
+/// Where a database file goes when renamed to `name` in its folder (`.kdbx`
+/// added when missing). A name with a folder in it is refused.
+pub fn renamed(path: &Path, name: &str) -> Result<PathBuf, String> {
+    let name = name.trim();
+    if name.is_empty() || Path::new(name).file_name() != Some(name.as_ref()) {
+        return Err("Type a file name, without a folder".into());
+    }
+    Ok(with_kdbx(path.with_file_name(name)))
+}
+
+/// Renames a database file, and the files kept beside it, within its folder:
+/// all of them or, when one cannot be renamed, none. Refused when the file is
+/// missing, or any of the new names is taken by another file (the file itself
+/// may take its own name in another case).
+pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.is_file() {
+        return Err(format!("{} is not on this PC: open the database first (a synced one is downloaded again)", from.display()));
+    }
+    let pairs: Vec<(PathBuf, PathBuf)> = MOVES_TOGETHER
+        .iter()
+        .map(|suffix| (sibling(from, suffix), sibling(to, suffix)))
+        .filter(|(old, _)| old.exists())
+        .collect();
+    if let Some((_, taken)) = pairs.iter().find(|(old, new)| new.exists() && !same_file(old, new)) {
+        return Err(format!("{} is already there: choose another name", taken.display()));
+    }
+    for (done, (old, new)) in pairs.iter().enumerate() {
+        if let Err(e) = fs::rename(old, new) {
+            for (old, new) in &pairs[..done] {
+                let _ = fs::rename(new, old);
+            }
+            return Err(format!("Cannot rename {}: {e}", old.display()));
+        }
+    }
+    Ok(())
 }
 
 /// A database file as it was when the snapshot was taken, with its key.
@@ -292,6 +354,63 @@ pub mod tests {
         let path = dir.join("t.kdbx");
         db.save(&mut File::create(&path).unwrap(), key()).unwrap();
         DbFile::open(&path, key()).unwrap()
+    }
+
+    #[test]
+    fn a_new_name_stays_in_the_folder_and_ends_in_kdbx() {
+        let path = Path::new(r"C:\Vault\base.kdbx");
+        assert_eq!(renamed(path, " Home "), Ok(PathBuf::from(r"C:\Vault\Home.kdbx")));
+        assert_eq!(renamed(path, "Work.2024"), Ok(PathBuf::from(r"C:\Vault\Work.2024.kdbx")));
+        assert_eq!(renamed(path, "home.KDBX"), Ok(PathBuf::from(r"C:\Vault\home.KDBX")));
+        for bad in ["", "  ", r"..\up", r"D:\other.kdbx", "sub/x"] {
+            assert!(renamed(path, bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn renaming_takes_the_backups_along_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("base.kdbx"), dir.path().join("home.kdbx"));
+        for (path, text) in [(&from, "db"), (&sibling(&from, BAK), "bak"), (&sibling(&from, REMOTE_BAK), "remote")] {
+            fs::write(path, text).unwrap();
+        }
+        rename(&from, &to).unwrap();
+        assert!(!from.exists() && !sibling(&from, BAK).exists());
+        assert_eq!(fs::read_to_string(&to).unwrap(), "db");
+        assert_eq!(fs::read_to_string(sibling(&to, BAK)).unwrap(), "bak");
+        assert_eq!(fs::read_to_string(sibling(&to, REMOTE_BAK)).unwrap(), "remote");
+
+        // A backup of that name is there: nothing moves.
+        let other = dir.path().join("other.kdbx");
+        fs::write(sibling(&other, BAK), "someone else's").unwrap();
+        assert!(rename(&to, &other).unwrap_err().contains("already there"));
+        assert!(to.exists() && !other.exists());
+
+        // Only the case changes: the file keeps its own name.
+        let upper = dir.path().join("Home.kdbx");
+        rename(&to, &upper).unwrap();
+        assert!(fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name() == "Home.kdbx"));
+    }
+
+    #[test]
+    fn a_missing_file_is_not_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = rename(&dir.path().join("gone.kdbx"), &dir.path().join("new.kdbx")).unwrap_err();
+        assert!(err.contains("not on this PC"), "{err}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn when_a_backup_cannot_follow_nothing_is_renamed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("base.kdbx"), dir.path().join("home.kdbx"));
+        fs::write(&from, "db").unwrap();
+        fs::write(sibling(&from, BAK), "bak").unwrap();
+        // Held open without sharing: Windows refuses to rename it.
+        let _held = fs::OpenOptions::new().read(true).share_mode(0).open(sibling(&from, BAK)).unwrap();
+        assert!(rename(&from, &to).unwrap_err().contains("Cannot rename"));
+        assert!(from.exists() && !to.exists());
     }
 
     #[test]
