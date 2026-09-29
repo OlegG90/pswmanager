@@ -876,28 +876,36 @@ input[type='range']:focus-visible {
   border-color: var(--color-accent);
 }
 
-/* Under the title up to four small lines: where it is and its tags, the
-   expiry, when it changed, History. The heading always takes room for all of
-   them, so the fields below start at the same place for every entry. */
+/* The title and the small lines under it, at fixed heights so the room they
+   take can be counted below. */
 #detail .heading {
   --title-line: 31px;
-  --small-line: 16px;
+  --small-line: 17px;
+  --small-gap: 2px;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--small-gap);
   min-width: 0;
-  min-height: calc(var(--title-line) + 4 * (var(--small-line) + 2px) + 2px);
+}
+
+/* An entry's heading (with its icon; also its older versions and history) has
+   up to four small lines under the title: where it is and its tags, the
+   expiry, when it changed, History (with its own gap above). It always takes
+   room for all of them, so the fields below start at the same place for every
+   entry. A title that wraps still takes more. */
+#detail > header:has(> .icon) .heading {
+  min-height: calc(var(--title-line) + 4 * (var(--small-gap) + var(--small-line)) + var(--small-gap));
 }
 
 #detail h2 {
   margin: 0;
   font-size: 26px;
-  line-height: var(--title-line);
   overflow-wrap: anywhere;
 }
 
-#detail .heading {
-  flex: 1;
+#detail .heading h2 {
+  line-height: var(--title-line);
 }
 
 #detail .meta,
@@ -930,7 +938,6 @@ button.star[aria-pressed='true'] {
 }
 
 #detail > header button.star {
-  align-self: flex-start;
   font-size: 24px;
 }
 
@@ -1007,7 +1014,7 @@ button.star[aria-pressed='true'] {
 /* History: a quiet link under the title, the versions as a list. */
 #detail .heading button.history {
   align-self: flex-start;
-  margin-top: 2px;
+  margin-top: var(--small-gap);
   padding: 0;
   border: 0;
   background: none;
