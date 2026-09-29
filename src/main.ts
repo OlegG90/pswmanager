@@ -5,7 +5,7 @@ import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type Database
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
-import { ask, askText, choose, isAsking } from './modal'
+import { ask, askText, beforeExtension, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
@@ -965,9 +965,7 @@ async function replaceAttachment(name: string) {
 async function renameAttachment(name: string) {
   const entry = current
   if (!entry || isEditing()) return
-  // The name without its extension is selected, as Explorer does.
-  const dot = name.lastIndexOf('.')
-  const to = await askText(`Rename "${name}" to:`, name, 'Rename', dot > 0 ? dot : name.length)
+  const to = await askText(`Rename "${name}" to:`, name, 'Rename', beforeExtension(name))
   if (to === null || to.trim() === name || selectedId !== entry.id) return
   try {
     const renamed = await api.renameAttachment(entry.id, name, to)

@@ -238,10 +238,10 @@ fn rename_database_file(app: AppHandle, name: String) -> Result<Status, String> 
     let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
     let from = current.file;
     let to = dbfile::renamed(&from, &name)?;
-    if store.read(|s| s.databases.iter().any(|d| d.file != from && sync::same_file(&d.file, &to))) {
+    if store.read(|s| s.lists(&to, Some(&from))) {
         return Err(format!("{} is already in the list: choose another name", to.display()));
     }
-    if matches!(current.remote.map(|r| r.location), Some(remote::Location::Folder { path }) if sync::same_file(&path, &to)) {
+    if matches!(current.remote.map(|r| r.location), Some(remote::Location::Folder { path }) if dbfile::same_file(&path, &to)) {
         return Err("That is the remote file this database syncs with: choose another name".into());
     }
     dbfile::rename(&from, &to)?;
@@ -466,7 +466,7 @@ fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::LinkCh
     let file = unsynced_database(&store)?;
     let location = target.location();
     if let remote::Location::Folder { path } = &location {
-        if store.read(|s| s.databases.iter().any(|d| sync::same_file(&d.file, path))) {
+        if store.read(|s| s.lists(path, None)) {
             return Err("That file is a database in the list: link to a file of its own".into());
         }
     }

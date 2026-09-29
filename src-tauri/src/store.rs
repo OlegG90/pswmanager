@@ -92,6 +92,12 @@ impl State {
         self.databases.iter_mut().find(|d| d.file == file).expect("just added")
     }
 
+    /// True when a database in the list (other than `except`'s) has the file
+    /// at `path`, in any letter case.
+    pub fn lists(&self, path: &Path, except: Option<&Path>) -> bool {
+        self.databases.iter().any(|d| Some(d.file.as_path()) != except && crate::dbfile::same_file(&d.file, path))
+    }
+
     /// The database whose file was `from` is now at `to`; it stays current
     /// if it was.
     pub fn rename(&mut self, from: &Path, to: PathBuf) {

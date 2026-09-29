@@ -152,6 +152,12 @@ pub fn sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// True when two paths name the same file as Windows sees it (letter case
+/// does not matter).
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+
 /// The path with `.kdbx` added unless it already ends so: added, never put
 /// in place of a dot in the name ("Work.2024").
 pub fn with_kdbx(path: PathBuf) -> PathBuf {
@@ -168,8 +174,8 @@ pub const BAK: &str = ".bak";
 /// Beside a synced database's file: the remote file as it was before the
 /// last merge (or before linking replaced it).
 pub const REMOTE_BAK: &str = ".remote.bak";
-/// What a database file keeps beside it, which goes where it goes.
-const KEPT_BESIDE: [&str; 2] = [BAK, REMOTE_BAK];
+/// What moves with a database file: itself (no suffix) and what it keeps beside it.
+const MOVES_TOGETHER: [&str; 3] = ["", BAK, REMOTE_BAK];
 
 /// Where a database file goes when renamed to `name` in its folder (`.kdbx`
 /// added when missing). A name with a folder in it is refused.
@@ -189,10 +195,12 @@ pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
     if !from.is_file() {
         return Err(format!("{} is not on this PC: open the database first (a synced one is downloaded again)", from.display()));
     }
-    let beside = KEPT_BESIDE.iter().map(|suffix| (sibling(from, suffix), sibling(to, suffix)));
-    let pairs: Vec<(PathBuf, PathBuf)> =
-        std::iter::once((from.to_path_buf(), to.to_path_buf())).chain(beside.filter(|(old, _)| old.exists())).collect();
-    if let Some((_, taken)) = pairs.iter().find(|(old, new)| new.exists() && !crate::sync::same_file(old, new)) {
+    let pairs: Vec<(PathBuf, PathBuf)> = MOVES_TOGETHER
+        .iter()
+        .map(|suffix| (sibling(from, suffix), sibling(to, suffix)))
+        .filter(|(old, _)| old.exists())
+        .collect();
+    if let Some((_, taken)) = pairs.iter().find(|(old, new)| new.exists() && !same_file(old, new)) {
         return Err(format!("{} is already there: choose another name", taken.display()));
     }
     for (done, (old, new)) in pairs.iter().enumerate() {
@@ -363,18 +371,18 @@ pub mod tests {
     fn renaming_takes_the_backups_along_and_never_overwrites() {
         let dir = tempfile::tempdir().unwrap();
         let (from, to) = (dir.path().join("base.kdbx"), dir.path().join("home.kdbx"));
-        for (path, text) in [(&from, "db"), (&sibling(&from, ".bak"), "bak"), (&sibling(&from, ".remote.bak"), "remote")] {
+        for (path, text) in [(&from, "db"), (&sibling(&from, BAK), "bak"), (&sibling(&from, REMOTE_BAK), "remote")] {
             fs::write(path, text).unwrap();
         }
         rename(&from, &to).unwrap();
-        assert!(!from.exists() && !sibling(&from, ".bak").exists());
+        assert!(!from.exists() && !sibling(&from, BAK).exists());
         assert_eq!(fs::read_to_string(&to).unwrap(), "db");
-        assert_eq!(fs::read_to_string(sibling(&to, ".bak")).unwrap(), "bak");
-        assert_eq!(fs::read_to_string(sibling(&to, ".remote.bak")).unwrap(), "remote");
+        assert_eq!(fs::read_to_string(sibling(&to, BAK)).unwrap(), "bak");
+        assert_eq!(fs::read_to_string(sibling(&to, REMOTE_BAK)).unwrap(), "remote");
 
         // A backup of that name is there: nothing moves.
         let other = dir.path().join("other.kdbx");
-        fs::write(sibling(&other, ".bak"), "someone else's").unwrap();
+        fs::write(sibling(&other, BAK), "someone else's").unwrap();
         assert!(rename(&to, &other).unwrap_err().contains("already there"));
         assert!(to.exists() && !other.exists());
 

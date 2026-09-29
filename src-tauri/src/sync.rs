@@ -2,7 +2,7 @@
 //! compares both with where the last sync left them: an unchanged side takes
 //! the other's file, and when both changed they are merged.
 
-use crate::dbfile::{hash_hex, sibling, BAK, REMOTE_BAK};
+use crate::dbfile::{hash_hex, same_file, sibling, BAK, REMOTE_BAK};
 use crate::remote::{Remote, RemoteError};
 use crate::settings::Settings;
 use crate::store::{self, Store};
@@ -170,7 +170,7 @@ pub fn is_pending(known: &store::Known) -> bool {
 /// it is downloaded to `local`, a file the user chose, which it then syncs
 /// with. A file already at `local` is kept as `<name>.bak`.
 pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -> Result<(), String> {
-    if store.read(|s| s.databases.iter().any(|d| same_file(&d.file, &local))) {
+    if store.read(|s| s.lists(&local, None)) {
         return Err(format!("{} is already in the list: choose another place", local.display()));
     }
     if matches!(&location, crate::remote::Location::Folder { path } if same_file(path, &local)) {
@@ -258,12 +258,6 @@ pub fn link(
         })
         .map_err(|e| format!("Cannot save the sync state: {e}"))?;
     Ok(true)
-}
-
-/// True when two paths name the same file as Windows sees it (letter case
-/// does not matter).
-pub fn same_file(a: &Path, b: &Path) -> bool {
-    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// Downloads the remote file into `working`; the sync state that goes with it.

@@ -1,6 +1,6 @@
 import { api, type Cloud, type Status } from './api'
 import { button, el } from './dom'
-import { askText, choose } from './modal'
+import { askText, beforeExtension, choose } from './modal'
 import { createDatabase } from './new-database'
 
 type Source = 'new' | 'local' | 'folder' | Cloud
@@ -122,11 +122,11 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     }
   }
   const current = status.databases.find((d) => d.file === status.database)
-  /** Asks for the file's new name, with the part before `.kdbx` selected. */
+  /** Asks for the file's new name, the part before the extension selected. */
   const rename = async () => {
     if (!current) return
-    const stem = current.fileName.replace(/\.kdbx$/i, '')
-    const name = await askText(`New name for ${current.fileName}, in the same folder:`, current.fileName, 'Rename', stem.length)
+    const { fileName } = current
+    const name = await askText(`New name for ${fileName}, in the same folder:`, fileName, 'Rename', beforeExtension(fileName))
     if (name !== null && name.trim() !== current.fileName) await act(() => api.renameDatabaseFile(name))()
   }
   const remove = current
