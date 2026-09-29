@@ -132,7 +132,7 @@ impl DbFile {
     /// did not change since it was last read or written.
     pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
         let current = self.check_unchanged()?;
-        fs::write(self.sibling(".bak"), &current)
+        fs::write(self.sibling(BAK), &current)
             .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))
             .map_err(|e| SaveError::Failed(format!("Cannot save the database: {e}")))?;
         self.hash = hash(bytes);
@@ -163,9 +163,13 @@ pub fn with_kdbx(path: PathBuf) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// What a database file keeps beside it: its previous version, and the remote
-/// file as it was before the last merge.
-const KEPT_BESIDE: [&str; 2] = [".bak", ".remote.bak"];
+/// Beside a database file: its previous version, kept before each save.
+pub const BAK: &str = ".bak";
+/// Beside a synced database's file: the remote file as it was before the
+/// last merge (or before linking replaced it).
+pub const REMOTE_BAK: &str = ".remote.bak";
+/// What a database file keeps beside it, which goes where it goes.
+const KEPT_BESIDE: [&str; 2] = [BAK, REMOTE_BAK];
 
 /// Where a database file goes when renamed to `name` in its folder (`.kdbx`
 /// added when missing). A name with a folder in it is refused.
@@ -177,22 +181,26 @@ pub fn renamed(path: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(with_kdbx(path.with_file_name(name)))
 }
 
-/// Renames a database file, and the files kept beside it, within its folder.
-/// Refused when any of the new names is taken by another file (the file
-/// itself may take its own name in another case). Nothing is renamed when the
-/// file itself cannot be.
+/// Renames a database file, and the files kept beside it, within its folder:
+/// all of them or, when one cannot be renamed, none. Refused when the file is
+/// missing, or any of the new names is taken by another file (the file itself
+/// may take its own name in another case).
 pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
-    let pairs: Vec<(PathBuf, PathBuf)> = std::iter::once((from.to_path_buf(), to.to_path_buf()))
-        .chain(KEPT_BESIDE.iter().map(|suffix| (sibling(from, suffix), sibling(to, suffix))))
-        .collect();
+    if !from.is_file() {
+        return Err(format!("{} is not on this PC: open the database first (a synced one is downloaded again)", from.display()));
+    }
+    let beside = KEPT_BESIDE.iter().map(|suffix| (sibling(from, suffix), sibling(to, suffix)));
+    let pairs: Vec<(PathBuf, PathBuf)> =
+        std::iter::once((from.to_path_buf(), to.to_path_buf())).chain(beside.filter(|(old, _)| old.exists())).collect();
     if let Some((_, taken)) = pairs.iter().find(|(old, new)| new.exists() && !crate::sync::same_file(old, new)) {
         return Err(format!("{} is already there: choose another name", taken.display()));
     }
-    fs::rename(from, to).map_err(|e| format!("Cannot rename {}: {e}", from.display()))?;
-    // A backup that cannot follow stays under the old name; the database is renamed.
-    for (old, new) in &pairs[1..] {
-        if old.exists() {
-            let _ = fs::rename(old, new);
+    for (done, (old, new)) in pairs.iter().enumerate() {
+        if let Err(e) = fs::rename(old, new) {
+            for (old, new) in &pairs[..done] {
+                let _ = fs::rename(new, old);
+            }
+            return Err(format!("Cannot rename {}: {e}", old.display()));
         }
     }
     Ok(())
@@ -374,6 +382,27 @@ pub mod tests {
         let upper = dir.path().join("Home.kdbx");
         rename(&to, &upper).unwrap();
         assert!(fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name() == "Home.kdbx"));
+    }
+
+    #[test]
+    fn a_missing_file_is_not_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = rename(&dir.path().join("gone.kdbx"), &dir.path().join("new.kdbx")).unwrap_err();
+        assert!(err.contains("not on this PC"), "{err}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn when_a_backup_cannot_follow_nothing_is_renamed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("base.kdbx"), dir.path().join("home.kdbx"));
+        fs::write(&from, "db").unwrap();
+        fs::write(sibling(&from, BAK), "bak").unwrap();
+        // Held open without sharing: Windows refuses to rename it.
+        let _held = fs::OpenOptions::new().read(true).share_mode(0).open(sibling(&from, BAK)).unwrap();
+        assert!(rename(&from, &to).unwrap_err().contains("Cannot rename"));
+        assert!(from.exists() && !to.exists());
     }
 
     #[test]

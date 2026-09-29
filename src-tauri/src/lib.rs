@@ -235,13 +235,20 @@ fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
 fn rename_database_file(app: AppHandle, name: String) -> Result<Status, String> {
     can_switch(&app)?;
     let store = app.state::<Store>();
-    let from = store.read(|s| s.current().map(|d| d.file.clone())).ok_or("Choose a database first")?;
+    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
+    let from = current.file;
     let to = dbfile::renamed(&from, &name)?;
     if store.read(|s| s.databases.iter().any(|d| d.file != from && sync::same_file(&d.file, &to))) {
         return Err(format!("{} is already in the list: choose another name", to.display()));
     }
+    if matches!(current.remote.map(|r| r.location), Some(remote::Location::Folder { path }) if sync::same_file(&path, &to)) {
+        return Err("That is the remote file this database syncs with: choose another name".into());
+    }
     dbfile::rename(&from, &to)?;
-    choose(app, |s| s.rename(&from, to))
+    choose(app, |s| s.rename(&from, to.clone())).inspect_err(|_| {
+        // The list could not follow: the files go back to the name it has.
+        let _ = dbfile::rename(&to, &from);
+    })
 }
 
 /// A database named on the command line (at start, or by a second launch),

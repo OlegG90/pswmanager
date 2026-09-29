@@ -122,7 +122,7 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     }
   }
   const current = status.databases.find((d) => d.file === status.database)
-  /** Asks for the file's new name (the extension stays out of the way). */
+  /** Asks for the file's new name, with the part before `.kdbx` selected. */
   const rename = async () => {
     if (!current) return
     const stem = current.fileName.replace(/\.kdbx$/i, '')

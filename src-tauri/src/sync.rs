@@ -2,7 +2,7 @@
 //! compares both with where the last sync left them: an unchanged side takes
 //! the other's file, and when both changed they are merged.
 
-use crate::dbfile::{hash_hex, sibling};
+use crate::dbfile::{hash_hex, sibling, BAK, REMOTE_BAK};
 use crate::remote::{Remote, RemoteError};
 use crate::settings::Settings;
 use crate::store::{self, Store};
@@ -92,7 +92,7 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             let merged = matches!(outcome, Outcome::Merged(_));
             if merged {
                 // What the upload below replaces, in case the merge got it wrong.
-                fs::write(sibling(&working, ".remote.bak"), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
+                fs::write(sibling(&working, REMOTE_BAK), &bytes).map_err(|e| failed(format!("Cannot keep the remote copy: {e}")))?;
             }
             update(store, &working, |r| {
                 r.revision = Some(revision);
@@ -177,7 +177,7 @@ pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -
         return Err("The copy on this PC must be another file than the one in the folder".into());
     }
     if local.exists() {
-        fs::copy(&local, sibling(&local, ".bak")).map_err(|e| format!("Cannot keep the file that was there: {e}"))?;
+        fs::copy(&local, sibling(&local, BAK)).map_err(|e| format!("Cannot keep the file that was there: {e}"))?;
     }
     let remote = download_into(&local, location)?;
     store
@@ -245,7 +245,7 @@ pub fn link(
             Some(LinkChoice::UseRemote) => (None, Some(local)),
             // Only the local file counts as changed: the sync uploads it.
             Some(LinkChoice::KeepLocal) => {
-                fs::write(sibling(file, ".remote.bak"), &bytes).map_err(|e| format!("Cannot keep the remote copy: {e}"))?;
+                fs::write(sibling(file, REMOTE_BAK), &bytes).map_err(|e| format!("Cannot keep the remote copy: {e}"))?;
                 (Some(revision), None)
             }
         }
