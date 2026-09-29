@@ -633,6 +633,20 @@ mod tests {
     }
 
     #[test]
+    fn encryption_changed_here_is_kept_in_a_merge() {
+        use crate::encryption::{Cipher, Encryption, Kdf};
+        let s = setup();
+        let wanted = Encryption { cipher: Cipher::ChaCha20, kdf: Kdf::Argon2id, iterations: 2, memory: 8 << 20, parallelism: 1 };
+        s.session.with_mut(|v| v.set_encryption(&wanted)).unwrap();
+        s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
+        // Nothing else changed here: the encryption alone makes it a merge.
+        assert!(matches!(s.sync(), Ok(Outcome::Merged(_))));
+        let remote = Vault::open(&s.remote.path, Some("test"), None).unwrap();
+        assert_eq!(remote.settings().encryption, wanted);
+        assert!(s.remote_titles().contains(&"Added on the phone".to_string()));
+    }
+
+    #[test]
     fn an_upload_over_a_file_changed_meanwhile_merges_first() {
         /// Another device uploads between this device's check and its upload.
         struct Racing<'a>(&'a Setup, Mutex<bool>);

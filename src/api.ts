@@ -36,6 +36,23 @@ export interface DatabaseSettings {
   historyMaxItems: number
   /** Bytes of old versions kept per entry; -1 for no limit. */
   historyMaxSize: number
+  encryption: Encryption
+}
+
+/** `other`: one the app keeps as it is but does not offer (Twofish, say). */
+export type Cipher = 'aes256' | 'chaCha20' | 'other'
+export type Kdf = 'argon2id' | 'argon2d' | 'aesKdf' | 'other'
+
+/** The file's cipher and key derivation. */
+export interface Encryption {
+  cipher: Cipher
+  kdf: Kdf
+  /** Argon2's iterations, or AES-KDF's rounds. */
+  iterations: number
+  /** Argon2 only: bytes. */
+  memory: number
+  /** Argon2 only: threads. */
+  parallelism: number
 }
 
 /** The settings of the database file set one at a time, as text. */
@@ -268,6 +285,10 @@ export const api = {
   /** Where a new file goes on this PC (a save dialog); null when cancelled. */
   pickNewFile: (name: string, fresh = false) => invoke<string | null>('pick_new_file', { name, fresh }),
   pickKeyFilePath: () => invoke<string | null>('pick_key_file_path'),
+  /** Milliseconds an unlock takes on this PC with `encryption` (as slow as one). */
+  encryptionUnlockTime: (encryption: Encryption) => invoke<number>('encryption_unlock_time', { encryption }),
+  /** Saved and synced like an edit. */
+  setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
   /** Makes a new key file where the user chooses; its path, null when cancelled. */
   createKeyFile: () => invoke<string | null>('create_key_file'),
   /** After `current` proves right: an empty `password` means none, `keyFile` is the one from now on. */

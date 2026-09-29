@@ -8,6 +8,7 @@ mod dropbox;
 mod google;
 mod onedrive;
 mod edit;
+mod encryption;
 mod file_watch;
 mod generator;
 mod health;
@@ -323,6 +324,25 @@ fn pick_new_file(app: AppHandle, window: Window, name: String, fresh: bool) -> R
 #[tauri::command(async)]
 fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
     Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
+}
+
+/// How long unlocking takes on this PC with this encryption, in
+/// milliseconds; as slow as an unlock.
+#[tauri::command(async)]
+fn encryption_unlock_time(encryption: encryption::Encryption) -> Result<u64, String> {
+    encryption::unlock_time(&encryption).map(|time| time.as_millis() as u64)
+}
+
+/// Gives the open database another cipher and / or key derivation; saved
+/// and synced like an edit.
+#[tauri::command(async)]
+fn set_encryption(app: AppHandle, session: State<Session>, encryption: encryption::Encryption) -> Result<vault::DatabaseSettings, String> {
+    let settings = session.with_mut(|v| {
+        v.set_encryption(&encryption)?;
+        Ok(v.settings())
+    })?;
+    sync::upload_soon(&app);
+    Ok(settings)
 }
 
 /// Makes a new key file where the user chooses (never over a file already
@@ -1268,6 +1288,8 @@ pub fn run() {
             set_history_limits,
             create_key_file,
             change_master_key,
+            encryption_unlock_time,
+            set_encryption,
             entry,
             reveal,
             entry_history,
