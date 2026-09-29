@@ -15,6 +15,16 @@ use std::path::Path;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+/// What a copy of the database on another key does to the file's key.
+enum KeyChange {
+    /// The copy is on the file's own key.
+    Same,
+    /// Another device changed the key later: the file takes it.
+    Take(DatabaseKey),
+    /// The copy is on an older key: the file keeps its own and is written again.
+    Keep,
+}
+
 pub struct Vault {
     db: Database,
     /// The file it came from; `None` only in tests that never save.
@@ -253,7 +263,7 @@ impl Vault {
     /// a change on the file as it is now; the time of the change is kept in the
     /// file (KeePass's `MasterKeyChanged`).
     pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let file = self.file.as_ref().ok_or("This database cannot be saved")?;
+        let file = self.file()?;
         if !file.has_key(&key(current.0, current.1)?) {
             return Err("The current master password is not right".into());
         }
@@ -526,10 +536,25 @@ impl Vault {
     /// it lacks (an older file came back); those are written by the next
     /// change or [Vault::save_pending]. Returns the ids of the entries that
     /// differ from before, or `None` when the file was read or written since.
+    /// A file on another key (see [Vault::key_goes_to]) takes that key, or is
+    /// written again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
-        let mut db = self.file.as_mut()?.adopt(since, read)?;
+        let file = self.file.as_mut()?;
+        let (mut db, other_key) = file.adopt(since, read)?;
+        let rewrite = match Self::key_goes_to(&db, &self.db, other_key) {
+            KeyChange::Take(key) => {
+                file.use_key(key);
+                false
+            }
+            KeyChange::Keep => {
+                Self::keep_our_key_time(&mut db, &self.db);
+                encryption::keep_ours(&mut db, &self.db);
+                true
+            }
+            KeyChange::Same => false,
+        };
         let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
-        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries {
+        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries || rewrite {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -543,17 +568,37 @@ impl Vault {
     /// file lacks); otherwise it replaces the working copy byte for byte
     /// ([Outcome::Downloaded]). Either carries the entries that differ from
     /// before. `None` when the working copy was written since `since`.
-    pub fn take_remote(&mut self, since: &Snapshot, mut theirs: Database, raw: &[u8], merge: bool) -> Result<Option<Outcome>, String> {
-        let file = self.file.as_mut().ok_or("This database cannot be saved")?;
-        if !file.is_at(since) {
+    /// A remote file on another key (`other_key`, see [Vault::key_goes_to])
+    /// is never taken byte for byte: it is written with the key that goes on.
+    pub fn take_remote(
+        &mut self,
+        since: &Snapshot,
+        mut theirs: Database,
+        other_key: Option<DatabaseKey>,
+        raw: &[u8],
+        merge: bool,
+    ) -> Result<Option<Outcome>, String> {
+        let key_change = Self::key_goes_to(&theirs, &self.db, other_key);
+        if !self.file_mut()?.is_at(since) {
             return Ok(None);
         }
+        // A copy on an older key comes from before this device's change of key:
+        // it is merged like an older file coming back, whatever changed here.
+        let merge = merge || matches!(key_change, KeyChange::Keep);
         let kept_ours = merge && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries
+            let kept_key = matches!(key_change, KeyChange::Keep) && Self::keep_our_key_time(&mut theirs, &self.db);
+            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
         };
-        let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
+        // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
+        let rewritten = kept_ours || !matches!(key_change, KeyChange::Same);
+        let file = self.file_mut()?;
+        let written = match key_change {
+            KeyChange::Take(key) => file.save_with_key(&mut theirs, key),
+            _ if rewritten => file.save(&mut theirs),
+            _ => file.write(raw),
+        };
         match written {
             Ok(()) => {}
             Err(SaveError::Changed) => return Ok(None),
@@ -562,7 +607,53 @@ impl Vault {
         let changed = changed_entries(&self.db, &theirs);
         self.db = theirs;
         self.unsaved = false;
-        Ok(Some(if kept_ours { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
+        Ok(Some(if rewritten { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
+    }
+
+    /// Which key a copy that opened with `other_key` (not the file's own)
+    /// leaves the file on: the key follows the newer `MasterKeyChanged`, so a
+    /// key another device changed later is taken, and one it changed earlier
+    /// (an older copy) gives way to this device's.
+    fn key_goes_to(theirs: &Database, ours: &Database, other_key: Option<DatabaseKey>) -> KeyChange {
+        match other_key {
+            None => KeyChange::Same,
+            Some(key) if theirs.meta.master_key_changed > ours.meta.master_key_changed => KeyChange::Take(key),
+            Some(_) => KeyChange::Keep,
+        }
+    }
+
+    /// A copy on an older key takes this device's key time (the encryption
+    /// that goes with the key is [encryption::keep_ours]'s). True when it changed.
+    fn keep_our_key_time(theirs: &mut Database, ours: &Database) -> bool {
+        let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
+        theirs.meta.master_key_changed = ours.meta.master_key_changed;
+        older
+    }
+
+    fn file(&self) -> Result<&DbFile, String> {
+        self.file.as_ref().ok_or_else(|| "This database cannot be saved".into())
+    }
+
+    fn file_mut(&mut self) -> Result<&mut DbFile, String> {
+        self.file.as_mut().ok_or_else(|| "This database cannot be saved".into())
+    }
+
+    /// Keeps a key the user gave for a copy that opened with no key known
+    /// (another device changed it), to try on the next read of that copy.
+    pub fn remember_key(&mut self, key: DatabaseKey) -> Result<(), String> {
+        self.file_mut()?.remember_key(key);
+        Ok(())
+    }
+
+    /// Lets go of a key [Vault::remember_key] kept, when it opened nothing.
+    pub fn forget_key(&mut self, key: &DatabaseKey) -> Result<(), String> {
+        self.file_mut()?.forget_key(key);
+        Ok(())
+    }
+
+    /// True when the file is written with `key`.
+    pub fn uses_key(&self, key: &DatabaseKey) -> Result<bool, String> {
+        Ok(self.file()?.has_key(key))
     }
 
     /// True when the database holds changes its file lacks (kept from an
@@ -603,7 +694,7 @@ impl Vault {
             if db == self.db && !self.unsaved && key.is_none() {
                 return Ok(result);
             }
-            let file = self.file.as_mut().ok_or("This database cannot be saved")?;
+            let file = self.file_mut()?;
             let saved = match key {
                 Some(key) => file.save_with_key(&mut db, key.clone()),
                 None => file.save(&mut db),
@@ -796,7 +887,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
 const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
-fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
+pub(crate) fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
     let mut key = DatabaseKey::new();
     if let Some(password) = password {
         key = key.with_password(password);
@@ -1459,6 +1550,40 @@ pub mod tests {
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.settings().encryption, wanted);
         assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
+    }
+
+    #[test]
+    fn a_working_copy_on_a_newer_key_asks_for_it_and_takes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        // Another program changes the key of the file on this PC.
+        let mut db = vault.db.clone();
+        db.meta.master_key_changed = Some(keepass::db::Times::now());
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
+
+        let refused = vault.reload().unwrap_err();
+        assert!(crate::dbfile::needs_other_key(&refused), "{refused}");
+        vault.remember_key(DatabaseKey::new().with_password("other")).unwrap();
+        vault.reload().unwrap();
+        assert!(vault.uses_key(&DatabaseKey::new().with_password("other")).unwrap());
+    }
+
+    #[test]
+    fn an_older_copy_on_the_old_key_is_written_again_with_the_new_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        vault.change_key((Some("test"), None), Some("new"), None).unwrap();
+
+        std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
+        vault.reload().unwrap();
+        assert!(vault.has_unsaved());
+        vault.save_pending().unwrap();
+        assert!(Vault::open(&path, Some("new"), None).is_ok());
+        assert!(Vault::open(&path, Some("test"), None).is_err());
     }
 
     #[test]

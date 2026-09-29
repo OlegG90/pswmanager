@@ -12,6 +12,7 @@ import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES
 import { renderSettings } from './settings'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
+import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -157,6 +158,8 @@ function showVault(next: Listing) {
   unlocked = true
   unlockForm.hidden = true
   vault.hidden = false
+  keyDialogShown = false
+  clearKeyNeeded()
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
   filter = ALL
@@ -1059,6 +1062,38 @@ function showSyncStatus(status: SyncStatus) {
   line.classList.toggle('problem', status.problem && !status.busy)
   $('sync-button').hidden = !status.remote
   $<HTMLButtonElement>('sync-button').disabled = status.busy
+  if (status.busy) return
+  keyNeeded.remote = status.needsKey
+  showKeyButton()
+  if (status.needsKey) askForOtherKey(REMOTE_COPY)
+}
+
+/** The copies that open with a key this device does not know yet. */
+const REMOTE_COPY = 'the remote file'
+const LOCAL_COPY = 'the file on this PC'
+const keyNeeded = { remote: false, local: false }
+/** A key was asked for in a dialog since the unlock: that happens once, then the button stays. */
+let keyDialogShown = false
+
+function showKeyButton() {
+  $('key-button').hidden = !keyNeeded.remote && !keyNeeded.local
+}
+
+/** No copy needs a key (unlocked afresh, or both read with the key given). */
+function clearKeyNeeded() {
+  keyNeeded.local = keyNeeded.remote = false
+  showKeyButton()
+}
+
+/** Asks for the key another device changed a copy to (`where`), in a dialog
+ *  once per unlock unless `again` (the button). */
+async function askForOtherKey(where: string, again = false) {
+  if (!unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
+  keyDialogShown = true
+  if (await enterOtherKey(where)) {
+    clearKeyNeeded() // both copies were read again with it
+    notify('Read with the key given')
+  }
 }
 
 /** The file changed on disk and was read again: show the new state in place. */
@@ -1168,6 +1203,7 @@ $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
+$('key-button').addEventListener('click', () => askForOtherKey(keyNeeded.local ? LOCAL_COPY : REMOTE_COPY, true))
 
 /** Esc with nothing left to close: back to the tray. */
 function hideWindow() {
@@ -1305,6 +1341,14 @@ listen('locked', showLocked)
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
+// The file on this PC was replaced by one on a key this device does not know.
+listen<string>('needs-key', (e) => {
+  if (!unlocked) return
+  notify(e.payload, 10)
+  keyNeeded.local = true
+  showKeyButton()
+  askForOtherKey(LOCAL_COPY)
+})
 listen('window-shown', () => {
   if (settingsOpen || healthOpen) return
   if (unlocked) searchInput.focus()

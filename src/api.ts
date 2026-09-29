@@ -88,6 +88,8 @@ export interface SyncStatus {
   text: string
   /** The last sync did not finish: offline or an error. */
   problem: boolean
+  /** The remote file opens with a key this device does not know yet. */
+  needsKey: boolean
 }
 
 export interface Entry {
@@ -289,6 +291,8 @@ export const api = {
   encryptionUnlockTime: (encryption: Encryption) => invoke<number>('encryption_unlock_time', { encryption }),
   /** Saved and synced like an edit. */
   setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
+  /** The key of a copy another device changed the key of; it is read with it. */
+  enterOtherKey: (password: string, keyFile: string | null) => invoke<Status>('enter_other_key', { password, keyFile }),
   /** Makes a new key file where the user chooses; its path, null when cancelled. */
   createKeyFile: () => invoke<string | null>('create_key_file'),
   /** After `current` proves right: an empty `password` means none, `keyFile` is the one from now on. */

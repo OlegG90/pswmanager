@@ -326,6 +326,11 @@ fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
     Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
 }
 
+/// A password as the key takes it: an empty one is none.
+fn non_empty(text: &str) -> Option<&str> {
+    Some(text).filter(|t| !t.is_empty())
+}
+
 /// How long unlocking takes on this PC with this encryption, in
 /// milliseconds; as slow as an unlock.
 #[tauri::command(async)]
@@ -371,14 +376,11 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
     let store = app.state::<Store>();
     let known = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    fn non_empty(text: &str) -> Option<&str> {
-        Some(text).filter(|t| !t.is_empty())
-    }
     let current = (non_empty(&current), known.key_file.as_deref());
     let key_file = key_file.map(PathBuf::from);
     // In step with the remote file first: after the change, the remote file,
     // still on the old key, opens no more.
-    sync::sync_first(&app)?;
+    sync::sync_first(&app).map_err(|e| format!("The database could not sync first ({e}); the key is unchanged"))?;
     app.state::<Session>().with_mut(|v| v.change_key(current, non_empty(&password), key_file.as_deref()))?;
     let status = choose(app.clone(), |s| {
         if let Some(d) = s.current_mut() {
@@ -387,6 +389,46 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     })?;
     sync::request(&app);
     Ok(status)
+}
+
+/// The key of a copy that opened with no key known — the remote file, or the
+/// file on this PC another program replaced — after another device changed
+/// it. The copy is read again with it (synced, or read from disk): the key
+/// follows the newer change, so the database may take it from now on, and
+/// then the list takes its key file. Refused when it does not open the copy.
+#[tauri::command(async)]
+fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -> Result<Status, String> {
+    let password = Zeroizing::new(password);
+    let key_file = key_file.map(PathBuf::from);
+    let given = vault::key(non_empty(&password), key_file.as_deref())?;
+    let session = app.state::<Session>();
+    session.with_mut(|v| v.remember_key(given.clone()))?;
+    // The file on this PC first (another program may have replaced it), then
+    // the remote file. Reading derives keys: done without holding the database.
+    let read_again = || -> Result<(), String> {
+        let Some(since) = session.read(Vault::snapshot)? else { return Ok(()) };
+        if let Some(read) = since.read_changed()? {
+            if let Some(changed) = session.with_mut(|v| {
+                let changed = v.adopt(&since, read);
+                v.save_pending()?;
+                Ok(changed)
+            })? {
+                show_changes(&app, changed);
+            }
+        }
+        sync::sync_first(&app)
+    };
+    if let Err(e) = read_again() {
+        // A key that opened nothing is not kept.
+        session.with_mut(|v| v.forget_key(&given))?;
+        return Err(if dbfile::needs_other_key(&e) { "This master password or key file does not open it either".into() } else { e });
+    }
+    let key_taken = session.read(|v| v.uses_key(&given))??;
+    choose(app, |s| {
+        if let Some(d) = s.current_mut().filter(|_| key_taken) {
+            d.key_file = key_file;
+        }
+    })
 }
 
 /// Creates a new, empty database at `file` and adds it to the list as the
@@ -677,7 +719,9 @@ fn check_disk(app: &AppHandle) {
         // A lock meanwhile makes any error moot.
         let report = |message: String| {
             if session.is_unlocked() {
-                let _ = app.emit("database-error", message);
+                // A file on a key this device does not know: the window asks for it.
+                let event = if dbfile::needs_other_key(&message) { "needs-key" } else { "database-error" };
+                let _ = app.emit(event, message);
             }
         };
         let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
@@ -1288,6 +1332,7 @@ pub fn run() {
             set_history_limits,
             create_key_file,
             change_master_key,
+            enter_other_key,
             encryption_unlock_time,
             set_encryption,
             entry,
