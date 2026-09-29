@@ -1,6 +1,5 @@
 import { api, type Status } from './api'
-import { button, el } from './dom'
-import { busyButton, enterPresses, errorLine } from './form'
+import { button, busyButton, el, enterPresses, errorLine } from './dom'
 import { keyFileChoice, keyProblem, newPassword } from './key-fields'
 
 /**
@@ -44,7 +43,7 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
       const problem = keyProblem(typed, keyChoice.value())
       if (problem) return error.show(problem)
       done(await api.createDatabase(file, typed.password.value, keyChoice.value()))
-    }, error, 'primary')
+    }, error.show, 'primary')
 
     container.replaceChildren(
       el('div', { className: 'intro' },

@@ -1,6 +1,5 @@
 import { api, type Cloud, type Status } from './api'
-import { button, el } from './dom'
-import { busyButton, errorLine } from './form'
+import { button, busyButton, el, enterPresses, errorLine } from './dom'
 import { askText, beforeExtension, choose } from './modal'
 import { createDatabase } from './new-database'
 
@@ -72,18 +71,14 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
   const error = errorLine()
   const waiting = el('p', { className: 'muted', hidden: true })
 
-  const sources = SOURCES.map(([value, title, hint]) => {
+  const radios = SOURCES.map(([value]) => {
     const radio = el('input', { type: 'radio', name: 'source', value, checked: value === source })
     radio.addEventListener('change', () => (source = value))
-    radio.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return
-      // Consumed: the unlock screen that follows must not see it as a submit.
-      e.preventDefault()
-      next.click()
-    })
-    return el('label', { className: 'source' }, radio, el('span', { className: 'dot' }),
-      el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint)))
+    return radio
   })
+  const sources = SOURCES.map(([, title, hint], i) =>
+    el('label', { className: 'source' }, radios[i], el('span', { className: 'dot' }),
+      el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint))))
 
   const next = busyButton('Continue', 'Continue (Enter)', async () => {
     error.hide()
@@ -93,7 +88,10 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     // Back from the new-database form: this screen again.
     if (source === 'new' && !chosen) return renderChoose(container, status, options)
     if (chosen?.database) options.chosen(chosen)
-  }, error, 'primary')
+  }, error.show, 'primary')
+  // Enter on a source continues; consumed, so the unlock screen that follows
+  // does not see it as a submit.
+  enterPresses(next, ...radios)
   const changedOrNull = (next: Status) => (changed(status, next) ? next : null)
 
   const footer = el('div', { className: 'footer' },

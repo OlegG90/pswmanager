@@ -1,7 +1,6 @@
 import { api, type Cipher, type DatabaseSettings, type Encryption, type Kdf } from './api'
-import { el } from './dom'
+import { busyButton, el, errorLine } from './dom'
 import { formatSize } from './entry-text'
-import { busyButton, errorLine } from './form'
 import { ask, dialog } from './modal'
 
 const MB = 2 ** 20
@@ -115,7 +114,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
         return null
       }
     }
-    const test = busyButton('Test', 'Time an unlock with these settings on this PC', measure, error)
+    const test = busyButton('Test', 'Time an unlock with these settings on this PC', measure, error.show)
     // Timed before saving too, so a slow choice is always said.
     const save = busyButton('Change', 'Save the database with this encryption', async () => {
       const ms = same(wanted(), now) ? 0 : await measure()
@@ -124,7 +123,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
         return
       }
       answer(await api.setEncryption(wanted()))
-    }, error, 'primary')
+    }, error.show, 'primary')
     return {
       body: [
         el('label', { className: 'field' }, el('span', {}, 'Cipher'), cipher),

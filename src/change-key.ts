@@ -1,6 +1,5 @@
 import { api, type Status } from './api'
-import { el } from './dom'
-import { busyButton, enterPresses, errorLine } from './form'
+import { busyButton, el, enterPresses, errorLine } from './dom'
 import { keyFileChoice, keyProblem, newPassword } from './key-fields'
 import { ask, dialog } from './modal'
 
@@ -26,7 +25,7 @@ export async function changeMasterKey(keyFile: string | null): Promise<Status | 
       const sure = await ask('Other devices, Keepass2Android too, will need the new key. The old one still opens the .bak files and ' +
         `the store's version history.${keyFileOnly}`, 'Change key')
       if (sure) answer(await api.changeMasterKey(current.value, typed.password.value, keyChoice.value()))
-    }, error, 'primary')
+    }, error.show, 'primary')
     enterPresses(change, current, typed.password, typed.repeat)
     return {
       body: [

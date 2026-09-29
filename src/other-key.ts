@@ -1,6 +1,5 @@
 import { api, type Status } from './api'
-import { el } from './dom'
-import { busyButton, enterPresses, errorLine } from './form'
+import { busyButton, el, enterPresses, errorLine } from './dom'
 import { keyFileChoice } from './key-fields'
 import { dialog } from './modal'
 
@@ -22,7 +21,7 @@ export async function enterOtherKey(where: string): Promise<Status | null> {
     null,
     (answer) => {
       const read = busyButton('Read', 'Read the copy with this key',
-        async () => answer(await api.enterOtherKey(password.value, keyChoice.value())), error, 'primary')
+        async () => answer(await api.enterOtherKey(password.value, keyChoice.value())), error.show, 'primary')
       enterPresses(read, password)
       return {
         body: [el('label', { className: 'field' }, el('span', {}, 'Its master password'), password), keyChoice.row, error.line],
