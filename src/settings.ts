@@ -2,6 +2,7 @@ import { api, type DatabaseSetting, type DatabaseSettings, type SettingName, typ
 import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
 import { formatSize } from './entry-text'
+import { shownCombo } from './keys'
 import { ask } from './modal'
 import { changeMasterKey } from './change-key'
 import { changeEncryption, describeEncryption } from './change-encryption'
@@ -80,7 +81,7 @@ export function comboOf(e: KeyboardEvent): string | null {
 
 /** The hotkey, and a button that takes the next key combination pressed. */
 function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLElement {
-  const shown = el('span', { className: 'value' }, hotkey.replace('Super', 'Win'))
+  const shown = el('span', { className: 'value' }, shownCombo(hotkey))
   const edit = button('Change…', 'Press the new combination; Esc cancels', () => {
     shown.textContent = 'Press the keys…'
     edit.disabled = true
@@ -94,7 +95,7 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
     const done = (combo: string | null) => {
       document.removeEventListener('keydown', take, true)
       edit.disabled = false
-      shown.textContent = hotkey.replace('Super', 'Win')
+      shown.textContent = shownCombo(hotkey)
       if (combo && combo !== hotkey) change(combo)
     }
     document.addEventListener('keydown', take, true)

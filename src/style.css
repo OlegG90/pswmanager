@@ -1540,9 +1540,12 @@ dialog.modal.form {
 /* Keyboard shortcuts: by group, the keys in a column beside what they do. */
 dialog.modal.shortcuts {
   width: min(560px, 92vw);
+  padding: 26px 24px 18px;
 }
 
+/* Its message is the title: room above it, as the panels have. */
 .modal.shortcuts > p {
+  margin-top: 4px;
   font-family: var(--font-heading);
   font-size: 20px;
 }

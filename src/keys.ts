@@ -29,7 +29,7 @@ export interface Shortcut {
  *  here, so the panel cannot drift from what the keys do. The global hotkey,
  *  which the settings change, is shown apart. */
 export const SHORTCUTS: Shortcut[] = [
-  { group: 'Window', keys: 'Esc', does: 'Clear the search, close what is open, then hide to the tray', actions: ['escape'] },
+  { group: 'Window', keys: 'Esc', does: 'Back from a version or the history, clear the search, then hide to the tray', actions: ['escape'] },
   { group: 'Window', keys: 'Ctrl+L', does: 'Lock', actions: ['lock'], ctrl: 'KeyL' },
   { group: 'Window', keys: 'Ctrl+,', does: 'Settings', actions: ['settings'], ctrl: 'Comma' },
   { group: 'Window', keys: 'F1', does: 'These shortcuts', actions: ['shortcuts'] },
@@ -45,6 +45,9 @@ export const SHORTCUTS: Shortcut[] = [
   { group: 'Entry', keys: 'Ctrl+E', does: 'Edit the entry', actions: ['edit-entry'], ctrl: 'KeyE' },
   { group: 'Entry', keys: 'Del', does: 'Delete (in the trash: delete for good)', actions: ['delete-entry'] },
 ]
+
+/** A key combination as the backend keeps it (`Ctrl+Super+P`), as Windows names the keys. */
+export const shownCombo = (combo: string) => combo.replace('Super', 'Win')
 
 /** `code` is the physical key: shortcuts follow it, so they work in any keyboard layout. */
 export type KeyInfo = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'>
