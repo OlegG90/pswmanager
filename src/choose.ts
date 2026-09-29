@@ -71,15 +71,6 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
   const error = errorLine()
   const waiting = el('p', { className: 'muted', hidden: true })
 
-  const radios = SOURCES.map(([value]) => {
-    const radio = el('input', { type: 'radio', name: 'source', value, checked: value === source })
-    radio.addEventListener('change', () => (source = value))
-    return radio
-  })
-  const sources = SOURCES.map(([, title, hint], i) =>
-    el('label', { className: 'source' }, radios[i], el('span', { className: 'dot' }),
-      el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint))))
-
   const next = busyButton('Continue', 'Continue (Enter)', async () => {
     error.hide()
     const chosen = source === 'new' ? await createDatabase(container)
@@ -89,9 +80,15 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     if (source === 'new' && !chosen) return renderChoose(container, status, options)
     if (chosen?.database) options.chosen(chosen)
   }, error.show, 'primary')
-  // Enter on a source continues; consumed, so the unlock screen that follows
-  // does not see it as a submit.
-  enterPresses(next, ...radios)
+
+  const sources = SOURCES.map(([value, title, hint]) => {
+    const radio = el('input', { type: 'radio', name: 'source', value, checked: value === source })
+    radio.addEventListener('change', () => (source = value))
+    // Enter continues; consumed, so the unlock screen that follows does not see it as a submit.
+    enterPresses(next, radio)
+    return el('label', { className: 'source' }, radio, el('span', { className: 'dot' }),
+      el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint)))
+  })
   const changedOrNull = (next: Status) => (changed(status, next) ? next : null)
 
   const footer = el('div', { className: 'footer' },
