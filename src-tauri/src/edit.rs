@@ -633,12 +633,18 @@ pub fn history_limits(meta: &Meta) -> (Option<usize>, Option<usize>) {
     (limit(meta.history_max_items, DEFAULT_HISTORY_ITEMS), limit(meta.history_max_size, DEFAULT_HISTORY_SIZE))
 }
 
-/// A version's size as the history limit counts it: its fields, tags and files.
+/// A version's size as the history limit counts it: its fields, tags and
+/// files (a file several versions share counts for each, as in KeePass).
 fn version_size(version: &EntryRef<'_>) -> usize {
     let fields: usize = version.fields.iter().map(|(name, value)| name.len() + value.get().len()).sum();
     let tags: usize = version.tags.iter().map(String::len).sum();
-    let files: usize = version.attachments().map(|a| a.data.get().len()).sum();
+    let files: usize = version.attachments_named().map(|(name, a)| name.len() + a.data.get().len()).sum();
     fields + tags + files
+}
+
+/// How many old versions the entry's history holds.
+fn history_count(entry: &Entry) -> usize {
+    entry.history.as_ref().map_or(0, |h| h.get_entries().len())
 }
 
 /// Keeps only the newest old versions the database's limits allow: as many
@@ -648,7 +654,7 @@ fn version_size(version: &EntryRef<'_>) -> usize {
 fn trim_history(db: &mut Database, id: EntryId) {
     let (max_items, max_size) = history_limits(&db.meta);
     let Some(entry) = db.entry(id) else { return };
-    let count = entry.history.as_ref().map_or(0, |h| h.get_entries().len());
+    let count = history_count(&entry);
     let mut limit = count.min(max_items.unwrap_or(usize::MAX));
     if let Some(max_size) = max_size {
         let mut total = 0;
@@ -683,26 +689,32 @@ pub fn trim_all_history(db: &mut Database) {
 }
 
 /// How many old versions there are in all the entries' histories.
-fn versions(db: &Database) -> usize {
-    db.iter_all_entries().map(|e| e.history.as_ref().map_or(0, |h| h.get_entries().len())).sum()
+fn version_count(db: &Database) -> usize {
+    db.iter_all_entries().map(|e| history_count(&e)).sum()
+}
+
+/// The history limits as the file stores them (negative: no limit).
+fn stored_limits(meta: &Meta) -> (Option<isize>, Option<isize>) {
+    (meta.history_max_items, meta.history_max_size)
 }
 
 /// Sets the history limits (negative: no limit), and when they changed
 /// (KeePass's `SettingsChanged`). Every entry's history is trimmed to them.
 pub fn set_history_limits(db: &mut Database, max_items: isize, max_size: isize) {
-    if (db.meta.history_max_items, db.meta.history_max_size) == (Some(max_items), Some(max_size)) {
-        return;
+    let limits = (Some(max_items), Some(max_size));
+    if stored_limits(&db.meta) != limits {
+        (db.meta.history_max_items, db.meta.history_max_size) = limits;
+        db.meta.settings_changed = Some(Times::now());
     }
-    (db.meta.history_max_items, db.meta.history_max_size) = (Some(max_items), Some(max_size));
-    db.meta.settings_changed = Some(Times::now());
     trim_all_history(db);
 }
 
-/// How many old versions these history limits would remove.
+/// How many old versions these history limits would remove (also when the
+/// histories are over the limits already, as another client may leave them).
 pub fn versions_over_limits(db: &Database, max_items: isize, max_size: isize) -> usize {
     let mut trimmed = db.clone();
     set_history_limits(&mut trimmed, max_items, max_size);
-    versions(db) - versions(&trimmed)
+    version_count(db) - version_count(&trimmed)
 }
 
 /// Keeps what this device changed that a file read from disk does not have —
@@ -839,11 +851,10 @@ pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
 /// by its own time (the history limits by `SettingsChanged`), as KeePass
 /// merges them. Returns true when it kept any.
 pub fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
-    // The history limits go together, by `SettingsChanged`.
-    let limits = |meta: &Meta| (meta.history_max_items, meta.history_max_size);
-    let newer_limits = ours.meta.settings_changed > theirs.meta.settings_changed && limits(&ours.meta) != limits(&theirs.meta);
+    let newer_limits =
+        ours.meta.settings_changed > theirs.meta.settings_changed && stored_limits(&ours.meta) != stored_limits(&theirs.meta);
     if newer_limits {
-        (theirs.meta.history_max_items, theirs.meta.history_max_size) = limits(&ours.meta);
+        (theirs.meta.history_max_items, theirs.meta.history_max_size) = stored_limits(&ours.meta);
         theirs.meta.settings_changed = ours.meta.settings_changed;
     }
     Setting::ALL.into_iter().fold(newer_limits, |kept, setting| {
@@ -1634,6 +1645,23 @@ mod tests {
         assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
         assert_eq!(history_limits(&db.meta), (Some(1), None));
         assert!(db.meta.settings_changed.is_some());
+    }
+
+    #[test]
+    fn history_limits_default_to_keepass_and_negative_means_none() {
+        let mut meta = Meta::default();
+        assert_eq!(history_limits(&meta), (Some(10), Some(6 << 20)));
+        (meta.history_max_items, meta.history_max_size) = (Some(-1), Some(-1));
+        assert_eq!(history_limits(&meta), (None, None));
+    }
+
+    #[test]
+    fn the_preview_counts_versions_already_over_the_limits() {
+        let mut db = Database::new();
+        edited(&mut db, 4, "a");
+        // Another client lowered the limit without trimming.
+        db.meta.history_max_items = Some(1);
+        assert_eq!(versions_over_limits(&db, 1, -1), 3);
     }
 
     #[test]

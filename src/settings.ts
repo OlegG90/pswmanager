@@ -143,7 +143,7 @@ export async function renderSettings(
       }
       redraw(d)
     }
-    const size = (bytes: number) => `${(bytes / MIB).toFixed(1)} MiB`
+    const inMib = (bytes: number) => `${(bytes / MIB).toFixed(1)} MiB`
     return group('Database',
       row('Name', 'On the unlock screen and in the title; the file keeps its name', textField('Name', d.name, set('name'))),
       row('Description', 'Under the name on the unlock screen', textField('Description', d.description, set('description'), 2)),
@@ -152,7 +152,7 @@ export async function renderSettings(
         select('History: versions per entry', d.historyMaxItems, withValue(HISTORY_ITEMS, d.historyMaxItems, (n) => `${n} versions`), '',
           (n) => setLimits(n, d.historyMaxSize))),
       row('History: size per entry', 'The oldest versions go first when they are larger together',
-        select('History: size per entry', d.historyMaxSize, withValue(HISTORY_SIZE, d.historyMaxSize, size), '',
+        select('History: size per entry', d.historyMaxSize, withValue(HISTORY_SIZE, d.historyMaxSize, inMib), '',
           (bytes) => setLimits(d.historyMaxItems, bytes))))
   }
 
