@@ -147,7 +147,7 @@ export async function renderSettings(
       redraw(d)
     }
     /** The cipher and key derivation, in a dialog. */
-    const changeCipher = async () => {
+    const changeCrypto = async () => {
       const next = await changeEncryption(d.encryption)
       if (next) {
         onDatabase(next)
@@ -172,7 +172,7 @@ export async function renderSettings(
       row('Master password and key file', keyFile ? `Key file: ${keyFile}` : 'No key file',
         button('Change…', 'Change the master password and / or key file', changeKey)),
       row('Encryption', describeEncryption(d.encryption),
-        button('Change…', 'Change the cipher and key derivation', changeCipher)))
+        button('Change…', 'Change the cipher and key derivation', changeCrypto)))
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */

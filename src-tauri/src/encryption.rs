@@ -22,7 +22,7 @@ pub enum Cipher {
 pub enum Kdf {
     Argon2id,
     Argon2d,
-    AesKdf,
+    Aes,
     /// One keepass-rs may add later: kept as it is, never chosen.
     Other,
 }
@@ -50,7 +50,7 @@ pub fn of(config: &DatabaseConfig) -> Encryption {
         _ => Cipher::Other,
     };
     let (kdf, iterations, memory, parallelism) = match &config.kdf_config {
-        KdfConfig::Aes { rounds } => (Kdf::AesKdf, *rounds, 0, 0),
+        KdfConfig::Aes { rounds } => (Kdf::Aes, *rounds, 0, 0),
         KdfConfig::Argon2 { iterations, memory, parallelism, .. } => (Kdf::Argon2d, *iterations, *memory, *parallelism),
         KdfConfig::Argon2id { iterations, memory, parallelism, .. } => (Kdf::Argon2id, *iterations, *memory, *parallelism),
         _ => (Kdf::Other, 0, 0, 0),
@@ -79,8 +79,8 @@ pub fn apply(config: &mut DatabaseConfig, wanted: &Encryption) -> Result<(), Str
     config.kdf_config = match wanted.kdf {
         Kdf::Other if now.kdf == Kdf::Other => config.kdf_config.clone(),
         Kdf::Other => return Err("Choose Argon2id, Argon2d or AES-KDF".into()),
-        Kdf::AesKdf if (1..=1_000_000_000).contains(&iterations) => KdfConfig::Aes { rounds: iterations },
-        Kdf::AesKdf => return Err("AES-KDF takes 1 to 1,000,000,000 rounds".into()),
+        Kdf::Aes if (1..=1_000_000_000).contains(&iterations) => KdfConfig::Aes { rounds: iterations },
+        Kdf::Aes => return Err("AES-KDF takes 1 to 1,000,000,000 rounds".into()),
         _ if !(1..=100).contains(&iterations) => return Err("Argon2 takes 1 to 100 iterations".into()),
         _ if !(MIB..=4096 * MIB).contains(&memory) => return Err("Argon2 takes 1 MiB to 4 GiB of memory".into()),
         _ if !(1..=64).contains(&parallelism) => return Err("Argon2 takes 1 to 64 threads".into()),
@@ -105,15 +105,16 @@ pub fn unlock_time(wanted: &Encryption) -> Result<Duration, String> {
 }
 
 /// Keeps this device's encryption in a database from another device
-/// (`theirs`), as the merge writes this device's file: the encryption goes
-/// with the key. True when it changed anything.
-pub fn keep(theirs: &mut DatabaseConfig, ours: &DatabaseConfig) -> bool {
-    let changed = of(theirs) != of(ours);
-    if changed {
-        theirs.outer_cipher_config = ours.outer_cipher_config.clone();
-        theirs.kdf_config = ours.kdf_config.clone();
+/// (`theirs`) that a merge writes: the encryption goes with the key, so it
+/// stays this device's unless the other device changed its key later
+/// (`MasterKeyChanged`). True when it changed anything.
+pub fn keep_ours(theirs: &mut Database, ours: &Database) -> bool {
+    if theirs.meta.master_key_changed > ours.meta.master_key_changed || of(&theirs.config) == of(&ours.config) {
+        return false;
     }
-    changed
+    theirs.config.outer_cipher_config = ours.config.outer_cipher_config.clone();
+    theirs.config.kdf_config = ours.config.kdf_config.clone();
+    true
 }
 
 #[cfg(test)]
@@ -127,7 +128,7 @@ mod tests {
     #[test]
     fn what_is_applied_reads_back() {
         let mut config = DatabaseConfig::default();
-        for wanted in [argon2id(16), Encryption { kdf: Kdf::Argon2d, ..argon2id(8) }, Encryption { cipher: Cipher::Aes256, kdf: Kdf::AesKdf, iterations: 60_000, memory: 0, parallelism: 0 }] {
+        for wanted in [argon2id(16), Encryption { kdf: Kdf::Argon2d, ..argon2id(8) }, Encryption { cipher: Cipher::Aes256, kdf: Kdf::Aes, iterations: 60_000, memory: 0, parallelism: 0 }] {
             apply(&mut config, &wanted).unwrap();
             assert_eq!(of(&config), wanted);
         }
@@ -153,11 +154,18 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_keeps_this_devices_encryption() {
-        let (mut theirs, mut ours) = (DatabaseConfig::default(), DatabaseConfig::default());
-        apply(&mut ours, &argon2id(16)).unwrap();
-        assert!(keep(&mut theirs, &ours));
-        assert_eq!(of(&theirs), argon2id(16));
-        assert!(!keep(&mut theirs, &ours));
+    fn a_merge_keeps_this_devices_encryption_unless_the_other_key_is_newer() {
+        let (mut theirs, mut ours) = (Database::new(), Database::new());
+        apply(&mut ours.config, &argon2id(16)).unwrap();
+        let other = theirs.clone();
+        assert!(keep_ours(&mut theirs, &ours));
+        assert_eq!(of(&theirs.config), argon2id(16));
+        assert!(!keep_ours(&mut theirs, &ours));
+
+        // The other device changed its key later: its encryption goes with it.
+        let mut theirs = other;
+        theirs.meta.master_key_changed = Some(keepass::db::Times::now());
+        assert!(!keep_ours(&mut theirs, &ours));
+        assert_ne!(of(&theirs.config), argon2id(16));
     }
 }

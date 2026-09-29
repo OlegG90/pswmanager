@@ -41,7 +41,7 @@ export interface DatabaseSettings {
 
 /** `other`: one the app keeps as it is but does not offer (Twofish, say). */
 export type Cipher = 'aes256' | 'chaCha20' | 'other'
-export type Kdf = 'argon2id' | 'argon2d' | 'aesKdf' | 'other'
+export type Kdf = 'argon2id' | 'argon2d' | 'aes' | 'other'
 
 /** The file's cipher and key derivation. */
 export interface Encryption {

@@ -551,8 +551,7 @@ impl Vault {
         let kept_ours = merge && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            // The file the merge writes is this device's: its encryption too.
-            encryption::keep(&mut theirs.config, &self.db.config) || kept_settings || kept_entries
+            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries
         };
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {

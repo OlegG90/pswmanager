@@ -106,11 +106,12 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   version history.
 - **Changing the encryption** (*Change…* beside *Encryption* in *Settings → Database*, a dialog): the cipher
   (AES-256 or ChaCha20; a database with Twofish, which KeePassXC offers, keeps it) and the key derivation
-  (Argon2id, Argon2d or AES-KDF) with its iterations or rounds, and Argon2's memory and threads; one chosen
-  anew starts from KeePassXC's defaults. Argon2 memory above 256 MiB or an unlock slower than about 2 s on
-  this PC (a **Test** button measures it: an empty database with these settings is opened and timed) warns
-  that a phone may be slow or run out of memory, and asks before saving. Saved and synced like an edit; a
-  sync merge keeps this device's encryption.
+  (Argon2id, Argon2d or AES-KDF) with its iterations or rounds, and Argon2's memory and threads; a kind the
+  database does not have yet starts from KeePassXC's defaults. Argon2 memory above 256 MiB or an unlock
+  slower than about 2 s on this PC (a **Test** button measures it: an empty database with these settings is
+  opened and timed; saving measures it too when Test did not) warns that a phone may be slow or run out of
+  memory, and asks before saving. Saved and synced like an edit; a sync merge keeps this device's encryption
+  unless the other device changed its key later (see *Merge*).
 - **With sync**, a change of key syncs first, then the file with the new key goes up at once. While the
   database stays unlocked the app keeps the old key in memory to read a remote file another device changed
   meanwhile; after a lock, a remote file that does not open with the current key is reported, and the app
