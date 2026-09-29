@@ -3,7 +3,7 @@
 //! whole entry only while it is being edited.
 
 use crate::dbfile::{DbFile, KeyChange, OpenError, Read, SaveError, Snapshot};
-use crate::edit::{self, EntryData, NOT_FOUND};
+use crate::edit::{self, EntryData, Taking, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
@@ -530,13 +530,8 @@ impl Vault {
     /// A file on another key (see [KeyChange]) takes that key, or is written
     /// again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
-        let (mut db, rewrite) = self.file.as_mut()?.adopt(since, read)?;
-        if rewrite {
-            Self::keep_our_key_time(&mut db, &self.db);
-            encryption::keep_ours(&mut db, &self.db);
-        }
-        let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
-        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries || rewrite {
+        let (mut db, older_key) = self.file.as_mut()?.adopt(since, read)?;
+        if edit::keep_ours(&mut db, &self.db, Taking::Adopted, older_key) {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -566,12 +561,7 @@ impl Vault {
         // A copy on an older key comes from before this device's change of key:
         // it is merged like an older file coming back, whatever changed here.
         let older = key_change.is_older();
-        let kept_ours = (merge || older) && {
-            let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
-            let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            let kept_key = older && Self::keep_our_key_time(&mut theirs, &self.db);
-            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
-        };
+        let kept_ours = (merge || older) && edit::keep_ours(&mut theirs, &self.db, Taking::Merged, older);
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
         let rewritten = match self.file_mut()?.save_copy(&mut theirs, raw, key_change, kept_ours) {
             Ok(rewritten) => rewritten,
@@ -582,14 +572,6 @@ impl Vault {
         self.db = theirs;
         self.unsaved = false;
         Ok(Some(if rewritten { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
-    }
-
-    /// A copy on an older key takes this device's key time (the encryption
-    /// that goes with the key is [encryption::keep_ours]'s). True when it changed.
-    fn keep_our_key_time(theirs: &mut Database, ours: &Database) -> bool {
-        let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
-        theirs.meta.master_key_changed = ours.meta.master_key_changed;
-        older
     }
 
     fn file(&self) -> Result<&DbFile, String> {

@@ -848,10 +848,50 @@ pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
     }
 }
 
+/// How this device takes a copy of the database from elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Taking {
+    /// The file on this PC, changed by another program: taken as it is now,
+    /// keeping only what this device changed later.
+    Adopted,
+    /// Merged with this device's copy ([merge]): a sync where both changed,
+    /// or a copy on an older key.
+    Merged,
+}
+
+/// Keeps in `theirs` — a copy of the database this device takes, [Taking]
+/// how — what stays this device's: its entries ([keep_newer] or [merge]),
+/// then the database's own metadata ([keep_our_meta]). True when `theirs` is
+/// to be written again: it kept any, or it is on an `older_key`.
+pub fn keep_ours(theirs: &mut Database, ours: &Database, taking: Taking, older_key: bool) -> bool {
+    // Entries first: they are trimmed to the history limits of the copy as it came.
+    let entries = match taking {
+        Taking::Adopted => keep_newer(theirs, ours),
+        Taking::Merged => merge(theirs, ours),
+    };
+    let meta = keep_our_meta(theirs, ours, taking, older_key);
+    !entries.is_empty() || meta || older_key
+}
+
+/// The database's own metadata that stays this device's: each setting `ours`
+/// changed later ([keep_newer_settings]); on a copy with an `older_key`, this
+/// device's key time; and the encryption, which goes with the key
+/// ([crate::encryption::keep_ours]), unless the copy was [Taking::Adopted] on
+/// the same key. True when it kept any setting or encryption.
+fn keep_our_meta(theirs: &mut Database, ours: &Database, taking: Taking, older_key: bool) -> bool {
+    let settings = keep_newer_settings(theirs, ours);
+    if older_key {
+        theirs.meta.master_key_changed = ours.meta.master_key_changed;
+    }
+    // After the key time: a copy on an older key now has this device's.
+    let encryption = (taking == Taking::Merged || older_key) && crate::encryption::keep_ours(theirs, ours);
+    settings || encryption
+}
+
 /// Keeps the database settings `ours` changed later than `theirs` did, each
 /// by its own time (the history limits by `SettingsChanged`), as KeePass
 /// merges them. Returns true when it kept any.
-pub fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
+fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
     let newer_limits =
         ours.meta.settings_changed > theirs.meta.settings_changed && stored_limits(&ours.meta) != stored_limits(&theirs.meta);
     if newer_limits {
