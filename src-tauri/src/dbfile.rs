@@ -31,6 +31,9 @@ impl From<String> for SaveError {
 pub struct DbFile {
     path: PathBuf,
     key: DatabaseKey,
+    /// When `key` was set (the file's `MasterKeyChanged`): a copy on another
+    /// key is weighed against it.
+    key_changed: Option<NaiveDateTime>,
     /// Other keys a copy of the database may have, tried after `key`: the one
     /// before a change of key, and ones the user gave for a copy that did not
     /// open. Kept in memory only, while the database is unlocked.
@@ -129,38 +132,45 @@ impl DbFile {
     pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), String> {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
-        Ok((db, DbFile { path: path.to_path_buf(), key, other_keys: Vec::new(), hash: hash(&bytes) }))
+        let key_changed = db.meta.master_key_changed;
+        Ok((db, DbFile { path: path.to_path_buf(), key, key_changed, other_keys: Vec::new(), hash: hash(&bytes) }))
     }
 
     /// The file as it is now, if it changed since it was last read or written
     /// (another device, a sync client); see [Snapshot::read_changed].
-    /// For a file on its own key only: a copy on another one is weighed
-    /// against no key time, so any newer key would be taken.
     #[cfg(test)]
     pub fn reload(&mut self) -> Result<Option<Database>, OpenError> {
-        let since = self.snapshot(None);
+        let since = self.snapshot();
         Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)).map(|(db, _)| db))
     }
 
     /// What reading the file again needs, so the slow part (deriving the key)
     /// can run without holding anything; see [Snapshot::read_changed].
-    /// `key_changed` is when the file's key was set (its database's
-    /// `MasterKeyChanged`): a copy on another key is weighed against it.
-    pub fn snapshot(&self, key_changed: Option<NaiveDateTime>) -> Snapshot {
+    pub fn snapshot(&self) -> Snapshot {
         let keys = std::iter::once(&self.key).chain(&self.other_keys).cloned().collect();
-        Snapshot { path: self.path.clone(), keys, key_changed, hash: self.hash }
+        Snapshot { path: self.path.clone(), keys, key_changed: self.key_changed, hash: self.hash }
     }
 
     /// Takes a file read with [Snapshot::read_changed], unless the file was
     /// read or written again since the snapshot (then that is newer), and the
-    /// newer key when it is on one (see [KeyChange]).
-    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, KeyChange)> {
+    /// newer key when it is on one (see [KeyChange]). True when the file is
+    /// on an older key: it keeps its own, and the database is to be written
+    /// again with it.
+    pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, bool)> {
         (self.hash == since.hash).then(|| {
             self.hash = read.hash;
-            if let KeyChange::Newer(key) = &read.key_change {
-                self.use_key(key.clone());
+            let older = match read.key_change {
+                KeyChange::Older => true,
+                KeyChange::Newer(key) => {
+                    self.use_key(key);
+                    false
+                }
+                KeyChange::Same => false,
+            };
+            if !older {
+                self.key_changed = read.db.meta.master_key_changed;
             }
-            (read.db, read.key_change)
+            (read.db, older)
         })
     }
 
@@ -210,7 +220,11 @@ impl DbFile {
     /// again. True when it was saved again (the file is not `raw`).
     pub fn save_copy(&mut self, copy: &mut Database, raw: &[u8], key_change: KeyChange, merged: bool) -> Result<bool, SaveError> {
         match key_change {
-            KeyChange::Same if !merged => self.write(raw).map(|()| false),
+            KeyChange::Same if !merged => {
+                self.write(raw)?;
+                self.key_changed = copy.meta.master_key_changed;
+                Ok(false)
+            }
             KeyChange::Same | KeyChange::Older => self.save(copy).map(|()| true),
             KeyChange::Newer(key) => self.save_with_key(copy, key).map(|()| true),
         }
@@ -233,7 +247,9 @@ impl DbFile {
         }
         // Writing and checking takes seconds (the key is derived twice):
         // `write` looks again, so a change brought in meanwhile is not lost.
-        self.write(&bytes)
+        self.write(&bytes)?;
+        self.key_changed = db.meta.master_key_changed;
+        Ok(())
     }
 
     /// True when the file opens with `key`.
@@ -258,7 +274,7 @@ impl DbFile {
     /// Replaces the file with `bytes` — a whole database, already opened with
     /// the key — atomically, keeping the old file as `<name>.bak`, when the file
     /// did not change since it was last read or written.
-    pub fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), SaveError> {
         let current = self.check_unchanged()?;
         fs::write(self.sibling(BAK), &current)
             .and_then(|()| replace_file(&self.path, &self.sibling(".pswm-tmp"), bytes))

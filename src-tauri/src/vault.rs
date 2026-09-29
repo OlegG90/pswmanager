@@ -520,7 +520,7 @@ impl Vault {
 
     /// For reading the file again without holding the vault: see [Vault::adopt].
     pub fn snapshot(&self) -> Option<Snapshot> {
-        self.file.as_ref().map(|file| file.snapshot(self.db.meta.master_key_changed))
+        self.file.as_ref().map(DbFile::snapshot)
     }
 
     /// Takes a changed file read since `since`, keeping this device's changes
@@ -530,8 +530,7 @@ impl Vault {
     /// A file on another key (see [KeyChange]) takes that key, or is written
     /// again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
-        let (mut db, key_change) = self.file.as_mut()?.adopt(since, read)?;
-        let rewrite = key_change.is_older();
+        let (mut db, rewrite) = self.file.as_mut()?.adopt(since, read)?;
         if rewrite {
             Self::keep_our_key_time(&mut db, &self.db);
             encryption::keep_ours(&mut db, &self.db);
