@@ -19,9 +19,22 @@ export type SyncKind = 'folder' | Cloud
 /** A database in the list. */
 export interface DatabaseInfo {
   file: string
+  /** Its name as last unlocked, or the file name. */
   name: string
+  fileName: string
+  /** As last unlocked; empty when it has none. */
+  description: string
   syncKind: SyncKind | null
 }
+
+/** Settings kept in the database file itself; empty when it has none. */
+export interface DatabaseSettings {
+  name: string
+  description: string
+  defaultUsername: string
+}
+
+export type DatabaseSetting = keyof DatabaseSettings
 
 /** A remote file a database can link to. */
 export type SyncTarget = { kind: 'folder'; path: string } | { kind: 'cloud'; cloud: Cloud; file: CloudFile }
@@ -135,6 +148,7 @@ export interface Attached {
 export interface Listing {
   entries: Entry[]
   customIcons: Record<string, string>
+  database: DatabaseSettings
 }
 
 /** An entry's icon as the editor chooses it. */
@@ -274,6 +288,9 @@ export const api = {
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
+  databaseSettings: () => invoke<DatabaseSettings>('database_settings'),
+  /** Saved in the database file and synced like an edit. */
+  setDatabaseSetting: (setting: DatabaseSetting, value: string) => invoke<DatabaseSettings>('set_database_setting', { setting, value }),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),
   /** With `version`, the value in that older version (0 is the newest). */
   reveal: (id: string, field: string, version: number | null = null) => invoke<string>('reveal', { id, field, version }),

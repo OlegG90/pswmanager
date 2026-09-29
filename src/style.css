@@ -555,8 +555,22 @@ input[type='range']:focus-visible {
   max-width: 100%;
 }
 
-#database-select:not([hidden]) + #database-path {
+/* With the list, the chosen option names the database. */
+#database-select:not([hidden]) ~ #database-name {
   display: none;
+}
+
+#database-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#database-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sync-control {
@@ -1563,6 +1577,13 @@ dialog.modal .buttons {
 .setting select {
   height: 32px;
   padding: 0 8px;
+}
+
+.setting input,
+.setting textarea {
+  width: min(320px, 50%);
+  flex-shrink: 0;
+  resize: vertical;
 }
 
 .setting .value {

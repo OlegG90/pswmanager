@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Everything the app remembers between runs, kept in one JSON file.
-/// Never a password or anything read from the database.
+/// Never a password or a secret; of the database, only its name and
+/// description, for the unlock screen.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct State {
@@ -28,14 +29,40 @@ pub struct State {
     old_key_file: Option<PathBuf>,
 }
 
-/// A database in the list: its file, the key file used with it, and the
-/// remote file it is synced with.
+/// A database in the list: its file, the key file used with it, the remote
+/// file it is synced with, and its name and description as last unlocked
+/// (the file is encrypted: the unlock screen cannot read them).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Known {
     pub file: PathBuf,
     pub key_file: Option<PathBuf>,
     pub remote: Option<Remote>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl Known {
+    fn new(file: PathBuf, key_file: Option<PathBuf>, remote: Option<Remote>) -> Self {
+        Known { file, key_file, remote, name: None, description: None }
+    }
+
+    /// The database's name, or its file's when it has none.
+    pub fn title(&self) -> String {
+        self.name.clone().unwrap_or_else(|| crate::remote::file_name(&self.file))
+    }
+
+    /// Remembers the database's name and description (empty: none); true
+    /// when they changed.
+    pub fn remember(&mut self, name: &str, description: &str) -> bool {
+        let non_empty = |text: &str| Some(text.to_string()).filter(|t| !t.is_empty());
+        let (name, description) = (non_empty(name), non_empty(description));
+        let changed = (&name, &description) != (&self.name, &self.description);
+        (self.name, self.description) = (name, description);
+        changed
+    }
 }
 
 impl State {
@@ -59,7 +86,7 @@ impl State {
     /// list does not have it yet.
     pub fn select(&mut self, file: PathBuf) -> &mut Known {
         if !self.databases.iter().any(|d| d.file == file) {
-            self.databases.push(Known { file: file.clone(), key_file: None, remote: None });
+            self.databases.push(Known::new(file.clone(), None, None));
         }
         self.current = Some(file.clone());
         self.databases.iter_mut().find(|d| d.file == file).expect("just added")
@@ -78,7 +105,7 @@ impl State {
         if let Some(file) = self.old_database.take() {
             if self.databases.is_empty() {
                 let (key_file, remote) = (self.old_key_file.take(), self.old_remote.take());
-                self.databases.push(Known { file: file.clone(), key_file, remote });
+                self.databases.push(Known::new(file.clone(), key_file, remote));
                 self.current = Some(file);
             }
         }
@@ -146,8 +173,19 @@ impl Store {
 
     /// Applies a change and writes the whole state to disk.
     pub fn update(&self, f: impl FnOnce(&mut State)) -> io::Result<()> {
+        self.update_if(|state| {
+            f(state);
+            true
+        })
+    }
+
+    /// Applies a change, and writes the state to disk only when `f` says
+    /// it changed something.
+    pub fn update_if(&self, f: impl FnOnce(&mut State) -> bool) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        f(&mut state);
+        if !f(&mut state) {
+            return Ok(());
+        }
         write_atomically(&self.path, &serde_json::to_vec_pretty(&*state)?)
     }
 }
@@ -213,6 +251,22 @@ mod tests {
         assert_eq!(state.current.as_deref(), Some(Path::new("b.kdbx")));
         state.remove(Path::new("b.kdbx"));
         assert_eq!(state.current, None);
+    }
+
+    #[test]
+    fn a_database_is_titled_by_its_name_or_its_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pswm.json");
+        let store = Store::load(path.clone());
+        store.update(|s| {
+            s.select(PathBuf::from(r"C:\Vault\base.kdbx"));
+        })
+        .unwrap();
+        assert_eq!(store.read(|s| s.current().unwrap().title()), "base.kdbx");
+        // No name kept: none written.
+        assert!(!fs::read_to_string(&path).unwrap().contains("\"name\""));
+        store.update(|s| s.current_mut().unwrap().name = Some("Home".into())).unwrap();
+        assert_eq!(Store::load(path).read(|s| s.current().unwrap().title()), "Home");
     }
 
     #[test]

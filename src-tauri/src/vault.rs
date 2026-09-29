@@ -129,6 +129,18 @@ pub struct Listing {
     pub entries: Vec<EntrySummary>,
     /// The database's own icons used by the entries, as `data:` URLs.
     pub custom_icons: BTreeMap<String, String>,
+    /// The name, description and default user name the file keeps.
+    pub database: DatabaseSettings,
+}
+
+/// The settings kept in the database file itself (see [edit::Setting]);
+/// empty when the file has none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseSettings {
+    pub name: String,
+    pub description: String,
+    pub default_username: String,
 }
 
 impl Vault {
@@ -206,7 +218,26 @@ impl Vault {
                 entry.custom_icon = None;
             }
         }
-        Listing { entries, custom_icons }
+        Listing { entries, custom_icons, database: self.settings() }
+    }
+
+    /// The settings kept in the database file, empty where it has none.
+    pub fn settings(&self) -> DatabaseSettings {
+        let meta = &self.db.meta;
+        let or_empty = |value: &Option<String>| value.clone().unwrap_or_default();
+        DatabaseSettings {
+            name: or_empty(&meta.database_name),
+            description: or_empty(&meta.database_description),
+            default_username: or_empty(&meta.default_username),
+        }
+    }
+
+    /// Changes a setting kept in the database file and saves the file.
+    pub fn set_setting(&mut self, setting: edit::Setting, value: &str) -> Result<(), String> {
+        self.change(|db, _| {
+            edit::set_setting(db, setting, value);
+            Ok(())
+        })
     }
 
     pub fn detail(&self, id: &str) -> Option<EntryDetail> {
@@ -440,7 +471,8 @@ impl Vault {
     /// differ from before, or `None` when the file was read or written since.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
         let mut db = self.file.as_mut()?.adopt(since, read)?;
-        if !edit::keep_newer(&mut db, &self.db).is_empty() {
+        let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
+        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -459,7 +491,10 @@ impl Vault {
         if !file.is_at(since) {
             return Ok(None);
         }
-        let kept_ours = merge && !edit::merge(&mut theirs, &self.db).is_empty();
+        let kept_ours = merge && {
+            let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
+            edit::keep_newer_settings(&mut theirs, &self.db) || kept_entries
+        };
         let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
             Ok(()) => {}
@@ -1279,6 +1314,22 @@ pub mod tests {
         vault.save_pending().unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.field(&mail, fields::PASSWORD).unwrap().as_str(), "saved here");
+    }
+
+    #[test]
+    fn a_setting_changed_here_survives_an_older_file_coming_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        vault.set_setting(edit::Setting::Name, "Named here").unwrap();
+
+        std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
+        vault.reload().unwrap();
+        assert_eq!(vault.settings().name, "Named here");
+        assert!(vault.has_unsaved());
+        vault.save_pending().unwrap();
+        assert_eq!(Vault::open(&path, Some("test"), None).unwrap().settings().name, "Named here");
     }
 
     #[test]

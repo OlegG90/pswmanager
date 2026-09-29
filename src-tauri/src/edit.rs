@@ -3,7 +3,7 @@
 
 use crate::otp;
 use base64::Engine;
-use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Times, Value};
+use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Meta, Times, Value};
 use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
@@ -724,6 +724,63 @@ fn keep_templates_group(theirs: &mut Database, ours: &Database) {
         theirs.meta.entry_templates_group = Some(group.uuid());
         theirs.meta.entry_templates_group_changed = ours.meta.entry_templates_group_changed;
     }
+}
+
+/// A setting of the database itself, kept in the file (KeePass's `Meta`)
+/// with the time it was last changed, so other clients see and change it too.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Setting {
+    Name,
+    Description,
+    DefaultUsername,
+}
+
+impl Setting {
+    const ALL: [Setting; 3] = [Setting::Name, Setting::Description, Setting::DefaultUsername];
+
+    /// The setting's value in `meta`, and when it was last changed.
+    fn in_meta(self, meta: &mut Meta) -> (&mut Option<String>, &mut Option<NaiveDateTime>) {
+        match self {
+            Setting::Name => (&mut meta.database_name, &mut meta.database_name_changed),
+            Setting::Description => (&mut meta.database_description, &mut meta.database_description_changed),
+            Setting::DefaultUsername => (&mut meta.default_username, &mut meta.default_username_changed),
+        }
+    }
+
+    /// Like [Setting::in_meta], to read.
+    fn of(self, meta: &Meta) -> (&Option<String>, Option<NaiveDateTime>) {
+        match self {
+            Setting::Name => (&meta.database_name, meta.database_name_changed),
+            Setting::Description => (&meta.database_description, meta.database_description_changed),
+            Setting::DefaultUsername => (&meta.default_username, meta.default_username_changed),
+        }
+    }
+}
+
+/// Sets a database setting (trimmed) and when it changed; the value it
+/// already has changes nothing.
+pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
+    let (field, changed) = setting.in_meta(&mut db.meta);
+    let value = value.trim();
+    if field.as_deref().unwrap_or_default() != value {
+        *field = Some(value.to_string());
+        *changed = Some(Times::now());
+    }
+}
+
+/// Keeps the database settings `ours` changed later than `theirs` did, each
+/// by its own time, as KeePass merges them. Returns true when it kept any.
+pub fn keep_newer_settings(theirs: &mut Database, ours: &Database) -> bool {
+    Setting::ALL.into_iter().fold(false, |kept, setting| {
+        let (value, at) = setting.of(&ours.meta);
+        let (their_value, their_at) = setting.in_meta(&mut theirs.meta);
+        let newer = at > *their_at && value != their_value;
+        if newer {
+            (*their_value, *their_at) = (value.clone(), at);
+        }
+        kept | newer
+    })
 }
 
 /// True when the entry is in its database's recycle bin.
@@ -1458,6 +1515,39 @@ mod tests {
         assert!(theirs.entry(removed).is_none());
         // Nothing newer the second time.
         assert!(keep_newer(&mut theirs, &ours).is_empty());
+    }
+
+    #[test]
+    fn a_setting_is_trimmed_and_timed_and_the_same_value_changes_nothing() {
+        let mut db = Database::new();
+        set_setting(&mut db, Setting::Name, "  Home  ");
+        assert_eq!(db.meta.database_name.as_deref(), Some("Home"));
+        assert!(db.meta.database_name_changed.is_some());
+        let before = db.clone();
+        set_setting(&mut db, Setting::Name, "Home");
+        assert_eq!(db, before);
+    }
+
+    #[test]
+    fn keep_newer_settings_takes_each_newer_one() {
+        let mut theirs = Database::new();
+        set_setting(&mut theirs, Setting::Name, "Named there");
+        set_setting(&mut theirs, Setting::Description, "Described there");
+        let mut ours = theirs.clone();
+        set_setting(&mut ours, Setting::Name, "Named here");
+        set_setting(&mut ours, Setting::Description, "Described here");
+        set_setting(&mut ours, Setting::DefaultUsername, "me");
+        // Times have one-second precision: set which side is newer by hand.
+        let (earlier, later) = (Some(Times::epoch()), Some(Times::now()));
+        (ours.meta.database_name_changed, theirs.meta.database_name_changed) = (later, earlier);
+        (ours.meta.database_description_changed, theirs.meta.database_description_changed) = (earlier, later);
+
+        assert!(keep_newer_settings(&mut theirs, &ours));
+        assert_eq!(theirs.meta.database_name.as_deref(), Some("Named here"));
+        assert_eq!(theirs.meta.database_description.as_deref(), Some("Described there"));
+        // A setting the other side never had: this device's.
+        assert_eq!(theirs.meta.default_username.as_deref(), Some("me"));
+        assert!(!keep_newer_settings(&mut theirs, &ours));
     }
 
     #[test]

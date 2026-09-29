@@ -41,6 +41,13 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(LABEL)
 }
 
+/// The open database's name before the app's, or the app's alone.
+pub fn set_title(app: &AppHandle, database: Option<&str>) {
+    if let Some(window) = main_window(app) {
+        let _ = window.set_title(&database.map_or_else(|| "PswManager".into(), |name| format!("{name} — PswManager")));
+    }
+}
+
 pub fn show(app: &AppHandle) {
     let Some(window) = main_window(app) else { return };
     let _ = window.show();

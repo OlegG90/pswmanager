@@ -77,7 +77,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 
 | Setting | Stored as | Used by the app |
 |---|---|---|
-| Name | `DatabaseName` | the unlock screen, the list of databases and the window title show it, with the file name under it; the file name when empty |
+| Name | `DatabaseName` | the unlock screen and the list of databases show it (as last unlocked), with the file under it, and the window title while it is unlocked; the file name when empty |
 | Description | `DatabaseDescription` | shown under the name on the unlock screen |
 | Default user name | `DefaultUserName` | filled in on a new blank entry (not one from a template) |
 | History: versions per entry | `HistoryMaxItems` (10 by default, 0–100) | see *Entry history* |
@@ -476,9 +476,10 @@ with code 2.
 
 ## State
 
-- One JSON file: settings, the list of databases (for each: its file, key file, and sync — the remote
-  file and the sync state), which one opens next, window geometry. **Never** the master password, a cloud
-  token or any secret. Site icons are cached in `icons/` beside it.
+- One JSON file: settings, the list of databases (for each: its file, key file, sync — the remote
+  file and the sync state — and its name and description as last unlocked, for the unlock screen, which
+  cannot read the encrypted file), which one opens next, window geometry. **Never** the master password, a
+  cloud token or any secret. Site icons are cached in `icons/` beside it.
 - An older state file (one database, a working copy in `sync/`) is read as a list of one; its working
   copy stays where it is and keeps syncing.
 - **Location:** `pswm.json` next to the exe if that folder is writable; otherwise

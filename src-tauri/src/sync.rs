@@ -602,6 +602,18 @@ mod tests {
     }
 
     #[test]
+    fn a_setting_changed_here_is_merged_with_a_change_there() {
+        let s = setup();
+        s.session.with_mut(|v| v.set_setting(crate::edit::Setting::Name, "Named here")).unwrap();
+        s.elsewhere(|db| db.root_mut().add_entry().set_unprotected(fields::TITLE, "Added on the phone"));
+        // No entry of this device's is newer: the setting alone makes it a merge.
+        assert!(matches!(s.sync(), Ok(Outcome::Merged(_))));
+        let remote = Vault::open(&s.remote.path, Some("test"), None).unwrap();
+        assert_eq!(remote.settings().name, "Named here");
+        assert!(s.remote_titles().contains(&"Added on the phone".to_string()));
+    }
+
+    #[test]
     fn an_upload_over_a_file_changed_meanwhile_merges_first() {
         /// Another device uploads between this device's check and its upload.
         struct Racing<'a>(&'a Setup, Mutex<bool>);

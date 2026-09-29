@@ -1,7 +1,7 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
@@ -31,7 +31,7 @@ const healthView = $('health')
 const toast = $('toast')
 
 
-const EMPTY: Listing = { entries: [], customIcons: {} }
+const EMPTY: Listing = { entries: [], customIcons: {}, database: { name: '', description: '', defaultUsername: '' } }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
@@ -74,8 +74,15 @@ function showStatus(status: Status) {
   // With more than one database, a list picks which one opens.
   const select = $<HTMLSelectElement>('database-select')
   select.hidden = status.databases.length < 2
-  select.replaceChildren(...status.databases.map((d) => new Option(d.name, d.file, false, d.file === status.database)))
+  const label = (d: DatabaseInfo) => (d.name === d.fileName ? d.name : `${d.name} (${d.fileName})`)
+  select.replaceChildren(...status.databases.map((d) => new Option(label(d), d.file, false, d.file === status.database)))
   select.title = status.database ?? ''
+  // Its name, as last unlocked (the file name until then), with the file under it.
+  const current = status.databases.find((d) => d.file === status.database)
+  $('database-name').textContent = current?.name ?? ''
+  const description = $('database-description')
+  description.textContent = description.title = current?.description ?? ''
+  description.hidden = !current?.description
   $('key-file-path').textContent = status.keyFile ?? 'No key file'
   $('clear-key-file').hidden = !status.keyFile
   $('notice').textContent = status.notice ?? ''
@@ -844,6 +851,7 @@ function startEditor(id: string | null, start: { focusPassword?: boolean; from?:
     // New entries go to the top group.
     group: [],
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
+    defaultUsername: listing.database.defaultUsername,
     autoIcon: autoIcon(id ? (listing.entries.find((e) => e.id === id) ?? null) : null),
     onSaved: afterSave,
     onClose: () => {
@@ -1103,10 +1111,15 @@ function changePassword(id: string) {
 
 // ---------------------------------------------------------------- settings
 
+/** The settings screen; a changed database setting (the default user name a
+ *  new entry gets) goes into the listing. */
+const drawSettings = () =>
+  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), (database) => (listing = { ...listing, database }))
+
 async function openSettings() {
   if (settingsOpen) return
   try {
-    await renderSettings(settingsView, closeSettings, (message) => notify(message, 6))
+    await drawSettings()
   } catch (e) {
     return notify(String(e))
   }
@@ -1306,7 +1319,7 @@ listen('open-settings', () => {
 })
 // Changed from the tray while the screen is open.
 listen('settings-changed', () => {
-  if (settingsOpen) renderSettings(settingsView, closeSettings, (message) => notify(message, 6)).catch((e) => notify(String(e)))
+  if (settingsOpen) drawSettings().catch((e) => notify(String(e)))
 })
 
 listen<string>('icon-ready', (e) => {

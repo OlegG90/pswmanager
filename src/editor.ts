@@ -17,6 +17,8 @@ export interface EditorOptions {
   focusPassword?: boolean
   /** The database's tags, offered when adding one. */
   knownTags: string[]
+  /** The database's default user name, filled in on a new blank entry. */
+  defaultUsername?: string
   /** What the Auto icon shows for this entry now. */
   autoIcon: string
   /** A new entry starts from this template's values (not its title or expiry). */
@@ -203,7 +205,11 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   active = loading
   let data: EntryData
   try {
-    data = options.id ? await api.editEntry(options.id) : { ...EMPTY, ...fromTemplate(options.from), group: options.group }
+    // A blank new entry (not from a template, not a template) gets the default user name.
+    const blank = !options.from && !options.template
+    data = options.id
+      ? await api.editEntry(options.id)
+      : { ...EMPTY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
   } catch (e) {
     if (active === loading) active = null
     throw e
