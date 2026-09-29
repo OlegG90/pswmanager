@@ -1,10 +1,10 @@
 //! The database file on disk: opened once with its key, and saved so that the
 //! file is always either the old version or the complete new one.
 
+use chrono::NaiveDateTime;
 use keepass::config::DatabaseVersion;
 use keepass::db::{CustomIconRef, EntryRef, GroupRef, Icon};
 use keepass::error::{DatabaseKeyError, DatabaseOpenError};
-use chrono::NaiveDateTime;
 use keepass::{Database, DatabaseKey};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
@@ -46,19 +46,17 @@ pub enum KeyChange {
     /// The copy is on the file's own key.
     Same,
     /// Another device changed the key later: the file takes it.
-    Take(DatabaseKey),
+    Newer(DatabaseKey),
     /// The copy is on an older key: the file keeps its own, and the copy is
     /// written again with it.
-    Keep,
+    Older,
 }
 
 impl KeyChange {
-    pub fn is_same(&self) -> bool {
-        matches!(self, KeyChange::Same)
-    }
-
+    /// True when the copy is on an older key ([KeyChange::Older]): it comes
+    /// from before this device's change of key.
     pub fn is_older(&self) -> bool {
-        matches!(self, KeyChange::Keep)
+        matches!(self, KeyChange::Older)
     }
 }
 
@@ -136,6 +134,8 @@ impl DbFile {
 
     /// The file as it is now, if it changed since it was last read or written
     /// (another device, a sync client); see [Snapshot::read_changed].
+    /// For a file on its own key only: a copy on another one is weighed
+    /// against no key time, so any newer key would be taken.
     #[cfg(test)]
     pub fn reload(&mut self) -> Result<Option<Database>, OpenError> {
         let since = self.snapshot(None);
@@ -157,7 +157,7 @@ impl DbFile {
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<(Database, KeyChange)> {
         (self.hash == since.hash).then(|| {
             self.hash = read.hash;
-            if let KeyChange::Take(key) = &read.key_change {
+            if let KeyChange::Newer(key) = &read.key_change {
                 self.use_key(key.clone());
             }
             (read.db, read.key_change)
@@ -204,12 +204,15 @@ impl DbFile {
         Ok(())
     }
 
-    /// Writes a copy of the database parsed with [Snapshot::parse] (merged
-    /// into or not) over the file, with the key it leaves the file on.
-    pub fn save_copy(&mut self, db: &mut Database, key_change: KeyChange) -> Result<(), SaveError> {
+    /// Writes a copy of the database, parsed from `raw` with [Snapshot::parse],
+    /// over the file, with the key it leaves the file on: byte for byte when
+    /// it is on the file's own key and was not `merged` into, otherwise saved
+    /// again. True when it was saved again (the file is not `raw`).
+    pub fn save_copy(&mut self, copy: &mut Database, raw: &[u8], key_change: KeyChange, merged: bool) -> Result<bool, SaveError> {
         match key_change {
-            KeyChange::Take(key) => self.save_with_key(db, key),
-            KeyChange::Same | KeyChange::Keep => self.save(db),
+            KeyChange::Same if !merged => self.write(raw).map(|()| false),
+            KeyChange::Same | KeyChange::Older => self.save(copy).map(|()| true),
+            KeyChange::Newer(key) => self.save_with_key(copy, key).map(|()| true),
         }
     }
 
@@ -378,8 +381,8 @@ impl Snapshot {
                 Ok(db) => {
                     let key_change = match i {
                         0 => KeyChange::Same,
-                        _ if db.meta.master_key_changed > self.key_changed => KeyChange::Take(key.clone()),
-                        _ => KeyChange::Keep,
+                        _ if db.meta.master_key_changed > self.key_changed => KeyChange::Newer(key.clone()),
+                        _ => KeyChange::Older,
                     };
                     return Ok((db, key_change));
                 }

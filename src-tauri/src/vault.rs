@@ -574,14 +574,11 @@ impl Vault {
             encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
         };
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
-        let rewritten = kept_ours || !key_change.is_same();
-        let file = self.file_mut()?;
-        let written = if rewritten { file.save_copy(&mut theirs, key_change) } else { file.write(raw) };
-        match written {
-            Ok(()) => {}
+        let rewritten = match self.file_mut()?.save_copy(&mut theirs, raw, key_change, kept_ours) {
+            Ok(rewritten) => rewritten,
             Err(SaveError::Changed) => return Ok(None),
             Err(SaveError::Failed(message)) => return Err(message),
-        }
+        };
         let changed = changed_entries(&self.db, &theirs);
         self.db = theirs;
         self.unsaved = false;
