@@ -230,13 +230,12 @@ impl Vault {
         let meta = &self.db.meta;
         let or_empty = |value: &Option<String>| value.clone().unwrap_or_default();
         let (max_items, max_size) = edit::history_limits(meta);
-        let or_no_limit = |limit: Option<usize>| limit.map_or(-1, |n| n as isize);
         DatabaseSettings {
             name: or_empty(&meta.database_name),
             description: or_empty(&meta.database_description),
             default_username: or_empty(&meta.default_username),
-            history_max_items: or_no_limit(max_items),
-            history_max_size: or_no_limit(max_size),
+            history_max_items: as_stored(max_items),
+            history_max_size: as_stored(max_size),
         }
     }
 
@@ -250,9 +249,9 @@ impl Vault {
     pub fn set_history_limits(&mut self, max_items: isize, max_size: isize) -> Result<(), String> {
         // What the lists offer (no history at all, but some room for it), or
         // what the file has already: another client may have set it.
-        let now = self.settings();
-        let items_ok = (0..=100).contains(&max_items) || max_items == now.history_max_items;
-        let size_ok = (1 << 20..=64 << 20).contains(&max_size) || max_size == now.history_max_size;
+        let (items_now, size_now) = edit::history_limits(&self.db.meta);
+        let items_ok = (0..=100).contains(&max_items) || max_items == as_stored(items_now);
+        let size_ok = (1 << 20..=64 << 20).contains(&max_size) || max_size == as_stored(size_now);
         if !items_ok || !size_ok {
             return Err("Not a history limit".into());
         }
@@ -525,12 +524,7 @@ impl Vault {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
             edit::keep_newer_settings(&mut theirs, &self.db) || kept_entries
         };
-        let written = if kept_ours {
-            edit::trim_all_history(&mut theirs);
-            file.save(&mut theirs)
-        } else {
-            file.write(raw)
-        };
+        let written = if kept_ours { file.save(&mut theirs) } else { file.write(raw) };
         match written {
             Ok(()) => {}
             Err(SaveError::Changed) => return Ok(None),
@@ -571,9 +565,6 @@ impl Vault {
             if db == self.db && !self.unsaved {
                 return Ok(result);
             }
-            // Every save keeps the history within the limits, so versions a
-            // merge brought back are trimmed again.
-            edit::trim_all_history(&mut db);
             match self.file.as_mut().ok_or("This database cannot be saved")?.save(&mut db) {
                 Ok(()) => {
                     self.db = db;
@@ -659,8 +650,13 @@ fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
     EntryDetail { summary: summary(entry), fields, attachments, modified, versions: versions_of(entry) }
 }
 
+/// A history limit as the window and the file write it: -1 for no limit.
+fn as_stored(limit: Option<usize>) -> isize {
+    limit.map_or(-1, |n| n as isize)
+}
+
 fn versions_of(entry: &EntryRef<'_>) -> usize {
-    entry.history.as_ref().map_or(0, |h| h.get_entries().len())
+    edit::history_count(entry)
 }
 
 /// What changed from `old` to `new`, by name: the standard fields first, then

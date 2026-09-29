@@ -625,12 +625,17 @@ fn group_at(db: &mut Database, path: &[String], hidden: &HashSet<GroupId>) -> Re
 /// `HistoryMaxSize`, KeePass's own defaults when it does not); `None` for no
 /// limit (negative in the file).
 pub fn history_limits(meta: &Meta) -> (Option<usize>, Option<usize>) {
+    limits_of(stored_limits(meta))
+}
+
+/// The limits the stored values mean (see [history_limits]).
+fn limits_of((max_items, max_size): (Option<isize>, Option<isize>)) -> (Option<usize>, Option<usize>) {
     let limit = |value: Option<isize>, default| match value {
         Some(n) if n < 0 => None,
         Some(n) => Some(n as usize),
         None => Some(default),
     };
-    (limit(meta.history_max_items, DEFAULT_HISTORY_ITEMS), limit(meta.history_max_size, DEFAULT_HISTORY_SIZE))
+    (limit(max_items, DEFAULT_HISTORY_ITEMS), limit(max_size, DEFAULT_HISTORY_SIZE))
 }
 
 /// A version's size as the history limit counts it: its fields, tags and
@@ -643,34 +648,37 @@ fn version_size(version: &EntryRef<'_>) -> usize {
 }
 
 /// How many old versions the entry's history holds.
-fn history_count(entry: &Entry) -> usize {
+pub fn history_count(entry: &Entry) -> usize {
     entry.history.as_ref().map_or(0, |h| h.get_entries().len())
 }
 
-/// Keeps only the newest old versions the database's limits allow: as many
-/// as `HistoryMaxItems`, and no more than `HistoryMaxSize` together, the
-/// oldest going first (as KeePass does). The files only the dropped versions
-/// used stay in the database until [trim_all_history] lets them go.
+/// How many of the entry's old versions (newest first) these limits keep: as
+/// many as the count allows, and no more than the size allows together, the
+/// oldest going first (as KeePass does).
+fn kept_versions(entry: &EntryRef<'_>, (max_items, max_size): (Option<usize>, Option<usize>)) -> usize {
+    let limit = history_count(entry).min(max_items.unwrap_or(usize::MAX));
+    let Some(max_size) = max_size else { return limit };
+    (0..limit)
+        .scan(0, |total, i| {
+            *total += entry.historical(i).as_ref().map_or(0, version_size);
+            Some(*total)
+        })
+        .take_while(|&total| total <= max_size)
+        .count()
+}
+
+/// Keeps only the newest old versions the database's limits allow (see
+/// [kept_versions]). The files only the dropped versions used stay in the
+/// database until [trim_all_history] lets them go.
 fn trim_history(db: &mut Database, id: EntryId) {
-    let (max_items, max_size) = history_limits(&db.meta);
     let Some(entry) = db.entry(id) else { return };
-    let count = history_count(&entry);
-    let mut limit = count.min(max_items.unwrap_or(usize::MAX));
-    if let Some(max_size) = max_size {
-        let mut total = 0;
-        if let Some(over) = (0..limit).find(|&i| {
-            total += entry.historical(i).as_ref().map_or(0, version_size);
-            total > max_size
-        }) {
-            limit = over;
-        }
-    }
-    if limit == count {
+    let (count, kept) = (history_count(&entry), kept_versions(&entry, history_limits(&db.meta)));
+    if kept == count {
         return;
     }
     let Some(mut entry) = db.entry_mut(id) else { return };
     let Some(history) = &entry.history else { return };
-    let kept: Vec<_> = history.get_entries().iter().take(limit).cloned().collect();
+    let kept: Vec<_> = history.get_entries().iter().take(kept).cloned().collect();
     let mut trimmed = History::default();
     for old in kept.into_iter().rev() {
         trimmed.add_entry(old); // adds at the front, so oldest first keeps the order
@@ -679,18 +687,13 @@ fn trim_history(db: &mut Database, id: EntryId) {
 }
 
 /// Trims every entry's history to the database's limits and lets go of the
-/// files no version uses any more, so they leave the saved file too. For a
-/// database about to be saved.
+/// files no version uses any more, so they leave the file too. Every save
+/// does this ([crate::dbfile::DbFile::save]).
 pub fn trim_all_history(db: &mut Database) {
     for id in all_entries(db) {
         trim_history(db, id);
     }
     db.remove_unused_attachments();
-}
-
-/// How many old versions there are in all the entries' histories.
-fn version_count(db: &Database) -> usize {
-    db.iter_all_entries().map(|e| history_count(&e)).sum()
 }
 
 /// The history limits as the file stores them (negative: no limit).
@@ -699,22 +702,20 @@ fn stored_limits(meta: &Meta) -> (Option<isize>, Option<isize>) {
 }
 
 /// Sets the history limits (negative: no limit), and when they changed
-/// (KeePass's `SettingsChanged`). Every entry's history is trimmed to them.
+/// (KeePass's `SettingsChanged`); saving trims every entry's history to them.
 pub fn set_history_limits(db: &mut Database, max_items: isize, max_size: isize) {
     let limits = (Some(max_items), Some(max_size));
     if stored_limits(&db.meta) != limits {
         (db.meta.history_max_items, db.meta.history_max_size) = limits;
         db.meta.settings_changed = Some(Times::now());
     }
-    trim_all_history(db);
 }
 
 /// How many old versions these history limits would remove (also when the
 /// histories are over the limits already, as another client may leave them).
 pub fn versions_over_limits(db: &Database, max_items: isize, max_size: isize) -> usize {
-    let mut trimmed = db.clone();
-    set_history_limits(&mut trimmed, max_items, max_size);
-    version_count(db) - version_count(&trimmed)
+    let limits = limits_of((Some(max_items), Some(max_size)));
+    db.iter_all_entries().map(|e| history_count(&e) - kept_versions(&e, limits)).sum()
 }
 
 /// Keeps what this device changed that a file read from disk does not have —
@@ -1230,7 +1231,7 @@ mod tests {
     }
 
     fn history_len(db: &Database, id: EntryId) -> usize {
-        db.entry(id).unwrap().history.as_ref().map_or(0, |h| h.get_entries().len())
+        history_count(&db.entry(id).unwrap())
     }
 
     #[test]
@@ -1642,6 +1643,7 @@ mod tests {
         assert_eq!((history_len(&db, a), history_len(&db, b)), (4, 2), "a preview changes nothing");
 
         set_history_limits(&mut db, 1, -1);
+        trim_all_history(&mut db); // as saving does
         assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
         assert_eq!(history_limits(&db.meta), (Some(1), None));
         assert!(db.meta.settings_changed.is_some());
@@ -1687,6 +1689,7 @@ mod tests {
         assert_eq!(db.num_attachments(), 2, "history keeps the old content");
 
         set_history_limits(&mut db, 0, -1);
+        trim_all_history(&mut db); // as saving does
         assert_eq!(history_len(&db, id), 0);
         assert_eq!(db.num_attachments(), 1);
         let files: Vec<_> = db.entry(id).unwrap().attachments().map(|a| a.data.get().clone()).collect();
