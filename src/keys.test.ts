@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actionFor, type KeyContext } from './keys'
+import { actionFor, SHORTCUTS, type Action, type KeyContext } from './keys'
 
 const press = (key: string, ctrlKey = false, code = `Key${key.toUpperCase()}`) => ({
   key,
@@ -39,6 +39,26 @@ describe('actionFor', () => {
 
   it('leaves the arrow keys to a focused drop-down', () => {
     expect(actionFor(press('ArrowDown'), { ...outside, inSelect: true })).toBeNull()
+  })
+
+  it('opens the shortcuts with F1', () => {
+    expect(actionFor(press('F1', false, 'F1'), inSearch)).toBe('shortcuts')
+  })
+
+  it('lists every key it reacts to in the shortcuts panel', () => {
+    // Each Ctrl shortcut gives what the panel says.
+    for (const s of SHORTCUTS.filter((s) => s.ctrl)) {
+      expect(actionFor({ ...press('x', true, s.ctrl), key: 'x' }, outside), s.keys).toBe(s.actions[0])
+    }
+    // And every action a key can give is on the panel.
+    const presses = [
+      ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) => press(l.toLowerCase(), true)),
+      press(',', true, 'Comma'), press('.', true, 'Period'), press('/', true, 'Slash'),
+      ...['ArrowUp', 'ArrowDown', 'Escape', 'Delete', 'F1', 'Tab', 'Enter', 'g'].map((k) => press(k, false, k)),
+    ]
+    const given = new Set(presses.map((p) => actionFor(p, outside)).filter((a): a is Action => a !== null))
+    const listed = new Set(SHORTCUTS.flatMap((s) => s.actions))
+    for (const action of given) expect(listed.has(action), action).toBe(true)
   })
 
   it('starts a search when typing outside a text field', () => {

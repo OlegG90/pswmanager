@@ -10,6 +10,7 @@ import { formatDate, formatDateTime, formatSize } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
+import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { enterOtherKey } from './other-key'
@@ -1205,6 +1206,7 @@ $('settings-button').addEventListener('click', openSettings)
 $('health-button').addEventListener('click', openHealth)
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
+$('shortcuts-button').addEventListener('click', showShortcuts)
 
 /** Esc with nothing left to close: back to the tray. */
 function hideWindow() {
@@ -1267,6 +1269,9 @@ function perform(action: Action, e: KeyboardEvent) {
       break
     case 'settings':
       openSettings()
+      break
+    case 'shortcuts':
+      showShortcuts()
       break
     case 'type-to-search':
       searchInput.focus()

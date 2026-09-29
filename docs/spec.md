@@ -261,6 +261,11 @@ KeePassXC and Keepass2Android keep too, so their changes show here as well), up 
 | `Ctrl+L` | Lock |
 | `Ctrl+,` | Settings |
 | `Esc` | Clear search, close panel, then hide to tray |
+| `F1` | These shortcuts |
+
+A keyboard button before the search field (and `F1`) shows every shortcut in a dialog, by group (window,
+list, entry), with the global hotkey as set now. The Ctrl shortcuts the window reacts to are read from the
+same table the dialog shows.
 
 ## Tray
 
