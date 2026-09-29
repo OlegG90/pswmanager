@@ -32,9 +32,9 @@
         <span>Master password</span>
         <input id="password" type="password" />
       </label>
-      <div class="file-row key-file">
+      <div class="file-row">
         <span id="key-file-path" class="path muted" hidden></span>
-        <button type="button" id="pick-key-file" title="A KeePass key file (.keyx or .key), needed only if this database was set up with one">Key file…</button>
+        <button type="button" id="pick-key-file" aria-describedby="key-file-hint" title="A KeePass key file (.keyx or .key), needed only if this database was set up with one">Key file…</button>
         <button type="button" id="clear-key-file" hidden>Remove</button>
       </div>
       <p id="key-file-hint" class="muted" hidden>Only if this database was set up with one: a .keyx or .key file, kept apart from it. New ones are made in Settings → Database.</p>
