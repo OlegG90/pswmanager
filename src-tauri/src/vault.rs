@@ -530,13 +530,10 @@ impl Vault {
     /// A file on another key (see [KeyChange]) takes that key, or is written
     /// again with this one.
     pub fn adopt(&mut self, since: &Snapshot, read: Read) -> Option<Vec<String>> {
-        let (mut db, rewrite) = self.file.as_mut()?.adopt(since, read)?;
-        if rewrite {
-            Self::keep_our_key_time(&mut db, &self.db);
-            encryption::keep_ours(&mut db, &self.db);
-        }
+        let (mut db, older_key) = self.file.as_mut()?.adopt(since, read)?;
+        let kept_meta = edit::keep_newer_meta(&mut db, &self.db, older_key, false);
         let kept_entries = !edit::keep_newer(&mut db, &self.db).is_empty();
-        if edit::keep_newer_settings(&mut db, &self.db) || kept_entries || rewrite {
+        if kept_meta || kept_entries || older_key {
             self.unsaved = true;
         }
         let changed = changed_entries(&self.db, &db);
@@ -568,9 +565,7 @@ impl Vault {
         let older = key_change.is_older();
         let kept_ours = (merge || older) && {
             let kept_entries = !edit::merge(&mut theirs, &self.db).is_empty();
-            let kept_settings = edit::keep_newer_settings(&mut theirs, &self.db);
-            let kept_key = older && Self::keep_our_key_time(&mut theirs, &self.db);
-            encryption::keep_ours(&mut theirs, &self.db) || kept_settings || kept_entries || kept_key
+            edit::keep_newer_meta(&mut theirs, &self.db, older, true) || kept_entries
         };
         // Not the remote file byte for byte: what goes up replaces it, so it is kept first.
         let rewritten = match self.file_mut()?.save_copy(&mut theirs, raw, key_change, kept_ours) {
@@ -582,14 +577,6 @@ impl Vault {
         self.db = theirs;
         self.unsaved = false;
         Ok(Some(if rewritten { Outcome::Merged(changed) } else { Outcome::Downloaded(changed) }))
-    }
-
-    /// A copy on an older key takes this device's key time (the encryption
-    /// that goes with the key is [encryption::keep_ours]'s). True when it changed.
-    fn keep_our_key_time(theirs: &mut Database, ours: &Database) -> bool {
-        let older = theirs.meta.master_key_changed != ours.meta.master_key_changed;
-        theirs.meta.master_key_changed = ours.meta.master_key_changed;
-        older
     }
 
     fn file(&self) -> Result<&DbFile, String> {
