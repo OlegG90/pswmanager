@@ -26,6 +26,7 @@ mod vault;
 mod window;
 
 use activity::Activity;
+use dbfile::OpenError;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use std::path::{Path, PathBuf};
@@ -405,14 +406,10 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     session.with_mut(|v| v.remember_key(given.clone()))?;
     // The file on this PC first (another program may have replaced it), then
     // the remote file. Reading derives keys: done without holding the database.
-    let read_again = || -> Result<(), String> {
+    let read_again = || -> Result<(), OpenError> {
         let Some(since) = session.read(Vault::snapshot)? else { return Ok(()) };
         if let Some(read) = since.read_changed()? {
-            if let Some(changed) = session.with_mut(|v| {
-                let changed = v.adopt(&since, read);
-                v.save_pending()?;
-                Ok(changed)
-            })? {
+            if let Some(changed) = adopt(&session, &since, read)? {
                 show_changes(&app, changed);
             }
         }
@@ -421,7 +418,10 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     if let Err(e) = read_again() {
         // A key that opened nothing is not kept.
         session.with_mut(|v| v.forget_key(&given))?;
-        return Err(if dbfile::needs_other_key(&e) { "This master password or key file does not open it either".into() } else { e });
+        return Err(match e {
+            OpenError::OtherKey(_) => "This master password or key file does not open it either".into(),
+            OpenError::Other(message) => message,
+        });
     }
     let key_taken = session.read(|v| v.uses_key(&given))??;
     choose(app, |s| {
@@ -717,10 +717,13 @@ fn check_disk(app: &AppHandle) {
     std::thread::spawn(move || {
         let session = app.state::<Session>();
         // A lock meanwhile makes any error moot.
-        let report = |message: String| {
+        let report = |error: OpenError| {
             if session.is_unlocked() {
                 // A file on a key this device does not know: the window asks for it.
-                let event = if dbfile::needs_other_key(&message) { "needs-key" } else { "database-error" };
+                let (event, message) = match error {
+                    OpenError::OtherKey(message) => ("needs-key", message),
+                    OpenError::Other(message) => ("database-error", message),
+                };
                 let _ = app.emit(event, message);
             }
         };
@@ -728,19 +731,24 @@ fn check_disk(app: &AppHandle) {
         let read = match since.read_changed() {
             Ok(Some(read)) => read,
             Ok(None) => return,
-            Err(message) => return report(message),
+            Err(error) => return report(error),
         };
-        let adopted = session.with_mut(|v| {
-            let Some(changed) = v.adopt(&since, read) else { return Ok(None) };
-            v.save_pending()?;
-            Ok(Some(changed))
-        });
-        match adopted {
+        match adopt(&session, &since, read) {
             Ok(Some(changed)) => show_changes(&app, changed),
             Ok(None) => {}
-            Err(message) => report(message),
+            Err(error) => report(error),
         }
     });
+}
+
+/// Takes a file read since `since` and writes what this device kept from
+/// before ([Vault::adopt], [Vault::save_pending]); the ids of the entries that
+/// differ, or `None` when the file was read or written since.
+fn adopt(session: &Session, since: &dbfile::Snapshot, read: dbfile::Read) -> Result<Option<Vec<String>>, OpenError> {
+    session.with_mut(|v| {
+        let Some(changed) = v.adopt(since, read) else { return Ok(Ok(None)) };
+        Ok(v.save_pending().map(|()| Some(changed)))
+    })?
 }
 
 /// Tells the window the database changed under it (another device's change

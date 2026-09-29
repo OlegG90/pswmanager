@@ -2,7 +2,7 @@
 //! summaries without secrets, a secret only when asked for one field, and a
 //! whole entry only while it is being edited.
 
-use crate::dbfile::{DbFile, Read, SaveError, Snapshot};
+use crate::dbfile::{DbFile, OpenError, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
@@ -271,10 +271,11 @@ impl Vault {
             return Err("A database needs a master password, a key file, or both".into());
         }
         let new = key(password, key_file)?;
-        self.change_with_key(Some(&new), |db, _| {
+        self.save_change(Some(&new), |db, _| {
             db.meta.master_key_changed = Some(keepass::db::Times::now());
             Ok(())
         })
+        .map_err(|e| e.to_string())
     }
 
     /// How many old versions these history limits would remove.
@@ -522,7 +523,7 @@ impl Vault {
     /// The file as it is now, if it changed on disk since it was last read or
     /// written: it becomes the database, and the ids of the entries that
     /// differ are returned (added, changed, moved or gone).
-    pub fn reload(&mut self) -> Result<Option<Vec<String>>, String> {
+    pub fn reload(&mut self) -> Result<Option<Vec<String>>, OpenError> {
         let Some(since) = self.snapshot() else { return Ok(None) };
         Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)))
     }
@@ -662,10 +663,11 @@ impl Vault {
         self.unsaved
     }
 
-    /// Writes changes kept from an older file, if any.
-    pub fn save_pending(&mut self) -> Result<(), String> {
+    /// Writes changes kept from an older file, if any. The file may have been
+    /// replaced again meanwhile, on another key: [OpenError::OtherKey].
+    pub fn save_pending(&mut self) -> Result<(), OpenError> {
         if self.unsaved {
-            self.change(|_, _| Ok(()))?;
+            self.save_change(None, |_, _| Ok(()))?;
         }
         Ok(())
     }
@@ -677,15 +679,17 @@ impl Vault {
     /// An untouched database does not rewrite the file (and wake the sync
     /// client). Nothing changes when saving fails.
     fn change<R>(&mut self, change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>) -> Result<R, String> {
-        self.change_with_key(None, change)
+        // A command only shows why: a file on another key is not told apart.
+        self.save_change(None, change).map_err(|e| e.to_string())
     }
 
-    /// [Vault::change], the file written with `key` from now on when one is given.
-    fn change_with_key<R>(
+    /// [Vault::change], the file written with `key` from now on when one is
+    /// given, telling a file on another key apart.
+    fn save_change<R>(
         &mut self,
         key: Option<&DatabaseKey>,
         change: impl Fn(&mut Database, &HashSet<GroupId>) -> Result<R, String>,
-    ) -> Result<R, String> {
+    ) -> Result<R, OpenError> {
         const ATTEMPTS: usize = 3;
         for _ in 0..ATTEMPTS {
             self.reload()?;
@@ -706,10 +710,10 @@ impl Vault {
                     return Ok(result);
                 }
                 Err(SaveError::Changed) => continue,
-                Err(SaveError::Failed(message)) => return Err(message),
+                Err(SaveError::Failed(message)) => return Err(message.into()),
             }
         }
-        Err("The database file keeps changing on disk; try again in a moment".into())
+        Err(String::from("The database file keeps changing on disk; try again in a moment").into())
     }
 
     /// The entry's current TOTP code, or `None` when it has no secret.
@@ -1564,7 +1568,7 @@ pub mod tests {
         db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
 
         let refused = vault.reload().unwrap_err();
-        assert!(crate::dbfile::needs_other_key(&refused), "{refused}");
+        assert!(matches!(refused, OpenError::OtherKey(_)), "{refused}");
         vault.remember_key(DatabaseKey::new().with_password("other")).unwrap();
         vault.reload().unwrap();
         assert!(vault.uses_key(&DatabaseKey::new().with_password("other")).unwrap());
@@ -1584,6 +1588,23 @@ pub mod tests {
         vault.save_pending().unwrap();
         assert!(Vault::open(&path, Some("new"), None).is_ok());
         assert!(Vault::open(&path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn saving_what_was_kept_tells_a_file_on_another_key_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        vault.change_key((Some("test"), None), Some("new"), None).unwrap();
+        std::fs::write(&path, &older).unwrap();
+        vault.reload().unwrap();
+
+        // Before it is written, the file is replaced again, on a key not known here.
+        let mut db = vault.db.clone();
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
+        assert!(matches!(vault.save_pending(), Err(OpenError::OtherKey(_))));
     }
 
     #[test]

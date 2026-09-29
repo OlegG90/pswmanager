@@ -37,13 +37,41 @@ pub struct DbFile {
     hash: [u8; 32],
 }
 
-/// Why a copy of the database did not open: none of the keys known opens it
-/// (another device changed the key). See [needs_other_key].
-pub const OTHER_KEY: &str = "It opens with another master password or key file";
+/// Why a copy of the database did not open, with the message to show.
+#[derive(Debug, PartialEq)]
+pub enum OpenError {
+    /// None of the keys known opens it: another device changed the key.
+    OtherKey(String),
+    /// Anything else: the file is missing, damaged, half-written.
+    Other(String),
+}
 
-/// True when `message` says a copy opens with a key this device does not know.
-pub fn needs_other_key(message: &str) -> bool {
-    message.ends_with(OTHER_KEY)
+impl OpenError {
+    /// [OpenError::OtherKey], as a copy that none of the keys opens says it.
+    pub fn other_key() -> Self {
+        OpenError::OtherKey("It opens with another master password or key file".into())
+    }
+
+    /// The same error, its message led by `context`.
+    fn context(self, context: &str) -> Self {
+        match self {
+            OpenError::OtherKey(m) => OpenError::OtherKey(format!("{context}: {m}")),
+            OpenError::Other(m) => OpenError::Other(format!("{context}: {m}")),
+        }
+    }
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (OpenError::OtherKey(m) | OpenError::Other(m)) = self;
+        f.write_str(m)
+    }
+}
+
+impl From<String> for OpenError {
+    fn from(message: String) -> Self {
+        OpenError::Other(message)
+    }
 }
 
 fn hash(bytes: &[u8]) -> [u8; 32] {
@@ -84,7 +112,7 @@ impl DbFile {
     /// The file as it is now, if it changed since it was last read or written
     /// (another device, a sync client); see [Snapshot::read_changed].
     #[cfg(test)]
-    pub fn reload(&mut self) -> Result<Option<Database>, String> {
+    pub fn reload(&mut self) -> Result<Option<Database>, OpenError> {
         let since = self.snapshot();
         Ok(since.read_changed()?.and_then(|read| self.adopt(&since, read)).map(|(db, _)| db))
     }
@@ -292,28 +320,28 @@ impl Snapshot {
     /// The file as it is now, if it changed since the snapshot. A file that
     /// cannot be read — the key changed elsewhere, or a sync client is half-way
     /// through writing it — is an error; saving refuses until it can be read.
-    pub fn read_changed(&self) -> Result<Option<Read>, String> {
+    pub fn read_changed(&self) -> Result<Option<Read>, OpenError> {
         let bytes = fs::read(&self.path).map_err(|e| format!("Cannot read the database file: {e}"))?;
         let now = hash(&bytes);
         if now == self.hash {
             return Ok(None);
         }
-        let (db, other_key) = self.parse(&bytes).map_err(|e| format!("The database file changed on disk and cannot be read now: {e}"))?;
+        let (db, other_key) = self.parse(&bytes).map_err(|e| e.context("The database file changed on disk and cannot be read now"))?;
         Ok(Some(Read { db, hash: now, other_key }))
     }
 
     /// Opens another copy of the database (a downloaded one) with the first
     /// key that opens it; with that key when it is not the file's own. None
-    /// opening it is [OTHER_KEY].
-    pub fn parse(&self, bytes: &[u8]) -> Result<(Database, Option<DatabaseKey>), String> {
+    /// opening it is [OpenError::OtherKey].
+    pub fn parse(&self, bytes: &[u8]) -> Result<(Database, Option<DatabaseKey>), OpenError> {
         for (i, key) in self.keys.iter().enumerate() {
             match Database::parse(bytes, key.clone()) {
                 Ok(db) => return Ok((db, (i > 0).then(|| key.clone()))),
                 Err(DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey)) => continue,
-                Err(e) => return Err(open_error(&e)),
+                Err(e) => return Err(open_error(&e).into()),
             }
         }
-        Err(OTHER_KEY.into())
+        Err(OpenError::other_key())
     }
 }
 
@@ -549,7 +577,7 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (mut db, mut file) = saved(dir.path(), &Database::new());
         fs::write(dir.path().join("t.kdbx"), b"half-synced").unwrap();
-        assert!(file.reload().unwrap_err().contains("cannot be read now"));
+        assert!(file.reload().unwrap_err().to_string().contains("cannot be read now"));
         assert_eq!(file.save(&mut db), Err(SaveError::Changed));
         assert_eq!(fs::read(dir.path().join("t.kdbx")).unwrap(), b"half-synced");
     }
