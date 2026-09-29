@@ -137,7 +137,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 ## Window
 
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
-  tags and notes (not passwords). Results update as you type.
+  tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
+  keyboard shortcuts (see *Keyboard shortcuts*).
 - Three columns: the **sidebar** (the fixed groups, then the tags), the **list** of entries the sidebar's
   choice shows, and the selected **entry** (see *Groups and tags*). There is no filter menu.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
@@ -261,6 +262,11 @@ KeePassXC and Keepass2Android keep too, so their changes show here as well), up 
 | `Ctrl+L` | Lock |
 | `Ctrl+,` | Settings |
 | `Esc` | Clear search, close panel, then hide to tray |
+| `F1` | These shortcuts |
+
+A keyboard button before the search field (and `F1`) shows every shortcut in a dialog, by group (window,
+list, entry), with the global hotkey as set now. The Ctrl shortcuts the window reacts to are read from the
+same table the dialog shows.
 
 ## Tray
 

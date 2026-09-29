@@ -1537,6 +1537,54 @@ dialog.modal.form {
   margin-bottom: 12px;
 }
 
+/* Keyboard shortcuts: by group, the keys in a column beside what they do. */
+dialog.modal.shortcuts {
+  width: min(560px, 92vw);
+  padding: 26px 24px 18px;
+}
+
+/* Its message is the title: room above it, as the panels have. */
+.modal.shortcuts > p {
+  margin-top: 4px;
+  font-family: var(--font-heading);
+  font-size: 20px;
+}
+
+.modal.shortcuts h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-accent-700);
+}
+
+.modal.shortcuts dl {
+  display: grid;
+  /* The same key column in every group. */
+  grid-template-columns: 15em 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+  font-size: 13px;
+}
+
+.modal.shortcuts dd {
+  margin: 0;
+}
+
+.modal.shortcuts kbd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+/* The shortcuts button, square beside the search field. */
+#toolbar #shortcuts-button {
+  width: 34px;
+  padding: 0;
+}
+
 .modal .choices {
   display: flex;
   flex-direction: column;
