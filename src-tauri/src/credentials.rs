@@ -1,6 +1,7 @@
-//! Secrets the app keeps between runs (a cloud account's refresh token), in
-//! the Windows Credential Manager: protected for the Windows user, never in
-//! the state file.
+//! Secrets the app keeps between runs (a cloud account's refresh token, the
+//! icon cache's key), in the Windows Credential Manager: protected for the
+//! Windows user, never in the state file. The core reaches them through
+//! [CredentialManager] ([pswm_core::secrets]).
 
 use std::ptr;
 use windows_sys::Win32::Security::Credentials::{
@@ -55,6 +56,23 @@ pub fn delete(name: &str) {
     let target = target(name);
     // SAFETY: `target` is NUL-terminated. A missing credential is fine.
     unsafe { CredDeleteW(target.as_ptr(), CRED_TYPE_GENERIC, 0) };
+}
+
+/// The Credential Manager as the core's secret store.
+pub struct CredentialManager;
+
+impl pswm_core::secrets::SecretStore for CredentialManager {
+    fn write(&self, name: &str, secret: &str) -> Result<(), String> {
+        write(name, secret)
+    }
+
+    fn read(&self, name: &str) -> Option<Zeroizing<String>> {
+        read(name)
+    }
+
+    fn delete(&self, name: &str) {
+        delete(name)
+    }
 }
 
 #[cfg(test)]

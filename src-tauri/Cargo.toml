@@ -19,87 +19,23 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+pswm-core = { path = "../crates/core" }
 arboard = "3.6.1"
-base32 = "0.5.1"
 base64 = "0.23.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 getrandom = "0.4.3"
-hmac = "0.13"
-keepass = { version = "0.15", features = ["save_kdbx4"] }
 notify = "8"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-sha2 = "0.11"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-opener = "2.5.5"
 tauri-plugin-single-instance = "2.4.5"
-totp-lite = "2.0.1"
-ureq = { version = "3.2.1", default-features = false, features = ["native-tls", "gzip"] }
-url = "2"
-uuid = "1"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_RemoteDesktop", "Win32_UI_WindowsAndMessaging"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
 zxcvbn = "3.1.1"
 
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = "s"
-panic = "abort"
-strip = true
-
 [dev-dependencies]
 tempfile = "3.27.0"
-
-# keepass-rs 0.15 misnumbers the other entries' files in the saved file after
-# an attachment is removed from the database, and keeps the files only a
-# removed entry's history used. The fork carries both fixes, offered upstream
-# as sseemayer/keepass-rs#374 and #375, and Database::remove_unused_attachments,
-# which trimming history needs (branch pswmanager-0.15: these on v0.15.0);
-# back to crates.io once released.
-[patch.crates-io]
-keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "d4c3822ce3ea36a09b1c934ce44757ae729fe463" }
-
-# The crates that unlock and save a database (Argon2, the ciphers, hashing,
-# gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
-# a second, not half a minute. Only these: optimising every dependency made
-# a first debug or test build several times slower.
-[profile.dev.package.rust-argon2]
-opt-level = 3
-[profile.dev.package.blake2b_simd]
-opt-level = 3
-[profile.dev.package.aes]
-opt-level = 3
-[profile.dev.package.cbc]
-opt-level = 3
-[profile.dev.package.chacha20]
-opt-level = 3
-[profile.dev.package.salsa20]
-opt-level = 3
-[profile.dev.package.twofish]
-opt-level = 3
-[profile.dev.package.cipher]
-opt-level = 3
-[profile.dev.package.sha2]
-opt-level = 3
-[profile.dev.package.hmac]
-opt-level = 3
-[profile.dev.package.digest]
-opt-level = 3
-[profile.dev.package.block-buffer]
-opt-level = 3
-[profile.dev.package.generic-array]
-opt-level = 3
-[profile.dev.package.flate2]
-opt-level = 3
-[profile.dev.package.miniz_oxide]
-opt-level = 3
-[profile.dev.package.quick-xml]
-opt-level = 3
-[profile.dev.package.keepass]
-opt-level = 3
-[profile.dev.package.zxcvbn]
-opt-level = 3

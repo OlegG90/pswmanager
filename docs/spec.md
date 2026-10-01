@@ -542,6 +542,11 @@ with code 2.
 ## Technology
 
 - **Shell:** Tauri 2 (Rust) + WebView2, tray via Tauri's `tray-icon` feature.
+- **Code:** one Cargo workspace: `crates/core` holds what does not depend on the platform (the database,
+  editing, merging, syncing and the stores, TOTP, the generator, password health, site icons) and is
+  shared with the Android app (see `spec-android.md`); `src-tauri` is the Windows app around it (the
+  window, tray, hotkey, clipboard, file watching, the Credential Manager, which the core reaches through
+  its secret-store hook).
 - **Frontend:** plain TypeScript, no framework.
 - **Crates:** `keepass` (`save_kdbx4`), `zeroize`, `notify`, `zxcvbn`, `totp-lite`; `ureq` (native TLS)
   for site icons and the cloud APIs; the Windows Credential Manager for tokens.

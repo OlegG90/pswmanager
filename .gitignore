@@ -1,6 +1,7 @@
 # ── Generated: dependencies and builds ──
 /node_modules/
 /dist/
+/target/
 /src-tauri/target/
 /src-tauri/gen/
 /tools/sic2kdbx/.venv/
@@ -17,4 +18,4 @@ __pycache__/
 *.xml
 /data/
 # …except the made-up databases the Rust tests use
-!/src-tauri/tests/fixtures/*.kdbx
+!/crates/core/tests/fixtures/*.kdbx

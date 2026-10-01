@@ -144,13 +144,13 @@ fn largest_size(sizes: &str) -> u32 {
 /// could not check most sites' certificates, and are tried again at once.
 const MISS_MARK: &[u8] = b"2";
 
-/// The Credential Manager entry holding the key the cache's file names are made with.
+/// The secret holding the key the cache's file names are made with ([crate::secrets]).
 const KEY_NAME: &str = "icon-cache-key";
 
 /// The icon cache: `<dir>/<name>` holds an icon, `<dir>/<name>.miss` marks a
 /// site that had none, where `<name>` is the host hashed with a key only this
-/// Windows user has ([Cache::name]): the folder does not say which sites the
-/// databases hold. Without the key (the Credential Manager refused it), the
+/// user has ([Cache::name]): the folder does not say which sites the
+/// databases hold. Without the key (the secret store refused it), the
 /// icons are kept in memory for the session only.
 pub struct Cache {
     dir: PathBuf,
@@ -166,7 +166,7 @@ enum Kept {
 }
 
 impl Cache {
-    /// The cache in `icons` beside the state file, with this Windows user's
+    /// The cache in `icons` beside the state file, with this user's
     /// key (made on first use), its folder tidied ([Cache::migrate]).
     pub fn in_data_dir(data_dir: &Path) -> Self {
         let (key, fresh) = cache_key().map_or((None, false), |(key, fresh)| (Some(key), fresh));
@@ -298,16 +298,16 @@ impl Cache {
     }
 }
 
-/// This Windows user's key for the cache's file names, from the Credential
-/// Manager, and whether it was just made (none there, or not a key): made and
+/// This user's key for the cache's file names, from the secret store, and
+/// whether it was just made (none there, or not a key): made and
 /// kept there then. `None` when it cannot be kept.
 fn cache_key() -> Option<(Zeroizing<[u8; 32]>, bool)> {
-    if let Some(key) = crate::credentials::read(KEY_NAME).and_then(|stored| parse_key(&stored)) {
+    if let Some(key) = crate::secrets::read(KEY_NAME).and_then(|stored| parse_key(&stored)) {
         return Some((key, false));
     }
     let mut key = Zeroizing::new([0u8; 32]);
     getrandom::fill(key.as_mut()).ok()?;
-    crate::credentials::write(KEY_NAME, &Zeroizing::new(crate::dbfile::hex(key.as_ref()))).ok()?;
+    crate::secrets::write(KEY_NAME, &Zeroizing::new(crate::dbfile::hex(key.as_ref()))).ok()?;
     Some((key, true))
 }
 

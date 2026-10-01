@@ -36,11 +36,8 @@ jobs:
 
       # The build of the crates, kept between runs.
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm test
-      - run: cargo clippy --all-targets
-        working-directory: src-tauri
+      - run: cargo clippy --workspace --all-targets

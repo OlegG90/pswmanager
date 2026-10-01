@@ -1,29 +1,18 @@
+// The database, merge, sync and stores live in the shared core.
+use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, otp, remote, store, vault};
+use pswm_core::session::{KeyNeeded, Session};
+
 mod activity;
-mod backup;
 mod cli;
 mod clipboard;
 mod credentials;
 mod data_dir;
-mod dbfile;
-mod dropbox;
-mod google;
-mod onedrive;
-mod edit;
-mod encryption;
 mod file_watch;
-mod generator;
-mod health;
-mod icons;
 mod opened;
-mod oauth;
-mod otp;
-mod remote;
 mod session_watch;
 mod settings;
-mod store;
 mod sync;
 mod tray;
-mod vault;
 mod window;
 
 use activity::Activity;
@@ -45,27 +34,6 @@ use zeroize::Zeroizing;
 /// How often the inactivity check runs.
 const CHECK_EVERY: Duration = Duration::from_secs(10);
 
-/// The unlocked database, if any. Locking drops it, and with it every
-/// decrypted value.
-#[derive(Default)]
-struct Session(Mutex<Option<Unlocked>>);
-
-/// What there is while the database is unlocked: each unlock starts afresh.
-struct Unlocked {
-    vault: Vault,
-    key_needed: KeyNeeded,
-}
-
-/// Which copies of the unlocked database open with a key this device does not
-/// know yet (another device changed it): the window offers to enter it.
-#[derive(Clone, Copy, Default, PartialEq, Serialize)]
-pub struct KeyNeeded {
-    /// The file on this PC, replaced by another program.
-    local: bool,
-    /// The remote file, at the last sync.
-    remote: bool,
-}
-
 /// Changes which copies need a key, while the database is unlocked, and tells
 /// the window (`key-needed`) when that changed or a copy needs one (so the
 /// window may ask again what it could not ask before).
@@ -73,44 +41,6 @@ fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
     let Some((before, now)) = app.state::<Session>().change_key_needed(change) else { return };
     if now != before || now != KeyNeeded::default() {
         let _ = app.emit("key-needed", now);
-    }
-}
-
-impl Session {
-    fn with<R>(&self, f: impl FnOnce(&Vault) -> Option<R>) -> Result<R, String> {
-        self.read(f)?.ok_or_else(|| edit::NOT_FOUND.into())
-    }
-
-    /// Like `with`, for reads that can only fail because the database is locked.
-    fn read<R>(&self, f: impl FnOnce(&Vault) -> R) -> Result<R, String> {
-        self.0.lock().unwrap().as_ref().map(|u| f(&u.vault)).ok_or_else(|| "The database is locked".into())
-    }
-
-    fn with_mut<R>(&self, f: impl FnOnce(&mut Vault) -> Result<R, String>) -> Result<R, String> {
-        let mut unlocked = self.0.lock().unwrap();
-        f(&mut unlocked.as_mut().ok_or("The database is locked")?.vault)
-    }
-
-    fn set(&self, vault: Option<Vault>) {
-        *self.0.lock().unwrap() = vault.map(|vault| Unlocked { vault, key_needed: KeyNeeded::default() });
-    }
-
-    fn is_unlocked(&self) -> bool {
-        self.0.lock().unwrap().is_some()
-    }
-
-    /// None while locked.
-    fn key_needed(&self) -> KeyNeeded {
-        self.0.lock().unwrap().as_ref().map(|u| u.key_needed).unwrap_or_default()
-    }
-
-    /// Changes [KeyNeeded] while unlocked: what it was and is, or `None` when locked.
-    fn change_key_needed(&self, change: impl FnOnce(&mut KeyNeeded)) -> Option<(KeyNeeded, KeyNeeded)> {
-        let mut unlocked = self.0.lock().unwrap();
-        let needed = &mut unlocked.as_mut()?.key_needed;
-        let before = *needed;
-        change(needed);
-        Some((before, *needed))
     }
 }
 
@@ -1399,6 +1329,14 @@ fn lock_on_session_lock(app: AppHandle) {
     });
 }
 
+/// Backs up the databases that are due, at start and every hour while the app runs.
+fn start_backup_clock(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        backup::run_due(&app.state::<Store>(), backup::now(), None);
+        std::thread::sleep(backup::CHECK_EVERY);
+    });
+}
+
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
     let options = match cli::parse(std::env::args().skip(1), &cwd) {
@@ -1411,6 +1349,7 @@ pub fn run() {
         }
     };
     let state_file = options.data_dir.as_deref().map_or_else(data_dir::resolve_state_file, data_dir::in_folder);
+    pswm_core::secrets::install(Box::new(credentials::CredentialManager));
     tauri::Builder::default()
         // Must come first: a second launch hands over to this process and exits.
         // A second "Start with Windows" launch leaves the running app as it is.
@@ -1535,7 +1474,7 @@ pub fn run() {
             watch_inactivity(handle.clone());
             lock_on_session_lock(handle.clone());
             sync::start_clock(handle.clone());
-            backup::start_clock(handle.clone());
+            start_backup_clock(handle.clone());
             Ok(())
         })
         .run(tauri::generate_context!())

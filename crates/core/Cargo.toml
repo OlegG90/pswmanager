@@ -1,0 +1,29 @@
+[package]
+name = "pswm-core"
+description = "PswManager's core: the KeePass database, merging, syncing and the stores"
+authors = ["OlegG90"]
+license = "MIT"
+repository = "https://github.com/OlegG90/pswmanager"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+base32 = "0.5.1"
+base64 = "0.23.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+getrandom = "0.4.3"
+hmac = "0.13"
+keepass = { version = "0.15", features = ["save_kdbx4"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11"
+totp-lite = "2.0.1"
+ureq = { version = "3.2.1", default-features = false, features = ["native-tls", "gzip"] }
+url = "2"
+uuid = "1"
+zeroize = { version = "1.8.2", features = ["derive"] }
+zxcvbn = "3.1.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

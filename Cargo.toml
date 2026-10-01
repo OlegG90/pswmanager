@@ -1,0 +1,62 @@
+# The Windows app (src-tauri) and the core it shares with the Android app
+# (crates/core). One lock file and one target folder for both.
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/core"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+# keepass-rs 0.15 misnumbers the other entries' files in the saved file after
+# an attachment is removed from the database, and keeps the files only a
+# removed entry's history used. The fork carries both fixes, offered upstream
+# as sseemayer/keepass-rs#374 and #375, and Database::remove_unused_attachments,
+# which trimming history needs (branch pswmanager-0.15: these on v0.15.0);
+# back to crates.io once released.
+[patch.crates-io]
+keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "d4c3822ce3ea36a09b1c934ce44757ae729fe463" }
+
+# The crates that unlock and save a database (Argon2, the ciphers, hashing,
+# gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
+# a second, not half a minute. Only these: optimising every dependency made
+# a first debug or test build several times slower.
+[profile.dev.package.rust-argon2]
+opt-level = 3
+[profile.dev.package.blake2b_simd]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.cbc]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.twofish]
+opt-level = 3
+[profile.dev.package.cipher]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+[profile.dev.package.generic-array]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.quick-xml]
+opt-level = 3
+[profile.dev.package.keepass]
+opt-level = 3
+[profile.dev.package.zxcvbn]
+opt-level = 3
