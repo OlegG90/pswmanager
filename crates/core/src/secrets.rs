@@ -1,12 +1,13 @@
 //! Secrets kept between runs (a cloud account's refresh token, the icon
 //! cache's key), never in the state file. Where they are kept belongs to the
 //! platform: the app installs its store once at start (the Windows Credential
-//! Manager on Windows). Without one, nothing is kept: a sign-in lasts until
-//! the app quits, and site icons are cached in memory only.
+//! Manager on Windows). Without one, nothing is kept: signing in to a store
+//! fails, and site icons are cached in memory only.
 
 use std::sync::OnceLock;
 use zeroize::Zeroizing;
 
+/// Where the platform keeps secrets, by name.
 pub trait SecretStore: Send + Sync {
     fn write(&self, name: &str, secret: &str) -> Result<(), String>;
     /// The secret, or `None` when there is none.
@@ -16,7 +17,7 @@ pub trait SecretStore: Send + Sync {
 
 static STORE: OnceLock<Box<dyn SecretStore>> = OnceLock::new();
 
-/// Sets where secrets are kept; only the first call counts.
+/// Sets where secrets are kept: once, at start; only the first call counts.
 pub fn install(store: Box<dyn SecretStore>) {
     let _ = STORE.set(store);
 }

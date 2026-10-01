@@ -5,7 +5,9 @@ use crate::settings::Settings;
 use crate::Session;
 use pswm_core::dbfile::OpenError;
 use pswm_core::store::Store;
-pub use pswm_core::sync::*;
+use pswm_core::sync::{sync, Outcome, SyncError};
+// The sync itself, for the rest of the app beside the driver here.
+pub use pswm_core::sync::{attach, ensure_working_copy, has_pending, is_pending, keep_as_local, link, start, LinkChoice};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
