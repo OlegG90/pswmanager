@@ -2,7 +2,7 @@
 //! folder under names that do not say the host, never written into the database.
 
 use base64::Engine;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::fs;
