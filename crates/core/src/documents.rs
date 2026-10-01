@@ -89,6 +89,7 @@ mod tests {
         }
     }
 
+    /// The tests share one store (only the first install counts), so each uses its own documents.
     fn file(uri: &str) -> DocumentFile {
         install(Box::new(Memory::default()));
         DocumentFile { uri: uri.into() }
