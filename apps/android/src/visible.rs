@@ -17,8 +17,12 @@ const KEY: &str = "visibleCopy";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VisibleCopy {
-    /// The folder's name, for messages.
+    /// The folder the user picked, and its name for messages.
+    folder: String,
     folder_name: String,
+    /// The file's name there.
+    name: String,
+    /// The file, as last found or made.
     uri: String,
     /// The hash of what the app wrote there last; `None` before the first write.
     written: Option<String>,
@@ -43,8 +47,9 @@ fn set(store: &Store, copy: Option<&VisibleCopy>) -> Result<(), String> {
 
 /// Whether `folder` already has a file named `name` (the screen says it will
 /// be kept as `.bak` first).
-pub fn taken(app: &AppHandle, folder: &str, name: &str) -> Result<bool, String> {
-    Ok(app.state::<Documents<Wry>>().find(folder, name)?.is_some())
+#[tauri::command]
+pub async fn copy_name_taken(app: AppHandle, folder: String, name: String) -> Result<bool, String> {
+    crate::app::off_main(move || Ok(app.state::<Documents<Wry>>().find(&folder, &name)?.is_some())).await
 }
 
 /// Makes `folder` the place of the database's visible copy and writes it; a
@@ -57,9 +62,10 @@ pub fn place(app: &AppHandle, folder: &str, folder_name: &str, name: &str) -> Re
             documents.write(&documents.child(folder, &format!("{name}{BAK}"))?, &there)?;
         }
     }
-    let store = app.state::<Store>();
-    set(&store, Some(&VisibleCopy { folder_name: folder_name.into(), uri, written: None }))?;
-    refresh(app).map_or(Ok(()), Err)
+    let mut copy = VisibleCopy { folder: folder.into(), folder_name: folder_name.into(), name: name.into(), uri, written: None };
+    let result = write(app, &mut copy);
+    set(&app.state::<Store>(), Some(&copy))?;
+    result
 }
 
 /// The folder the visible copy is in, if there is one.
@@ -77,29 +83,39 @@ fn working(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
     std::fs::read(&file).map(Some).map_err(|e| format!("Cannot read the working copy: {e}"))
 }
 
-/// Writes the working copy into the visible copy when they differ: `None`
-/// when that went well (or there is no visible copy), else what went wrong.
+/// Writes the working copy into the visible copy when they differ (after a
+/// sync or a save): `None` when that went well or there is no visible copy,
+/// else what went wrong.
 pub fn refresh(app: &AppHandle) -> Option<String> {
     let store = app.state::<Store>();
     let mut copy = get(&store)?;
-    let result = (|| {
-        let Some(bytes) = working(app)? else { return Ok(()) };
-        let hash = hash_hex(&bytes);
-        let documents = app.state::<Documents<Wry>>();
-        let there = documents.read(&copy.uri)?.map(|b| hash_hex(&b));
-        if there.as_ref() == Some(&hash) {
-            copy.written = Some(hash);
-            return set(&store, Some(&copy));
-        }
-        if copy.written.is_some() && there.is_some() && there != copy.written {
+    let result = write(app, &mut copy);
+    set(&store, Some(&copy)).err().or(result.err())
+}
+
+/// The working copy into `copy`, unless it is the same already or something
+/// else changed it since the app last wrote it. A file the user removed is
+/// made again.
+fn write(app: &AppHandle, copy: &mut VisibleCopy) -> Result<(), String> {
+    let Some(bytes) = working(app)? else { return Ok(()) };
+    let hash = hash_hex(&bytes);
+    let documents = app.state::<Documents<Wry>>();
+    let there = documents.read(&copy.uri)?.map(|b| hash_hex(&b));
+    if there.as_ref() == Some(&hash) {
+        copy.written = Some(hash);
+        return Ok(());
+    }
+    match there {
+        None => copy.uri = documents.child(&copy.folder, &copy.name)?,
+        Some(_) if copy.written.is_some() && there != copy.written => {
             return Err(format!("The copy in {} was changed by something else, so it is not updated", copy.folder_name));
         }
-        documents.write(&copy.uri, &bytes)?;
-        if documents.read(&copy.uri)?.as_deref() != Some(&bytes) {
-            return Err(format!("The copy in {} did not read back as written", copy.folder_name));
-        }
-        copy.written = Some(hash);
-        set(&store, Some(&copy))
-    })();
-    result.err()
+        Some(_) => {}
+    }
+    documents.write(&copy.uri, &bytes)?;
+    if documents.read(&copy.uri)?.as_deref() != Some(&bytes) {
+        return Err(format!("The copy in {} did not read back as written", copy.folder_name));
+    }
+    copy.written = Some(hash);
+    Ok(())
 }

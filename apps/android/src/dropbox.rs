@@ -57,22 +57,26 @@ pub async fn dropbox_files() -> Result<Vec<CloudFile>, String> {
     off_main(|| Cloud::Dropbox.list().map_err(|e| e.message())).await
 }
 
-/// Whether `folder` already has a file of `name` (it would be kept as `.bak`).
-#[tauri::command]
-pub async fn copy_name_taken(app: AppHandle, folder: String, name: String) -> Result<bool, String> {
-    off_main(move || crate::visible::taken(&app, &folder, &name)).await
+/// A database chosen, and why its visible copy could not be made, if it could not.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Opened {
+    status: Status,
+    copy_problem: Option<String>,
 }
 
 /// Makes a database in Dropbox the one on this phone: its working copy is
 /// downloaded into the app's storage and syncs with Dropbox from then on, and
-/// its visible copy goes into `folder`.
+/// its visible copy goes into `folder`. A copy that cannot be made does not
+/// undo the rest: the sync sheet offers the folder again.
 #[tauri::command]
-pub async fn open_dropbox_file(app: AppHandle, file: CloudFile, folder: Picked) -> Result<Status, String> {
+pub async fn open_dropbox_file(app: AppHandle, file: CloudFile, folder: Picked) -> Result<Opened, String> {
     off_main(move || {
         let name = file.name.clone();
-        let status = adopt(&app, Cloud::Dropbox.location(file))?;
-        crate::visible::place(&app, &folder.uri, &folder.name, &name)?;
-        Ok(status)
+        adopt(&app, Cloud::Dropbox.location(file))?;
+        let copy_problem = crate::visible::place(&app, &folder.uri, &folder.name, &name).err();
+        let status = crate::app::status_of(&app.state::<pswm_core::store::Store>(), &app.state::<pswm_core::session::Session>());
+        Ok(Opened { status, copy_problem })
     })
     .await
 }

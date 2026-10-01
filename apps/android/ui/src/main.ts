@@ -175,8 +175,10 @@ function folderScreen(files: CloudFile[], file: CloudFile) {
   const chosen = el('p', {}, 'No folder chosen yet.')
   const taken = el('p', { className: 'muted' })
   const go = busyButton('Download and continue', 'Download the database', async () => {
-    database = (await api.openDropboxFile(file, folder!)).database
+    const opened = await api.openDropboxFile(file, folder!)
+    database = opened.status.database
     unlockScreen()
+    if (opened.copyProblem) snack(`${opened.copyProblem}. Choose the folder again in the sync sheet.`)
   }, error.show, 'primary')
   go.disabled = true
   const choose = busyButton('Choose a folder…', 'Android’s folder picker', async () => {
@@ -510,17 +512,18 @@ function totpLine(id: string): [HTMLElement, () => void] {
 
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
-/** Syncs on its own while unlocked: coming back to the app after a minute,
- *  every 5 minutes while it is in front; going away sends what is waiting. */
+/** Syncs on its own while unlocked: coming back to the app after a minute
+ *  (AGAIN_AFTER), every 5 minutes while it is in front (EVERY); going away
+ *  sends what is waiting. */
 const AGAIN_AFTER = 60 * 1000
 const EVERY = 5 * 60 * 1000
+const syncIfOlder = (age: number) => {
+  if (unlocked && !document.hidden && Date.now() - lastSynced >= age) void api.syncNow()
+}
 document.addEventListener('visibilitychange', () => {
-  if (!unlocked) return
-  if (document.hidden) void api.syncIfPending()
-  else if (Date.now() - lastSynced > AGAIN_AFTER) void api.syncNow()
+  if (unlocked && document.hidden) void api.syncIfPending()
+  else syncIfOlder(AGAIN_AFTER)
 })
-setInterval(() => {
-  if (unlocked && !document.hidden && Date.now() - lastSynced >= EVERY) void api.syncNow()
-}, 30 * 1000)
+setInterval(() => syncIfOlder(EVERY), 30 * 1000)
 
 void start()

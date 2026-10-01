@@ -66,7 +66,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             dropbox::sign_in_to_dropbox,
             dropbox::dropbox_files,
             dropbox::open_dropbox_file,
-            dropbox::copy_name_taken
+            crate::visible::copy_name_taken
         ])
 }
 
@@ -118,6 +118,7 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
             description: k.description.clone().unwrap_or_default(),
             synced_with: k.remote.as_ref().map(|r| r.location.describe()),
             cloud: k.remote.as_ref().is_some_and(|r| r.location.cloud().is_some()),
+            // Read from the same state: not inside this read, which holds it.
             copy_folder: None,
         })
     });
@@ -217,28 +218,31 @@ fn last_sync(last: State<LastSync>) -> Option<Synced> {
 
 /// One sync at a time: asked again while one runs, it runs once more after it.
 #[derive(Default)]
-struct Syncing(std::sync::Mutex<(bool, bool)>);
+struct Syncing(std::sync::Mutex<Flags>);
+
+#[derive(Default)]
+struct Flags {
+    running: bool,
+    again: bool,
+}
 
 impl Syncing {
     /// True when a sync may start now; otherwise the one running goes again.
     fn begin(&self) -> bool {
         let mut flags = self.0.lock().unwrap();
-        let (running, again) = &mut *flags;
-        if *running {
-            *again = true;
+        if flags.running {
+            flags.again = true;
             return false;
         }
-        *running = true;
+        flags.running = true;
         true
     }
 
     /// True when it was asked again meanwhile: run once more.
     fn again(&self) -> bool {
         let mut flags = self.0.lock().unwrap();
-        let (running, again) = &mut *flags;
-        let more = std::mem::take(again);
-        *running = more;
-        more
+        flags.running = std::mem::take(&mut flags.again);
+        flags.running
     }
 }
 
@@ -248,17 +252,20 @@ fn start_sync(app: AppHandle) {
         return;
     }
     tauri::async_runtime::spawn_blocking(move || loop {
-        sync_once(&app);
+        // A sync that panics must not stop the ones after it.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(&app, &app.state::<Session>())));
         if !app.state::<Syncing>().again() {
             return;
         }
     });
 }
 
-fn sync_once(app: &AppHandle) {
+/// One sync with `session`: the unlocked database (merges if need be), or a
+/// locked one (uploads only; a merge waits for the next unlock).
+fn sync_once(app: &AppHandle, session: &Session) {
     let store = app.state::<Store>();
     let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return };
-    let result = sync::sync(location.open().as_ref(), &store, &app.state::<Session>());
+    let result = sync::sync(location.open().as_ref(), &store, session);
     let (text, problem) = sync::describe(&store, &result);
     let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
     let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
@@ -270,12 +277,19 @@ fn sync_once(app: &AppHandle) {
     let _ = app.emit("synced", synced);
 }
 
-/// Going to the background: what has not gone up yet goes now.
+/// Going to the background: what has not gone up yet goes now, as an upload
+/// only (as when locking; a merge needs the key and waits for the front).
 #[tauri::command]
 fn sync_if_pending(app: AppHandle) {
-    if sync::has_pending(&app.state::<Store>()) {
-        start_sync(app);
+    if !sync::has_pending(&app.state::<Store>()) || !app.state::<Syncing>().begin() {
+        return;
     }
+    tauri::async_runtime::spawn_blocking(move || loop {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(&app, &Session::default())));
+        if !app.state::<Syncing>().again() {
+            return;
+        }
+    });
 }
 
 /// Puts the synced database's visible copy into `folder` (in place of where it was).
@@ -283,7 +297,8 @@ fn sync_if_pending(app: AppHandle) {
 async fn set_copy_folder(app: AppHandle, folder: documents::Picked) -> Result<Status, String> {
     off_main(move || {
         let store = app.state::<Store>();
-        let name = store.read(|s| s.remote().map(|r| r.location.file_name())).ok_or("Only a synced database has a copy on this phone")?;
+        let location = store.read(|s| s.remote().map(|r| r.location.clone())).filter(|l| l.cloud().is_some());
+        let name = location.ok_or("Only a database synced with a cloud store has a copy on this phone")?.file_name();
         crate::visible::place(&app, &folder.uri, &folder.name, &name)?;
         Ok(status_of(&store, &app.state::<Session>()))
     })
