@@ -54,3 +54,9 @@ export function formatSize(bytes: number): string {
   const [value, unit] = bytes < 1024 * 1024 ? [bytes / 1024, 'KB'] : [bytes / 1024 / 1024, 'MB']
   return `${value < 10 ? value.toFixed(1).replace(/\.0$/, '') : Math.round(value)} ${unit}`
 }
+
+/** An entry's title, or what stands for it when it has none. */
+export const titleOf = (entry: { title: string }) => entry.title || '(no title)'
+
+/** A TOTP code split in two halves for reading: `123 456`. */
+export const splitCode = (code: string) => `${code.slice(0, code.length / 2)} ${code.slice(code.length / 2)}`

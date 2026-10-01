@@ -34,13 +34,16 @@ class CopyArgs {
 class ClipboardPlugin(private val activity: Activity) : Plugin(activity) {
   private val clipboard get() = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
   private val main = Handler(Looper.getMainLooper())
-  /** Bumped by every copy and every change seen, so only the latest copy's clearing runs. */
+  // Both are touched on the main thread only (the listener and the posts run there).
+  /** Bumped by every copy and every change to something else, so only the latest copy's clearing runs. */
   private var generation = 0
-  private var ours = false
+  /** What this app copied last. */
+  private var copied: String? = null
 
   override fun load(webView: android.webkit.WebView) {
     clipboard.addPrimaryClipChangedListener {
-      if (ours) ours = false else generation++
+      val now = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+      if (now != copied) generation++
     }
   }
 
@@ -53,10 +56,15 @@ class ClipboardPlugin(private val activity: Activity) : Plugin(activity) {
         if (Build.VERSION.SDK_INT >= 33) putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
         else putBoolean("android.content.extra.IS_SENSITIVE", true)
       }
-      ours = true
+      copied = args.text
       clipboard.setPrimaryClip(clip)
       val mine = ++generation
-      main.postDelayed({ if (generation == mine) clipboard.clearPrimaryClip() }, args.clearAfterMs)
+      main.postDelayed({
+        if (generation == mine) {
+          clipboard.clearPrimaryClip()
+          copied = null
+        }
+      }, args.clearAfterMs)
       invoke.resolve(JSObject())
     }
   }

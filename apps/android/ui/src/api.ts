@@ -48,5 +48,7 @@ export const api = {
   copyField: (id: string, field: string) => invoke<number>('copy_field', { id, field }),
   totp: (id: string) => invoke<Code | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
+  openUrl: (id: string) => invoke<void>('open_url', { id }),
   syncNow: () => invoke<void>('sync_now'),
+  lastSync: () => invoke<Synced | null>('last_sync'),
 }

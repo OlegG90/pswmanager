@@ -4,16 +4,17 @@
 
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
+use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::sync;
 use pswm_core::vault::{EntryDetail, Listing, Vault};
-use pswm_core::otp;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
+use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
 /// How long a copied value stays on the clipboard (a setting later).
@@ -23,10 +24,12 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
         .plugin(documents::init())
         .plugin(crate::clipboard::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join("pswm.json")));
             app.manage(Session::default());
+            app.manage(LastSync::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -41,7 +44,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_field,
             totp,
             copy_totp,
-            sync_now
+            open_url,
+            sync_now,
+            last_sync
         ])
 }
 
@@ -72,7 +77,8 @@ struct Synced {
     changed: bool,
 }
 
-/// The plugins wait for Android's main thread, so they are never called from it.
+/// Work that waits: the plugins wait for Android's main thread (so they are
+/// never called from it), and syncs and unlocks take a while.
 async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
 }
@@ -109,9 +115,13 @@ async fn open_local_file(app: AppHandle) -> Result<Option<Status>, String> {
 }
 
 /// Forgets the database (locking it first); its working copy goes too, the
-/// file it synced with stays where it is.
+/// file it synced with stays where it is. Refused while the working copy has
+/// changes the file lacks: they would be lost.
 #[tauri::command]
 fn forget_database(store: State<Store>, session: State<Session>) -> Result<Status, String> {
+    if sync::has_pending(&store) {
+        return Err("This database has changes its file does not have yet: unlock it to sync them first".into());
+    }
     session.set(None);
     if let Some(file) = store.read(|s| s.current.clone()) {
         store.update(|s| s.remove(&file)).map_err(|e| format!("Cannot save the change: {e}"))?;
@@ -131,6 +141,7 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
         let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
         let vault = Vault::open(&file, Some(password.as_str()).filter(|p| !p.is_empty()), None)?;
         let listing = vault.listing();
+        // Only for the unlock screen next time: not worth failing the unlock over.
         let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
         app.state::<Session>().set(Some(vault));
         start_sync(app.clone());
@@ -149,15 +160,27 @@ fn sync_now(app: AppHandle) {
     start_sync(app);
 }
 
+/// What the last sync did, kept for a page that missed the event.
+#[derive(Default)]
+struct LastSync(std::sync::Mutex<Option<Synced>>);
+
+#[tauri::command]
+fn last_sync(last: State<LastSync>) -> Option<Synced> {
+    last.0.lock().unwrap().clone()
+}
+
 /// Syncs in the background and tells the page (`synced`) what happened.
 fn start_sync(app: AppHandle) {
-    std::thread::spawn(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         let store = app.state::<Store>();
         let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return };
         let result = sync::sync(location.open().as_ref(), &store, &app.state::<Session>());
         let (text, problem) = sync::describe(&store, &result);
         let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
-        let _ = app.emit("synced", Synced { text, problem, changed });
+        let synced = Synced { text, problem, changed };
+        *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
+        // A page that is not listening reads it with `last_sync`.
+        let _ = app.emit("synced", synced);
     });
 }
 
@@ -183,7 +206,7 @@ async fn copy_field(app: AppHandle, id: String, field: String) -> Result<u64, St
     if value.is_empty() {
         return Err(format!("{field} is empty"));
     }
-    copy(app, value).await
+    copy_to_clipboard(app, value).await
 }
 
 #[tauri::command]
@@ -194,10 +217,17 @@ fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String
 #[tauri::command]
 async fn copy_totp(app: AppHandle, id: String) -> Result<u64, String> {
     let code = app.state::<Session>().read(|v| v.totp(&id))??.ok_or("The entry has no TOTP")?;
-    copy(app, Zeroizing::new(code.code)).await
+    copy_to_clipboard(app, Zeroizing::new(code.code)).await
 }
 
-async fn copy(app: AppHandle, value: Zeroizing<String>) -> Result<u64, String> {
+/// Opens the entry's URL in the default browser.
+#[tauri::command]
+fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), String> {
+    let url = session.with(|v| Some(v.web_url(&id)))?.ok_or("The entry has no web address")?;
+    app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
+}
+
+async fn copy_to_clipboard(app: AppHandle, value: Zeroizing<String>) -> Result<u64, String> {
     off_main(move || app.state::<Clipboard<Wry>>().copy(&value, CLEAR_AFTER)).await?;
     Ok(CLEAR_AFTER.as_secs())
 }

@@ -6,7 +6,7 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, beforeExtension, choose, isAsking } from './modal'
-import { formatDate, formatDateTime, formatSize } from './entry-text'
+import { formatDate, formatDateTime, formatSize, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
@@ -308,7 +308,7 @@ async function loadSiteIcon(host: string) {
 }
 
 function listItem(entry: Entry): HTMLLIElement {
-  const title = el('div', { className: 'title' }, entry.title || '(no title)')
+  const title = el('div', { className: 'title' }, titleOf(entry))
   const expires = editable(entry) ? expiry(entry, Date.now()) : null
   if (expires) title.append(el('span', { className: `badge ${expires}` }, expires === 'soon' ? 'Expires soon' : 'Expired'))
   const li = el(
@@ -477,7 +477,7 @@ function renderDetail() {
   const entry = version ? version.at : shown
   const tags = entry.tags.filter((t) => t !== FAVORITE).join(', ')
   const meta = [PLACES[entry.kind], tags].filter(Boolean).join(' · ')
-  const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'))
+  const heading = el('div', { className: 'heading' }, el('h2', {}, titleOf(entry)))
   if (meta) heading.append(el('span', { className: 'meta' }, meta))
   if (entry.expires) {
     const state = expiry(entry, Date.now())
@@ -557,7 +557,7 @@ function renderDetail() {
 
 /** The entry's older versions, newest first: when, and what changed after. */
 function renderHistory(entry: EntryDetail, versions: Version[]) {
-  const heading = el('div', { className: 'heading' }, el('h2', {}, entry.title || '(no title)'),
+  const heading = el('div', { className: 'heading' }, el('h2', {}, titleOf(entry)),
     el('span', { className: 'meta' }, `History · ${versions.length} older ${versions.length === 1 ? 'version' : 'versions'}`))
   const items = versions.map((v, i) => {
     const item = el('button', { type: 'button', className: 'version', title: 'Show this version' },
@@ -762,7 +762,7 @@ async function restore(ids: string[]) {
 /** Deletes entries in the trash for good (no ids: everything in it), after asking. */
 async function deleteForGood(ids?: string[]) {
   const what = !ids ? 'everything in the trash'
-    : ids.length === 1 ? `"${listing.entries.find((e) => e.id === ids[0])?.title || '(no title)'}"` : count(ids.length)
+    : ids.length === 1 ? `"${titleOf(listing.entries.find((e) => e.id === ids[0]) ?? { title: '' })}"` : count(ids.length)
   const yes = await ask(`Delete ${what} permanently? This cannot be undone: other devices delete it too when they sync.`, 'Delete permanently')
   if (!yes) return
   try {
@@ -834,7 +834,7 @@ function totpRow(id: string): HTMLDivElement {
       try {
         const next = await api.totp(id)
         if (!next) return stopTotp(timer)
-        code = `${next.code.slice(0, next.code.length / 2)} ${next.code.slice(next.code.length / 2)}`
+        code = splitCode(next.code)
         remaining = next.remaining
       } catch (e) {
         stopTotp(timer)
@@ -908,7 +908,7 @@ async function newEntry() {
   if (sameFilter(filter, TEMPLATES)) return startEditor(null, { template: true })
   const templates = listing.entries.filter(isTemplate)
   if (!templates.length) return startEditor(null)
-  const i = await choose('New entry:', ['Blank entry', ...templates.map((t) => t.title || '(no title)')])
+  const i = await choose('New entry:', ['Blank entry', ...templates.map(titleOf)])
   if (i === null) return searchInput.focus()
   if (i === 0) startEditor(null)
   else newFromTemplate(templates[i - 1].id)
@@ -955,7 +955,7 @@ async function deleteEntry() {
   if (view.kind !== 'entry') return
   if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id])
   if (!(editable(entry) || isTemplate(entry)) || isEditing()) return
-  const yes = await ask(`Move "${entry.title || '(no title)'}" to the recycle bin?`, 'Move to the recycle bin')
+  const yes = await ask(`Move "${titleOf(entry)}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
   if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
@@ -1004,7 +1004,7 @@ async function renameAttachment(name: string) {
 async function removeAttachment(name: string) {
   const entry = current
   if (!entry || isEditing()) return
-  const yes = await ask(`Remove "${name}" from "${entry.title || '(no title)'}"? The entry's history keeps it.`, 'Remove')
+  const yes = await ask(`Remove "${name}" from "${titleOf(entry)}"? The entry's history keeps it.`, 'Remove')
   if (!yes || selectedId !== entry.id) return
   try {
     applyListing(await api.removeAttachment(entry.id, name), `Removed ${name}`)
