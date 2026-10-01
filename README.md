@@ -42,6 +42,12 @@ The code: `src-tauri` is the Windows app (Tauri), `crates/core` the core it shar
 (the database, merging, syncing and the stores; its tests run on the PC). One Cargo workspace, built into
 `target/`.
 
+The Android app (`apps/android`, see [docs/spec-android.md](docs/spec-android.md)) is built only in CI: the
+Android SDK and NDK have no Windows-on-ARM64 builds. Each pull request that touches it builds a debug APK
+(workflow *Android*, artifact `pswmanager-debug-apk`), installed on the phone with
+`adb install -r app-universal-debug.apk` (`adb` is in Google's platform-tools). Its page is in
+`apps/android/ui` (`npm run build:android-web`).
+
 Releases: bump `version` in `src-tauri/Cargo.toml`, merge, then push a tag `v<version>` from `main`.
 GitHub Actions ([release.yml](.github/workflows/release.yml)) runs the tests, builds both exes and
 attaches them to the release; *Run workflow* by hand builds them as an artifact without publishing.

@@ -2,6 +2,8 @@
 # (arm64 only: the reference phone and every current phone). The Android SDK,
 # NDK and JDK have no Windows-on-ARM64 builds, so the APK is made here, never
 # on the PC. The APK is the run's artifact, installed with `adb install`.
+# The Gradle project in apps/android/gen/android was made by
+# `tauri android init` and is kept in the repo, changed by hand from there.
 name: Android
 
 on:
@@ -52,23 +54,6 @@ jobs:
       - run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
       - run: npm ci
-
-      # The Gradle project is generated once and kept in the repo; until it is
-      # there, this makes it (and the run uploads it to be committed).
-      - name: Generate the Android project if missing
-        id: init
-        run: |
-          if [ ! -d apps/android/gen/android ]; then
-            npx tauri android init --ci
-            echo "made=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/upload-artifact@v7
-        if: steps.init.outputs.made == 'true'
-        with:
-          name: android-project
-          path: apps/android/gen/android
-          include-hidden-files: true
 
       - run: npx tauri android build --debug --apk --target aarch64 --ci
 
