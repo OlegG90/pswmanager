@@ -154,9 +154,15 @@ const KEY_NAME: &str = "icon-cache-key";
 /// icons are kept in memory for the session only.
 pub struct Cache {
     dir: PathBuf,
-    key: Option<Zeroizing<[u8; 32]>>,
+    kept: Kept,
+}
+
+/// Where the icons are kept.
+enum Kept {
+    /// In the folder, named with this key.
+    Files(Zeroizing<[u8; 32]>),
     /// Without a key: each host's icon, or none, for this session.
-    memory: Mutex<HashMap<String, Option<Vec<u8>>>>,
+    Memory(Mutex<HashMap<String, Option<Vec<u8>>>>),
 }
 
 impl Cache {
@@ -168,9 +174,18 @@ impl Cache {
     }
 
     fn with_key(data_dir: &Path, key: Option<Zeroizing<[u8; 32]>>, fresh: bool) -> Self {
-        let cache = Cache { dir: data_dir.join("icons"), key, memory: Mutex::default() };
+        let kept = key.map_or_else(|| Kept::Memory(Mutex::default()), Kept::Files);
+        let cache = Cache { dir: data_dir.join("icons"), kept };
         cache.migrate(fresh);
         cache
+    }
+
+    /// The icons kept in memory, without a key.
+    fn memory(&self) -> Option<std::sync::MutexGuard<'_, HashMap<String, Option<Vec<u8>>>>> {
+        match &self.kept {
+            Kept::Memory(memory) => Some(memory.lock().unwrap()),
+            Kept::Files(_) => None,
+        }
     }
 
     /// The marker of a site named `name` that had no icon.
@@ -181,7 +196,7 @@ impl Cache {
     /// The file name for `host`: HMAC-SHA256 of it with the key, in hex. A
     /// plain hash would not do: common hosts can be guessed and hashed.
     fn name(&self, host: &str) -> Option<String> {
-        let key = self.key.as_ref()?;
+        let Kept::Files(key) = &self.kept else { return None };
         let mut mac = Hmac::<Sha256>::new_from_slice(key.as_slice()).expect("HMAC takes a key of any length");
         mac.update(host.as_bytes());
         Some(crate::dbfile::hex(&mac.finalize().into_bytes()))
@@ -220,16 +235,19 @@ impl Cache {
         if !is_safe_host(host) {
             return None;
         }
-        match self.name(host) {
-            Some(name) => fs::read(self.dir.join(name)).ok(),
-            None => self.memory.lock().unwrap().get(host).cloned().flatten(),
+        if let Some(memory) = self.memory() {
+            return memory.get(host).and_then(Clone::clone);
         }
+        fs::read(self.dir.join(self.name(host)?)).ok()
     }
 
     /// True when the host has an icon, or was tried recently without one (in
     /// memory, without a key: tried this session).
     fn is_settled(&self, host: &str, now: SystemTime) -> bool {
-        let Some(name) = self.name(host) else { return self.memory.lock().unwrap().contains_key(host) };
+        if let Some(memory) = self.memory() {
+            return memory.contains_key(host);
+        }
+        let Some(name) = self.name(host) else { return false };
         if self.dir.join(&name).is_file() {
             return true;
         }
@@ -240,10 +258,11 @@ impl Cache {
     }
 
     fn put(&self, host: &str, icon: Option<&[u8]>) -> std::io::Result<()> {
-        let Some(name) = self.name(host) else {
-            self.memory.lock().unwrap().insert(host.to_string(), icon.map(<[u8]>::to_vec));
+        if let Some(mut memory) = self.memory() {
+            memory.insert(host.to_string(), icon.map(<[u8]>::to_vec));
             return Ok(());
-        };
+        }
+        let Some(name) = self.name(host) else { return Ok(()) };
         fs::create_dir_all(&self.dir)?;
         match icon {
             Some(bytes) => {
