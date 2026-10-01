@@ -1,8 +1,11 @@
-# The Windows app (src-tauri) and the core it shares with the Android app
-# (crates/core). One lock file and one target folder for both.
+# The Windows app (src-tauri), the Android app (apps/android) and the core
+# both use (crates/core). One lock file and one target folder for all.
+# Plain `cargo` commands on the PC build the Windows app and the core only;
+# the Android app is built for the phone in CI (`tauri android build`).
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/core"]
+members = ["src-tauri", "crates/core", "apps/android"]
+default-members = ["src-tauri", "crates/core"]
 
 [workspace.package]
 authors = ["OlegG90"]

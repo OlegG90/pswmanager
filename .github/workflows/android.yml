@@ -1,0 +1,79 @@
+# Builds the Android app (apps/android) into a debug APK for the phone
+# (arm64 only: the reference phone and every current phone). The Android SDK,
+# NDK and JDK have no Windows-on-ARM64 builds, so the APK is made here, never
+# on the PC. The APK is the run's artifact, installed with `adb install`.
+name: Android
+
+on:
+  pull_request:
+    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', '.github/workflows/android.yml']
+  push:
+    branches: [main]
+    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Tauri CLI works on the Android app, not on the Windows one in src-tauri.
+  TAURI_APP_PATH: apps/android
+  TAURI_FRONTEND_PATH: .
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      # The runner has the SDK and an NDK.
+      - run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      # The Gradle project is generated once and kept in the repo; until it is
+      # there, this makes it (and the run uploads it to be committed).
+      - name: Generate the Android project if missing
+        id: init
+        run: |
+          if [ ! -d apps/android/gen/android ]; then
+            npx tauri android init --ci
+            echo "made=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: steps.init.outputs.made == 'true'
+        with:
+          name: android-project
+          path: apps/android/gen/android
+          include-hidden-files: true
+
+      - run: npx tauri android build --debug --apk --target aarch64 --ci
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pswmanager-debug-apk
+          path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

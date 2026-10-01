@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the app's window",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

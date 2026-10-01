@@ -323,21 +323,34 @@ fn parse_key(stored: &str) -> Option<Zeroizing<[u8; 32]>> {
     Some(key)
 }
 
-/// An HTTP client with the OS's TLS (no `ring`, which needs clang on ARM64).
+/// An HTTP client with the platform's TLS (see [tls]).
 /// With `status_as_error`, an answer that is not 2xx is an error.
 pub fn http_agent(timeout: Duration, status_as_error: bool) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(status_as_error)
-        .tls_config(
-            ureq::tls::TlsConfig::builder()
-                .provider(ureq::tls::TlsProvider::NativeTls)
-                // Windows' own trust store; the default list is not there without webpki-roots.
-                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-                .build(),
-        )
+        .tls_config(tls())
         .build()
         .into()
+}
+
+/// The OS's TLS with Windows' own trust store (no `ring`, which needs clang
+/// on ARM64; the default list is not there without webpki-roots).
+#[cfg(not(target_os = "android"))]
+fn tls() -> ureq::tls::TlsConfig {
+    ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::NativeTls)
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build()
+}
+
+/// rustls with the bundled Mozilla roots: native TLS on Android would need OpenSSL.
+#[cfg(target_os = "android")]
+fn tls() -> ureq::tls::TlsConfig {
+    ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .root_certs(ureq::tls::RootCerts::WebPki)
+        .build()
 }
 
 /// Asks the site itself, over https: the icons its start page declares

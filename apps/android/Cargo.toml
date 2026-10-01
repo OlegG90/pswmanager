@@ -1,0 +1,22 @@
+[package]
+name = "pswm-android"
+version = "0.1.0"
+description = "PswManager for Android"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "pswm_android_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+pswm-core = { path = "../../crates/core" }
+serde = { workspace = true }
+tauri = { version = "2", features = [] }

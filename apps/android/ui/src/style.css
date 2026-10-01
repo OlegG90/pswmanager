@@ -1,0 +1,45 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f7f4ee;
+  --text: #24211f;
+  --muted: #75706a;
+  --accent: #2f5d8a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1b19;
+    --text: #ebe5da;
+    --muted: #948e87;
+    --accent: #d3a35c;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+main {
+  padding: max(24px, env(safe-area-inset-top)) 16px 24px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.sample {
+  font: 18px ui-monospace, monospace;
+  word-break: break-all;
+}
+
+button {
+  font: inherit;
+  padding: 10px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+}

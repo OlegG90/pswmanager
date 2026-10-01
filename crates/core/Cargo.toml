@@ -19,11 +19,19 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
 totp-lite = "2.0.1"
-ureq = { version = "3.2.1", default-features = false, features = ["native-tls", "gzip"] }
+ureq = { version = "3.2.1", default-features = false, features = ["gzip"] }
 url = "2"
 uuid = "1"
 zeroize = { workspace = true }
 zxcvbn = { workspace = true }
+
+# TLS: Windows' own (native-tls, so no `ring`, which needs clang on ARM64);
+# on Android rustls with the bundled Mozilla roots (native-tls would need OpenSSL).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+ureq = { version = "3.2.1", default-features = false, features = ["native-tls"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ureq = { version = "3.2.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
