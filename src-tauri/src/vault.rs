@@ -911,7 +911,7 @@ pub mod tests {
             e.set_unprotected(fields::URL, "example.com/login");
             e.set_unprotected(fields::NOTES, "work mail");
             e.set_unprotected("Recovery phone", "+0 000");
-            e.set("PIN", Value::protected("1234".to_string()));
+            e.set("PIN", Value::protected("pin-1234".to_string()));
             e.tags.push("Favorite".into());
         });
         root.add_entry().edit(|e| {
@@ -946,7 +946,7 @@ pub mod tests {
         assert_eq!(mail.host.as_deref(), Some("example.com"));
         assert!(mail.has_password);
         let json = serde_json::to_string(&listing.entries).unwrap();
-        assert!(!json.contains("s3cret") && !json.contains("1234"), "{json}");
+        assert!(!json.contains("s3cret") && !json.contains("pin-1234"), "{json}");
     }
 
     #[test]
@@ -965,7 +965,7 @@ pub mod tests {
             ]
         );
         assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "s3cret");
-        assert_eq!(vault.field(&id, "PIN").unwrap().as_str(), "1234");
+        assert_eq!(vault.field(&id, "PIN").unwrap().as_str(), "pin-1234");
         assert!(vault.field(&id, "Nope").is_none());
     }
 
