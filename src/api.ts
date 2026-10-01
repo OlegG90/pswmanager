@@ -99,6 +99,8 @@ export interface BackupInfo {
   next: number | null
   /** Why the last try failed, if it did. */
   error: string | null
+  /** The intervals offered, in days; 0 is never. */
+  intervals: number[]
 }
 
 /** Which copies of the unlocked database open with a key this device does not know yet. */

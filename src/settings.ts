@@ -1,7 +1,7 @@
 import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
-import { formatSize } from './entry-text'
+import { formatDateTime, formatSize } from './entry-text'
 import { shownCombo } from './keys'
 import { ask } from './modal'
 import { changeMasterKey } from './change-key'
@@ -58,7 +58,6 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
 const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
-const BACKUP_EVERY: Choice[] = [[0, 'Never'], [2, '2 days'], [7, '7 days'], [30, '30 days']]
 type Tab = (typeof TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
 let shownTab: Tab = 'general'
@@ -171,15 +170,15 @@ export async function renderSettings(
       }
       redraw()
     }
-    const when = (secs: number | null, none: string) =>
-      secs === null ? none : new Date(secs * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const when = (secs: number | null, none: string) => (secs === null ? none : formatDateTime(new Date(secs * 1000).toISOString()))
+    const intervals = b.intervals.map((days): Choice => [days, days ? `${days} days` : 'Never'])
     // The path, however long, wraps under the label; the buttons stay beside it.
     const folder = el('span', { className: 'sync-control' },
       button('Select…', 'The folder the copy goes to', run(api.pickBackupFolder)),
       ...(b.folder ? [button('Show', 'Open the folder in Explorer', () => api.showBackupFolder().catch((e) => onError(String(e))))] : []))
     return group('Backup',
       row('Back up every', 'A copy of the database file, encrypted as it is; one copy, replaced each time',
-        select('Back up every', b.everyDays, BACKUP_EVERY, 'days', (days) => run(() => api.setBackupEvery(days))())),
+        select('Back up every', b.everyDays, intervals, 'days', (days) => run(() => api.setBackupEvery(days))())),
       row('Backup folder', b.folder ?? 'None: without one, there is no backup', folder),
       row('Last backup', b.error ?? '', el('span', { className: 'value' }, when(b.last, 'Never'))),
       row('Next backup', b.folder && b.everyDays ? '' : 'Choose a folder and how often', el('span', { className: 'value' }, when(b.next, '—'))),

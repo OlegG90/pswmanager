@@ -1008,6 +1008,8 @@ struct BackupInfo {
     last: Option<u64>,
     next: Option<u64>,
     error: Option<String>,
+    /// The intervals offered, in days.
+    intervals: [u32; 4],
 }
 
 /// The intervals offered, in days; 0 is never.
@@ -1024,7 +1026,7 @@ fn backup_info(store: &Store) -> Option<BackupInfo> {
     store.read(|s| {
         let b = s.current()?.backup.clone().unwrap_or_default();
         let folder = b.folder.as_ref().map(|f| f.display().to_string());
-        Some(BackupInfo { folder, every_days: b.every_days, last: b.last, next: backup::next(&b), error: b.error })
+        Some(BackupInfo { folder, every_days: b.every_days, last: b.last, next: backup::next(&b), error: b.error, intervals: BACKUP_EVERY })
     })
 }
 
