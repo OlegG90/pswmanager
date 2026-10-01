@@ -1,7 +1,7 @@
-import { api, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { button, el } from './dom'
-import { formatSize } from './entry-text'
+import { formatDateTime, formatSize } from './entry-text'
 import { shownCombo } from './keys'
 import { ask } from './modal'
 import { changeMasterKey } from './change-key'
@@ -57,30 +57,32 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']] as const
+const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
 type Tab = (typeof TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
 let shownTab: Tab = 'general'
 
 /**
  * The row of tabs: `open(tab)` shows one. ←/→ move to the next or previous
- * one (wrapping), Home and End to the first and last; a disabled one is skipped.
+ * one (wrapping), Home and End to the first and last. `off(tab)` says why a
+ * tab cannot be opened now: it is then disabled, with that as its title, and skipped.
  */
-function tabBar(enabled: (tab: Tab) => boolean, open: (tab: Tab) => void): HTMLElement {
+function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTMLElement {
   const tabs = TABS.map(([tab, label]) => {
     const on = tab === shownTab
+    const why = off(tab)
     const button = el('button', {
-      type: 'button', id: `settings-tab-${tab}`, role: 'tab', className: 'tab', disabled: !enabled(tab),
+      type: 'button', id: `settings-tab-${tab}`, role: 'tab', className: 'tab', disabled: why !== null,
       tabIndex: on ? 0 : -1, onclick: () => open(tab),
     }, label)
+    if (why) button.title = why
     button.setAttribute('aria-selected', String(on))
     button.setAttribute('aria-controls', 'settings-panel')
-    if (!enabled(tab)) button.title = 'Unlock the database to change its settings'
     return button
   })
   const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
   bar.addEventListener('keydown', (e) => {
-    const usable = TABS.map(([tab]) => tab).filter(enabled)
+    const usable = TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
     const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key]
     const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
       : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
@@ -150,10 +152,38 @@ export async function renderSettings(
 ) {
   const waiting = el('p', { className: 'muted', hidden: true })
   // Locked: no database settings to show.
-  const [settings, status, version, saved] = await Promise.all([
-    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null)])
+  const [settings, status, version, saved, savedBackup] = await Promise.all([
+    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup()])
   let database = saved
+  let backup = savedBackup
   draw(settings, status)
+
+  /** The current database's backup: kept in the app's list, so it works
+   *  while locked too. Redrawn after each change, which may back up at once. */
+  function backupGroup(b: BackupInfo, redraw: () => void): HTMLElement {
+    const run = (action: () => Promise<BackupInfo | null>) => async () => {
+      try {
+        backup = await action()
+      } catch (e) {
+        onError(String(e))
+        backup = await api.backup().catch(() => backup)
+      }
+      redraw()
+    }
+    const when = (secs: number | null, none: string) => (secs === null ? none : formatDateTime(new Date(secs * 1000).toISOString()))
+    const intervals = b.intervals.map((days): Choice => [days, days ? `${days} days` : 'Never'])
+    // The path, however long, wraps under the label; the buttons stay beside it.
+    const folder = el('span', { className: 'sync-control' },
+      button('Select…', 'The folder the copy goes to', run(api.pickBackupFolder)),
+      ...(b.folder ? [button('Show', 'Open the folder in Explorer', () => api.showBackupFolder().catch((e) => onError(String(e))))] : []))
+    return group('Backup',
+      row('Back up every', 'A copy of the database file, encrypted as it is; one copy, replaced each time',
+        select('Back up every', b.everyDays, intervals, 'days', (days) => run(() => api.setBackupEvery(days))())),
+      row('Backup folder', b.folder ?? 'None: without one, there is no backup', folder),
+      row('Last backup', b.error ?? '', el('span', { className: 'value' }, when(b.last, 'Never'))),
+      row('Next backup', b.folder && b.everyDays ? '' : 'Choose a folder and how often', el('span', { className: 'value' }, when(b.next, '—'))),
+      row('Back up now', '', button('Backup now', 'Copy the database file now', run(api.backupNow))))
+  }
 
   /** Settings kept in the database file: saved and synced like an edit.
    *  Redrawn after each, which shows the value as saved (trimmed). */
@@ -243,9 +273,12 @@ export async function renderSettings(
     const focused = container.contains(document.activeElement) ? document.activeElement : null
     const focusedLabel = focused?.getAttribute('aria-label')
     const onTab = focused?.getAttribute('role') === 'tab'
-    // The database's own settings while it is unlocked.
-    const enabled = (tab: Tab) => tab !== 'database' || database !== null
-    if (!enabled(shownTab)) shownTab = 'general'
+    // The database's own settings while it is unlocked; its backup while there is one.
+    const off = (tab: Tab) =>
+      tab === 'database' && !database ? 'Unlock the database to change its settings'
+        : tab === 'backup' && !backup ? 'Choose a database first'
+        : null
+    if (off(shownTab)) shownTab = 'general'
     // Chosen by click or key on a tab: the redraw keeps the focus on the tabs.
     const open = (tab: Tab) => {
       shownTab = tab
@@ -283,6 +316,7 @@ export async function renderSettings(
           row('Check for remote changes', 'While unlocked',
             select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
       ],
+      backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
       about: () => [
         group('About',
           row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
@@ -294,7 +328,7 @@ export async function renderSettings(
     const locked = database ? [] : [el('p', { className: 'muted locked-note' }, 'Unlock the database to change its own settings.')]
     container.replaceChildren(
       el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
-      tabBar(enabled, open),
+      tabBar(off, open),
       ...locked,
       panel,
     )

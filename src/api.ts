@@ -90,6 +90,19 @@ export interface SyncStatus {
   problem: boolean
 }
 
+/** The current database's backup; times are seconds since 1970. */
+export interface BackupInfo {
+  folder: string | null
+  /** 0: never. */
+  everyDays: number
+  last: number | null
+  next: number | null
+  /** Why the last try failed, if it did. */
+  error: string | null
+  /** The intervals offered, in days; 0 is never. */
+  intervals: number[]
+}
+
 /** Which copies of the unlocked database open with a key this device does not know yet. */
 export interface KeyNeeded {
   /** The file on this PC, replaced by another program. */
@@ -327,6 +340,11 @@ export const api = {
   syncNow: () => invoke<void>('sync_now'),
   syncStatus: () => invoke<SyncStatus>('sync_status'),
   keyNeeded: () => invoke<KeyNeeded>('key_needed'),
+  backup: () => invoke<BackupInfo | null>('backup'),
+  setBackupEvery: (days: number) => invoke<BackupInfo | null>('set_backup_every', { days }),
+  pickBackupFolder: () => invoke<BackupInfo | null>('pick_backup_folder'),
+  backupNow: () => invoke<BackupInfo | null>('backup_now'),
+  showBackupFolder: () => invoke<void>('show_backup_folder'),
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
