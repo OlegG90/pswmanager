@@ -3,6 +3,7 @@
 //! as registered with the Dropbox app.
 
 use crate::app::{adopt, off_main, Status};
+use crate::documents::Picked;
 use pswm_core::dropbox::DROPBOX;
 use pswm_core::oauth::Pending;
 use pswm_core::remote::{Cloud, CloudFile};
@@ -56,9 +57,22 @@ pub async fn dropbox_files() -> Result<Vec<CloudFile>, String> {
     off_main(|| Cloud::Dropbox.list().map_err(|e| e.message())).await
 }
 
-/// Makes a database in Dropbox the one on this phone: its working copy is
-/// downloaded into the app's storage, and it syncs with Dropbox from then on.
+/// Whether `folder` already has a file of `name` (it would be kept as `.bak`).
 #[tauri::command]
-pub async fn open_dropbox_file(app: AppHandle, file: CloudFile) -> Result<Status, String> {
-    off_main(move || adopt(&app, Cloud::Dropbox.location(file))).await
+pub async fn copy_name_taken(app: AppHandle, folder: String, name: String) -> Result<bool, String> {
+    off_main(move || crate::visible::taken(&app, &folder, &name)).await
+}
+
+/// Makes a database in Dropbox the one on this phone: its working copy is
+/// downloaded into the app's storage and syncs with Dropbox from then on, and
+/// its visible copy goes into `folder`.
+#[tauri::command]
+pub async fn open_dropbox_file(app: AppHandle, file: CloudFile, folder: Picked) -> Result<Status, String> {
+    off_main(move || {
+        let name = file.name.clone();
+        let status = adopt(&app, Cloud::Dropbox.location(file))?;
+        crate::visible::place(&app, &folder.uri, &folder.name, &name)?;
+        Ok(status)
+    })
+    .await
 }

@@ -32,6 +32,8 @@ class ChildArgs {
   /** A folder the user picked ([DocumentsPlugin.pickFolder]). */
   lateinit var folder: String
   lateinit var name: String
+  /** Make it when it is not there; otherwise answer `uri: null`. */
+  var create: Boolean = true
 }
 
 /**
@@ -82,13 +84,13 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  /** The document named `name` in a picked folder, made when it is not there. */
+  /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */
   @Command
   fun child(invoke: Invoke) = background(invoke) {
     val args = invoke.parseArgs(ChildArgs::class.java)
     val folder = Uri.parse(args.folder)
-    val uri = findChild(folder, args.name) ?: make(folder, args.name)
-    JSObject().put("uri", uri.toString())
+    val uri = findChild(folder, args.name) ?: if (args.create) make(folder, args.name) else null
+    JSObject().put("uri", uri?.toString())
   }
 
   /** The content, base64; `data` is null when the document is gone. */

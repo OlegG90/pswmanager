@@ -3,7 +3,7 @@ import { el, button, busyButton, errorLine, enterPresses } from '../../../../src
 import { formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { svgIcon, type IconName } from './icons'
-import { api, type CloudFile, type Entry, type Listing, type SignedIn, type Status, type Synced } from './api'
+import { api, type CloudFile, type Entry, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -19,6 +19,12 @@ let query = ''
 let syncLine = ''
 /** The last sync asked to sign in to the store again. */
 let signInAgain = false
+/** Why the visible copy was not written at the last sync, if it was not. */
+let copyProblem: string | null = null
+/** When the last sync ended (ms), for syncing again on coming back. */
+let lastSynced = 0
+/** The database is unlocked: syncs run on their own. */
+let unlocked = false
 /** Stops what the screen shown runs on a timer (the TOTP countdown). */
 let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
@@ -89,6 +95,7 @@ async function copied(copy: Promise<number>) {
 async function start() {
   const status = await api.status()
   database = status.database
+  unlocked = status.unlocked
   if (!database) chooseScreen()
   else if (status.unlocked) listScreen(await api.listing())
   else unlockScreen()
@@ -151,11 +158,7 @@ async function dropboxScreen() {
 
 function filesScreen(files: CloudFile[]) {
   const error = errorLine()
-  const pick = (file: CloudFile) =>
-    busyButton(file.name, `Use ${file.name}`, async () => {
-      database = (await api.openDropboxFile(file)).database
-      unlockScreen()
-    }, error.show, 'card')
+  const pick = (file: CloudFile) => button(file.name, `Use ${file.name}`, () => folderScreen(files, file), 'card')
   show([
     el('header', { className: 'bar' }, button('←', 'Back', chooseScreen, 'icon'), el('h1', {}, 'Pick the file')),
     el('p', { className: 'muted' }, 'Apps / PswManager Sync'),
@@ -163,6 +166,37 @@ function filesScreen(files: CloudFile[]) {
     el('p', { className: 'muted' }, 'PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.'),
     error.line,
   ], chooseScreen)
+}
+
+/** First run with Dropbox, step 3: where the visible copy goes on this phone. */
+function folderScreen(files: CloudFile[], file: CloudFile) {
+  const error = errorLine()
+  let folder: Picked | null = null
+  const chosen = el('p', {}, 'No folder chosen yet.')
+  const taken = el('p', { className: 'muted' })
+  const go = busyButton('Download and continue', 'Download the database', async () => {
+    database = (await api.openDropboxFile(file, folder!)).database
+    unlockScreen()
+  }, error.show, 'primary')
+  go.disabled = true
+  const choose = busyButton('Choose a folder…', 'Android’s folder picker', async () => {
+    const picked = await api.pickFolder()
+    if (!picked) return
+    folder = picked
+    chosen.textContent = `Folder: ${picked.name}`
+    taken.textContent = (await api.copyNameTaken(picked.uri, file.name)) ? `A ${file.name} is already in this folder. It will be kept as ${file.name}.bak.` : ''
+    go.disabled = false
+  }, error.show)
+  const back = () => filesScreen(files)
+  show([
+    el('header', { className: 'bar' }, button('←', 'Back', back, 'icon'), el('h1', {}, 'Where to keep it')),
+    el('p', {}, `${file.name} syncs with Dropbox. A copy of it is kept in a folder on this phone, where you can see it and back it up; it is updated after every change.`),
+    choose,
+    chosen,
+    taken,
+    go,
+    error.line,
+  ], back)
 }
 
 // ------------------------------------------------------------ unlock
@@ -174,6 +208,7 @@ function unlockScreen() {
   const unlock = busyButton('Unlock', 'Unlock the database', async () => {
     syncLine = 'Syncing…'
     const opened = await api.unlock(password.value)
+    unlocked = true
     password.value = ''
     listScreen(opened)
     // The sync may have finished before the list was there to hear it.
@@ -233,6 +268,8 @@ function listScreen(opened: Listing) {
     fill()
   })
   status.addEventListener('click', syncSheet)
+  const scroll = el('div', { className: 'scroll' }, list)
+  pullToSync(scroll, () => (status.textContent = 'Syncing…'))
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
@@ -252,7 +289,7 @@ function listScreen(opened: Listing) {
     backs.push(closeSearch)
     searchField.focus()
   }, 'fab')
-  show([query ? searching : toolbar, el('div', { className: 'scroll' }, list), findButton, status], undefined, 'list-screen')
+  show([query ? searching : toolbar, scroll, findButton, status], undefined, 'list-screen')
   if (query) {
     findButton.hidden = true
     backs.push(closeSearch)
@@ -265,9 +302,36 @@ function listScreen(opened: Listing) {
   }
 }
 
+/** Picks the folder for the visible copy and writes it there. */
+async function chooseCopyFolder() {
+  try {
+    const folder = await api.pickFolder()
+    if (!folder) return
+    database = (await api.setCopyFolder(folder)).database
+    snack(`The copy is kept in ${folder.name}`)
+  } catch (e) {
+    snack(String(e))
+  }
+}
+
+/** Pulling the list down from its top syncs. */
+function pullToSync(scroll: HTMLElement, started: () => void) {
+  let from: number | null = null
+  scroll.addEventListener('touchstart', (e) => (from = scroll.scrollTop === 0 ? e.touches[0].clientY : null), { passive: true })
+  scroll.addEventListener('touchend', (e) => {
+    if (from !== null && e.changedTouches[0].clientY - from > 80) {
+      started()
+      void api.syncNow()
+    }
+    from = null
+  })
+}
+
 function applySync(synced: Synced) {
   syncLine = synced.text
   signInAgain = synced.signIn
+  copyProblem = synced.copyProblem
+  lastSynced = Date.now()
   onSynced(synced)
 }
 
@@ -307,6 +371,16 @@ function syncSheet() {
     el('b', {}, 'Sync'),
     el('p', {}, syncLine || 'Not synced yet'),
     el('p', { className: 'muted' }, database?.syncedWith ? `With ${database.syncedWith}` : ''),
+    ...(copyProblem ? [el('p', { className: 'error' }, copyProblem)] : []),
+    ...(database?.cloud
+      ? [
+          el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet'),
+          button(database.copyFolder ? 'Move the copy…' : 'Keep a copy on this phone…', 'Choose the folder', () => {
+            close()
+            void chooseCopyFolder()
+          }, 'link'),
+        ]
+      : []),
     ...(signInAgain ? [button('Sign in', 'Sign in again', () => (close(), void signIn().then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
@@ -342,6 +416,7 @@ function drawer(listing: Listing, changed: () => void) {
 }
 
 async function lock() {
+  unlocked = false
   query = ''
   await api.lock()
   unlockScreen()
@@ -434,5 +509,18 @@ function totpLine(id: string): [HTMLElement, () => void] {
 // ------------------------------------------------------------ sync
 
 void listen<Synced>('synced', (e) => applySync(e.payload))
+
+/** Syncs on its own while unlocked: coming back to the app after a minute,
+ *  every 5 minutes while it is in front; going away sends what is waiting. */
+const AGAIN_AFTER = 60 * 1000
+const EVERY = 5 * 60 * 1000
+document.addEventListener('visibilitychange', () => {
+  if (!unlocked) return
+  if (document.hidden) void api.syncIfPending()
+  else if (Date.now() - lastSynced > AGAIN_AFTER) void api.syncNow()
+})
+setInterval(() => {
+  if (unlocked && !document.hidden && Date.now() - lastSynced >= EVERY) void api.syncNow()
+}, 30 * 1000)
 
 void start()
