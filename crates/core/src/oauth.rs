@@ -58,6 +58,15 @@ pub struct Provider {
     pub access: &'static Access,
 }
 
+/// A sign-in waiting for the browser to come back ([Provider::start]).
+pub struct Pending {
+    /// Where to send the browser.
+    pub url: String,
+    redirect: String,
+    verifier: Zeroizing<String>,
+    state: String,
+}
+
 #[derive(Deserialize)]
 struct Tokens {
     access_token: String,
@@ -79,32 +88,51 @@ impl Provider {
         RemoteError::Offline(format!("Cannot reach {}: {e}", self.name))
     }
 
-    /// Signs in: `open` shows the store's page in the browser.
+    /// Signs in on this computer: `open` shows the store's page in the
+    /// browser, which comes back to a loopback address.
     pub fn sign_in(&self, open: impl FnOnce(&str) -> Result<(), String>) -> Result<(), String> {
-        let client_id = self.client_id()?;
-        let verifier = random_text(32);
-        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-        let state = random_text(16);
+        let pending = self.start(&self.redirect_uri())?;
         let listener = Loopback::bind(self)?;
         CANCEL.store(false, Ordering::Relaxed);
-        let redirect = self.redirect_uri();
+        open(&pending.url)?;
+        let code = listener.wait_for_code(self, &pending.state)?;
+        self.exchange(&pending, &code)
+    }
+
+    /// The first half of a sign-in where the browser comes back to `redirect`
+    /// by itself (on a phone, the app's own scheme): where to send the
+    /// browser, and what [Provider::finish] needs when it is back.
+    pub fn start(&self, redirect: &str) -> Result<Pending, String> {
+        let client_id = self.client_id()?;
+        let verifier = Zeroizing::new(random_text(32));
+        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+        let state = random_text(16);
         let mut url = Url::parse(self.authorize_url).map_err(|e| e.to_string())?;
         url.query_pairs_mut()
             .append_pair("client_id", client_id)
             .append_pair("response_type", "code")
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
-            .append_pair("redirect_uri", &redirect)
+            .append_pair("redirect_uri", redirect)
             .append_pair("state", &state)
             .extend_pairs(self.extra);
-        open(url.as_str())?;
-        let code = listener.wait_for_code(self, &state)?;
+        Ok(Pending { url: url.into(), redirect: redirect.to_string(), verifier, state })
+    }
 
+    /// The second half: `answer` is the address the browser came back to.
+    pub fn finish(&self, pending: &Pending, answer: &str) -> Result<(), String> {
+        let url = Url::parse(answer).map_err(|e| format!("The {} sign-in answer is not an address: {e}", self.name))?;
+        let code = code_in(&url, self, &pending.state)?;
+        self.exchange(pending, &code)
+    }
+
+    /// Trades the sign-in's code for tokens and keeps the lasting one.
+    fn exchange(&self, pending: &Pending, code: &str) -> Result<(), String> {
         let form = [
             ("grant_type", "authorization_code"),
-            ("code", code.as_str()),
-            ("code_verifier", verifier.as_str()),
-            ("redirect_uri", redirect.as_str()),
+            ("code", code),
+            ("code_verifier", pending.verifier.as_str()),
+            ("redirect_uri", pending.redirect.as_str()),
         ];
         let mut tokens = self.request_tokens(&form).map_err(|e| e.message())?;
         let refresh = Zeroizing::new(tokens.refresh_token.take().ok_or_else(|| format!("{} gave no lasting sign-in", self.name))?);
@@ -232,6 +260,20 @@ impl Loopback {
     }
 }
 
+/// The code in the address the browser came back to, if it belongs to this
+/// sign-in (`state`).
+fn code_in(url: &Url, provider: &Provider, state: &str) -> Result<Zeroizing<String>, String> {
+    let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| Zeroizing::new(v.into_owned()));
+    let name = provider.name;
+    if param("state").as_deref().map(String::as_str) != Some(state) {
+        Err(format!("The {name} sign-in answer did not match; try again"))
+    } else if let Some(code) = param("code") {
+        Ok(code)
+    } else {
+        Err(format!("The {name} sign-in was cancelled"))
+    }
+}
+
 /// Reads one browser request. `None` for anything but the sign-in's answer
 /// (a favicon request, say).
 fn answer(mut stream: TcpStream, provider: &Provider, state: &str) -> Option<Result<Zeroizing<String>, String>> {
@@ -245,15 +287,8 @@ fn answer(mut stream: TcpStream, provider: &Provider, state: &str) -> Option<Res
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return None;
     }
-    let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| Zeroizing::new(v.into_owned()));
+    let result = code_in(&url, provider, state);
     let name = provider.name;
-    let result = if param("state").as_deref().map(String::as_str) != Some(state) {
-        Err(format!("The {name} sign-in answer did not match; try again"))
-    } else if let Some(code) = param("code") {
-        Ok(code)
-    } else {
-        Err(format!("The {name} sign-in was cancelled"))
-    };
     let page = match &result {
         Ok(_) => format!("PswManager is signed in to {name}. You can close this tab."),
         Err(message) => message.clone(),
@@ -308,5 +343,18 @@ mod tests {
         let (stream, _) = listener.accept().unwrap();
         assert!(answer(stream, &TEST, "s1").is_none());
         client.join().unwrap();
+    }
+
+    #[test]
+    fn a_sign_in_started_for_a_redirect_takes_back_only_its_own_answer() {
+        let pending = TEST.start("app.example://test").unwrap();
+        let url = Url::parse(&pending.url).unwrap();
+        let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).unwrap().1.into_owned();
+        assert_eq!(param("redirect_uri"), "app.example://test");
+        assert_eq!(param("state"), pending.state);
+        let back = |query: &str| Url::parse(&format!("app.example://test?{query}")).unwrap();
+        assert_eq!(code_in(&back(&format!("code=abc&state={}", pending.state)), &TEST, &pending.state).unwrap().as_str(), "abc");
+        assert!(code_in(&back("code=abc&state=forged"), &TEST, &pending.state).is_err());
+        assert!(code_in(&back(&format!("error=access_denied&state={}", pending.state)), &TEST, &pending.state).is_err());
     }
 }

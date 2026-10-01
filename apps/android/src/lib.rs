@@ -7,6 +7,10 @@ mod app;
 mod clipboard;
 #[cfg(mobile)]
 mod documents;
+#[cfg(mobile)]
+mod dropbox;
+#[cfg(mobile)]
+mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

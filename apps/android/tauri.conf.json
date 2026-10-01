@@ -7,7 +7,11 @@
     "beforeBuildCommand": "npm run build:android-web"
   },
   "app": {
-    "windows": [{ "title": "PswManager" }],
+    "windows": [
+      {
+        "title": "PswManager"
+      }
+    ],
     "security": {
       "csp": {
         "default-src": "'self' ipc: http://ipc.localhost",
@@ -20,6 +24,23 @@
   },
   "bundle": {
     "active": true,
-    "icon": ["../../src-tauri/icons/32x32.png", "../../src-tauri/icons/128x128.png", "../../src-tauri/icons/128x128@2x.png", "../../src-tauri/icons/icon.ico"]
+    "icon": [
+      "../../src-tauri/icons/32x32.png",
+      "../../src-tauri/icons/128x128.png",
+      "../../src-tauri/icons/128x128@2x.png",
+      "../../src-tauri/icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": [
+            "io.github.olegg90.pswmanager"
+          ],
+          "appLink": false
+        }
+      ]
+    }
   }
 }

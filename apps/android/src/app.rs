@@ -3,6 +3,7 @@
 //! The core does the work, on a working copy in the app's private storage.
 
 use crate::clipboard::Clipboard;
+use crate::dropbox;
 use crate::documents::{self, Documents};
 use pswm_core::otp;
 use pswm_core::remote::Location;
@@ -14,6 +15,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
@@ -25,11 +27,20 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(documents::init())
         .plugin(crate::clipboard::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(crate::secrets::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join("pswm.json")));
             app.manage(Session::default());
             app.manage(LastSync::default());
+            app.manage(dropbox::SignIn::default());
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    dropbox::answer(&handle, url.as_str());
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -46,14 +57,17 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_totp,
             open_url,
             sync_now,
-            last_sync
+            last_sync,
+            dropbox::sign_in_to_dropbox,
+            dropbox::dropbox_files,
+            dropbox::open_dropbox_file
         ])
 }
 
 /// What the unlock screen shows about the database, if there is one.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Status {
+pub struct Status {
     database: Option<Database>,
     unlocked: bool,
 }
@@ -79,11 +93,11 @@ struct Synced {
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
 /// never called from it), and syncs and unlocks take a while.
-async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+pub async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
 }
 
-fn status_of(store: &Store, session: &Session) -> Status {
+pub fn status_of(store: &Store, session: &Session) -> Status {
     let database = store.read(|s| {
         s.current().map(|k| Database {
             title: k.title(),

@@ -2,7 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
-import { api, type Entry, type Listing, type Status, type Synced } from './api'
+import { api, type CloudFile, type Entry, type Listing, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -81,9 +81,56 @@ function chooseScreen() {
     el('p', { className: 'muted' }, 'First run'),
     el('h1', {}, 'Choose your database'),
     el('p', {}, 'PswManager opens one KeePass (KDBX 4) file. The same file opens in PswManager on Windows and in KeePassXC.'),
-    el('button', { type: 'button', className: 'card', disabled: true }, 'Sync with Dropbox', el('small', {}, 'Comes in the next version.')),
+    el('button', { type: 'button', className: 'card', onclick: () => void dropboxScreen() }, 'Sync with Dropbox', el('small', {}, 'Sign in once. The file lives in Apps/PswManager Sync; a working copy stays on this phone.')),
     local,
     el('p', { className: 'muted' }, 'A local file is picked with Android’s file picker; it can be anywhere the picker reaches, also a folder another app syncs.'),
+    error.line,
+  )
+}
+
+/** What to do when a sign-in ends (event `signed-in`). */
+let onSignedIn = (_signedIn: SignedIn) => {}
+void listen<SignedIn>('signed-in', (e) => onSignedIn(e.payload))
+
+/** Signs in to Dropbox in the browser, then waits for it to come back. */
+function signIn(): Promise<void> {
+  return new Promise((done, fail) => {
+    onSignedIn = (signedIn) => {
+      onSignedIn = () => {}
+      if (signedIn.error) fail(signedIn.error)
+      else done()
+    }
+    api.signInToDropbox().catch(fail)
+  })
+}
+
+/** First run with Dropbox: sign in, then pick the file in the app's folder. */
+async function dropboxScreen() {
+  const error = errorLine()
+  const back = button('←', 'Back', chooseScreen, 'icon')
+  show(el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), error.line)
+  error.show('Waiting for Dropbox…')
+  try {
+    await signIn()
+    filesScreen(await api.dropboxFiles())
+  } catch (e) {
+    error.show(String(e))
+    screen.append(busyButton('Sign in to Dropbox', 'Sign in again', dropboxScreen, error.show, 'primary'))
+  }
+}
+
+function filesScreen(files: CloudFile[]) {
+  const error = errorLine()
+  const pick = (file: CloudFile) =>
+    busyButton(file.name, `Use ${file.name}`, async () => {
+      database = (await api.openDropboxFile(file)).database
+      unlockScreen()
+    }, error.show, 'card')
+  show(
+    el('header', { className: 'bar' }, button('←', 'Back', chooseScreen, 'icon'), el('h1', {}, 'Pick the file')),
+    el('p', { className: 'muted' }, 'Apps / PswManager Sync'),
+    ...(files.length ? files.map(pick) : [el('p', {}, 'There is no .kdbx in the app’s folder yet. Put one there from PswManager on Windows (Settings → Sync → Upload) and come back.')]),
+    el('p', { className: 'muted' }, 'PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.'),
     error.line,
   )
 }
@@ -195,6 +242,7 @@ function syncSheet() {
     el('b', {}, 'Sync'),
     el('p', {}, syncLine || 'Not synced yet'),
     el('p', { className: 'muted' }, database?.syncedWith ? `With ${database.syncedWith}` : ''),
+    ...(syncLine.startsWith('Sign in to') ? [button('Sign in', 'Sign in again', () => (close(), void signIn().then(api.syncNow, (e) => snack(String(e)))), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()
