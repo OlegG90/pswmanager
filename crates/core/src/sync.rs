@@ -274,9 +274,8 @@ fn download_into(working: &Path, location: crate::remote::Location) -> Result<st
 }
 
 /// `<dir>/<name>`, or `<dir>/<stem> (2).kdbx` and so on: a path no file has
-/// and no database in the list uses. (Only for working copies an older
-/// version kept in `sync/`, when they stop syncing.)
-fn free_path(dir: &Path, file_name: &str, taken: &[PathBuf]) -> PathBuf {
+/// and no database in the list uses.
+pub fn free_path(dir: &Path, file_name: &str, taken: &[PathBuf]) -> PathBuf {
     let stem = Path::new(file_name).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "database".into());
     (1..)
         .map(|n| if n == 1 { format!("{stem}.kdbx") } else { format!("{stem} ({n}).kdbx") })
@@ -310,6 +309,27 @@ pub fn ensure_working_copy(store: &Store) -> Result<(), String> {
             }
         })
         .map_err(|e| format!("Cannot save the sync state: {e}"))
+}
+
+/// What a sync did, for the window's status line, and whether it is a
+/// problem (offline, an error).
+pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, bool) {
+    let name = store.read(|s| s.remote().map(|r| r.location.name())).unwrap_or("the remote store");
+    let time = chrono::Local::now().format("%H:%M");
+    match result {
+        Ok(Outcome::Merged(changed)) if !changed.is_empty() => {
+            let entries = if changed.len() == 1 { "1 entry".to_string() } else { format!("{} entries", changed.len()) };
+            (format!("Merged {entries} from {name} at {time}"), false)
+        }
+        Ok(Outcome::Merged(_)) => (format!("Merged with {name} at {time}"), false),
+        Ok(Outcome::WaitingForUnlock) => (format!("Changes in {name} are merged at the next unlock"), false),
+        Ok(_) => (format!("Synced at {time}"), false),
+        Err(SyncError::Offline(message)) if has_pending(store) => (format!("Offline — changes waiting ({message})"), true),
+        Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
+        Err(SyncError::SignIn(message)) => (message.clone(), true),
+        Err(SyncError::OtherKey) => (format!("The file in {name} has another master password or key file"), true),
+        Err(SyncError::Failed(message)) => (format!("Sync failed: {message}"), true),
+    }
 }
 
 #[cfg(test)]
