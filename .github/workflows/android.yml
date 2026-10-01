@@ -55,6 +55,16 @@ jobs:
 
       - run: npm ci
 
+      # One debug key for every run, so a new APK installs over the last one
+      # (and keeps the app's data); a run without the secret makes its own.
+      - name: Use the stable debug key
+        env:
+          DEBUG_KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        if: env.DEBUG_KEYSTORE != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+
       - run: npx tauri android build --debug --apk --target aarch64 --ci
 
       - uses: actions/upload-artifact@v7
