@@ -275,9 +275,24 @@ same table the dialog shows.
 
 *Settings* (`Ctrl+,`, or the button) shows its groups in tabs, one tab at a time: **General** (locking and the
 clipboard), **Window** (theme, global hotkey, start with Windows, site icons), **Database** (the open
-database's own settings, see *Database settings*; disabled while locked), **Sync** and **About**. ←/→ move
+database's own settings, see *Database settings*; disabled while locked), **Sync**, **Backup** (see
+*Backup*) and **About**. ←/→ move
 between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
 redraw after each change (every change is saved at once). Esc closes the settings.
+
+### Backup
+
+*Settings → Backup*, for each database in the list (kept in the list, beside its key file and sync; it works
+while the database is locked):
+- **Back up every** *Never* (the default), *2 days*, *7 days* or *30 days*, and a **backup folder**
+  (*Select…*, *Show* opens it in Explorer). Without a folder there is no backup.
+- A backup is the database file as it is on this PC — encrypted, byte for byte; for a synced database, the
+  working copy. **One copy** is kept: `<file name>.backup.kdbx` in that folder, replaced each time, written
+  beside it first so it is never half-written.
+- It runs at start and every hour while the app runs (tray included) for each database whose interval has
+  passed since its last backup, and at once when a folder or interval is set and one is due. *Backup now*
+  makes one whatever the interval. The tab shows the last and the next backup; a failure (folder gone, drive
+  offline) is shown there and tried again at the next check.
 
 ## Tray
 

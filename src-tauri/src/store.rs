@@ -42,11 +42,25 @@ pub struct Known {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Where and how often its file is copied ([crate::backup]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<Backup>,
+}
+
+/// A database's backup: the folder its copy goes to, how often (0: never),
+/// when it last went (seconds since 1970) and why the last try failed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Backup {
+    pub folder: Option<PathBuf>,
+    pub every_days: u32,
+    pub last: Option<u64>,
+    pub error: Option<String>,
 }
 
 impl Known {
     fn new(file: PathBuf, key_file: Option<PathBuf>, remote: Option<Remote>) -> Self {
-        Known { file, key_file, remote, name: None, description: None }
+        Known { file, key_file, remote, name: None, description: None, backup: None }
     }
 
     /// The database's name, or its file's when it has none.
