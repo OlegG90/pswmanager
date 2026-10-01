@@ -1647,6 +1647,11 @@ dialog.modal.shortcuts {
   opacity: 0.45;
 }
 
+#settings .locked-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
 #settings-panel {
   padding-bottom: 48px;
 }

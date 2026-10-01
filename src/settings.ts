@@ -246,10 +246,10 @@ export async function renderSettings(
     // The database's own settings while it is unlocked.
     const enabled = (tab: Tab) => tab !== 'database' || database !== null
     if (!enabled(shownTab)) shownTab = 'general'
+    // Chosen by click or key on a tab: the redraw keeps the focus on the tabs.
     const open = (tab: Tab) => {
       shownTab = tab
       draw(s, status)
-      container.querySelector<HTMLElement>(`#settings-tab-${tab}`)?.focus()
     }
     const groups: Record<Tab, () => HTMLElement[]> = {
       general: () => [
@@ -290,9 +290,12 @@ export async function renderSettings(
     }
     const panel = el('div', { id: 'settings-panel', role: 'tabpanel' }, ...groups[shownTab]())
     panel.setAttribute('aria-labelledby', `settings-tab-${shownTab}`)
+    // A disabled tab's title is not read out or shown from the keyboard: said here.
+    const locked = database ? [] : [el('p', { className: 'muted locked-note' }, 'Unlock the database to change its own settings.')]
     container.replaceChildren(
       el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
       tabBar(enabled, open),
+      ...locked,
       panel,
     )
     // Redrawing replaces the controls: keep the keyboard where it was.

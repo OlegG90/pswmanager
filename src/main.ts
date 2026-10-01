@@ -200,8 +200,10 @@ async function showLocked() {
   revealed.clear()
   list.replaceChildren()
   detail.replaceChildren()
-  // Open settings no longer have a database to show.
-  if (settingsOpen) drawSettings().catch((e) => notify(String(e)))
+  // Open settings no longer have a database to show; closed meanwhile, they stay empty.
+  if (settingsOpen) {
+    drawSettings().then(() => settingsOpen || settingsView.replaceChildren(), (e) => notify(String(e)))
+  }
   showUnlock(await api.status())
 }
 
