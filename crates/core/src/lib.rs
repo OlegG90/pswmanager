@@ -11,6 +11,7 @@ pub mod encryption;
 pub mod generator;
 pub mod google;
 pub mod health;
+pub mod mirror;
 pub mod icons;
 pub mod oauth;
 pub mod onedrive;

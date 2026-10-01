@@ -3335,8 +3335,11 @@ dependencies = [
 name = "pswm-android"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "chrono",
  "pswm-core",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]
