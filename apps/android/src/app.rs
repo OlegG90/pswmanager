@@ -3,8 +3,8 @@
 //! The core does the work, on a working copy in the app's private storage.
 
 use crate::clipboard::Clipboard;
-use crate::dropbox;
 use crate::documents::{self, Documents};
+use crate::dropbox;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
@@ -38,7 +38,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    dropbox::answer(&handle, url.as_str());
+                    dropbox::on_open_url(&handle, url.as_str());
                 }
             });
             Ok(())
@@ -89,6 +89,8 @@ struct Synced {
     problem: bool,
     /// The entries changed: the list is read again.
     changed: bool,
+    /// The store wants the user to sign in again.
+    sign_in: bool,
 }
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
@@ -129,21 +131,29 @@ async fn open_local_file(app: AppHandle) -> Result<Option<Status>, String> {
 }
 
 /// Forgets the database (locking it first); its working copy goes too, the
-/// file it synced with stays where it is. Refused while the working copy has
+/// file it synced with stays where it is, and the store's account is signed
+/// out (the phone has one database). Refused while the working copy has
 /// changes the file lacks: they would be lost.
 #[tauri::command]
-fn forget_database(store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    if sync::has_pending(&store) {
-        return Err("This database has changes its file does not have yet: unlock it to sync them first".into());
-    }
-    session.set(None);
-    if let Some(file) = store.read(|s| s.current.clone()) {
-        store.update(|s| s.remove(&file)).map_err(|e| format!("Cannot save the change: {e}"))?;
-        for suffix in ["", pswm_core::dbfile::BAK, pswm_core::dbfile::REMOTE_BAK] {
-            let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&file, suffix));
+async fn forget_database(app: AppHandle) -> Result<Status, String> {
+    off_main(move || {
+        let (store, session) = (app.state::<Store>(), app.state::<Session>());
+        if sync::has_pending(&store) {
+            return Err("This database has changes its file does not have yet: unlock it to sync them first".into());
         }
-    }
-    Ok(status_of(&store, &session))
+        session.set(None);
+        if let Some(current) = store.read(|s| s.current().cloned()) {
+            store.update(|s| s.remove(&current.file)).map_err(|e| format!("Cannot save the change: {e}"))?;
+            for suffix in ["", pswm_core::dbfile::BAK, pswm_core::dbfile::REMOTE_BAK] {
+                let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&current.file, suffix));
+            }
+            if let Some(cloud) = current.remote.and_then(|r| r.location.cloud()) {
+                cloud.provider().sign_out();
+            }
+        }
+        Ok(status_of(&store, &session))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -191,7 +201,8 @@ fn start_sync(app: AppHandle) {
         let result = sync::sync(location.open().as_ref(), &store, &app.state::<Session>());
         let (text, problem) = sync::describe(&store, &result);
         let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
-        let synced = Synced { text, problem, changed };
+        let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
+        let synced = Synced { text, problem, changed, sign_in };
         *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
         // A page that is not listening reads it with `last_sync`.
         let _ = app.emit("synced", synced);

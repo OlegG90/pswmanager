@@ -208,7 +208,7 @@ background.
 
 ### Connecting a cloud account
 
-- OAuth 2 with PKCE, in the system browser (a Custom Tab), with no client secret. A loopback redirect does
+- OAuth 2 with PKCE, in the default browser, with no client secret. A loopback redirect does
   not work on a phone, so each store needs an Android redirect registered for the app:
   - **Dropbox** (stage A1): **open question**, decided as the first step of A1 — either a custom-scheme
     redirect (`io.github.olegg90.pswmanager://dropbox`) registered in the Dropbox app console beside the

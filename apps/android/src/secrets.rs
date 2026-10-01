@@ -40,6 +40,8 @@ impl<R: Runtime> SecretStore for Keystore<R> {
         self.0.run_mobile_plugin::<serde_json::Value>("write", Value { name, secret }).map(|_| ()).map_err(|e| e.to_string())
     }
 
+    /// A secret that cannot be read (the plugin failed, the Keystore key is
+    /// gone) is as good as none: the store asks to sign in again.
     fn read(&self, name: &str) -> Option<Zeroizing<String>> {
         let answer: Answer = self.0.run_mobile_plugin("read", Name { name }).ok()?;
         answer.secret.map(Zeroizing::new)

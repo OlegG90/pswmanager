@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+/// Its scheme is the one `tauri.conf.json` gives the deep-link plugin.
 pub const REDIRECT: &str = "io.github.olegg90.pswmanager://dropbox";
 
 /// The sign-in waiting for the browser to come back, if one is.
@@ -27,7 +28,7 @@ struct SignedIn {
     error: Option<String>,
 }
 
-/// Sends the browser to Dropbox's sign-in; the answer comes to [answer].
+/// Sends the browser (the default one) to Dropbox's sign-in; the answer comes to [on_open_url].
 #[tauri::command]
 pub fn sign_in_to_dropbox(app: AppHandle) -> Result<(), String> {
     let pending = DROPBOX.start(REDIRECT)?;
@@ -37,7 +38,7 @@ pub fn sign_in_to_dropbox(app: AppHandle) -> Result<(), String> {
 }
 
 /// An address the app was opened with: the end of a sign-in when it is ours.
-pub fn answer(app: &AppHandle, url: &str) {
+pub fn on_open_url(app: &AppHandle, url: &str) {
     if !url.starts_with(REDIRECT) {
         return;
     }

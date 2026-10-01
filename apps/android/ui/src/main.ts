@@ -16,6 +16,8 @@ let filter: Filter = ALL
 let query = ''
 /** What the last sync did, as the status line says it. */
 let syncLine = ''
+/** The last sync asked to sign in to the store again. */
+let signInAgain = false
 /** Stops what the screen shown runs on a timer (the TOTP countdown). */
 let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
@@ -92,8 +94,10 @@ function chooseScreen() {
 let onSignedIn = (_signedIn: SignedIn) => {}
 void listen<SignedIn>('signed-in', (e) => onSignedIn(e.payload))
 
-/** Signs in to Dropbox in the browser, then waits for it to come back. */
+/** Signs in to Dropbox in the browser, then waits for it to come back. A
+ *  sign-in started again gives up on the one before. */
 function signIn(): Promise<void> {
+  onSignedIn({ error: 'A new sign-in was started' })
   return new Promise((done, fail) => {
     onSignedIn = (signedIn) => {
       onSignedIn = () => {}
@@ -108,12 +112,13 @@ function signIn(): Promise<void> {
 async function dropboxScreen() {
   const error = errorLine()
   const back = button('←', 'Back', chooseScreen, 'icon')
-  show(el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), error.line)
-  error.show('Waiting for Dropbox…')
+  const waiting = el('p', {}, 'Waiting for Dropbox…')
+  show(el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line)
   try {
     await signIn()
     filesScreen(await api.dropboxFiles())
   } catch (e) {
+    waiting.remove()
     error.show(String(e))
     screen.append(busyButton('Sign in to Dropbox', 'Sign in again', dropboxScreen, error.show, 'primary'))
   }
@@ -203,6 +208,7 @@ function listScreen(opened: Listing) {
 
 function applySync(synced: Synced) {
   syncLine = synced.text
+  signInAgain = synced.signIn
   onSynced(synced)
 }
 
@@ -242,7 +248,7 @@ function syncSheet() {
     el('b', {}, 'Sync'),
     el('p', {}, syncLine || 'Not synced yet'),
     el('p', { className: 'muted' }, database?.syncedWith ? `With ${database.syncedWith}` : ''),
-    ...(syncLine.startsWith('Sign in to') ? [button('Sign in', 'Sign in again', () => (close(), void signIn().then(api.syncNow, (e) => snack(String(e)))), 'primary')] : []),
+    ...(signInAgain ? [button('Sign in', 'Sign in again', () => (close(), void signIn().then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()

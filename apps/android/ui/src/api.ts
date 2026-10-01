@@ -34,6 +34,8 @@ export interface Synced {
   problem: boolean
   /** The entries changed: read the list again. */
   changed: boolean
+  /** The store wants the user to sign in again. */
+  signIn: boolean
 }
 
 /** A database in the app's Dropbox folder. */
