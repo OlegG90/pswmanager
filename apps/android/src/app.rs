@@ -121,13 +121,19 @@ fn status(store: State<Store>, session: State<Session>) -> Status {
 async fn open_local_file(app: AppHandle) -> Result<Option<Status>, String> {
     off_main(move || {
         let Some(picked) = app.state::<Documents<Wry>>().pick_file()? else { return Ok(None) };
-        let store = app.state::<Store>();
-        let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|k| k.file.clone()).collect());
-        let local = sync::free_path(&store.dir().join("databases"), &picked.name, &taken);
-        sync::start(&store, Location::Document { uri: picked.uri, name: picked.name }, local)?;
-        Ok(Some(status_of(&store, &app.state::<Session>())))
+        adopt(&app, Location::Document { uri: picked.uri, name: picked.name }).map(Some)
     })
     .await
+}
+
+/// Makes the remote file at `location` the database on this phone: its working
+/// copy is downloaded into the app's storage, under the file's name.
+pub fn adopt(app: &AppHandle, location: Location) -> Result<Status, String> {
+    let store = app.state::<Store>();
+    let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|k| k.file.clone()).collect());
+    let local = sync::free_path(&store.dir().join("databases"), &location.file_name(), &taken);
+    sync::start(&store, location, local)?;
+    Ok(status_of(&store, &app.state::<Session>()))
 }
 
 /// Forgets the database (locking it first); its working copy goes too, the

@@ -2,15 +2,11 @@
 //! browser comes back to the app's own scheme instead of a loopback address,
 //! as registered with the Dropbox app.
 
-use crate::app::{off_main, status_of, Status};
+use crate::app::{adopt, off_main, Status};
 use pswm_core::dropbox::DROPBOX;
 use pswm_core::oauth::Pending;
 use pswm_core::remote::{Cloud, CloudFile};
-use pswm_core::session::Session;
-use pswm_core::store::Store;
-use pswm_core::sync;
 use serde::Serialize;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -64,12 +60,5 @@ pub async fn dropbox_files() -> Result<Vec<CloudFile>, String> {
 /// downloaded into the app's storage, and it syncs with Dropbox from then on.
 #[tauri::command]
 pub async fn open_dropbox_file(app: AppHandle, file: CloudFile) -> Result<Status, String> {
-    off_main(move || {
-        let store = app.state::<Store>();
-        let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|k| k.file.clone()).collect());
-        let local = sync::free_path(&store.dir().join("databases"), &file.name, &taken);
-        sync::start(&store, Cloud::Dropbox.location(file), local)?;
-        Ok(status_of(&store, &app.state::<Session>()))
-    })
-    .await
+    off_main(move || adopt(&app, Cloud::Dropbox.location(file))).await
 }
