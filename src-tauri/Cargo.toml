@@ -1,6 +1,6 @@
 [package]
 name = "pswmanager"
-version = "0.5.0"
+version = "0.5.1"
 description = "A minimal tray password manager on KeePass KDBX"
 authors = ["OlegG90"]
 license = "MIT"
