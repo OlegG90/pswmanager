@@ -241,8 +241,11 @@ KeePassXC and Keepass2Android keep too, so their changes show here as well), up 
   page) answer no program but a browser and keep the default icon.
 - Downloads run in the background after unlock and never delay the window; a site that fails is retried
   at most once a week.
-- Icons are cached in the data folder (`icons/`, keyed by host), not written into the database, so fetching
-  icons never changes the file and never causes a sync. The cache holds no secrets, only host names.
+- Icons are cached in the data folder (`icons/`), not written into the database, so fetching icons never
+  changes the file and never causes a sync. A cache file is named by its host hashed with a key
+  (HMAC-SHA256), so the folder does not say which sites the databases hold: the key is 32 random bytes kept
+  in the Windows Credential Manager for the Windows user, made on first use. Without it the icons are kept in
+  memory for the session only. Files earlier versions named by host are renamed, or removed.
 - A setting turns downloading off (on by default); with it off, cached icons are still used.
 - Window size and position are remembered.
 

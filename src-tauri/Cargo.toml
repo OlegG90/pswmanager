@@ -24,6 +24,7 @@ base32 = "0.5.1"
 base64 = "0.23.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 getrandom = "0.4.3"
+hmac = "0.12"
 keepass = { version = "0.15", features = ["save_kdbx4"] }
 notify = "8"
 serde = { version = "1.0.229", features = ["derive"] }
