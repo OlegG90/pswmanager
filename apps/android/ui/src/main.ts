@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { svgIcon, type IconName } from './icons'
 import { api, type CloudFile, type Entry, type Listing, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
@@ -204,12 +205,24 @@ function unlockScreen() {
 
 // ------------------------------------------------------------ the list
 
+/** A toolbar button showing an icon. */
+function iconButton(name: IconName, title: string, onClick: () => void, className = 'icon') {
+  const b = button('', title, onClick, className)
+  b.setAttribute('aria-label', title)
+  b.append(svgIcon(name))
+  return b
+}
+
+/** The list, as Keepass2Android lays it out: a toolbar on top, the entries,
+ *  the search button floating at the bottom right, the sync status under it. */
 function listScreen(opened: Listing) {
   let listing = opened
+  const title = el('h1', {})
   const searchField = el('input', { type: 'search', className: 'field search', value: query })
   const status = el('footer', { className: 'status' }, syncLine || 'Not synced yet')
   const list = el('ul', { className: 'entries' })
   const fill = () => {
+    title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
     const shown = search(listing.entries, query, filter)
     list.replaceChildren(...shown.map((entry) => row(entry, listing)))
@@ -220,8 +233,30 @@ function listScreen(opened: Listing) {
     fill()
   })
   status.addEventListener('click', syncSheet)
-  const menu = button('☰', 'Groups and tags', () => drawer(listing, fill), 'icon')
-  show([el('header', { className: 'bar' }, menu, searchField), el('div', { className: 'scroll' }, list), status], undefined, 'list-screen')
+  const toolbar = el('header', { className: 'bar' },
+    iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
+    title,
+    iconButton('lock', 'Lock', () => void lock()))
+  const closeSearch = () => {
+    searching.replaceWith(toolbar)
+    findButton.hidden = false
+    backs = backs.filter((b) => b !== closeSearch)
+    query = ''
+    searchField.value = ''
+    fill()
+  }
+  const searching = el('header', { className: 'bar' }, iconButton('back', 'Close the search', closeSearch), searchField)
+  const findButton = iconButton('search', 'Search', () => {
+    toolbar.replaceWith(searching)
+    findButton.hidden = true
+    backs.push(closeSearch)
+    searchField.focus()
+  }, 'fab')
+  show([query ? searching : toolbar, el('div', { className: 'scroll' }, list), findButton, status], undefined, 'list-screen')
+  if (query) {
+    findButton.hidden = true
+    backs.push(closeSearch)
+  }
   fill()
   onSynced = (synced) => {
     status.textContent = synced.text

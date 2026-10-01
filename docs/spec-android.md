@@ -119,16 +119,19 @@ A local file skips steps 2–3.
 
 As in the mockups `1e`–`1j`.
 
-- **List:** a search field on top (search as on Windows: title, user name, URL, tags, notes; within the
-  chosen group or tag), the sync status line under it, then the entries with their icons. Pull down to sync.
-  A **+** button for a new entry (stage A2).
+- **List**, laid out as in Keepass2Android: a toolbar on top (☰ for the drawer, the group or tag shown,
+  *Lock*; *Settings* from stage A1's settings), the entries with their icons, and floating buttons at the
+  bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
+  search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
+  stage A2, **+** for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
+  down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
   *Settings* and *Lock* at the bottom.
-- **Entry view:** title, user name, password (masked; tap the eye to reveal), TOTP with its countdown, URL,
-  notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and
-  **History (N)** (stage A2). Each value has a **copy** button, and tapping a value copies it too; the URL
-  opens in the default browser. A snackbar confirms the copy and says when the clipboard clears. The star
+- **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
+  attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
+  (stage A2). As in Keepass2Android, each line ends in **⋮**, a menu of its commands (*Copy*, *Show / hide*
+  for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears. The star
   toggles the favorite (stage A2).
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
 - **Attachments:** listed with name and size; **Open** hands the file to another app (Android's chooser),
