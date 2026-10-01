@@ -21,4 +21,6 @@ pswm-core = { path = "../../crates/core" }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+zeroize = { workspace = true }
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2.5.5"
