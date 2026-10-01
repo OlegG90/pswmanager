@@ -436,11 +436,12 @@ async function lock() {
 /** A command in a line's menu. */
 type Action = [label: string, run: () => void]
 
-/** A labelled value with ⋮ at the end for its commands; tapping the value copies it. */
+/** A labelled value with ⋮ at the end for its commands; tapping the value
+ *  runs the first of them (copies it, or opens a file). */
 function line(label: string, value: Node | string, copy: (() => Promise<number>) | null, ...more: Action[]) {
   const shown = el('span', {}, el('small', {}, label), typeof value === 'string' ? el('span', {}, value) : value)
   const actions: Action[] = [...(copy ? [['Copy', () => void copied(copy())] as Action] : []), ...more]
-  if (copy) shown.addEventListener('click', () => void copied(copy()))
+  if (actions.length) shown.addEventListener('click', actions[0][1])
   const menu = button('⋮', `${label}: more`, () =>
     sheet((close) => [el('b', {}, label), ...actions.map(([name, run]) => button(name, name, () => (close(), run()), 'item'))]), 'icon more')
   return el('div', { className: 'line' }, shown, ...(actions.length ? [menu] : []))
@@ -480,11 +481,7 @@ async function entryScreen(id: string, listing: Listing) {
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name).catch((e) => snack(String(e)))
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => {
-      const row = line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])
-      row.firstElementChild!.addEventListener('click', () => open(a.name))
-      return row
-    }))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])))
   }
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
   const toList = () => listScreen(listing)
@@ -524,6 +521,13 @@ function totpLine(id: string): [HTMLElement, () => void] {
 
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
+/** How long (ms) in the background, and in front without a touch, before the database locks. */
+const LOCK_IN_BACKGROUND = 30 * 1000
+const LOCK_WHEN_IDLE = 5 * 60 * 1000
+/** When the app went to the background, and when it was last touched (ms). */
+let hiddenAt = Date.now()
+let lastTouch = Date.now()
+
 /** Syncs on its own while unlocked: coming back to the app after a minute
  *  (AGAIN_AFTER), every 5 minutes while it is in front (EVERY); going away
  *  sends what is waiting. */
@@ -534,24 +538,22 @@ const syncIfOlder = (age: number) => {
 }
 document.addEventListener('visibilitychange', () => {
   if (unlocked && document.hidden) {
+    hiddenAt = Date.now()
     void api.syncIfPending()
-    void api.lockLater(LOCK_IN_BACKGROUND)
+    void api.lockLater(LOCK_IN_BACKGROUND / 1000)
   } else if (!document.hidden) {
     void api.stayUnlocked()
     lastTouch = Date.now()
-    syncIfOlder(AGAIN_AFTER)
+    // The backend's timer may not have run on time (Android asleep): the clock decides.
+    if (unlocked && Date.now() - hiddenAt > LOCK_IN_BACKGROUND) void lock()
+    else syncIfOlder(AGAIN_AFTER)
   }
 })
 setInterval(() => syncIfOlder(EVERY), 30 * 1000)
 
 // ------------------------------------------------------------ locking
 
-/** Seconds in the background before the database locks. */
-const LOCK_IN_BACKGROUND = 30
-/** Minutes in front without a touch before it locks. */
-const LOCK_WHEN_IDLE = 5 * 60 * 1000
-let lastTouch = Date.now()
-for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, () => (lastTouch = Date.now()), { passive: true, capture: true })
+for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListener(type, () => (lastTouch = Date.now()), { passive: true, capture: true })
 setInterval(() => {
   if (unlocked && !document.hidden && Date.now() - lastTouch > LOCK_WHEN_IDLE) void lock()
 }, 10 * 1000)

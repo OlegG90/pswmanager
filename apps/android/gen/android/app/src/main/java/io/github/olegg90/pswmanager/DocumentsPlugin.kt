@@ -6,9 +6,8 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Base64
 import android.webkit.MimeTypeMap
-import androidx.core.content.FileProvider
-import java.io.File
 import androidx.activity.result.ActivityResult
+import androidx.core.content.FileProvider
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -16,6 +15,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
 import java.io.FileNotFoundException
 
 @InvokeArg

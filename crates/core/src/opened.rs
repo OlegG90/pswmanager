@@ -32,15 +32,19 @@ const ANDROID_RUNNABLE: &[&str] = &["apk", "apks", "xapk", "apkm", "aab", "sh"];
 
 /// Whether opening `name` on Android would install or run it.
 pub fn is_runnable_on_android(name: &str) -> bool {
-    let name = file_name(name).to_lowercase();
-    name.rsplit_once('.').is_some_and(|(_, extension)| ANDROID_RUNNABLE.contains(&extension))
+    has_extension(name, ANDROID_RUNNABLE)
 }
 
 /// Whether opening `name` would run it (see [RUNNABLE]).
 pub fn is_runnable(name: &str) -> bool {
+    has_extension(name, RUNNABLE)
+}
+
+/// Whether `name` ends in one of `extensions` (in any case). Trailing dots and
+/// spaces, which Windows ignores, are dropped first by [file_name].
+fn has_extension(name: &str, extensions: &[&str]) -> bool {
     let name = file_name(name).to_lowercase();
-    // Windows ignores trailing dots and spaces, which file_name drops too.
-    name.rsplit_once('.').is_some_and(|(_, extension)| RUNNABLE.contains(&extension))
+    name.rsplit_once('.').is_some_and(|(_, extension)| extensions.contains(&extension))
 }
 
 /// Writes `data` as `name` in a new subfolder of `folder` (so two files with

@@ -25,7 +25,7 @@ const CLEAR_AFTER: Duration = Duration::from_secs(20);
 
 pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
-        .plugin(crate::back::init())
+        .plugin(crate::system::init())
         .plugin(documents::init())
         .plugin(crate::clipboard::init())
         .plugin(tauri_plugin_opener::init())
@@ -38,8 +38,10 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(LastSync::default());
             app.manage(Syncing::default());
             app.manage(LockLater::default());
-            // Copies left by a crash.
-            opened::clean(&open_folder(app.handle()));
+            // Copies of attachments a crash left behind.
+            if let Ok(folder) = open_folder(app.handle()) {
+                opened::clean(&folder);
+            }
             app.manage(dropbox::SignIn::default());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -213,7 +215,9 @@ fn lock(app: AppHandle) {
 
 fn lock_now(app: &AppHandle) {
     app.state::<Session>().set(None);
-    opened::clean(&open_folder(app));
+    if let Ok(folder) = open_folder(app) {
+        opened::clean(&folder);
+    }
 }
 
 /// A lock waiting to happen (the app went to the background): each new wait
@@ -221,15 +225,26 @@ fn lock_now(app: &AppHandle) {
 #[derive(Default)]
 struct LockLater(std::sync::atomic::AtomicU64);
 
+impl LockLater {
+    /// Voids the waits before; the new one's number.
+    fn next(&self) -> u64 {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+    }
+
+    fn is_latest(&self, wait: u64) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst) == wait
+    }
+}
+
 /// Locks after `seconds` unless the app comes back first (`stay_unlocked`);
-/// tells the page (`locked`).
+/// tells the page (`locked`). The page also checks the time itself when it
+/// comes back, in case Android kept this from running on time.
 #[tauri::command]
 fn lock_later(app: AppHandle, seconds: u64) {
-    use std::sync::atomic::Ordering;
-    let mine = app.state::<LockLater>().0.fetch_add(1, Ordering::SeqCst) + 1;
+    let wait = app.state::<LockLater>().next();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(seconds));
-        if app.state::<LockLater>().0.load(Ordering::SeqCst) == mine && app.state::<Session>().is_unlocked() {
+        if app.state::<LockLater>().is_latest(wait) && app.state::<Session>().is_unlocked() {
             lock_now(&app);
             let _ = app.emit("locked", ());
         }
@@ -238,13 +253,14 @@ fn lock_later(app: AppHandle, seconds: u64) {
 
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
-    later.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    later.next();
 }
 
 /// Where copies of opened attachments go: the app's cache, which the
 /// FileProvider shares (`res/xml/file_paths.xml`).
-fn open_folder(app: &AppHandle) -> PathBuf {
-    app.path().app_cache_dir().unwrap_or_default().join("open")
+fn open_folder(app: &AppHandle) -> Result<PathBuf, String> {
+    let cache = app.path().app_cache_dir().map_err(|e| format!("Cannot find the app's cache: {e}"))?;
+    Ok(cache.join("open"))
 }
 
 /// Opens an attachment in another app, through a read-only copy that locking
@@ -256,7 +272,7 @@ async fn open_attachment(app: AppHandle, id: String, name: String) -> Result<(),
         return Err("Apps and scripts are not opened from the database".into());
     }
     let data = app.state::<Session>().with(|v| v.attachment(&id, None, &name))?;
-    let path = opened::write(&open_folder(&app), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
+    let path = opened::write(&open_folder(&app)?, &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
     off_main(move || app.state::<Documents<Wry>>().open_file(&path)).await
 }
 
