@@ -76,12 +76,21 @@ permission for that one file.
 
 ### Saving
 
-- **Through Android's file access**, a save cannot rename a new file over the old one. So: the new content
-  is written to a temporary file (in the working copy's folder; for a local file, in the app's private
-  storage) and opened again with the key; the current file is kept as `.bak`; then the file is overwritten
-  in place (mode `wt`) and read back. If that last step fails, the window says so, and the `.bak` and the
-  verified temporary file stay for recovery.
-- Everything else about saving and change detection is as in `spec.md`.
+Android's file access gives a document, not a path, and a save cannot rename a new file over the old one.
+So the core works, as on Windows, on a **copy** in the app's private storage, and the app keeps the copy
+and the document in step (`crates/core/src/mirror.rs`):
+
+- **In:** at unlock, each time the app comes to the front and before every change, the document's stamp
+  (modification time and size) is compared with the one last in step; when it differs, the document is
+  read into the copy, and the core reads it again and merges as with a file another program changed
+  (*Saving and synchronisation* in `spec.md`).
+- **Out:** after each save (written to the copy and verified as in `spec.md`), the document's content is
+  kept as its `.bak` and the copy is written into the document in place (mode `wt`) and read back. If the
+  document changed since it was last in step, nothing is written: it is brought in and merged first, then
+  written. If writing fails, the window says so; the copy keeps the change and the `.bak` the previous
+  file, and the next save tries again.
+- What was last in step is kept with the database's state, so a restart does not read the document again
+  for nothing.
 
 ## First run
 
