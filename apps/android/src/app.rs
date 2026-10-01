@@ -24,6 +24,7 @@ const CLEAR_AFTER: Duration = Duration::from_secs(20);
 
 pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
+        .plugin(crate::back::init())
         .plugin(documents::init())
         .plugin(crate::clipboard::init())
         .plugin(tauri_plugin_opener::init())

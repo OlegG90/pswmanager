@@ -23,12 +23,38 @@ let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
 let onSynced = (_synced: Synced) => {}
 
-function show(...children: Node[]) {
+/** What Back closes or returns to, innermost last (see BackPlugin.kt). */
+let backs: (() => void)[] = []
+
+/** Called by Android's Back: true when the page did something with it. */
+;(window as unknown as { pswmBack: () => boolean }).pswmBack = () => {
+  const back = backs.pop()
+  back?.()
+  return !!back
+}
+
+/** Shows a screen; `back` is where Back returns from it (none: Back leaves the app). */
+function show(children: Node[], back?: () => void, className = '') {
   leave()
   leave = () => {}
   onSynced = () => {}
+  document.querySelectorAll('.shade, .sheet').forEach((n) => n.remove())
+  backs = back ? [back] : []
+  screen.className = className
   screen.replaceChildren(...children)
   window.scrollTo(0, 0)
+}
+
+/** Puts an overlay (a panel, the drawer) on top: Back closes it. Returns its close. */
+function overlay(node: HTMLElement): () => void {
+  const close = () => {
+    node.remove()
+    backs = backs.filter((b) => b !== close)
+  }
+  backs.push(close)
+  node.addEventListener('click', (e) => e.target === node && close())
+  document.body.append(node)
+  return close
 }
 
 let snackTimer = 0
@@ -42,10 +68,8 @@ function snack(text: string) {
 /** A panel from the bottom; `fill` gets what closes it. */
 function sheet(fill: (close: () => void) => Node[]) {
   const shade = el('div', { className: 'sheet' })
-  const close = () => shade.remove()
+  const close = overlay(shade)
   shade.append(el('div', { className: 'panel' }, ...fill(close)))
-  shade.addEventListener('click', (e) => e.target === shade && close())
-  document.body.append(shade)
 }
 
 /** Asks before `action`, which runs on `yes`. */
@@ -79,7 +103,7 @@ function chooseScreen() {
     database = status.database
     unlockScreen()
   }, error.show, 'card')
-  show(
+  show([
     el('p', { className: 'muted' }, 'First run'),
     el('h1', {}, 'Choose your database'),
     el('p', {}, 'PswManager opens one KeePass (KDBX 4) file. The same file opens in PswManager on Windows and in KeePassXC.'),
@@ -87,7 +111,7 @@ function chooseScreen() {
     local,
     el('p', { className: 'muted' }, 'A local file is picked with Android’s file picker; it can be anywhere the picker reaches, also a folder another app syncs.'),
     error.line,
-  )
+  ])
 }
 
 /** What to do when a sign-in ends (event `signed-in`). */
@@ -113,7 +137,7 @@ async function dropboxScreen() {
   const error = errorLine()
   const back = button('←', 'Back', chooseScreen, 'icon')
   const waiting = el('p', {}, 'Waiting for Dropbox…')
-  show(el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line)
+  show([el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line], chooseScreen)
   try {
     await signIn()
     filesScreen(await api.dropboxFiles())
@@ -131,13 +155,13 @@ function filesScreen(files: CloudFile[]) {
       database = (await api.openDropboxFile(file)).database
       unlockScreen()
     }, error.show, 'card')
-  show(
+  show([
     el('header', { className: 'bar' }, button('←', 'Back', chooseScreen, 'icon'), el('h1', {}, 'Pick the file')),
     el('p', { className: 'muted' }, 'Apps / PswManager Sync'),
     ...(files.length ? files.map(pick) : [el('p', {}, 'There is no .kdbx in the app’s folder yet. Put one there from PswManager on Windows (Settings → Sync → Upload) and come back.')]),
     el('p', { className: 'muted' }, 'PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.'),
     error.line,
-  )
+  ], chooseScreen)
 }
 
 // ------------------------------------------------------------ unlock
@@ -166,7 +190,7 @@ function unlockScreen() {
         error.show(String(e))
       }
     })
-  show(
+  show([
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
@@ -174,7 +198,7 @@ function unlockScreen() {
     unlock,
     error.line,
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
-  )
+  ])
   password.focus()
 }
 
@@ -183,7 +207,7 @@ function unlockScreen() {
 function listScreen(opened: Listing) {
   let listing = opened
   const searchField = el('input', { type: 'search', className: 'field search', value: query })
-  const status = el('p', { className: 'status' }, syncLine)
+  const status = el('footer', { className: 'status' }, syncLine || 'Not synced yet')
   const list = el('ul', { className: 'entries' })
   const fill = () => {
     searchField.placeholder = `Search ${filterLabel(filter)}`
@@ -197,7 +221,7 @@ function listScreen(opened: Listing) {
   })
   status.addEventListener('click', syncSheet)
   const menu = button('☰', 'Groups and tags', () => drawer(listing, fill), 'icon')
-  show(el('header', { className: 'bar' }, menu, searchField), status, list)
+  show([el('header', { className: 'bar' }, menu, searchField), el('div', { className: 'scroll' }, list), status], undefined, 'list-screen')
   fill()
   onSynced = (synced) => {
     status.textContent = synced.text
@@ -258,9 +282,7 @@ function syncSheet() {
 
 function drawer(listing: Listing, changed: () => void) {
   const panel = el('nav', { className: 'drawer' })
-  const shade = el('div', { className: 'shade' }, panel)
-  const close = () => shade.remove()
-  shade.addEventListener('click', (e) => e.target === shade && close())
+  const close = overlay(el('div', { className: 'shade' }, panel))
   const item = (f: Filter, label: string, count: number) => {
     const choose = () => {
       filter = f
@@ -282,11 +304,9 @@ function drawer(listing: Listing, changed: () => void) {
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
     button('Lock', 'Lock the database', () => void lock(), 'lock'),
   )
-  document.body.append(shade)
 }
 
 async function lock() {
-  document.querySelectorAll('.shade, .sheet').forEach((n) => n.remove())
   query = ''
   await api.lock()
   unlockScreen()
@@ -327,8 +347,9 @@ async function entryScreen(id: string, listing: Listing) {
     rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => el('div', { className: 'line' }, el('span', {}, a.name, el('small', {}, formatSize(a.size))))))
   }
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
-  const back = button('←', 'Back to the list', () => listScreen(listing), 'icon')
-  show(el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows)
+  const toList = () => listScreen(listing)
+  const back = button('←', 'Back to the list', toList, 'icon')
+  show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows], toList)
   leave = () => stops.forEach((stop) => stop())
 }
 
