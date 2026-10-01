@@ -1,0 +1,286 @@
+# PswManager for Android — Specification
+
+PswManager on an Android phone: the same KeePass database (KDBX 4) as on Windows, the same groups, tags,
+merge and sync rules, in a phone's shape. The guiding principle stays **fast access to one's own
+passwords**.
+
+This document says what is **different or new on Android**. Everything it does not mention follows
+[`spec.md`](spec.md): the file format and what survives a round trip (*Databases*), the merge rules
+(*Saving and synchronisation*, *Merge*), the sync decision and conditional upload (*Synchronisation with a
+remote store*), groups and tags, entry history, entry icons, TOTP and the generator. Those rules live in one
+Rust crate shared by both apps (see *Technology*), so they cannot drift apart.
+
+The look is in [`design/android/`](design/android/) (mockups from Claude Design). This spec describes
+behaviour, the mockups describe the look; where they disagree, this spec wins. The mockups also show
+things that come in later stages (the *Database* and *Backup* settings tabs, Templates and Trash, a
+database switch); see *Stages*.
+
+## Product
+
+| | |
+|---|---|
+| Display name | PswManager |
+| Application id | `io.github.olegg90.pswmanager` |
+| Platform | Android 10 (API 29) or newer; phones, portrait only |
+| Reference device | Samsung Galaxy S24 Ultra |
+| UI language | English only |
+| Distribution | A signed APK attached to the GitHub Release; installed by hand. No Google Play, no F-Droid, no auto-update |
+| License | MIT |
+
+### Role
+
+At first PswManager **complements** Keepass2Android on the phone: quick search, viewing and copying, and
+(from stage A2) editing. Keepass2Android stays for what PswManager does not do yet, autofill above all.
+Both open the same file in the same store and merge each other's changes. Replacing Keepass2Android
+completely is a goal for later stages.
+
+### Out of scope for now
+
+Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
+database on the phone), creating a new database, *Database settings* (name, history limits, key and
+encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates and Trash
+groups, managing tags (rename, merge, remove), password health, restoring a history version, adding or
+changing attachments, a LAN folder as a store, tablets and landscape, Google Play.
+
+## The database on the phone
+
+One database at a time. It is either **synced** with a cloud store (Dropbox in stage A1) or a **local
+file** without sync.
+
+### A synced database: the working copy
+
+As on Windows, the database's file on the phone is a **visible file** the user can see and back up, and
+sync keeps it paired with the remote file.
+
+- The working copy lives in a folder the user picks **once** with Android's folder picker (Storage Access
+  Framework); the picker starts in `Documents/PswManager`. The app keeps the permission for that folder
+  (a persisted URI permission), so it is never asked again — after a reinstall the folder is picked again.
+- `<name>.kdbx.bak` (the file before each save) and `<name>.kdbx.remote.bak` (the remote file before a
+  merge) are kept beside it, as on Windows. A file of the same name already in the folder is kept as
+  `<name>.kdbx.bak` before the download replaces it, and the screen says so first.
+- No broad storage permission (`MANAGE_EXTERNAL_STORAGE`) is asked for.
+
+### A local file without sync
+
+**Open a local file** picks an existing `.kdbx` anywhere Android's file picker reaches (the phone, an SD
+card, a folder another program syncs). The app works on that file **in place**, with a persisted
+permission for that one file.
+
+- Android cannot watch such a file for changes, so instead of watching, the app **checks** it (its
+  modification time and size; its hash when those do not tell) at unlock, each time the app comes to the
+  front, and before every save.
+- What follows is *Saving and synchronisation* in `spec.md`: a file changed elsewhere is read again; each
+  change is made on the file as it is now; an older file coming back is merged by the newer-wins rule.
+- With access to one file only, the app cannot write beside it: its `.bak` is kept in the app's private
+  storage.
+
+### Saving
+
+- **Through Android's file access**, a save cannot rename a new file over the old one. So: the new content
+  is written to a temporary file (in the working copy's folder; for a local file, in the app's private
+  storage) and opened again with the key; the current file is kept as `.bak`; then the file is overwritten
+  in place (mode `wt`) and read back. If that last step fails, the window says so, and the `.bak` and the
+  verified temporary file stay for recovery.
+- Everything else about saving and change detection is as in `spec.md`.
+
+## First run
+
+The screens in the mockups `1a`–`1d`:
+
+1. **Choose your database:** *Sync with Dropbox* or *Open a local file*.
+2. **Dropbox:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app folder
+   `Apps/PswManager Sync` are listed with size and date; pick one. PswManager sees only its app folder, so a
+   file to be shared with Keepass2Android and PswManager for Windows must be there (Keepass2Android, with
+   full Dropbox access, opens it there).
+3. **Where to keep it on this phone:** the folder for the working copy (see above) and the file name; the
+   file is downloaded, and sync is on from the start.
+4. **Unlock** with the master password and/or the key file (picked with the file picker, permission kept).
+5. After the first unlock the app offers **biometric unlock** (from stage A3).
+
+A local file skips steps 2–3.
+
+## Unlock
+
+- **Master password and/or key file**, as on Windows. The unlock screen shows the database's name and
+  description (as last unlocked), whether it syncs, and where its file is.
+- **Biometric unlock** (stage A3): after a successful unlock with the master password, the database's key
+  (the master password and the key file's content) is encrypted with a key in the **Android Keystore**
+  that needs a strong biometric (`BIOMETRIC_STRONG`) to use and is invalidated when a new fingerprint or
+  face is enrolled. The next unlocks ask for the fingerprint or face.
+- The **master password is asked again every 14 days** (a setting: 1–90 days), after the Keystore key is
+  invalidated, and when the database's key changed on another device (the stored key no longer opens it).
+  Then the stored key is replaced.
+- Turning biometric unlock off deletes the stored key.
+- A key change made on another device is handled as in *Database settings → With sync* in `spec.md`: the
+  app asks once for the other file's key to merge it.
+
+## Screens
+
+As in the mockups `1e`–`1j`.
+
+- **List:** a search field on top (search as on Windows: title, user name, URL, tags, notes; within the
+  chosen group or tag), the sync status line under it, then the entries with their icons. Pull down to sync.
+  A **+** button for a new entry (stage A2).
+- **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
+  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
+  *Settings* and *Lock* at the bottom.
+- **Entry view:** title, user name, password (masked; tap the eye to reveal), TOTP with its countdown, URL,
+  notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and
+  **History (N)** (stage A2). Each value has a **copy** button, and tapping a value copies it too; the URL
+  opens in the default browser. A snackbar confirms the copy and says when the clipboard clears. The star
+  toggles the favorite (stage A2).
+- **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
+- **Attachments:** listed with name and size; **Open** hands the file to another app (Android's chooser),
+  see *Security behaviour*. Adding, replacing, renaming and removing files come later.
+- **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
+  downloaded the same way and cached in the app's private storage, with the same hashed file names (the
+  hashing key kept in the Keystore). The *Download site icons* setting turns it off.
+- **Theme:** light or dark, or as the system is set (the default).
+- **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
+  strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes.
+  A new entry is blank (not from a template). Delete moves an entry to the recycle bin after a
+  confirmation.
+- **History** (stage A2): the list of older versions with what changed, and a version shown read only, its
+  values copied as in the entry view. No restoring.
+
+### Settings
+
+In tabs, as on Windows (mockup `1j`):
+
+| Tab | Settings |
+|---|---|
+| General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
+| Appearance | theme; download site icons |
+| Sync | the remote file and **Stop syncing**; the store's account and **Disconnect**; **Sync now** |
+| About | version; database format |
+
+Settings belong to this phone; they are not synced with the PC.
+
+## Security behaviour
+
+| Setting | Default |
+|---|---|
+| Lock when the app goes to the background | after 30 s (at once, 30 s, 1 min, 5 min, never) |
+| Lock when the screen turns off | on |
+| Lock after inactivity while in front | 5 min (1–60, or never) |
+| Clear clipboard after copying | 20 s (5–120) |
+
+- Locking drops the key and every decrypted value in the backend, as on Windows.
+- **Clipboard:** a copied secret is marked sensitive (`ClipDescription.EXTRA_IS_SENSITIVE`, Android 13+),
+  so the keyboard's clipboard suggestions and the system's copy preview do not show it. It is cleared after
+  the set time only if it still holds the copied value, as far as Android lets the app tell (an app in the
+  background cannot read the clipboard; it then relies on the change it last saw).
+- **Screens are never captured:** `FLAG_SECURE` is always on, so screenshots and screen recording show
+  nothing and the recent-apps thumbnail is blank.
+- **An opened attachment** is copied to a folder of its own in the app's cache (`cache/open/<random>/`)
+  and handed to the other app through a content URI (`FileProvider`) with read permission only. The folder
+  is deleted when the database locks and when the app starts. APKs and scripts are not opened.
+- The app's private storage is **excluded from Android's backup** (Auto Backup and device-to-device
+  transfer): it holds the encrypted tokens and the icon cache, which another device could not decrypt
+  anyway.
+- Nothing secret is written to logs (`logcat`), the state file or crash reports.
+
+## Synchronisation
+
+The sync decision, the merge and the conditional upload are those of `spec.md`, run by the same code.
+What differs is **when**: Android stops apps in the background, so there is no polling from the
+background.
+
+| Moment | Sync |
+|---|---|
+| Unlock (including after start) | yes; the working copy shows at once, the list updates when the sync finishes |
+| The app comes back to the front, unlocked, more than 1 min after the last sync | yes |
+| An entry is created, edited or deleted (stage A2) | upload about 10 s after the last such change |
+| The app goes to the background with changes not uploaded | an upload at once; if Android stops it, a WorkManager job (needs a network) uploads the working copy later |
+| Lock | an upload only, as on Windows: a merge waits for the next unlock |
+| Pull down on the list, or **Sync now** | yes |
+| While the app is in front and unlocked | the remote revision is checked every 5 min (1–60, or off), as on Windows |
+
+- The background upload never needs the database's key: it uploads the encrypted working copy, conditional
+  on the remote revision. If the remote file changed meanwhile, the upload stops and the merge waits for the
+  next unlock.
+- **Offline:** everything works on the working copy; the status says changes are waiting.
+- **Status line** (top of the list) with the same texts as on Windows: *Synced 12:04*, *Syncing…*,
+  *Changes waiting — offline*, *Merged 3 entries from Dropbox*, *Sign in to Dropbox again*, or the error.
+  Tapping it opens the **Sync** sheet: the last result, the remote file, the working copy, the entries the
+  last merge touched, and *Sync now*. A sync error never blocks reading or editing.
+
+### Connecting a cloud account
+
+- OAuth 2 with PKCE, in the system browser (a Custom Tab), with no client secret. A loopback redirect does
+  not work on a phone, so each store needs an Android redirect registered for the app:
+  - **Dropbox** (stage A1): **open question**, decided as the first step of A1 — either a custom-scheme
+    redirect (`io.github.olegg90.pswmanager://dropbox`) registered in the Dropbox app console beside the
+    localhost one, or Dropbox's Android SDK used **for sign-in only** (its `db-<app key>` scheme and the
+    hand-off to the Dropbox app), handing the refresh token to the Rust code, which does everything else as
+    on Windows. If neither works, the code Dropbox shows is pasted into the app by hand.
+  - **OneDrive** (stage A4): an Android platform in the existing Entra registration (the package name and
+    the signing key's hash; the redirect `msauth://io.github.olegg90.pswmanager/<hash>`).
+  - **Google Drive** (stage A4): an Android OAuth client for the package name and the signing key's SHA-1.
+- The same narrow access as on Windows (Dropbox's app folder, OneDrive's app folder, Google's `drive.file`).
+- The refresh token is kept in the app's private storage, **encrypted with a key in the Android Keystore**
+  (not bound to a biometric, so the background upload can use it). **Disconnect** deletes it; the working
+  copy stays.
+
+## State
+
+- One JSON file in the app's private storage: settings, the database (its file's URI, key file URI, sync —
+  the remote file and the sync state — and its name and description as last unlocked). Never the master
+  password, a token or any secret.
+- The encrypted tokens, the encrypted key for biometric unlock and the icon cache are beside it, in the
+  app's private storage.
+
+## Technology
+
+- **Shell:** Tauri 2 mobile (Android), the same plain-TypeScript frontend approach as on Windows, with
+  layouts of its own for the phone.
+- **Shared core:** the KDBX handling, merge, sync decision, stores, TOTP, generator and icon fetching move
+  from `src-tauri` into a crate `crates/core` that both apps use (stage A0), with no change in behaviour on
+  Windows. Windows-only parts (tray, hotkey, Credential Manager, file watching, autostart) stay in the
+  Windows app.
+- **Kotlin plugins** for what only Android offers: file and folder access (SAF), the Keystore and
+  biometric prompt, the sensitive clipboard, `FLAG_SECURE`, the app's lifecycle (front, background, screen
+  off), WorkManager, opening attachments; later the autofill service.
+- **Build:** only in CI. The Android SDK, NDK and JDK have no Windows-on-ARM64 builds, so the APK is built
+  on GitHub Actions (Ubuntu): every push to a branch with Android changes builds a debug APK as an
+  artifact; a `v*` tag builds the **release APK**, signed with the app's key, and attaches it to the GitHub
+  Release beside the Windows exes.
+- **Signing key:** made once. The keystore is kept in the CI secrets (base64) with its passwords, and a copy
+  is kept by the owner outside the repo (as an attachment in the PswManager database). Losing it means the
+  app cannot be updated in place, and the stores' Android registrations (which use its hash) must be made
+  again.
+- **On the PC:** only `adb` (platform-tools), to install the APK on the phone and read `logcat`. The phone
+  has USB or wireless debugging on. There is no emulator on this PC (no ARM64 emulation); the app is tested
+  on the reference phone.
+
+## Testing
+
+- **Automated:** everything the core does is tested on the PC as now (`cargo test`), once it is in
+  `crates/core`; the Windows app's tests keep passing after A0 unchanged. The Android-only parts (SAF save,
+  lifecycle triggers, Keystore) are thin and tested by hand.
+- **By hand on the phone, before a release:** first run with Dropbox and with a local file; unlock;
+  search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
+  screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
+  back; biometric unlock and its invalidation (stage A3).
+- **Compatibility gate** (as in `spec.md`), with the phone in it: a change made in PswManager on the phone
+  reaches PswManager on Windows and Keepass2Android, and theirs reach the phone, without loss — through
+  each supported store and for a local file.
+
+## Stages
+
+Each stage is a GitHub issue and lands in one or more PRs.
+
+- **A0 — Shared core:** move the platform-free code into `crates/core`; the Windows app uses it with no
+  change in behaviour; its tests run against the crate.
+- **A1 — First usable app:** the Tauri Android project and CI (debug APK per push, signed release APK on
+  tags); the signing key; Dropbox (the sign-in question decided first); a local file through SAF; the
+  working-copy folder; first run; unlock with a master password and/or key file; list, search, drawer
+  (groups and tags), entry view, copying with the sensitive clipboard, TOTP, attachments opened, site
+  icons; sync with every trigger and the status line and sheet; locking and `FLAG_SECURE`; settings
+  (General, Appearance, Sync, About).
+- **A2 — Editing:** the editor with the generator and strength indicator, new entry, delete to the recycle
+  bin, the favorite star, tags as chips, expiry date, TOTP secret; entry history read only.
+- **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
+- **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
+- **Later:** autofill; several databases and creating one; database settings; backup; Templates and Trash;
+  managing tags; attachments changed on the phone; restoring a history version; password health.
