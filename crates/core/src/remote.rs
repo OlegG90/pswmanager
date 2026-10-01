@@ -51,6 +51,8 @@ pub enum Location {
     GoogleDrive { id: String, name: String },
     /// A file in OneDrive's app folder, by its item id; `name` is for people.
     OneDrive { id: String, name: String },
+    /// A document the platform reaches by a reference ([crate::documents]); `name` is for people.
+    Document { uri: String, name: String },
 }
 
 /// A cloud store one signs in to.
@@ -121,10 +123,10 @@ impl Cloud {
 }
 
 impl Location {
-    /// The cloud store this is in; `None` for a folder.
+    /// The cloud store this is in; `None` for a folder or a document.
     pub fn cloud(&self) -> Option<Cloud> {
         match self {
-            Location::Folder { .. } => None,
+            Location::Folder { .. } | Location::Document { .. } => None,
             Location::Dropbox { .. } => Some(Cloud::Dropbox),
             Location::GoogleDrive { .. } => Some(Cloud::Google),
             Location::OneDrive { .. } => Some(Cloud::OneDrive),
@@ -137,6 +139,7 @@ impl Location {
             Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
             Location::GoogleDrive { id, .. } => Box::new(crate::google::GoogleDrive { id: id.clone() }),
             Location::OneDrive { id, .. } => Box::new(crate::onedrive::OneDrive { id: id.clone() }),
+            Location::Document { uri, .. } => Box::new(crate::documents::DocumentFile { uri: uri.clone() }),
         }
     }
 
@@ -145,7 +148,9 @@ impl Location {
         match self {
             Location::Folder { path } => file_name(path),
             Location::Dropbox { path } => file_name(Path::new(path.rsplit('/').next().unwrap_or_default())),
-            Location::GoogleDrive { name, .. } | Location::OneDrive { name, .. } => file_name(Path::new(name)),
+            Location::GoogleDrive { name, .. } | Location::OneDrive { name, .. } | Location::Document { name, .. } => {
+                file_name(Path::new(name))
+            }
         }
     }
 
@@ -156,6 +161,7 @@ impl Location {
             Location::Dropbox { .. } => "dropbox",
             Location::GoogleDrive { .. } => "google",
             Location::OneDrive { .. } => "onedrive",
+            Location::Document { .. } => "document",
         }
     }
 
@@ -166,6 +172,7 @@ impl Location {
             Location::Dropbox { path } => format!("Dropbox: {path}"),
             Location::GoogleDrive { name, .. } => format!("Google Drive: {}/{name}", crate::google::FOLDER),
             Location::OneDrive { name, .. } => format!("OneDrive: {}/{name}", crate::onedrive::FOLDER),
+            Location::Document { name, .. } => name.clone(),
         }
     }
 
@@ -176,6 +183,7 @@ impl Location {
             Location::Dropbox { .. } => "Dropbox",
             Location::GoogleDrive { .. } => "Google Drive",
             Location::OneDrive { .. } => "OneDrive",
+            Location::Document { .. } => "the file",
         }
     }
 }

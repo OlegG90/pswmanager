@@ -13,6 +13,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.FileNotFoundException
 
 @InvokeArg
 class DocumentArgs {
@@ -44,9 +45,15 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   private val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
+  /** The picker starts in Documents on the phone's own storage. */
+  private val documentsFolder: Uri =
+    DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
+
   @Command
   fun pickFolder(invoke: Invoke) {
-    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+      .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentsFolder)
+      .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     startActivityForResult(invoke, intent, "picked")
   }
 
@@ -56,6 +63,7 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       .addCategory(Intent.CATEGORY_OPENABLE)
       // A .kdbx has no MIME type Android knows.
       .setType("*/*")
+      .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentsFolder)
       .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     startActivityForResult(invoke, intent, "picked")
   }
@@ -64,19 +72,13 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   @ActivityCallback
   fun picked(invoke: Invoke, result: ActivityResult) {
     val uri = result.data?.data
-    val answer = JSObject()
     if (result.resultCode != Activity.RESULT_OK || uri == null) {
-      answer.put("uri", null as String?)
-      invoke.resolve(answer)
+      invoke.resolve(JSObject().put("uri", null as String?))
       return
     }
-    try {
+    background(invoke) {
       resolver.takePersistableUriPermission(uri, readWrite)
-      answer.put("uri", uri.toString())
-      answer.put("name", displayName(uri))
-      invoke.resolve(answer)
-    } catch (e: Exception) {
-      invoke.reject("Cannot keep access to it: ${e.message}")
+      JSObject().put("uri", uri.toString()).put("name", displayName(uri))
     }
   }
 
@@ -85,29 +87,19 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   fun child(invoke: Invoke) = background(invoke) {
     val args = invoke.parseArgs(ChildArgs::class.java)
     val folder = Uri.parse(args.folder)
-    val folderDoc = DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
-    val found = findChild(folder, args.name)
-    val uri = found
-      ?: DocumentsContract.createDocument(resolver, folderDoc, "application/octet-stream", args.name)
-      ?: throw Exception("Cannot make ${args.name} in the folder")
-    JSObject().put("uri", uri.toString()).put("made", found == null)
+    val uri = findChild(folder, args.name) ?: make(folder, args.name)
+    JSObject().put("uri", uri.toString())
   }
 
-  @Command
-  fun stamp(invoke: Invoke) = background(invoke) {
-    val uri = Uri.parse(invoke.parseArgs(DocumentArgs::class.java).uri)
-    val columns = arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED, DocumentsContract.Document.COLUMN_SIZE)
-    resolver.query(uri, columns, null, null, null)?.use { cursor ->
-      if (!cursor.moveToFirst()) throw Exception("The file is gone")
-      JSObject().put("modified", cursor.getLong(0)).put("size", cursor.getLong(1))
-    } ?: throw Exception("The file is gone")
-  }
-
+  /** The content, base64; `data` is null when the document is gone. */
   @Command
   fun read(invoke: Invoke) = background(invoke) {
-    val uri = Uri.parse(invoke.parseArgs(DocumentArgs::class.java).uri)
-    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw Exception("Cannot open the file")
-    JSObject().put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+    val bytes = try {
+      resolver.openInputStream(uriOf(invoke))?.use { it.readBytes() }
+    } catch (e: FileNotFoundException) {
+      null
+    }
+    JSObject().put("data", bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) })
   }
 
   @Command
@@ -120,6 +112,11 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     JSObject()
   }
 
+  private fun uriOf(invoke: Invoke): Uri = Uri.parse(invoke.parseArgs(DocumentArgs::class.java).uri)
+
+  private fun folderDocument(folder: Uri): Uri =
+    DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
+
   private fun findChild(folder: Uri, name: String): Uri? {
     val children = DocumentsContract.buildChildDocumentsUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
     val columns = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -131,10 +128,16 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     return null
   }
 
+  /** A new, empty document named exactly `name` (a provider may add an extension for the type: renamed back). */
+  private fun make(folder: Uri, name: String): Uri {
+    val made = DocumentsContract.createDocument(resolver, folderDocument(folder), "application/octet-stream", name)
+      ?: throw Exception("Cannot make $name in the folder")
+    if (displayName(made) == name) return made
+    return DocumentsContract.renameDocument(resolver, made, name) ?: made
+  }
+
   private fun displayName(uri: Uri): String {
-    val document = if (DocumentsContract.isTreeUri(uri) && !DocumentsContract.isDocumentUri(activity, uri)) {
-      DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
-    } else uri
+    val document = if (DocumentsContract.isTreeUri(uri) && !DocumentsContract.isDocumentUri(activity, uri)) folderDocument(uri) else uri
     resolver.query(document, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
       if (cursor.moveToFirst()) return cursor.getString(0)
     }
