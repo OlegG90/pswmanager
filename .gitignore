@@ -2,9 +2,7 @@
 /node_modules/
 /dist/
 /dist-android/
-/apps/android/gen/android/app/build/
-/apps/android/gen/android/build/
-/apps/android/gen/android/.gradle/
+/apps/android/gen/schemas/
 /target/
 /src-tauri/target/
 /src-tauri/gen/
