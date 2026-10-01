@@ -65,8 +65,8 @@ let shownTab: Tab = 'general'
 
 /**
  * The row of tabs: `open(tab)` shows one. ←/→ move to the next or previous
- * one (wrapping), Home and End to the first and last; a tab `off` gives a
- * reason for is disabled, with that as its title, and skipped.
+ * one (wrapping), Home and End to the first and last. `off(tab)` says why a
+ * tab cannot be opened now: it is then disabled, with that as its title, and skipped.
  */
 function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTMLElement {
   const tabs = TABS.map(([tab, label]) => {
@@ -74,8 +74,9 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
     const why = off(tab)
     const button = el('button', {
       type: 'button', id: `settings-tab-${tab}`, role: 'tab', className: 'tab', disabled: why !== null,
-      tabIndex: on ? 0 : -1, onclick: () => open(tab), title: why ?? '',
+      tabIndex: on ? 0 : -1, onclick: () => open(tab),
     }, label)
+    if (why) button.title = why
     button.setAttribute('aria-selected', String(on))
     button.setAttribute('aria-controls', 'settings-panel')
     return button
@@ -166,11 +167,12 @@ export async function renderSettings(
         backup = await action()
       } catch (e) {
         onError(String(e))
-        backup = await api.backup()
+        backup = await api.backup().catch(() => backup)
       }
       redraw()
     }
-    const when = (secs: number | null, none: string) => (secs === null ? none : new Date(secs * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))
+    const when = (secs: number | null, none: string) =>
+      secs === null ? none : new Date(secs * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
     // The path, however long, wraps under the label; the buttons stay beside it.
     const folder = el('span', { className: 'sync-control' },
       button('Select…', 'The folder the copy goes to', run(api.pickBackupFolder)),

@@ -287,8 +287,9 @@ while the database is locked):
 - **Back up every** *Never* (the default), *2 days*, *7 days* or *30 days*, and a **backup folder**
   (*Select…*, *Show* opens it in Explorer). Without a folder there is no backup.
 - A backup is the database file as it is on this PC — encrypted, byte for byte; for a synced database, the
-  working copy. **One copy** is kept: `<file name>.backup.kdbx` in that folder, replaced each time, written
-  beside it first so it is never half-written.
+  working copy. **One copy** is kept: `base.kdbx` → `base.backup.kdbx` in that folder, replaced each time,
+  written beside it first so it is never half-written. A folder another database of the same file name keeps
+  its copy in is refused; a new folder gets a copy at once. One backup runs at a time.
 - It runs at start and every hour while the app runs (tray included) for each database whose interval has
   passed since its last backup, and at once when a folder or interval is set and one is due. *Backup now*
   makes one whatever the interval. The tab shows the last and the next backup; a failure (folder gone, drive

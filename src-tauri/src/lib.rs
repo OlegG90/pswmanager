@@ -1019,6 +1019,7 @@ fn backup(store: State<Store>) -> Option<BackupInfo> {
     backup_info(&store)
 }
 
+/// [backup], for the commands that change it.
 fn backup_info(store: &Store) -> Option<BackupInfo> {
     store.read(|s| {
         let b = s.current()?.backup.clone().unwrap_or_default();
@@ -1027,8 +1028,9 @@ fn backup_info(store: &Store) -> Option<BackupInfo> {
     })
 }
 
-/// Changes the current database's backup, then backs up what is due now.
+/// Changes the current database's backup, then backs it up if that makes it due.
 fn change_backup(store: &Store, change: impl FnOnce(&mut store::Backup)) -> Result<Option<BackupInfo>, String> {
+    let database = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     store
         .update(|s| {
             if let Some(d) = s.current_mut() {
@@ -1036,7 +1038,7 @@ fn change_backup(store: &Store, change: impl FnOnce(&mut store::Backup)) -> Resu
             }
         })
         .map_err(|e| format!("Cannot save the setting: {e}"))?;
-    backup::run_due(store, backup::now());
+    backup::run_due(store, backup::now(), Some(&database));
     Ok(backup_info(store))
 }
 
@@ -1053,7 +1055,13 @@ fn set_backup_every(store: State<Store>, days: u32) -> Result<Option<BackupInfo>
 fn pick_backup_folder(store: State<Store>, window: Window) -> Result<Option<BackupInfo>, String> {
     let Some(folder) = window.dialog().file().set_parent(&window).blocking_pick_folder() else { return Ok(backup_info(&store)) };
     let folder = folder.into_path().map_err(|e| e.to_string())?;
-    change_backup(&store, |b| (b.folder, b.error) = (Some(folder), None))
+    // Two databases of one file name would overwrite each other's copy.
+    let taken = store.read(|s| backup::copy_taken(s, s.current.as_deref()?, &folder));
+    if let Some(other) = taken {
+        return Err(format!("{other} keeps its copy there under the same name: choose another folder"));
+    }
+    // A new folder has no copy yet: one goes there now.
+    change_backup(&store, |b| (b.folder, b.error, b.last) = (Some(folder), None, None))
 }
 
 /// Backs up the current database now.
@@ -1061,7 +1069,7 @@ fn pick_backup_folder(store: State<Store>, window: Window) -> Result<Option<Back
 fn backup_now(store: State<Store>) -> Result<Option<BackupInfo>, String> {
     let database = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     backup::run(&store, &database)?;
-    Ok(backup(store))
+    Ok(backup_info(&store))
 }
 
 /// Opens the current database's backup folder in Explorer.
