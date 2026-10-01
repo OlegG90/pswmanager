@@ -1,0 +1,46 @@
+# Builds and tests every pull request and push to main, on Windows (the app is
+# Windows-only): the same `npm test` the release runs before it builds
+# (vitest, then cargo test), plus the type check and clippy, which fail on
+# errors only. A green check on a pull request — Dependabot's too — then
+# means it builds and the tests pass.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # The build of the crates, kept between runs.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: cargo clippy --all-targets
+        working-directory: src-tauri
