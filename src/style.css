@@ -1620,12 +1620,39 @@ dialog.modal.shortcuts {
   margin: 0;
 }
 
-#settings section {
-  margin-top: 24px;
+/* The settings' tabs: one group of settings at a time. */
+#settings .tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 16px;
+  border-bottom: 1px solid var(--color-divider);
 }
 
-#settings section:last-child {
+#settings .tab {
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--color-neutral-700);
+}
+
+#settings .tab[aria-selected='true'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+#settings .tab:disabled {
+  opacity: 0.45;
+}
+
+#settings-panel {
   padding-bottom: 48px;
+}
+
+#settings section {
+  margin-top: 24px;
 }
 
 #settings h3 {

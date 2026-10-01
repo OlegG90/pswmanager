@@ -271,6 +271,14 @@ A keyboard button before the search field (and `F1`) shows every shortcut in a d
 list, entry), with the global hotkey as set now. The Ctrl shortcuts the window reacts to are read from the
 same table the dialog shows.
 
+### Settings
+
+*Settings* (`Ctrl+,`, or the button) shows its groups in tabs, one tab at a time: **General** (locking and the
+clipboard), **Window** (theme, global hotkey, start with Windows, site icons), **Database** (the open
+database's own settings, see *Database settings*; disabled while locked), **Sync** and **About**. ←/→ move
+between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
+redraw after each change (every change is saved at once). Esc closes the settings.
+
 ## Tray
 
 - The app lives in the notification area. Left click shows / hides the window.
