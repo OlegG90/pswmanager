@@ -227,6 +227,19 @@ main.list-screen {
   white-space: pre-wrap;
 }
 
+.line button.more {
+  font-size: 20px;
+  padding: 4px 8px;
+  color: var(--color-neutral-700);
+}
+
+.sheet button.item {
+  border: 0;
+  text-align: left;
+  color: var(--color-text);
+  padding: 12px 4px;
+}
+
 .masked {
   letter-spacing: 0.1em;
 }

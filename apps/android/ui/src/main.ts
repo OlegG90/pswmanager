@@ -263,7 +263,7 @@ function quickCopy(entry: Entry) {
     ['Copy password', () => api.copyField(entry.id, 'Password')],
   ]
   if (entry.otp) choices.push(['Copy TOTP code', () => api.copyTotp(entry.id)])
-  sheet((close) => [el('b', {}, titleOf(entry)), ...choices.map(([label, copy]) => button(label, label, () => void copied(copy()).then(close)))])
+  sheet((close) => [el('b', {}, titleOf(entry)), ...choices.map(([label, copy]) => button(label, label, () => void copied(copy()).then(close), 'item'))])
 }
 
 /** The status line's sheet: what the last sync did, and Sync now. */
@@ -314,14 +314,30 @@ async function lock() {
 
 // ------------------------------------------------------------ an entry
 
-/** A labelled value; with `copy`, a Copy button, and tapping the value copies too. */
-type Line = (label: string, value: Node | string, copy?: () => Promise<number>, ...more: Node[]) => HTMLElement
+/** A command in a line's menu. */
+type Action = [label: string, run: () => void]
 
-const line: Line = (label, value, copy, ...more) => {
+/** A labelled value with ⋮ at the end for its commands; tapping the value copies it. */
+function line(label: string, value: Node | string, copy: (() => Promise<number>) | null, ...more: Action[]) {
   const shown = el('span', {}, el('small', {}, label), typeof value === 'string' ? el('span', {}, value) : value)
-  const copyButton = copy ? [button('Copy', `Copy ${label.toLowerCase()}`, () => void copied(copy()))] : []
-  if (copy) shown.addEventListener('click', (e) => (e.target as HTMLElement).closest('button') || void copied(copy()))
-  return el('div', { className: 'line' }, shown, ...more, ...copyButton)
+  const actions: Action[] = [...(copy ? [['Copy', () => void copied(copy())] as Action] : []), ...more]
+  if (copy) shown.addEventListener('click', () => void copied(copy()))
+  const menu = button('⋮', `${label}: more`, () =>
+    sheet((close) => [el('b', {}, label), ...actions.map(([name, run]) => button(name, name, () => (close(), run()), 'item'))]), 'icon more')
+  return el('div', { className: 'line' }, shown, ...(actions.length ? [menu] : []))
+}
+
+/** A secret's line: masked, with Show / Hide in its menu. */
+function secretLine(id: string, label: string, field: string) {
+  const mask = '••••••••••••'
+  const value = el('span', { className: 'masked' }, mask)
+  let shown = false
+  const toggle = async () => {
+    shown = !shown
+    value.textContent = shown ? await api.reveal(id, field) : mask
+    value.classList.toggle('masked', !shown)
+  }
+  return line(label, value, () => api.copyField(id, field), ['Show / hide', () => void toggle()])
 }
 
 async function entryScreen(id: string, listing: Listing) {
@@ -329,18 +345,18 @@ async function entryScreen(id: string, listing: Listing) {
   const rows: Node[] = []
   const stops: (() => void)[] = []
   if (entry.username) rows.push(line('User name', entry.username, () => api.copyField(id, 'UserName')))
-  if (entry.hasPassword) rows.push(line('Password', secret(id, 'Password'), () => api.copyField(id, 'Password')))
+  if (entry.hasPassword) rows.push(secretLine(id, 'Password', 'Password'))
   if (entry.otp) {
     const [node, stop] = totpLine(id)
     rows.push(node)
     stops.push(stop)
   }
   if (entry.url) {
-    const open = button('Open', 'Open in the browser', () => void api.openUrl(id).catch((e) => snack(String(e))))
+    const open: Action = ['Open in the browser', () => void api.openUrl(id).catch((e) => snack(String(e)))]
     rows.push(line('URL', entry.url, () => api.copyField(id, 'URL'), open))
   }
   for (const field of entry.fields) {
-    rows.push(line(field.name, field.protected ? secret(id, field.name) : (field.value ?? ''), () => api.copyField(id, field.name)))
+    rows.push(field.protected ? secretLine(id, field.name, field.name) : line(field.name, field.value ?? '', () => api.copyField(id, field.name)))
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
@@ -351,20 +367,6 @@ async function entryScreen(id: string, listing: Listing) {
   const back = button('←', 'Back to the list', toList, 'icon')
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows], toList)
   leave = () => stops.forEach((stop) => stop())
-}
-
-/** A masked value with a button to show it. */
-function secret(id: string, field: string) {
-  const mask = '••••••••••••'
-  const value = el('span', { className: 'masked' }, mask)
-  let shown = false
-  const toggle = button('Show', 'Show or hide', async () => {
-    shown = !shown
-    value.textContent = shown ? await api.reveal(id, field) : mask
-    value.classList.toggle('masked', !shown)
-    toggle.textContent = shown ? 'Hide' : 'Show'
-  }, 'link')
-  return el('span', {}, value, ' ', toggle)
 }
 
 /** The TOTP code with its countdown, and what stops the countdown. A new
