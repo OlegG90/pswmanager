@@ -1,0 +1,41 @@
+# Checks the dependencies against known vulnerabilities: Rust crates against
+# the RustSec database, npm packages against npm's. Runs on every pull request
+# and push to main, and weekly, so a newly published advisory shows up without
+# a code change. A vulnerability fails the run; a warning (unmaintained,
+# unsound, yanked) is shown only.
+name: Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run moot.
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Reads Cargo.lock only: nothing is built.
+      - run: cargo audit
+        working-directory: src-tauri
+
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # What ships in the app; build tools are left out.
+      - run: npm audit --omit=dev
