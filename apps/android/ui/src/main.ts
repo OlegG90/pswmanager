@@ -5,15 +5,18 @@ interface About {
   sample: string
 }
 
-const show = async () => {
+const version = document.querySelector<HTMLElement>('#version')!
+const sample = document.querySelector<HTMLElement>('#sample')!
+
+const showAbout = async () => {
   try {
     const about = await invoke<About>('about')
-    document.querySelector('#version')!.textContent = `Version ${about.version}`
-    document.querySelector('#sample')!.textContent = about.sample
+    version.textContent = `Version ${about.version}`
+    sample.textContent = about.sample
   } catch (e) {
-    document.querySelector('#sample')!.textContent = String(e)
+    sample.textContent = String(e)
   }
 }
 
-document.querySelector('#again')!.addEventListener('click', show)
-void show()
+document.querySelector('#again')!.addEventListener('click', showAbout)
+void showAbout()

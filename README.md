@@ -43,7 +43,7 @@ The code: `src-tauri` is the Windows app (Tauri), `crates/core` the core it shar
 `target/`.
 
 The Android app (`apps/android`, see [docs/spec-android.md](docs/spec-android.md)) is built only in CI: the
-Android SDK and NDK have no Windows-on-ARM64 builds. Each pull request that touches it builds a debug APK
+Android SDK and NDK have no Windows-on-ARM64 builds. Each push that touches it builds a debug APK
 (workflow *Android*, artifact `pswmanager-debug-apk`), installed on the phone with
 `adb install -r app-universal-debug.apk` (`adb` is in Google's platform-tools). Its page is in
 `apps/android/ui` (`npm run build:android-web`).

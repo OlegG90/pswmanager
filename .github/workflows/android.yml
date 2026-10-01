@@ -6,12 +6,11 @@
 # `tauri android init` and is kept in the repo, changed by hand from there.
 name: Android
 
+# Every push that touches the Android app or what it is built from, on any
+# branch: the run also shows on the branch's pull request.
 on:
-  pull_request:
-    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', '.github/workflows/android.yml']
   push:
-    branches: [main]
-    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', '.github/workflows/android.yml']
+    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:
