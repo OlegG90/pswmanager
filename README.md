@@ -33,10 +33,14 @@ Requires Node.js, Rust (MSVC toolchain) and Visual Studio Build Tools with the C
 npm install
 npx tauri dev            # dev mode
 npm test                 # frontend (vitest) and backend unit tests
-npm run build            # this machine's architecture: src-tauri/target/release/pswm.exe
-npm run build:x64        # src-tauri/target/x86_64-pc-windows-msvc/release/pswm.exe
-npm run build:arm64      # src-tauri/target/aarch64-pc-windows-msvc/release/pswm.exe
+npm run build            # this machine's architecture: target/release/pswm.exe
+npm run build:x64        # target/x86_64-pc-windows-msvc/release/pswm.exe
+npm run build:arm64      # target/aarch64-pc-windows-msvc/release/pswm.exe
 ```
+
+The code: `src-tauri` is the Windows app (Tauri), `crates/core` the core it shares with the Android app
+(the database, merging, syncing and the stores; its tests run on the PC). One Cargo workspace, built into
+`target/`.
 
 Releases: bump `version` in `src-tauri/Cargo.toml`, merge, then push a tag `v<version>` from `main`.
 GitHub Actions ([release.yml](.github/workflows/release.yml)) runs the tests, builds both exes and

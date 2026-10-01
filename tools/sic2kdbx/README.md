@@ -37,6 +37,6 @@ the original. Damaged attachments are skipped with a warning.
 Tests: `.venv\Scripts\python -m unittest discover -s tests`
 
 The app's Rust tests use databases this converter makes from the tests' made-up export
-(`src-tauri/tests/fixtures/`); `.venv\Scripts\python make_fixtures.py` rebuilds them.
+(`crates/core/tests/fixtures/`); `.venv\Scripts\python make_fixtures.py` rebuilds them.
 
 After converting, delete the XML export: it holds the passwords in plain text.

@@ -834,7 +834,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
 const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
-pub(crate) fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
+pub fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
     let mut key = DatabaseKey::new();
     if let Some(password) = password {
         key = key.with_password(password);

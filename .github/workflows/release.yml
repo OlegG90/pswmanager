@@ -52,8 +52,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory release -Force | Out-Null
-          Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/pswm.exe release/pswm-x64.exe
-          Copy-Item src-tauri/target/aarch64-pc-windows-msvc/release/pswm.exe release/pswm-arm64.exe
+          Copy-Item target/x86_64-pc-windows-msvc/release/pswm.exe release/pswm-x64.exe
+          Copy-Item target/aarch64-pc-windows-msvc/release/pswm.exe release/pswm-arm64.exe
 
       # Only a pushed tag publishes; a manual run never does, even from a tag.
       - name: Publish the release

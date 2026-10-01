@@ -1,8 +1,8 @@
 """Rebuilds the KDBX fixtures of the Rust tests from the converter's test XML
 (made-up data, password "test"):
 
-  src-tauri/tests/fixtures/sic2kdbx.kdbx   converted by the current sic2kdbx
-  src-tauri/tests/fixtures/unordered.kdbx  the same without canonical_order(),
+  crates/core/tests/fixtures/sic2kdbx.kdbx   converted by the current sic2kdbx
+  crates/core/tests/fixtures/unordered.kdbx  the same without canonical_order(),
                                            as older sic2kdbx versions wrote it
 
 Run from this folder: .venv\\Scripts\\python make_fixtures.py
@@ -19,7 +19,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, "tests")]
 import sic2kdbx  # noqa: E402
 import test_sic2kdbx  # noqa: E402
 
-FIXTURES = os.path.join(REPO, "src-tauri", "tests", "fixtures")
+FIXTURES = os.path.join(REPO, "crates", "core", "tests", "fixtures")
 
 
 def build(name):

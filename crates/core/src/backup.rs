@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// How often the list is checked for a database whose backup is due.
-const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
+/// How often the app checks the list for a database whose backup is due.
+pub const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 const DAY: u64 = 24 * 60 * 60;
 
 /// Seconds since 1970, as a backup's time is kept.
@@ -94,15 +94,6 @@ pub fn run_due(store: &Store, now: u64, only: Option<&Path>) {
     for database in due {
         let _ = run(store, &database);
     }
-}
-
-/// Checks at start and every hour while the app runs.
-pub fn start_clock(app: tauri::AppHandle) {
-    use tauri::Manager;
-    std::thread::spawn(move || loop {
-        run_due(&app.state::<Store>(), now(), None);
-        std::thread::sleep(CHECK_EVERY);
-    });
 }
 
 #[cfg(test)]

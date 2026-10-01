@@ -3332,20 +3332,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "pswmanager"
-version = "0.5.1"
+name = "pswm-core"
+version = "0.0.0"
 dependencies = [
- "arboard",
  "base32",
  "base64 0.23.1",
  "chrono",
  "getrandom 0.4.3",
  "hmac 0.13.0",
  "keepass",
- "notify",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
+ "totp-lite",
+ "ureq",
+ "url",
+ "uuid",
+ "zeroize",
+ "zxcvbn",
+]
+
+[[package]]
+name = "pswmanager"
+version = "0.5.1"
+dependencies = [
+ "arboard",
+ "base64 0.23.1",
+ "chrono",
+ "getrandom 0.4.3",
+ "notify",
+ "pswm-core",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -3354,10 +3373,6 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tempfile",
- "totp-lite",
- "ureq",
- "url",
- "uuid",
  "windows-sys 0.61.2",
  "zeroize",
  "zxcvbn",

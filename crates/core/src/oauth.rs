@@ -1,10 +1,10 @@
 //! Signing in to a cloud store: OAuth 2 with PKCE in the system browser, the
 //! answer coming back to this app on a loopback address. The refresh token is
-//! kept in the Credential Manager, the access token only in memory.
+//! kept in the device's secret store ([crate::secrets]), the access token only in memory.
 
-use crate::credentials;
 use crate::dbfile::hex;
 use crate::remote::RemoteError;
+use crate::secrets;
 use base64::Engine;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -53,7 +53,7 @@ pub struct Provider {
     pub client_secret: Option<&'static str>,
     /// What else the authorisation asks for (scope, offline access).
     pub extra: &'static [(&'static str, &'static str)],
-    /// The refresh token's name in the Credential Manager.
+    /// The refresh token's name in the secret store.
     pub credential: &'static str,
     pub access: &'static Access,
 }
@@ -108,13 +108,13 @@ impl Provider {
         ];
         let mut tokens = self.request_tokens(&form).map_err(|e| e.message())?;
         let refresh = Zeroizing::new(tokens.refresh_token.take().ok_or_else(|| format!("{} gave no lasting sign-in", self.name))?);
-        credentials::write(self.credential, &refresh)?;
+        secrets::write(self.credential, &refresh)?;
         self.remember(tokens);
         Ok(())
     }
 
     pub fn sign_out(&self) {
-        credentials::delete(self.credential);
+        secrets::delete(self.credential);
         self.forget_access();
     }
 
@@ -168,14 +168,14 @@ impl Provider {
                 return Ok(token.clone());
             }
         }
-        let refresh = credentials::read(self.credential).ok_or_else(|| RemoteError::SignIn(self.sign_in_again()))?;
+        let refresh = secrets::read(self.credential).ok_or_else(|| RemoteError::SignIn(self.sign_in_again()))?;
         let mut tokens = self.request_tokens(&[("grant_type", "refresh_token"), ("refresh_token", refresh.as_str())])?;
         // Some stores (Microsoft) hand out a new refresh token each time: keep
         // it, unless the account was signed out meanwhile. Failing to store it
         // costs nothing now: the old one still works for a while.
         if let Some(rotated) = tokens.refresh_token.take().map(Zeroizing::new) {
-            if *rotated != *refresh && credentials::read(self.credential).is_some() {
-                let _ = credentials::write(self.credential, &rotated);
+            if *rotated != *refresh && secrets::read(self.credential).is_some() {
+                let _ = secrets::write(self.credential, &rotated);
             }
         }
         Ok(self.remember(tokens))

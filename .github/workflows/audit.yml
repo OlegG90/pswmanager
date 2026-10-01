@@ -31,7 +31,6 @@ jobs:
           tool: cargo-audit
       # Reads Cargo.lock only: nothing is built.
       - run: cargo audit
-        working-directory: src-tauri
 
   npm:
     runs-on: ubuntu-latest
