@@ -77,6 +77,15 @@ impl<R: Runtime> Documents<R> {
         Ok(answer.uri.map(|uri| Picked { uri, name: answer.name }))
     }
 
+    /// Hands a file in the app's cache to another app.
+    pub fn open_file(&self, path: &std::path::Path) -> Result<(), String> {
+        #[derive(Serialize)]
+        struct Args<'a> {
+            path: &'a str,
+        }
+        self.call::<serde_json::Value>("openFile", Args { path: &path.to_string_lossy() }).map(|_| ())
+    }
+
     /// A `.kdbx` the user picks; `None` when they cancelled.
     pub fn pick_file(&self) -> Result<Option<Picked>, String> {
         self.pick("pickFile")

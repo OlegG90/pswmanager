@@ -30,7 +30,7 @@ let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
 let onSynced = (_synced: Synced) => {}
 
-/** What Back closes or returns to, innermost last (see BackPlugin.kt). */
+/** What Back closes or returns to, innermost last (see SystemPlugin.kt). */
 let backs: (() => void)[] = []
 
 /** Called by Android's Back: true when the page did something with it. */
@@ -417,6 +417,13 @@ function drawer(listing: Listing, changed: () => void) {
   )
 }
 
+/** Shows the unlock screen after the database locked by itself (in the background). */
+void listen('locked', () => {
+  unlocked = false
+  query = ''
+  unlockScreen()
+})
+
 async function lock() {
   unlocked = false
   query = ''
@@ -429,11 +436,12 @@ async function lock() {
 /** A command in a line's menu. */
 type Action = [label: string, run: () => void]
 
-/** A labelled value with ⋮ at the end for its commands; tapping the value copies it. */
+/** A labelled value with ⋮ at the end for its commands; tapping the value
+ *  runs the first of them (copies it, or opens a file). */
 function line(label: string, value: Node | string, copy: (() => Promise<number>) | null, ...more: Action[]) {
   const shown = el('span', {}, el('small', {}, label), typeof value === 'string' ? el('span', {}, value) : value)
   const actions: Action[] = [...(copy ? [['Copy', () => void copied(copy())] as Action] : []), ...more]
-  if (copy) shown.addEventListener('click', () => void copied(copy()))
+  if (actions.length) shown.addEventListener('click', actions[0][1])
   const menu = button('⋮', `${label}: more`, () =>
     sheet((close) => [el('b', {}, label), ...actions.map(([name, run]) => button(name, name, () => (close(), run()), 'item'))]), 'icon more')
   return el('div', { className: 'line' }, shown, ...(actions.length ? [menu] : []))
@@ -472,7 +480,8 @@ async function entryScreen(id: string, listing: Listing) {
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => el('div', { className: 'line' }, el('span', {}, a.name, el('small', {}, formatSize(a.size))))))
+    const open = (name: string) => void api.openAttachment(id, name).catch((e) => snack(String(e)))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])))
   }
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
   const toList = () => listScreen(listing)
@@ -512,6 +521,13 @@ function totpLine(id: string): [HTMLElement, () => void] {
 
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
+/** How long (ms) in the background, and in front without a touch, before the database locks. */
+const LOCK_IN_BACKGROUND = 30 * 1000
+const LOCK_WHEN_IDLE = 5 * 60 * 1000
+/** When the app went to the background, and when it was last touched (ms). */
+let hiddenAt = Date.now()
+let lastTouch = Date.now()
+
 /** Syncs on its own while unlocked: coming back to the app after a minute
  *  (AGAIN_AFTER), every 5 minutes while it is in front (EVERY); going away
  *  sends what is waiting. */
@@ -521,9 +537,29 @@ const syncIfOlder = (age: number) => {
   if (unlocked && !document.hidden && Date.now() - lastSynced >= age) void api.syncNow()
 }
 document.addEventListener('visibilitychange', () => {
-  if (unlocked && document.hidden) void api.syncIfPending()
-  else syncIfOlder(AGAIN_AFTER)
+  if (unlocked && document.hidden) {
+    hiddenAt = Date.now()
+    void api.syncIfPending()
+    void api.lockLater(LOCK_IN_BACKGROUND / 1000)
+  } else if (!document.hidden) {
+    void api.stayUnlocked()
+    lastTouch = Date.now()
+    // The backend's timer may not have run on time (Android asleep): the clock decides.
+    if (unlocked && Date.now() - hiddenAt > LOCK_IN_BACKGROUND) void lock()
+    else syncIfOlder(AGAIN_AFTER)
+  }
 })
 setInterval(() => syncIfOlder(EVERY), 30 * 1000)
+
+// ------------------------------------------------------------ locking
+
+for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListener(type, () => (lastTouch = Date.now()), { passive: true, capture: true })
+setInterval(() => {
+  if (unlocked && !document.hidden && Date.now() - lastTouch > LOCK_WHEN_IDLE) void lock()
+}, 10 * 1000)
+/** The screen turned off (SystemPlugin.kt): lock at once. */
+;(window as unknown as { pswmScreenOff: () => void }).pswmScreenOff = () => {
+  if (unlocked) void lock()
+}
 
 void start()

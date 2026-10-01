@@ -1,9 +1,9 @@
 //! Attachments opened in another app. The app that opens a file needs it on
-//! disk, so a copy is written to a folder of its own in the temp folder, read
-//! only (changes made there are not saved back), and the folder is emptied
-//! when the database locks, when the app quits and when it starts (after a
-//! crash). A copy another app still holds open cannot be deleted on Windows;
-//! the next clean-up tries again.
+//! disk, so a copy is written to a folder of its own (the temp folder on
+//! Windows, the app's cache on Android), read only (changes made there are
+//! not saved back), and the folder is emptied when the database locks, when
+//! the app quits and when it starts (after a crash). A copy another app still
+//! holds open cannot be deleted on Windows; the next clean-up tries again.
 
 use std::fs;
 use std::io;
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 const FOLDER: &str = "pswm-open";
 
-/// Where copies go: `%TEMP%\pswm-open`.
+/// Where copies go on Windows: `%TEMP%\pswm-open`.
 pub fn folder() -> PathBuf {
     std::env::temp_dir().join(FOLDER)
 }
@@ -26,11 +26,25 @@ const RUNNABLE: &[&str] = &[
     "appxbundle", "msixbundle",
 ];
 
+/// Android's installable packages and scripts: opening one would offer to
+/// install or run code from the database.
+const ANDROID_RUNNABLE: &[&str] = &["apk", "apks", "xapk", "apkm", "aab", "sh"];
+
+/// Whether opening `name` on Android would install or run it.
+pub fn is_runnable_on_android(name: &str) -> bool {
+    has_extension(name, ANDROID_RUNNABLE)
+}
+
 /// Whether opening `name` would run it (see [RUNNABLE]).
 pub fn is_runnable(name: &str) -> bool {
+    has_extension(name, RUNNABLE)
+}
+
+/// Whether `name` ends in one of `extensions` (in any case). Trailing dots and
+/// spaces, which Windows ignores, are dropped first by [file_name].
+fn has_extension(name: &str, extensions: &[&str]) -> bool {
     let name = file_name(name).to_lowercase();
-    // Windows ignores trailing dots and spaces, which file_name drops too.
-    name.rsplit_once('.').is_some_and(|(_, extension)| RUNNABLE.contains(&extension))
+    name.rsplit_once('.').is_some_and(|(_, extension)| extensions.contains(&extension))
 }
 
 /// Writes `data` as `name` in a new subfolder of `folder` (so two files with
@@ -101,6 +115,16 @@ mod tests {
         }
         for name in ["scan.pdf", "notes.txt", "photo.jpg", "exe", "backup.cfg", "archive.zip"] {
             assert!(!is_runnable(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn android_packages_and_scripts_are_not_opened() {
+        for name in ["app.apk", "split.APKS", "run.sh", "x.xapk"] {
+            assert!(is_runnable_on_android(name), "{name}");
+        }
+        for name in ["scan.pdf", "notes.txt", "apk"] {
+            assert!(!is_runnable_on_android(name), "{name}");
         }
     }
 

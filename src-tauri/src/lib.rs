@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, otp, remote, store, vault};
+use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -8,7 +8,6 @@ mod clipboard;
 mod credentials;
 mod data_dir;
 mod file_watch;
-mod opened;
 mod session_watch;
 mod settings;
 mod sync;

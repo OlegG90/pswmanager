@@ -15,6 +15,7 @@ pub mod health;
 pub mod icons;
 pub mod oauth;
 pub mod onedrive;
+pub mod opened;
 pub mod otp;
 pub mod remote;
 pub mod secrets;

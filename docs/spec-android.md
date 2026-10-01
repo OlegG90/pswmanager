@@ -134,8 +134,9 @@ As in the mockups `1e`–`1j`.
   for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears. The star
   toggles the favorite (stage A2).
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
-- **Attachments:** listed with name and size; **Open** hands the file to another app (Android's chooser),
-  see *Security behaviour*. Adding, replacing, renaming and removing files come later.
+- **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
+  another app (Android's chooser), see *Security behaviour*. Adding, replacing, renaming and removing files
+  come later.
 - **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
   downloaded the same way and cached in the app's private storage, with the same hashed file names (the
   hashing key kept in the Keystore). The *Download site icons* setting turns it off.
