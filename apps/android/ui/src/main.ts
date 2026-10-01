@@ -30,7 +30,7 @@ let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
 let onSynced = (_synced: Synced) => {}
 
-/** What Back closes or returns to, innermost last (see BackPlugin.kt). */
+/** What Back closes or returns to, innermost last (see SystemPlugin.kt). */
 let backs: (() => void)[] = []
 
 /** Called by Android's Back: true when the page did something with it. */
@@ -557,7 +557,7 @@ for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListen
 setInterval(() => {
   if (unlocked && !document.hidden && Date.now() - lastTouch > LOCK_WHEN_IDLE) void lock()
 }, 10 * 1000)
-/** The screen turned off (ScreenPlugin.kt): lock at once. */
+/** The screen turned off (SystemPlugin.kt): lock at once. */
 ;(window as unknown as { pswmScreenOff: () => void }).pswmScreenOff = () => {
   if (unlocked) void lock()
 }
