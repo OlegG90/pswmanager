@@ -1,5 +1,9 @@
 //! PswManager for Android (`docs/spec-android.md`): the phone's shell around
-//! the shared core. For now it only shows that the core runs on the phone.
+//! the shared core. For now it only shows that the core runs on the phone,
+//! and checks the access to a folder the user picks.
+
+#[cfg(mobile)]
+mod documents;
 
 use pswm_core::generator::{self, Options};
 use serde::Serialize;
@@ -21,8 +25,17 @@ fn about() -> Result<About, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![about])
+    let builder = tauri::Builder::default();
+    #[cfg(mobile)]
+    let builder = builder.plugin(documents::init()).invoke_handler(tauri::generate_handler![
+        about,
+        documents::pick_folder,
+        documents::pick_file,
+        documents::check_folder
+    ]);
+    #[cfg(not(mobile))]
+    let builder = builder.invoke_handler(tauri::generate_handler![about]);
+    builder
         .run(tauri::generate_context!())
         .expect("PswManager could not start");
 }

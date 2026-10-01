@@ -45,43 +45,44 @@ changing attachments, a LAN folder as a store, tablets and landscape, Google Pla
 ## The database on the phone
 
 One database at a time. It is either **synced** with a cloud store (Dropbox in stage A1) or a **local
-file** without sync.
+file** without a cloud.
 
-### A synced database: the working copy
+Android's file access gives documents, not paths, and a document cannot be renamed over. So in both cases
+the core works, as on Windows, on a **working copy** in the app's private storage (with its `.bak` and
+`.remote.bak` beside it), and the rules of *Saving and synchronisation* in `spec.md` apply to it unchanged.
 
-As on Windows, the database's file on the phone is a **visible file** the user can see and back up, and
-sync keeps it paired with the remote file.
+### A synced database and its visible copy
 
-- The working copy lives in a folder the user picks **once** with Android's folder picker (Storage Access
-  Framework); the picker starts in `Documents/PswManager`. The app keeps the permission for that folder
-  (a persisted URI permission), so it is never asked again — after a reinstall the folder is picked again.
-- `<name>.kdbx.bak` (the file before each save) and `<name>.kdbx.remote.bak` (the remote file before a
-  merge) are kept beside it, as on Windows. A file of the same name already in the folder is kept as
-  `<name>.kdbx.bak` before the download replaces it, and the screen says so first.
-- No broad storage permission (`MANAGE_EXTERNAL_STORAGE`) is asked for.
+The working copy syncs with the remote file in the store, as on Windows. Besides it, the database is kept
+as a **visible file** the user can see and back up:
 
-### A local file without sync
+- It lives in a folder the user picks **once** with Android's folder picker (Storage Access Framework);
+  the picker starts in `Documents`. The app keeps the permission for that folder (a persisted URI
+  permission), so it is never asked again — after a reinstall the folder is picked again. No broad storage
+  permission (`MANAGE_EXTERNAL_STORAGE`) is asked for.
+- After every save and every sync that changed the working copy, the working copy is written there (in
+  place, read back). Offline changes reach it at once, so it always holds the latest state, also what has
+  not reached the store yet.
+- It is a **copy for the user**, never read back: Keepass2Android and the PC use the store itself. If
+  something else changed it since the app last wrote it, the app does not overwrite it and says so.
+- A file of the same name already in the folder at first run is kept as `<name>.kdbx.bak` before it is
+  replaced, and the screen says so first.
+
+### A local file
 
 **Open a local file** picks an existing `.kdbx` anywhere Android's file picker reaches (the phone, an SD
-card, a folder another program syncs). The app works on that file **in place**, with a persisted
-permission for that one file.
+card, a folder another program syncs), with a persisted permission for that one file. That document is the
+database's **remote file**, synced with the working copy by the same rules as a cloud store or a LAN folder
+on Windows (*Synchronisation with a remote store* in `spec.md`):
 
-- Android cannot watch such a file for changes, so instead of watching, the app **checks** it (its
-  modification time and size; its hash when those do not tell) at unlock, each time the app comes to the
-  front, and before every save.
-- What follows is *Saving and synchronisation* in `spec.md`: a file changed elsewhere is read again; each
-  change is made on the file as it is now; an older file coming back is merged by the newer-wins rule.
-- With access to one file only, the app cannot write beside it: its `.bak` is kept in the app's private
-  storage.
-
-### Saving
-
-- **Through Android's file access**, a save cannot rename a new file over the old one. So: the new content
-  is written to a temporary file (in the working copy's folder; for a local file, in the app's private
-  storage) and opened again with the key; the current file is kept as `.bak`; then the file is overwritten
-  in place (mode `wt`) and read back. If that last step fails, the window says so, and the `.bak` and the
-  verified temporary file stay for recovery.
-- Everything else about saving and change detection is as in `spec.md`.
+- Its revision is the hash of its content (Android's modification times and sizes cannot always tell an
+  edit), so a change made elsewhere — Keepass2Android, Syncthing, another app — is seen at the next sync.
+- It syncs at the moments in *Synchronisation* below: unlock, coming to the front, after a change, going
+  to the background, and pull-down. No network is needed, so it is always "online".
+- An upload writes the document in place (mode `wt`) and reads it back, once more when it did not read
+  back as written; it never writes over a change it has not merged (the revision is checked first).
+- `.remote.bak` (the document as it was before a merge) is kept in the app's private storage: with access
+  to one file only, the app cannot write beside it.
 
 ## First run
 
@@ -92,7 +93,7 @@ The screens in the mockups `1a`–`1d`:
    `Apps/PswManager Sync` are listed with size and date; pick one. PswManager sees only its app folder, so a
    file to be shared with Keepass2Android and PswManager for Windows must be there (Keepass2Android, with
    full Dropbox access, opens it there).
-3. **Where to keep it on this phone:** the folder for the working copy (see above) and the file name; the
+3. **Where to keep it on this phone:** the folder for the visible copy (see above) and the file name; the
    file is downloaded, and sync is on from the start.
 4. **Unlock** with the master password and/or the key file (picked with the file picker, permission kept).
 5. After the first unlock the app offers **biometric unlock** (from stage A3).
@@ -273,8 +274,8 @@ Each stage is a GitHub issue and lands in one or more PRs.
 - **A0 — Shared core:** move the platform-free code into `crates/core`; the Windows app uses it with no
   change in behaviour; its tests run against the crate.
 - **A1 — First usable app:** the Tauri Android project and CI (debug APK per push, signed release APK on
-  tags); the signing key; Dropbox (the sign-in question decided first); a local file through SAF; the
-  working-copy folder; first run; unlock with a master password and/or key file; list, search, drawer
+  tags); the signing key; Dropbox (the sign-in question decided first); a local file through SAF;
+  the visible copy's folder; first run; unlock with a master password and/or key file; list, search, drawer
   (groups and tags), entry view, copying with the sensitive clipboard, TOTP, attachments opened, site
   icons; sync with every trigger and the status line and sheet; locking and `FLAG_SECURE`; settings
   (General, Appearance, Sync, About).

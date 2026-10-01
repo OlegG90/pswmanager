@@ -5,6 +5,7 @@
 
 pub mod backup;
 pub mod dbfile;
+pub mod documents;
 pub mod dropbox;
 pub mod edit;
 pub mod encryption;

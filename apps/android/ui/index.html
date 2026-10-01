@@ -14,6 +14,14 @@
       <p>The shared core runs on this phone. A password from its generator:</p>
       <p id="sample" class="sample"></p>
       <button id="again" type="button">Another one</button>
+
+      <!-- Temporary, until the first-run screens (#118). -->
+      <h2>Files</h2>
+      <p class="muted">A check of the access to a folder: it writes <code>pswm-check.txt</code> there, never a database.</p>
+      <p><button id="folder" type="button">Choose a folder…</button> <button id="file" type="button">Open a file…</button></p>
+      <p id="picked" class="muted"></p>
+      <button id="check" type="button" hidden>Check the folder</button>
+      <ul id="report"></ul>
     </main>
   </body>
 </html>
