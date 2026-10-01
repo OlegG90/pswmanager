@@ -5,6 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Base64
+import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -25,6 +28,12 @@ class WriteArgs {
   lateinit var uri: String
   /** The content, base64. */
   lateinit var data: String
+}
+
+@InvokeArg
+class OpenArgs {
+  /** A file in the app's cache (`cache/open/…`). */
+  lateinit var path: String
 }
 
 @InvokeArg
@@ -112,6 +121,21 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     resolver.openOutputStream(Uri.parse(args.uri), "wt")?.use { it.write(bytes); it.flush() }
       ?: throw Exception("Cannot write the file")
     JSObject()
+  }
+
+  /** Hands a file in the app's cache to another app, read only, through the FileProvider. */
+  @Command
+  fun openFile(invoke: Invoke) {
+    try {
+      val file = File(invoke.parseArgs(OpenArgs::class.java).path)
+      val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+      val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
+      val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      activity.startActivity(Intent.createChooser(view, file.name))
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject("Cannot open the file: ${e.message}")
+    }
   }
 
   private fun uriOf(invoke: Invoke): Uri = Uri.parse(invoke.parseArgs(DocumentArgs::class.java).uri)

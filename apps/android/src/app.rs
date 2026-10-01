@@ -5,6 +5,7 @@
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::dropbox;
+use pswm_core::opened;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
@@ -36,6 +37,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(Session::default());
             app.manage(LastSync::default());
             app.manage(Syncing::default());
+            app.manage(LockLater::default());
+            // Copies left by a crash.
+            opened::clean(&open_folder(app.handle()));
             app.manage(dropbox::SignIn::default());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -58,6 +62,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             totp,
             copy_totp,
             open_url,
+            open_attachment,
+            lock_later,
+            stay_unlocked,
             sync_now,
             last_sync,
             pick_folder,
@@ -197,9 +204,60 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     .await
 }
 
+/// Locks: the key and every decrypted value go, and so do the copies of
+/// opened attachments.
 #[tauri::command]
-fn lock(session: State<Session>) {
-    session.set(None);
+fn lock(app: AppHandle) {
+    lock_now(&app);
+}
+
+fn lock_now(app: &AppHandle) {
+    app.state::<Session>().set(None);
+    opened::clean(&open_folder(app));
+}
+
+/// A lock waiting to happen (the app went to the background): each new wait
+/// or `stay_unlocked` makes the ones before void.
+#[derive(Default)]
+struct LockLater(std::sync::atomic::AtomicU64);
+
+/// Locks after `seconds` unless the app comes back first (`stay_unlocked`);
+/// tells the page (`locked`).
+#[tauri::command]
+fn lock_later(app: AppHandle, seconds: u64) {
+    use std::sync::atomic::Ordering;
+    let mine = app.state::<LockLater>().0.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(seconds));
+        if app.state::<LockLater>().0.load(Ordering::SeqCst) == mine && app.state::<Session>().is_unlocked() {
+            lock_now(&app);
+            let _ = app.emit("locked", ());
+        }
+    });
+}
+
+#[tauri::command]
+fn stay_unlocked(later: State<LockLater>) {
+    later.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Where copies of opened attachments go: the app's cache, which the
+/// FileProvider shares (`res/xml/file_paths.xml`).
+fn open_folder(app: &AppHandle) -> PathBuf {
+    app.path().app_cache_dir().unwrap_or_default().join("open")
+}
+
+/// Opens an attachment in another app, through a read-only copy that locking
+/// deletes. Packages and scripts are not opened: Android would offer to
+/// install or run them.
+#[tauri::command]
+async fn open_attachment(app: AppHandle, id: String, name: String) -> Result<(), String> {
+    if opened::is_runnable_on_android(&name) {
+        return Err("Apps and scripts are not opened from the database".into());
+    }
+    let data = app.state::<Session>().with(|v| v.attachment(&id, None, &name))?;
+    let path = opened::write(&open_folder(&app), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
+    off_main(move || app.state::<Documents<Wry>>().open_file(&path)).await
 }
 
 #[tauri::command]

@@ -417,6 +417,13 @@ function drawer(listing: Listing, changed: () => void) {
   )
 }
 
+/** Shows the unlock screen after the database locked by itself (in the background). */
+void listen('locked', () => {
+  unlocked = false
+  query = ''
+  unlockScreen()
+})
+
 async function lock() {
   unlocked = false
   query = ''
@@ -472,7 +479,12 @@ async function entryScreen(id: string, listing: Listing) {
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => el('div', { className: 'line' }, el('span', {}, a.name, el('small', {}, formatSize(a.size))))))
+    const open = (name: string) => void api.openAttachment(id, name).catch((e) => snack(String(e)))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => {
+      const row = line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])
+      row.firstElementChild!.addEventListener('click', () => open(a.name))
+      return row
+    }))
   }
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
   const toList = () => listScreen(listing)
@@ -521,9 +533,31 @@ const syncIfOlder = (age: number) => {
   if (unlocked && !document.hidden && Date.now() - lastSynced >= age) void api.syncNow()
 }
 document.addEventListener('visibilitychange', () => {
-  if (unlocked && document.hidden) void api.syncIfPending()
-  else syncIfOlder(AGAIN_AFTER)
+  if (unlocked && document.hidden) {
+    void api.syncIfPending()
+    void api.lockLater(LOCK_IN_BACKGROUND)
+  } else if (!document.hidden) {
+    void api.stayUnlocked()
+    lastTouch = Date.now()
+    syncIfOlder(AGAIN_AFTER)
+  }
 })
 setInterval(() => syncIfOlder(EVERY), 30 * 1000)
+
+// ------------------------------------------------------------ locking
+
+/** Seconds in the background before the database locks. */
+const LOCK_IN_BACKGROUND = 30
+/** Minutes in front without a touch before it locks. */
+const LOCK_WHEN_IDLE = 5 * 60 * 1000
+let lastTouch = Date.now()
+for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, () => (lastTouch = Date.now()), { passive: true, capture: true })
+setInterval(() => {
+  if (unlocked && !document.hidden && Date.now() - lastTouch > LOCK_WHEN_IDLE) void lock()
+}, 10 * 1000)
+/** The screen turned off (ScreenPlugin.kt): lock at once. */
+;(window as unknown as { pswmScreenOff: () => void }).pswmScreenOff = () => {
+  if (unlocked) void lock()
+}
 
 void start()
