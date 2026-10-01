@@ -1,0 +1,74 @@
+# Builds the Android app (apps/android) into a debug APK for the phone
+# (arm64 only: the reference phone and every current phone). The Android SDK,
+# NDK and JDK have no Windows-on-ARM64 builds, so the APK is made here, never
+# on the PC. The APK is the run's artifact, installed with `adb install`.
+# The Gradle project in apps/android/gen/android was made by
+# `tauri android init` and is kept in the repo, changed by hand from there.
+name: Android
+
+# Every push that touches the Android app or what it is built from, on any
+# branch: the run also shows on the branch's pull request.
+on:
+  push:
+    paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Tauri CLI works on the Android app, not on the Windows one in src-tauri.
+  TAURI_APP_PATH: apps/android
+  TAURI_FRONTEND_PATH: .
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      # The runner has the SDK and an NDK.
+      - run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      # One debug key for every run, so a new APK installs over the last one
+      # (and keeps the app's data); a run without the secret makes its own.
+      - name: Use the stable debug key
+        env:
+          DEBUG_KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        if: env.DEBUG_KEYSTORE != ''
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+
+      - run: npx tauri android build --debug --apk --target aarch64 --ci
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pswmanager-debug-apk
+          path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

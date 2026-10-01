@@ -9,7 +9,8 @@
     "build": "tauri build --no-bundle",
     "build:x64": "npm run build -- --target x86_64-pc-windows-msvc",
     "build:arm64": "npm run build -- --target aarch64-pc-windows-msvc",
-    "test": "vitest run && cargo test --workspace"
+    "build:android-web": "tsc --noEmit -p apps/android/ui && vite build --config apps/android/ui/vite.config.ts",
+    "test": "vitest run && cargo test"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.0",

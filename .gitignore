@@ -1,6 +1,8 @@
 # ── Generated: dependencies and builds ──
 /node_modules/
 /dist/
+/dist-android/
+/apps/android/gen/schemas/
 /target/
 /src-tauri/target/
 /src-tauri/gen/
@@ -19,3 +21,5 @@ __pycache__/
 /data/
 # …except the made-up databases the Rust tests use
 !/crates/core/tests/fixtures/*.kdbx
+# …and the Android project's manifest and resources
+!/apps/android/gen/android/**/*.xml
