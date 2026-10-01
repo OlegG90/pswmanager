@@ -57,6 +57,40 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
+const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']] as const
+type Tab = (typeof TABS)[number][0]
+/** The tab shown: kept while the app runs, through redraws after a change. */
+let shownTab: Tab = 'general'
+
+/**
+ * The row of tabs: `open(tab)` shows one. ←/→ move to the next or previous
+ * one (wrapping), Home and End to the first and last; a disabled one is skipped.
+ */
+function tabBar(enabled: (tab: Tab) => boolean, open: (tab: Tab) => void): HTMLElement {
+  const tabs = TABS.map(([tab, label]) => {
+    const on = tab === shownTab
+    const button = el('button', {
+      type: 'button', id: `settings-tab-${tab}`, role: 'tab', className: 'tab', disabled: !enabled(tab),
+      tabIndex: on ? 0 : -1, onclick: () => open(tab),
+    }, label)
+    button.setAttribute('aria-selected', String(on))
+    button.setAttribute('aria-controls', 'settings-panel')
+    if (!enabled(tab)) button.title = 'Unlock the database to change its settings'
+    return button
+  })
+  const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
+  bar.addEventListener('keydown', (e) => {
+    const usable = TABS.map(([tab]) => tab).filter(enabled)
+    const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key]
+    const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
+      : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
+    if (!next) return
+    e.preventDefault()
+    open(next)
+  })
+  return bar
+}
+
 /** A text field saved when it changes (Enter, or leaving it); a textarea for several lines. */
 function textField(label: string, value: string, change: (value: string) => void, lines = 1) {
   const field = lines > 1
@@ -206,38 +240,66 @@ export async function renderSettings(
         draw(await api.settings(), status)
       }
     }
-    const focused = container.contains(document.activeElement) ? document.activeElement?.getAttribute('aria-label') : null
-    container.replaceChildren(
-      el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
-      group('Security',
-        row('Lock after inactivity', '1–60 minutes, or never',
-          select('Lock after inactivity', s.lockAfterMinutes, LOCK_AFTER, 'min', set('lockAfterMinutes'))),
-        row('Lock when Windows locks', 'Also when the session is switched',
-          toggle('Lock when Windows locks', s.lockOnSessionLock, set('lockOnSessionLock'))),
-        row('Lock when hidden to tray', '', toggle('Lock when hidden to tray', s.lockWhenHidden, set('lockWhenHidden')))),
-      group('Clipboard',
-        row('Clear clipboard after copying', 'Only if it still holds the copied value',
-          select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
-      group('Window and tray',
-        row('Theme', 'Light or dark, or as Windows is set', pick('Theme', s.theme, THEMES, set('theme'))),
-        row('Global hotkey', 'Shows or hides the window from any app', hotkeyControl(s.hotkey, set('hotkey'))),
-        row('Start with Windows', 'Starts hidden in the tray, locked',
-          toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
-        row('Download site icons', 'Directly from each site, never through a third party',
-          toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
-      ...(database ? [databaseGroup(database, status.keyFile, (d, next = status) => {
+    const focused = container.contains(document.activeElement) ? document.activeElement : null
+    const focusedLabel = focused?.getAttribute('aria-label')
+    const onTab = focused?.getAttribute('role') === 'tab'
+    // The database's own settings while it is unlocked.
+    const enabled = (tab: Tab) => tab !== 'database' || database !== null
+    if (!enabled(shownTab)) shownTab = 'general'
+    // Chosen by click or key on a tab: the redraw keeps the focus on the tabs.
+    const open = (tab: Tab) => {
+      shownTab = tab
+      draw(s, status)
+    }
+    const groups: Record<Tab, () => HTMLElement[]> = {
+      general: () => [
+        group('Security',
+          row('Lock after inactivity', '1–60 minutes, or never',
+            select('Lock after inactivity', s.lockAfterMinutes, LOCK_AFTER, 'min', set('lockAfterMinutes'))),
+          row('Lock when Windows locks', 'Also when the session is switched',
+            toggle('Lock when Windows locks', s.lockOnSessionLock, set('lockOnSessionLock'))),
+          row('Lock when hidden to tray', '', toggle('Lock when hidden to tray', s.lockWhenHidden, set('lockWhenHidden')))),
+        group('Clipboard',
+          row('Clear clipboard after copying', 'Only if it still holds the copied value',
+            select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
+      ],
+      window: () => [
+        group('Window and tray',
+          row('Theme', 'Light or dark, or as Windows is set', pick('Theme', s.theme, THEMES, set('theme'))),
+          row('Global hotkey', 'Shows or hides the window from any app', hotkeyControl(s.hotkey, set('hotkey'))),
+          row('Start with Windows', 'Starts hidden in the tray, locked',
+            toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
+          row('Download site icons', 'Directly from each site, never through a third party',
+            toggle('Download site icons', s.downloadIcons, set('downloadIcons')))),
+      ],
+      database: () => database ? [databaseGroup(database, status.keyFile, (d, next = status) => {
         database = d
         draw(s, next)
-      })] : []),
-      group('Sync',
-        row('This database', status.database ?? '', syncControl(status)),
-        waiting,
-        row('Check for remote changes', 'While unlocked',
-          select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
-      group('About',
-        row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
+      })] : [],
+      sync: () => [
+        group('Sync',
+          row('This database', status.database ?? '', syncControl(status)),
+          waiting,
+          row('Check for remote changes', 'While unlocked',
+            select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
+      ],
+      about: () => [
+        group('About',
+          row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
+      ],
+    }
+    const panel = el('div', { id: 'settings-panel', role: 'tabpanel' }, ...groups[shownTab]())
+    panel.setAttribute('aria-labelledby', `settings-tab-${shownTab}`)
+    // A disabled tab's title is not read out or shown from the keyboard: said here.
+    const locked = database ? [] : [el('p', { className: 'muted locked-note' }, 'Unlock the database to change its own settings.')]
+    container.replaceChildren(
+      el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
+      tabBar(enabled, open),
+      ...locked,
+      panel,
     )
     // Redrawing replaces the controls: keep the keyboard where it was.
-    if (focused) container.querySelector<HTMLElement>(`[aria-label="${focused}"]`)?.focus()
+    if (onTab) container.querySelector<HTMLElement>(`#settings-tab-${shownTab}`)?.focus()
+    else if (focusedLabel) container.querySelector<HTMLElement>(`[aria-label="${focusedLabel}"]`)?.focus()
   }
 }
