@@ -1,24 +1,25 @@
 :root {
   color-scheme: light dark;
-  --bg: #f7f4ee;
-  --text: #24211f;
-  --muted: #75706a;
-  --accent: #2f5d8a;
+  /* The desktop's colour tokens (src/style.css), by the same names. */
+  --color-bg: #f3f2f2;
+  --color-text: #201f1d;
+  --color-neutral-700: #605d5d;
+  --color-accent: #b68235;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1d1b19;
-    --text: #ebe5da;
-    --muted: #948e87;
-    --accent: #d3a35c;
+    --color-bg: #1d1b19;
+    --color-text: #ebe5da;
+    --color-neutral-700: #b3ada5;
+    --color-accent: #d3a35c;
   }
 }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-text);
   font: 16px/1.5 system-ui, sans-serif;
 }
 
@@ -27,7 +28,7 @@ main {
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--color-neutral-700);
 }
 
 .sample {
@@ -38,8 +39,8 @@ main {
 button {
   font: inherit;
   padding: 10px 16px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
   background: transparent;
-  color: var(--accent);
+  color: var(--color-accent);
 }
