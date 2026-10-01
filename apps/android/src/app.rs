@@ -219,23 +219,37 @@ fn last_sync(last: State<LastSync>) -> Option<Synced> {
 #[derive(Default)]
 struct Syncing(std::sync::Mutex<(bool, bool)>);
 
-/// Syncs in the background and tells the page (`synced`) what happened.
-fn start_sync(app: AppHandle) {
-    {
-        let mut flags = app.state::<Syncing>().0.lock().unwrap();
+impl Syncing {
+    /// True when a sync may start now; otherwise the one running goes again.
+    fn begin(&self) -> bool {
+        let mut flags = self.0.lock().unwrap();
         let (running, again) = &mut *flags;
         if *running {
             *again = true;
-            return;
+            return false;
         }
         *running = true;
+        true
+    }
+
+    /// True when it was asked again meanwhile: run once more.
+    fn again(&self) -> bool {
+        let mut flags = self.0.lock().unwrap();
+        let (running, again) = &mut *flags;
+        let more = std::mem::take(again);
+        *running = more;
+        more
+    }
+}
+
+/// Syncs in the background and tells the page (`synced`) what happened.
+fn start_sync(app: AppHandle) {
+    if !app.state::<Syncing>().begin() {
+        return;
     }
     tauri::async_runtime::spawn_blocking(move || loop {
         sync_once(&app);
-        let mut flags = app.state::<Syncing>().0.lock().unwrap();
-        let (running, again) = &mut *flags;
-        if !std::mem::take(again) {
-            *running = false;
+        if !app.state::<Syncing>().again() {
             return;
         }
     });
