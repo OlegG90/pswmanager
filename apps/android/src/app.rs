@@ -35,6 +35,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(Store::load(data.join("pswm.json")));
             app.manage(Session::default());
             app.manage(LastSync::default());
+            app.manage(Syncing::default());
             app.manage(dropbox::SignIn::default());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -59,9 +60,13 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             open_url,
             sync_now,
             last_sync,
+            pick_folder,
+            set_copy_folder,
+            sync_if_pending,
             dropbox::sign_in_to_dropbox,
             dropbox::dropbox_files,
-            dropbox::open_dropbox_file
+            dropbox::open_dropbox_file,
+            crate::visible::copy_name_taken
         ])
 }
 
@@ -80,6 +85,10 @@ struct Database {
     description: String,
     /// Where it syncs with, for people.
     synced_with: Option<String>,
+    /// It syncs with a cloud store (and so may have a visible copy).
+    cloud: bool,
+    /// The folder its visible copy is in, if one was chosen.
+    copy_folder: Option<String>,
 }
 
 /// What the last sync did, for the status line (event `synced`).
@@ -92,6 +101,8 @@ struct Synced {
     changed: bool,
     /// The store wants the user to sign in again.
     sign_in: bool,
+    /// The visible copy could not be written, and why.
+    copy_problem: Option<String>,
 }
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
@@ -106,8 +117,12 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
             title: k.title(),
             description: k.description.clone().unwrap_or_default(),
             synced_with: k.remote.as_ref().map(|r| r.location.describe()),
+            cloud: k.remote.as_ref().is_some_and(|r| r.location.cloud().is_some()),
+            // Read from the same state: not inside this read, which holds it.
+            copy_folder: None,
         })
     });
+    let database = database.map(|d| Database { copy_folder: crate::visible::folder_name(store), ..d });
     Status { database, unlocked: session.is_unlocked() }
 }
 
@@ -157,6 +172,7 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
             if let Some(cloud) = current.remote.and_then(|r| r.location.cloud()) {
                 cloud.provider().sign_out();
             }
+            crate::visible::forget(&store)?;
         }
         Ok(status_of(&store, &session))
     })
@@ -200,20 +216,99 @@ fn last_sync(last: State<LastSync>) -> Option<Synced> {
     last.0.lock().unwrap().clone()
 }
 
+/// One sync at a time: asked again while one runs, it runs once more after it.
+#[derive(Default)]
+struct Syncing(std::sync::Mutex<Flags>);
+
+#[derive(Default)]
+struct Flags {
+    running: bool,
+    again: bool,
+}
+
+impl Syncing {
+    /// True when a sync may start now; otherwise the one running goes again.
+    fn begin(&self) -> bool {
+        let mut flags = self.0.lock().unwrap();
+        if flags.running {
+            flags.again = true;
+            return false;
+        }
+        flags.running = true;
+        true
+    }
+
+    /// True when it was asked again meanwhile: run once more.
+    fn again(&self) -> bool {
+        let mut flags = self.0.lock().unwrap();
+        flags.running = std::mem::take(&mut flags.again);
+        flags.running
+    }
+}
+
 /// Syncs in the background and tells the page (`synced`) what happened.
 fn start_sync(app: AppHandle) {
-    tauri::async_runtime::spawn_blocking(move || {
-        let store = app.state::<Store>();
-        let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return };
-        let result = sync::sync(location.open().as_ref(), &store, &app.state::<Session>());
-        let (text, problem) = sync::describe(&store, &result);
-        let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
-        let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
-        let synced = Synced { text, problem, changed, sign_in };
-        *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
-        // A page that is not listening reads it with `last_sync`.
-        let _ = app.emit("synced", synced);
+    if !app.state::<Syncing>().begin() {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || loop {
+        // A sync that panics must not stop the ones after it.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(&app, &app.state::<Session>())));
+        if !app.state::<Syncing>().again() {
+            return;
+        }
     });
+}
+
+/// One sync with `session`: the unlocked database (merges if need be), or a
+/// locked one (uploads only; a merge waits for the next unlock).
+fn sync_once(app: &AppHandle, session: &Session) {
+    let store = app.state::<Store>();
+    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return };
+    let result = sync::sync(location.open().as_ref(), &store, session);
+    let (text, problem) = sync::describe(&store, &result);
+    let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
+    let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
+    let copy_problem = crate::visible::refresh(app);
+    let problem = problem || copy_problem.is_some();
+    let synced = Synced { text, problem, changed, sign_in, copy_problem };
+    *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
+    // A page that is not listening reads it with `last_sync`.
+    let _ = app.emit("synced", synced);
+}
+
+/// Going to the background: what has not gone up yet goes now, as an upload
+/// only (as when locking; a merge needs the key and waits for the front).
+#[tauri::command]
+fn sync_if_pending(app: AppHandle) {
+    if !sync::has_pending(&app.state::<Store>()) || !app.state::<Syncing>().begin() {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || loop {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(&app, &Session::default())));
+        if !app.state::<Syncing>().again() {
+            return;
+        }
+    });
+}
+
+/// Puts the synced database's visible copy into `folder` (in place of where it was).
+#[tauri::command]
+async fn set_copy_folder(app: AppHandle, folder: documents::Picked) -> Result<Status, String> {
+    off_main(move || {
+        let store = app.state::<Store>();
+        let location = store.read(|s| s.remote().map(|r| r.location.clone())).filter(|l| l.cloud().is_some());
+        let name = location.ok_or("Only a database synced with a cloud store has a copy on this phone")?.file_name();
+        crate::visible::place(&app, &folder.uri, &folder.name, &name)?;
+        Ok(status_of(&store, &app.state::<Session>()))
+    })
+    .await
+}
+
+/// A folder the user picks (for the visible copy); `None` when they cancelled.
+#[tauri::command]
+async fn pick_folder(app: AppHandle) -> Result<Option<documents::Picked>, String> {
+    off_main(move || app.state::<Documents<Wry>>().pick_folder()).await
 }
 
 #[tauri::command]

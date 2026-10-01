@@ -25,7 +25,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
-/// A file the user picked; its access is kept across runs.
+/// A folder or file the user picked; its access is kept across runs.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Picked {
     pub uri: String,
@@ -41,6 +41,18 @@ struct UriArgs<'a> {
 struct WriteArgs<'a> {
     uri: &'a str,
     data: String,
+}
+
+#[derive(Serialize)]
+struct ChildArgs<'a> {
+    folder: &'a str,
+    name: &'a str,
+    create: bool,
+}
+
+#[derive(Deserialize)]
+struct ChildAnswer {
+    uri: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -60,10 +72,30 @@ impl<R: Runtime> Documents<R> {
         self.0.run_mobile_plugin(method, args).map_err(|e| e.to_string())
     }
 
+    fn pick(&self, method: &str) -> Result<Option<Picked>, String> {
+        let answer: PickAnswer = self.call(method, ())?;
+        Ok(answer.uri.map(|uri| Picked { uri, name: answer.name }))
+    }
+
     /// A `.kdbx` the user picks; `None` when they cancelled.
     pub fn pick_file(&self) -> Result<Option<Picked>, String> {
-        let answer: PickAnswer = self.call("pickFile", ())?;
-        Ok(answer.uri.map(|uri| Picked { uri, name: answer.name }))
+        self.pick("pickFile")
+    }
+
+    /// A folder the user picks; `None` when they cancelled.
+    pub fn pick_folder(&self) -> Result<Option<Picked>, String> {
+        self.pick("pickFolder")
+    }
+
+    /// The document named `name` in a picked folder, made when it is not there.
+    pub fn child(&self, folder: &str, name: &str) -> Result<String, String> {
+        let answer: ChildAnswer = self.call("child", ChildArgs { folder, name, create: true })?;
+        answer.uri.ok_or_else(|| format!("Cannot make {name} in the folder"))
+    }
+
+    /// The document named `name` in a picked folder, if it is there.
+    pub fn find(&self, folder: &str, name: &str) -> Result<Option<String>, String> {
+        Ok(self.call::<ChildAnswer>("child", ChildArgs { folder, name, create: false })?.uri)
     }
 }
 

@@ -13,6 +13,8 @@ mod documents;
 mod dropbox;
 #[cfg(mobile)]
 mod secrets;
+#[cfg(mobile)]
+mod visible;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

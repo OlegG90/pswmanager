@@ -8,6 +8,10 @@ export interface Database {
   description: string
   /** Where it syncs with, for people. */
   syncedWith: string | null
+  /** It syncs with a cloud store (and so may have a visible copy). */
+  cloud: boolean
+  /** The folder its visible copy is in, if one was chosen. */
+  copyFolder: string | null
 }
 
 export interface Status {
@@ -36,6 +40,14 @@ export interface Synced {
   changed: boolean
   /** The store wants the user to sign in again. */
   signIn: boolean
+  /** The visible copy could not be written, and why. */
+  copyProblem: string | null
+}
+
+/** A folder or file the user picked. */
+export interface Picked {
+  uri: string
+  name: string
 }
 
 /** A database in the app's Dropbox folder. */
@@ -66,5 +78,9 @@ export const api = {
   lastSync: () => invoke<Synced | null>('last_sync'),
   signInToDropbox: () => invoke<void>('sign_in_to_dropbox'),
   dropboxFiles: () => invoke<CloudFile[]>('dropbox_files'),
-  openDropboxFile: (file: CloudFile) => invoke<Status>('open_dropbox_file', { file }),
+  openDropboxFile: (file: CloudFile, folder: Picked) => invoke<{ status: Status; copyProblem: string | null }>('open_dropbox_file', { file, folder }),
+  copyNameTaken: (folder: string, name: string) => invoke<boolean>('copy_name_taken', { folder, name }),
+  pickFolder: () => invoke<Picked | null>('pick_folder'),
+  setCopyFolder: (folder: Picked) => invoke<Status>('set_copy_folder', { folder }),
+  syncIfPending: () => invoke<void>('sync_if_pending'),
 }
