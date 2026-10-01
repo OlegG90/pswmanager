@@ -1,12 +1,16 @@
-//! Site icons for entries: fetched directly from each site, cached by host in
-//! the data folder, never written into the database.
+//! Site icons for entries: fetched directly from each site, cached in the data
+//! folder under names that do not say the host, never written into the database.
 
 use base64::Engine;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use url::Url;
+use zeroize::Zeroizing;
 
 /// A site that had no icon is asked again after this long.
 const RETRY_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -140,44 +144,106 @@ fn largest_size(sizes: &str) -> u32 {
 /// could not check most sites' certificates, and are tried again at once.
 const MISS_MARK: &[u8] = b"2";
 
-/// The icon cache: `<dir>/<host>` holds an icon, `<dir>/<host>.miss` marks a
-/// site that had none.
+/// The Credential Manager entry holding the key the cache's file names are made with.
+const KEY_NAME: &str = "icon-cache-key";
+
+/// The icon cache: `<dir>/<name>` holds an icon, `<dir>/<name>.miss` marks a
+/// site that had none, where `<name>` is the host hashed with a key only this
+/// Windows user has ([Cache::name]): the folder does not say which sites the
+/// databases hold. Without the key (the Credential Manager refused it), the
+/// icons are kept in memory for the session only.
 pub struct Cache {
     dir: PathBuf,
+    key: Option<Zeroizing<[u8; 32]>>,
+    /// Without a key: each host's icon, or none, for this session.
+    memory: Mutex<HashMap<String, Option<Vec<u8>>>>,
 }
 
 impl Cache {
-    /// The cache in `icons` beside the state file.
+    /// The cache in `icons` beside the state file, with this Windows user's
+    /// key (made on first use); files named by host, as earlier versions kept
+    /// them, are renamed, or removed without a key.
     pub fn in_data_dir(data_dir: &Path) -> Self {
-        Cache { dir: data_dir.join("icons") }
+        Self::with_key(data_dir, cache_key())
+    }
+
+    fn with_key(data_dir: &Path, key: Option<Zeroizing<[u8; 32]>>) -> Self {
+        let cache = Cache { dir: data_dir.join("icons"), key, memory: Mutex::default() };
+        cache.rename_host_named();
+        cache
+    }
+
+    /// The file name for `host`: HMAC-SHA256 of it with the key, in hex. A
+    /// plain hash would not do: common hosts can be guessed and hashed.
+    fn name(&self, host: &str) -> Option<String> {
+        let key = self.key.as_ref()?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(key.as_slice()).expect("HMAC takes a key of any length");
+        mac.update(host.as_bytes());
+        Some(crate::dbfile::hex(&mac.finalize().into_bytes()))
+    }
+
+    /// Files an earlier version named by host: a host has a dot, a name made
+    /// with the key does not.
+    fn rename_host_named(&self) {
+        let Ok(entries) = fs::read_dir(&self.dir) else { return };
+        for entry in entries.flatten() {
+            let file = entry.file_name().to_string_lossy().into_owned();
+            let (host, suffix) = match file.strip_suffix(".miss") {
+                Some(host) => (host, ".miss"),
+                None => (file.strip_suffix(".tmp").unwrap_or(&file), ""),
+            };
+            if !host.contains('.') {
+                continue;
+            }
+            let renamed = (!file.ends_with(".tmp") && is_safe_host(host))
+                .then(|| self.name(host))
+                .flatten()
+                .map(|name| self.dir.join(format!("{name}{suffix}")))
+                .filter(|to| !to.exists())
+                .is_some_and(|to| fs::rename(entry.path(), to).is_ok());
+            if !renamed {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
     }
 
     pub fn get(&self, host: &str) -> Option<Vec<u8>> {
-        is_safe_host(host).then(|| fs::read(self.dir.join(host)).ok()).flatten()
+        if !is_safe_host(host) {
+            return None;
+        }
+        match self.name(host) {
+            Some(name) => fs::read(self.dir.join(name)).ok(),
+            None => self.memory.lock().unwrap().get(host).cloned().flatten(),
+        }
     }
 
     /// True when the host has an icon, or was tried recently without one.
     fn is_settled(&self, host: &str, now: SystemTime) -> bool {
-        if self.dir.join(host).is_file() {
+        let Some(name) = self.name(host) else { return self.memory.lock().unwrap().contains_key(host) };
+        if self.dir.join(&name).is_file() {
             return true;
         }
-        let marker = self.dir.join(format!("{host}.miss"));
+        let marker = self.dir.join(format!("{name}.miss"));
         let current = fs::read(&marker).is_ok_and(|mark| mark == MISS_MARK);
         let missed = fs::metadata(&marker).and_then(|m| m.modified());
         current && missed.is_ok_and(|t| now.duration_since(t).unwrap_or_default() < RETRY_AFTER)
     }
 
     fn put(&self, host: &str, icon: Option<&[u8]>) -> std::io::Result<()> {
+        let Some(name) = self.name(host) else {
+            self.memory.lock().unwrap().insert(host.to_string(), icon.map(<[u8]>::to_vec));
+            return Ok(());
+        };
         fs::create_dir_all(&self.dir)?;
         match icon {
             Some(bytes) => {
-                let tmp = self.dir.join(format!("{host}.tmp"));
+                let tmp = self.dir.join(format!("{name}.tmp"));
                 fs::write(&tmp, bytes)?;
-                fs::rename(&tmp, self.dir.join(host))?;
-                let _ = fs::remove_file(self.dir.join(format!("{host}.miss")));
+                fs::rename(&tmp, self.dir.join(&name))?;
+                let _ = fs::remove_file(self.dir.join(format!("{name}.miss")));
                 Ok(())
             }
-            None => fs::write(self.dir.join(format!("{host}.miss")), MISS_MARK),
+            None => fs::write(self.dir.join(format!("{name}.miss")), MISS_MARK),
         }
     }
 
@@ -201,6 +267,24 @@ impl Cache {
             }
         });
     }
+}
+
+/// This Windows user's key for the cache's file names, from the Credential
+/// Manager; made and kept there on first use. `None` when it cannot be read
+/// or kept.
+fn cache_key() -> Option<Zeroizing<[u8; 32]>> {
+    let mut key = Zeroizing::new([0u8; 32]);
+    if let Some(stored) = crate::credentials::read(KEY_NAME) {
+        let bytes = (0..stored.len()).step_by(2).filter_map(|i| u8::from_str_radix(stored.get(i..i + 2)?, 16).ok());
+        let bytes: Zeroizing<Vec<u8>> = Zeroizing::new(bytes.collect());
+        if bytes.len() == 32 {
+            key.copy_from_slice(&bytes);
+            return Some(key);
+        }
+    }
+    getrandom::fill(key.as_mut()).ok()?;
+    crate::credentials::write(KEY_NAME, &Zeroizing::new(crate::dbfile::hex(key.as_ref()))).ok()?;
+    Some(key)
 }
 
 /// An HTTP client with the OS's TLS (no `ring`, which needs clang on ARM64).
@@ -334,22 +418,70 @@ mod tests {
         assert!(agent.get("https://self-signed.badssl.com/").call().is_err());
     }
 
+    fn key(byte: u8) -> Option<Zeroizing<[u8; 32]>> {
+        Some(Zeroizing::new([byte; 32]))
+    }
+
+    fn files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir.join("icons")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn cache_keeps_icons_and_remembers_misses() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = Cache::in_data_dir(dir.path());
+        let cache = Cache::with_key(dir.path(), key(1));
         let now = SystemTime::now();
         assert!(!cache.is_settled("example.com", now));
         cache.put("example.com", None).unwrap();
         assert!(cache.is_settled("example.com", now));
         assert!(!cache.is_settled("example.com", now + RETRY_AFTER + Duration::from_secs(1)));
         // A marker from an older version is tried again at once.
-        fs::write(dir.path().join("icons").join("old.example.com.miss"), b"").unwrap();
+        let name = cache.name("old.example.com").unwrap();
+        fs::write(dir.path().join("icons").join(format!("{name}.miss")), b"").unwrap();
         assert!(!cache.is_settled("old.example.com", now));
         cache.put("example.com", Some(b"\x89PNG....")).unwrap();
         assert_eq!(cache.get("example.com").unwrap(), b"\x89PNG....");
-        assert!(!dir.path().join("icons").join("example.com.miss").exists());
         assert_eq!(cache.get("../pswm.json"), None);
+        // No file says a host.
+        assert!(files(dir.path()).iter().all(|f| !f.contains("example")));
+    }
+
+    #[test]
+    fn file_names_are_the_host_hashed_with_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let (one, other) = (Cache::with_key(dir.path(), key(1)), Cache::with_key(dir.path(), key(2)));
+        let name = one.name("example.com").unwrap();
+        assert_eq!(name.len(), 64);
+        assert!(!name.contains('.'));
+        assert_eq!(one.name("example.com").unwrap(), name);
+        assert_ne!(other.name("example.com").unwrap(), name);
+        assert_ne!(one.name("example.org").unwrap(), name);
+    }
+
+    #[test]
+    fn host_named_files_are_renamed_or_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let icons = dir.path().join("icons");
+        fs::create_dir_all(&icons).unwrap();
+        fs::write(icons.join("example.com"), b"\x89PNG....").unwrap();
+        fs::write(icons.join("missing.example.org.miss"), MISS_MARK).unwrap();
+        fs::write(icons.join("half.example.net.tmp"), b"..").unwrap();
+
+        let cache = Cache::with_key(dir.path(), key(1));
+        assert_eq!(cache.get("example.com").unwrap(), b"\x89PNG....");
+        assert!(cache.is_settled("missing.example.org", SystemTime::now()));
+        assert_eq!(files(dir.path()).len(), 2);
+        assert!(files(dir.path()).iter().all(|f| !f.contains("example")));
+
+        // Without a key nothing named by host stays, and icons live in memory.
+        fs::write(icons.join("example.com"), b"\x89PNG....").unwrap();
+        let keyless = Cache::with_key(dir.path(), None);
+        assert!(!icons.join("example.com").exists());
+        keyless.put("example.com", Some(b"\x89PNG....")).unwrap();
+        assert_eq!(keyless.get("example.com").unwrap(), b"\x89PNG....");
+        assert!(files(dir.path()).iter().all(|f| !f.contains("example")));
     }
 }
 

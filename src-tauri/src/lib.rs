@@ -823,9 +823,9 @@ fn fetch_icons(app: &AppHandle, listing: &Listing) {
     let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
     hosts.sort();
     hosts.dedup();
-    let (app, data_dir) = (app.clone(), store.dir().to_path_buf());
+    let app = app.clone();
     std::thread::spawn(move || {
-        icons::Cache::in_data_dir(&data_dir).fetch_missing(hosts, |host| {
+        app.state::<icons::Cache>().fetch_missing(hosts, |host| {
             let _ = app.emit("icon-ready", host);
         });
     });
@@ -1248,8 +1248,8 @@ fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result
 
 /// A cached site icon as a `data:` URL, or nothing yet.
 #[tauri::command(async)]
-fn icon(store: State<Store>, host: String) -> Option<String> {
-    icons::Cache::in_data_dir(store.dir()).get(&host).and_then(|bytes| icons::data_url(&bytes))
+fn icon(cache: State<icons::Cache>, host: String) -> Option<String> {
+    cache.get(&host).and_then(|bytes| icons::data_url(&bytes))
 }
 
 /// Locks once the database has been left alone for `lockAfterMinutes`.
@@ -1429,7 +1429,9 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            app.manage(Store::load(state_file));
+            let store = Store::load(state_file);
+            app.manage(icons::Cache::in_data_dir(store.dir()));
+            app.manage(store);
             opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
             if let Some(database) = options.database {
