@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/styles.css">
+<script src="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/_ds_bundle.js"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-300);font-family:var(--font-body);color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+</style>
+</helmet>
+<section style="{{ rootStyle }}">
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:880px">
+    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">PswManager · Android · Samsung S24 Ultra, 384 × 832 dp</div>
+    <h1 style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:52px;line-height:1.05">Android mockups</h1>
+    <p style="margin:0;color:var(--color-neutral-700);text-align:justify;max-width:640px">The same KDBX 4 file, the same groups, tags and sync rules as the Windows app (docs/spec.md), in the Classical design system. Sample data matches the desktop prototype.</p>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+      <span style="font-size:13px;color:var(--color-neutral-700)">Theme</span>
+      <div style="display:flex;border:1px solid var(--color-divider);border-radius:4px;padding:2px;gap:2px">
+        <sc-for list="{{ themeOpts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.pick }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+      </div>
+      <span style="font-size:12px;color:var(--color-neutral-700)">Dark follows src/style.css (prefers-color-scheme: dark).</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:30px;border-bottom:1px solid var(--color-divider);padding-bottom:8px">Onboarding</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+      <div id="1a" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1a" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1a</a><span style="font-size:14px;color:var(--color-neutral-700)">Choose the database</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="01 Onboarding · source" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:04</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="flex:1;display:flex;flex-direction:column;padding:40px 24px 20px;gap:24px">
+              <svg style="color:var(--color-accent)" width="44" height="44" viewBox="0 0 256 256"><rect x="16" y="16" width="224" height="224" rx="48" fill="none" stroke="currentColor" stroke-width="10"></rect><path d="M88 116V92a40 40 0 0 1 80 0v24" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round"></path><rect x="64" y="112" width="128" height="96" rx="16" fill="none" stroke="currentColor" stroke-width="12"></rect><circle cx="128" cy="156" r="12" fill="currentColor"></circle></svg>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">First run</div>
+                <h1 style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:38px;line-height:1.05">Choose your database</h1>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:var(--color-neutral-700);text-align:justify">PswManager opens one KeePass (KDBX 4) file. The same file opens in PswManager on Windows and in KeePassXC.</p>
+              </div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                <div style="display:flex;gap:14px;padding:16px 12px;border-bottom:1px solid var(--color-divider);background:var(--color-accent-100)">
+                  <span style="width:20px;height:20px;margin-top:3px;border-radius:50%;border:1px solid var(--color-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-sizing:border-box"><span style="width:10px;height:10px;border-radius:50%;background:var(--color-accent)"></span></span>
+                  <div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--font-heading);font-weight:600;font-size:21px">Sync with Dropbox</span><span style="font-size:13px;line-height:1.45;color:var(--color-neutral-700)">Sign in once. The file lives in Apps/PswManager Sync; a working copy stays on this phone.</span></div>
+                </div>
+                <div style="display:flex;gap:14px;padding:16px 12px;border-bottom:1px solid var(--color-divider)">
+                  <span style="width:20px;height:20px;margin-top:3px;border-radius:50%;border:1px solid var(--color-neutral-500);flex-shrink:0;box-sizing:border-box"></span>
+                  <div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--font-heading);font-weight:600;font-size:21px">Open a local file</span><span style="font-size:13px;line-height:1.45;color:var(--color-neutral-700)">A .kdbx on this phone or an SD card, picked with Android's file picker. No sync.</span></div>
+                </div>
+              </div>
+              <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+                <button style="height:50px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:18px">Sign in to Dropbox</button>
+                <span style="font-size:12px;text-align:center;color:var(--color-neutral-700)">Sign-in opens in the browser. Nothing is uploaded.</span>
+              </div>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1b" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1b" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1b</a><span style="font-size:14px;color:var(--color-neutral-700)">Pick the file in Dropbox</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="02 Onboarding · Dropbox file" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:05</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="height:64px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px">
+              <span data-icon="arrow-left" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <div style="display:flex;flex-direction:column"><span style="font-family:var(--font-heading);font-weight:600;font-size:22px;line-height:1.1">Dropbox</span><span style="font-size:12px;color:var(--color-neutral-700)">oleg@fastmail.com</span></div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;padding:8px 24px 20px;gap:18px">
+              <div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--color-neutral-700)"><span data-icon="folder" style="display:inline-flex;width:16px;height:16px"></span><span>Apps</span><span>›</span><span style="color:var(--color-text)">PswManager Sync</span></div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                <div style="display:flex;align-items:center;gap:14px;padding:14px 10px;border-bottom:1px solid var(--color-divider);background:var(--color-accent-100)">
+                  <span data-icon="file-key" style="display:inline-flex;width:24px;height:24px;color:var(--color-accent-700)"></span>
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:16px">passwords.kdbx</span><span style="font-size:12px;color:var(--color-neutral-700);font-feature-settings:'tnum'">412 KB · changed 30 Sep 2026</span></div>
+                  <span data-icon="check" style="display:inline-flex;width:20px;height:20px;color:var(--color-accent-700)"></span>
+                </div>
+                <div style="display:flex;align-items:center;gap:14px;padding:14px 10px;border-bottom:1px solid var(--color-divider)">
+                  <span data-icon="file-key" style="display:inline-flex;width:24px;height:24px;color:var(--color-neutral-600)"></span>
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:16px">family.kdbx</span><span style="font-size:12px;color:var(--color-neutral-700);font-feature-settings:'tnum'">96 KB · changed 2 Feb 2026</span></div>
+                </div>
+              </div>
+              <p style="margin:0;font-size:13px;line-height:1.5;color:var(--color-neutral-700);text-align:justify">PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.</p>
+              <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+                <button style="height:50px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:18px">Use passwords.kdbx</button>
+              </div>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1c" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1c" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1c</a><span style="font-size:14px;color:var(--color-neutral-700)">Choose the folder on this phone</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="03 Onboarding · folder" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:05</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="height:64px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px">
+              <span data-icon="arrow-left" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:22px">Working copy</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;padding:8px 24px 20px;gap:22px">
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <h1 style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:32px;line-height:1.1">Where to keep it on this phone</h1>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:var(--color-neutral-700);text-align:justify">The file is downloaded into a folder you choose and stays in step with Dropbox. You can see it and back it up there.</p>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:13px;color:var(--color-neutral-700)">Folder</span>
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 12px;border:1px solid var(--color-neutral-400);border-radius:4px">
+                  <span data-icon="folder-open" style="display:inline-flex;width:22px;height:22px;color:var(--color-accent-700)"></span>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:15px">Documents/PswManager</span><span style="font-size:12px;color:var(--color-neutral-700);font-feature-settings:'tnum'">Internal storage · 182 GB free</span></div>
+                  <span style="font-family:var(--font-heading);font-weight:600;font-size:16px;color:var(--color-accent-700);padding:6px 4px">Change</span>
+                </div>
+                <span style="font-size:12px;color:var(--color-neutral-700)">Change opens Android's folder picker.</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:13px;color:var(--color-neutral-700)">File name</span>
+                <div style="height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--color-accent);border-radius:4px;box-shadow:0 0 0 3px var(--color-accent-200);font-size:16px">passwords.kdbx</div>
+              </div>
+              <div style="display:flex;gap:10px;padding:12px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);font-size:13px;line-height:1.45;color:var(--color-neutral-800)">
+                <span data-icon="info" style="display:inline-flex;width:18px;height:18px;flex-shrink:0;color:var(--color-accent-700)"></span>
+                <span>A passwords.kdbx is already in this folder. It will be kept as passwords.kdbx.bak.</span>
+              </div>
+              <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+                <button style="height:50px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:18px">Download and continue</button>
+              </div>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:30px;border-bottom:1px solid var(--color-divider);padding-bottom:8px">Vault</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+      <div id="1d" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1d" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1d</a><span style="font-size:14px;color:var(--color-neutral-700)">Unlock</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="04 Unlock" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:06</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="flex:1;display:flex;flex-direction:column;padding:72px 24px 20px;gap:20px">
+              <svg style="color:var(--color-accent)" width="48" height="48" viewBox="0 0 256 256"><rect x="16" y="16" width="224" height="224" rx="48" fill="none" stroke="currentColor" stroke-width="10"></rect><path d="M88 116V92a40 40 0 0 1 80 0v24" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round"></path><rect x="64" y="112" width="128" height="96" rx="16" fill="none" stroke="currentColor" stroke-width="12"></rect><circle cx="128" cy="156" r="12" fill="currentColor"></circle></svg>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <h1 style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:40px;line-height:1.05">Personal</h1>
+                <span style="font-size:15px;color:var(--color-neutral-700)">Oleg's passwords</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+                <span data-icon="cloud" style="display:inline-flex;width:20px;height:20px;color:var(--color-accent-700)"></span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:13px">Synced with Dropbox</span><span style="font-size:12px;color:var(--color-neutral-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Documents/PswManager/passwords.kdbx</span></div>
+                <span style="font-family:var(--font-heading);font-weight:600;font-size:16px;color:var(--color-accent-700);padding:8px 4px">Switch</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-size:13px;color:var(--color-neutral-700)">Master password</span>
+                <div style="height:52px;display:flex;align-items:center;gap:8px;padding:0 4px 0 14px;border:1px solid var(--color-accent);border-radius:4px;box-shadow:0 0 0 3px var(--color-accent-200)">
+                  <span style="flex:1;font-family:Consolas,ui-monospace,monospace;font-size:18px;letter-spacing:.18em">••••••••••••</span>
+                  <span data-icon="eye" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-neutral-700)"></span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px">
+                <span style="color:var(--color-neutral-700)">No key file</span>
+                <span style="font-family:var(--font-heading);font-weight:600;font-size:16px;color:var(--color-accent-700);padding:8px 0">Use a key file…</span>
+              </div>
+              <button style="height:52px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:19px">Unlock</button>
+              <span style="margin-top:auto;font-size:12px;text-align:center;color:var(--color-neutral-700)">Last synced today, 12:04</span>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1e" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1e" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1e</a><span style="font-size:14px;color:var(--color-neutral-700)">List with search</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="05 List" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:07</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="display:flex;align-items:center;gap:4px;padding:6px 8px 6px 4px">
+              <span data-icon="menu" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <div style="flex:1;height:46px;display:flex;align-items:center;gap:10px;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;background:var(--color-bg)">
+                <span data-icon="search" style="display:inline-flex;width:18px;height:18px;color:var(--color-neutral-700)"></span>
+                <span style="font-size:15px;color:var(--color-neutral-600)">Search All</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 20px 10px;border-bottom:1px solid var(--color-divider)">
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:20px">All <span style="font-weight:400;color:var(--color-neutral-700);font-feature-settings:'tnum'">148</span></span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-neutral-700);padding:8px 0"><span data-icon="check" style="display:inline-flex;width:14px;height:14px;color:var(--color-accent-700)"></span>Synced 12:04</span>
+            </div>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+              <sc-for list="{{ entries }}" as="e" hint-placeholder-count="9">
+                <div style="display:flex;align-items:center;gap:14px;min-height:64px;padding:0 20px;border-bottom:1px solid var(--color-divider)">
+                  <div style="width:40px;height:40px;border:1px solid var(--color-neutral-400);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-weight:600;font-size:21px;color:var(--color-accent-700);flex-shrink:0">{{ e.initial }}</div>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+                    <span style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.title }}</span>
+                    <span style="font-size:13px;color:var(--color-neutral-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.user }}</span>
+                  </div>
+                  <sc-if value="{{ e.fav }}" hint-placeholder-val="{{ false }}"><span data-icon="star" style="display:inline-flex;width:16px;height:16px;color:var(--color-accent)"></span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <div style="position:absolute;right:20px;bottom:42px;width:58px;height:58px;border:1px solid var(--color-accent);border-radius:4px;background:var(--color-bg);box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center;color:var(--color-accent-700)"><span data-icon="plus" style="display:inline-flex;width:26px;height:26px"></span></div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--color-bg)"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1f" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1f" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1f</a><span style="font-size:14px;color:var(--color-neutral-700)">Drawer: groups and tags</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="06 Drawer" style="position:relative;width:384px;height:832px;background:color-mix(in srgb, #000 45%, var(--color-bg));border-radius:17px;overflow:hidden;display:flex">
+            <div style="width:316px;height:100%;background:var(--color-bg);display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+              <div style="height:36px;flex-shrink:0;display:flex;align-items:center;padding:0 24px;font-size:13px;font-feature-settings:'tnum'">12:07</div>
+              <div style="padding:16px 24px 16px;display:flex;flex-direction:column;gap:2px;border-bottom:1px solid var(--color-divider)">
+                <span style="font-family:var(--font-heading);font-weight:500;font-size:30px;line-height:1.1">Personal</span>
+                <span style="font-size:12px;color:var(--color-neutral-700)">Synced with Dropbox · 12:04</span>
+              </div>
+              <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:10px 12px">
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);padding:6px 12px">Groups</div>
+                <sc-for list="{{ groups }}" as="g" hint-placeholder-count="7">
+                  <div style="{{ g.row }}">
+                    <span data-icon="{{ g.icon }}" style="display:inline-flex;width:18px;height:18px;color:var(--color-neutral-700)"></span>
+                    <span style="flex:1">{{ g.label }}</span>
+                    <span style="font-size:13px;color:var(--color-neutral-700);font-feature-settings:'tnum'">{{ g.count }}</span>
+                  </div>
+                </sc-for>
+                <div style="height:1px;background:var(--color-divider);margin:8px 12px"></div>
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);padding:6px 12px">Tags</div>
+                <sc-for list="{{ tags }}" as="t" hint-placeholder-count="7">
+                  <div style="display:flex;align-items:center;gap:14px;height:40px;padding:0 12px;font-size:15px">
+                    <span data-icon="tag" style="display:inline-flex;width:16px;height:16px;color:var(--color-neutral-600)"></span>
+                    <span style="flex:1">{{ t.label }}</span>
+                    <span style="font-size:13px;color:var(--color-neutral-700);font-feature-settings:'tnum'">{{ t.count }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="border-top:1px solid var(--color-divider);padding:6px 12px 28px;display:flex;flex-direction:column">
+                <div style="display:flex;align-items:center;gap:14px;height:46px;padding:0 12px;font-size:15px"><span data-icon="settings" style="display:inline-flex;width:18px;height:18px;color:var(--color-neutral-700)"></span>Settings</div>
+                <div style="display:flex;align-items:center;gap:14px;height:46px;padding:0 12px;font-size:15px"><span data-icon="lock" style="display:inline-flex;width:18px;height:18px;color:var(--color-neutral-700)"></span>Lock</div>
+              </div>
+            </div>
+            <div style="flex:1"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1g" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1g" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1g</a><span style="font-size:14px;color:var(--color-neutral-700)">Entry view</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="07 Entry" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:08</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="height:60px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 8px">
+              <span data-icon="arrow-left" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <div style="display:flex">
+                <span data-icon="star" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center;color:var(--color-accent)"></span>
+                <span data-icon="pencil" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+                <span data-icon="ellipsis-vertical" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              </div>
+            </div>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:18px;padding:4px 20px 20px">
+              <div style="display:flex;align-items:center;gap:14px">
+                <div style="width:56px;height:56px;border:1px solid var(--color-accent);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-weight:600;font-size:30px;color:var(--color-accent-700)">G</div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:32px;line-height:1">GitHub</h2>
+                  <span style="align-self:flex-start;font-size:12px;padding:1px 8px;border-radius:4px;background:var(--color-accent-100);color:var(--color-accent-800)">dev</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                <div style="display:flex;align-items:center;min-height:62px;border-bottom:1px solid var(--color-divider)">
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;color:var(--color-neutral-700)">User name</span><span style="font-size:16px">oleg-g</span></div>
+                  <span data-icon="copy" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                </div>
+                <div style="display:flex;align-items:center;min-height:62px;border-bottom:1px solid var(--color-divider)">
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;color:var(--color-neutral-700)">Password</span><span style="font-family:Consolas,ui-monospace,monospace;font-size:16px;letter-spacing:.06em">••••••••••••</span></div>
+                  <span data-icon="eye" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                  <span data-icon="copy" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                </div>
+                <div style="display:flex;align-items:center;min-height:62px;border-bottom:1px solid var(--color-divider)">
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;color:var(--color-neutral-700)">TOTP</span><span style="display:flex;align-items:baseline;gap:10px"><span style="font-family:Consolas,ui-monospace,monospace;font-size:20px;letter-spacing:.1em">482 915</span><span style="font-size:12px;color:var(--color-neutral-700);font-feature-settings:'tnum'">18 s</span></span></div>
+                  <span data-icon="copy" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                </div>
+                <div style="display:flex;align-items:center;min-height:62px;border-bottom:1px solid var(--color-divider)">
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;color:var(--color-neutral-700)">URL</span><span style="font-size:16px;color:var(--color-accent-700)">github.com</span></div>
+                  <span data-icon="external-link" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                </div>
+                <div style="display:flex;align-items:center;min-height:62px;border-bottom:1px solid var(--color-divider)">
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:12px;color:var(--color-neutral-700)">Recovery e-mail</span><span style="font-size:16px">oleg@fastmail.com</span></div>
+                  <span data-icon="copy" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;color:var(--color-accent-700)"></span>
+                </div>
+              </div>
+              <p style="margin:0;font-size:14px;line-height:1.5;text-align:justify">Recovery codes are in the entry "GitHub recovery".</p>
+              <div style="display:flex;flex-direction:column">
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);padding-bottom:4px">Attachments</div>
+                <div style="display:flex;align-items:center;gap:12px;min-height:52px;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+                  <span data-icon="paperclip" style="display:inline-flex;width:18px;height:18px;color:var(--color-neutral-700)"></span>
+                  <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:15px">recovery-codes.txt</span><span style="font-size:12px;color:var(--color-neutral-700);font-feature-settings:'tnum'">2 KB</span></div>
+                  <span style="font-family:var(--font-heading);font-weight:600;font-size:16px;color:var(--color-accent-700);padding:10px 6px">Open</span>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--color-neutral-700)"><span>Changed 12 Sep 2026, 14:20</span><span style="font-family:var(--font-heading);font-weight:600;font-size:16px;color:var(--color-accent-700);padding:8px 0">History (4)</span></div>
+            </div>
+            <div style="position:absolute;left:16px;right:16px;bottom:38px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--color-text);color:var(--color-bg);border-radius:4px;font-size:14px;box-shadow:var(--shadow-md)"><span>Password copied · clears in 20 s</span></div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:30px;border-bottom:1px solid var(--color-divider);padding-bottom:8px">Sync and settings</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+      <div id="1h" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1h" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1h</a><span style="font-size:14px;color:var(--color-neutral-700)">Sync status (tap the status line)</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="08 Sync status" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:09</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px">
+              <span data-icon="arrow-left" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:22px">Sync</span>
+            </div>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:22px;padding:8px 20px 20px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font-family:var(--font-heading);font-weight:400;font-size:38px;line-height:1">Merged 3 entries</span>
+                <span style="font-size:14px;color:var(--color-neutral-700)">from Dropbox, today at 12:04</span>
+              </div>
+              <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-bottom:1px solid var(--color-divider)"><span style="font-size:12px;color:var(--color-neutral-700)">Remote file</span><span style="font-size:14px">Dropbox › Apps/PswManager Sync/passwords.kdbx</span></div>
+                <div style="display:flex;flex-direction:column;padding:10px 0;border-bottom:1px solid var(--color-divider)"><span style="font-size:12px;color:var(--color-neutral-700)">Working copy</span><span style="font-size:14px">Documents/PswManager/passwords.kdbx</span></div>
+              </div>
+              <button style="height:50px;border:1px solid var(--color-accent);background:transparent;color:var(--color-accent-700);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:18px;display:flex;align-items:center;justify-content:center;gap:10px"><span data-icon="refresh-cw" style="display:inline-flex;width:18px;height:18px"></span>Sync now</button>
+              <div style="display:flex;flex-direction:column">
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);padding-bottom:4px">Merged in the last sync</div>
+                <sc-for list="{{ merged }}" as="m" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:12px;min-height:54px;border-top:1px solid var(--color-divider)">
+                    <div style="width:32px;height:32px;border:1px solid var(--color-neutral-400);border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);font-weight:600;font-size:17px;color:var(--color-accent-700)">{{ m.initial }}</div>
+                    <div style="flex:1;display:flex;flex-direction:column"><span style="font-size:15px">{{ m.title }}</span><span style="font-size:12px;color:var(--color-neutral-700)">{{ m.detail }}</span></div>
+                  </div>
+                </sc-for>
+              </div>
+              <p style="margin:0;font-size:12px;line-height:1.5;color:var(--color-neutral-700);text-align:justify;border-top:1px solid var(--color-divider);padding-top:12px">Syncs on unlock, about 10 s after an edit, every 5 min while unlocked, and uploads on lock. The other version of a merged entry is in its history.</p>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="1i" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1i" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1i</a><span style="font-size:14px;color:var(--color-neutral-700)">Status line, every state (top of the list)</span></div>
+        <div style="width:384px;background:var(--color-bg);border:1px solid var(--color-neutral-400);border-radius:4px;display:flex;flex-direction:column">
+          <sc-for list="{{ states }}" as="s" hint-placeholder-count="6">
+            <div style="display:flex;flex-direction:column;gap:4px;padding:14px 20px;border-bottom:1px solid var(--color-divider)">
+              <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600)">{{ s.when }}</span>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                <span style="font-family:var(--font-heading);font-weight:600;font-size:20px">All <span style="font-weight:400;color:var(--color-neutral-700)">148</span></span>
+                <span style="{{ s.lineStyle }}"><span data-icon="{{ s.icon }}" style="display:inline-flex;width:14px;height:14px"></span>{{ s.text }}</span>
+              </div>
+              <sc-if value="{{ s.action }}" hint-placeholder-val="{{ false }}"><span style="align-self:flex-end;font-family:var(--font-heading);font-weight:600;font-size:15px;color:var(--color-accent-700);padding:4px 0">{{ s.action }}</span></sc-if>
+            </div>
+          </sc-for>
+          <p style="margin:0;padding:14px 20px;font-size:12px;line-height:1.5;color:var(--color-neutral-700);text-align:justify">A sync error never blocks reading or editing. Tapping the line opens <a href="#1h">1h</a>.</p>
+        </div>
+      </div>
+
+      <div id="1j" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;gap:10px;align-items:center"><a href="#1j" style="font-size:12px;font-weight:600;padding:2px 8px;border:1px solid var(--color-accent);border-radius:4px;text-decoration:none;color:var(--color-accent-700)">1j</a><span style="font-size:14px;color:var(--color-neutral-700)">Settings in tabs, as on Windows (tap a tab)</span></div>
+        <div style="width:398px;padding:7px;background:#171614;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <div data-screen-label="09 Settings" style="position:relative;width:384px;height:832px;background:var(--color-bg);border-radius:17px;overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-feature-settings:'tnum'"><span>12:10</span><div style="position:absolute;left:186px;top:12px;width:12px;height:12px;border-radius:50%;background:#111"></div><span style="display:flex;gap:5px"><span data-icon="signal" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="wifi" style="display:inline-flex;width:15px;height:15px"></span><span data-icon="battery-full" style="display:inline-flex;width:17px;height:15px"></span></span></div>
+            <div style="height:60px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px">
+              <span data-icon="arrow-left" style="display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center"></span>
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:22px">Settings</span>
+            </div>
+            <div style="flex-shrink:0;display:flex;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--color-divider);padding:0 8px">
+              <sc-for list="{{ setTabs }}" as="t" hint-placeholder-count="6">
+                <div onClick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}</div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ setNote }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 20px 0;font-size:12px;color:var(--color-neutral-700)">{{ setNote }}</div></sc-if>
+            <div style="flex:1;overflow:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:18px;padding:16px 20px 20px">
+              <sc-for list="{{ settings }}" as="g" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column">
+                  <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);padding-bottom:4px">{{ g.title }}</div>
+                  <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;border-top:1px solid var(--color-divider)">
+                      <div style="display:flex;flex-direction:column;min-width:0"><span style="font-size:15px">{{ r.label }}</span><sc-if value="{{ r.hint }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--color-neutral-700)">{{ r.hint }}</span></sc-if></div>
+                      <sc-if value="{{ r.isToggle }}" hint-placeholder-val="{{ false }}"><div style="{{ r.track }}"><div style="{{ r.knob }}"></div></div></sc-if>
+                      <sc-if value="{{ r.value }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:4px;font-size:14px;color:var(--color-accent-700);white-space:nowrap">{{ r.value }}<span data-icon="chevron-right" style="display:inline-flex;width:16px;height:16px"></span></span></sc-if>
+                      <sc-if value="{{ r.text }}" hint-placeholder-val="{{ false }}"><span style="font-size:14px;color:var(--color-neutral-800);white-space:nowrap">{{ r.text }}</span></sc-if>
+                      <sc-if value="{{ r.action }}" hint-placeholder-val="{{ false }}"><span style="flex-shrink:0;padding:6px 12px;border:1px solid var(--color-accent);border-radius:4px;font-family:var(--font-heading);font-weight:600;font-size:15px;color:var(--color-accent-700);white-space:nowrap">{{ r.action }}</span></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:4px;border-radius:2px;background:var(--color-neutral-700)"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Light&quot;,&quot;Dark&quot;],&quot;default&quot;:&quot;Light&quot;,&quot;tsType&quot;:&quot;'Light' | 'Dark'&quot;}}">
+const DARK = { '--color-bg': '#1d1b19', '--color-text': '#ebe5da', '--color-accent': '#d3a35c', '--color-divider': 'color-mix(in srgb, #ebe5da 16%, transparent)', '--color-neutral-100': '#24211f', '--color-neutral-200': '#2e2b28', '--color-neutral-300': '#3a3633', '--color-neutral-400': '#56514c', '--color-neutral-500': '#75706a', '--color-neutral-600': '#948e87', '--color-neutral-700': '#b3ada5', '--color-neutral-800': '#d0c9c0', '--color-neutral-900': '#ebe5da', '--color-accent-100': '#33281a', '--color-accent-200': '#4a3920', '--color-accent-300': '#6a5129', '--color-accent-400': '#9a7438', '--color-accent-500': '#d3a35c', '--color-accent-600': '#c28d41', '--color-accent-700': '#e1ad66', '--color-accent-800': '#facb8d', '--shadow-md': '0 0 0 1px var(--color-divider), 0 6px 18px rgb(0 0 0 / 45%)', '--shadow-lg': '0 0 0 1px var(--color-divider), 0 12px 32px rgb(0 0 0 / 55%)', '--color-error': '#e08a74', colorScheme: 'dark' };
+const SETTINGS = {
+  general: [
+    { title: 'Security', rows: [{ label: 'Lock after inactivity', hint: '1–60 minutes, or never', value: '5 min' }, { label: 'Lock when the screen turns off', t: true }, { label: 'Lock when the app goes to the background', t: false }] },
+    { title: 'Clipboard', rows: [{ label: 'Clear clipboard after copying', hint: 'Only if it still holds the copied value', value: '20 s' }] },
+  ],
+  appearance: [
+    { title: 'Appearance', rows: [{ label: 'Theme', hint: 'Light or dark, or as the system is set', value: 'As the system' }, { label: 'Download site icons', hint: 'Directly from each site, never through a third party', t: true }] },
+  ],
+  database: [
+    { title: 'Database', rows: [{ label: 'Name', hint: 'On the unlock screen; the file keeps its name', text: 'Personal' }, { label: 'Description', hint: 'Under the name on the unlock screen', text: "Oleg's passwords" }, { label: 'Default user name', hint: 'Filled in on a new blank entry', text: 'oleg@fastmail.com' }] },
+    { title: 'History', rows: [{ label: 'Versions per entry', value: '10 versions' }, { label: 'Size per entry', hint: 'The oldest versions go first', value: '6 MB' }] },
+    { title: 'Key', rows: [{ label: 'Master password and key file', hint: 'No key file', action: 'Change…' }, { label: 'Encryption', hint: 'AES-256 · Argon2id, 64 MiB', action: 'Change…' }] },
+  ],
+  sync: [
+    { title: 'Sync', rows: [{ label: 'This database', hint: 'Dropbox › Apps/PswManager Sync/passwords.kdbx', action: 'Stop syncing' }, { label: 'Check for remote changes', hint: 'While unlocked', value: '5 min' }] },
+    { title: 'Account', rows: [{ label: 'Dropbox', hint: 'oleg@fastmail.com', action: 'Disconnect' }] },
+  ],
+  backup: [
+    { title: 'Backup', rows: [{ label: 'Back up every', hint: 'One encrypted copy, replaced each time', value: '7 days' }, { label: 'Backup folder', hint: 'SD card/Backups', action: 'Select…' }, { label: 'Last backup', text: '28 Sep 2026, 09:12' }, { label: 'Next backup', text: '5 Oct 2026' }, { label: 'Back up now', action: 'Backup now' }] },
+  ],
+  about: [
+    { title: 'About', rows: [{ label: 'Version', hint: 'This copy of PswManager', text: '1.0.0' }, { label: 'Database format', hint: 'Opens in KeePassXC and Keepass2Android', text: 'KDBX 4.1' }] },
+  ],
+};
+class Component extends DCLogic {
+  state = { theme: null, tab: 'general' };
+  componentDidMount() { this.paint(); this.iv = setInterval(() => this.paint(), 400); setTimeout(() => clearInterval(this.iv), 12000); }
+  componentDidUpdate() { this.paint(); }
+  componentWillUnmount() { clearInterval(this.iv); }
+  paint() {
+    const L = window.lucide; if (!L || !L.icons) return;
+    document.querySelectorAll('[data-icon]').forEach(el => {
+      const name = el.getAttribute('data-icon'); if (el.dataset.painted === name) return;
+      const key = name.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
+      const node = L.icons[key]; if (!node) return;
+      const w = parseFloat(el.style.width) || 20, inner = el.style.alignItems === 'center' && w >= 40 ? 22 : w;
+      const svg = L.createElement(node);
+      svg.setAttribute('width', inner); svg.setAttribute('height', inner); svg.setAttribute('stroke-width', '1.6');
+      el.innerHTML = ''; el.appendChild(svg); el.dataset.painted = name;
+    });
+  }
+  renderVals() {
+    const theme = this.state.theme || (this.props.theme === 'Dark' ? 'dark' : 'light');
+    const rootStyle = { padding: '64px', display: 'flex', flexDirection: 'column', gap: '56px', minHeight: '100vh', boxSizing: 'border-box', background: 'var(--color-neutral-300)', color: 'var(--color-text)', ...(theme === 'dark' ? DARK : {}) };
+    const themeOpts = [['light', 'Light'], ['dark', 'Dark']].map(([k, label]) => ({ label, pick: () => this.setState({ theme: k }), style: { padding: '6px 14px', border: 0, borderRadius: '3px', cursor: 'pointer', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '15px', background: theme === k ? 'var(--color-accent-100)' : 'transparent', color: theme === k ? 'var(--color-accent-800)' : 'var(--color-text)' } }));
+    const tab = this.state.tab;
+    const setTabs = [['general', 'General'], ['appearance', 'Appearance'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']].map(([k, label]) => ({ label, pick: () => this.setState({ tab: k }), style: { flexShrink: 0, padding: '12px 14px 10px', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: '17px', cursor: 'pointer', color: tab === k ? 'var(--color-accent-700)' : 'var(--color-neutral-700)', borderBottom: '2px solid ' + (tab === k ? 'var(--color-accent)' : 'transparent'), marginBottom: '-1px' } }));
+    const toggle = on => ({ isToggle: true, track: { width: '40px', height: '24px', borderRadius: '12px', border: '1px solid ' + (on ? 'var(--color-accent)' : 'var(--color-neutral-400)'), background: on ? 'var(--color-accent-100)' : 'transparent', position: 'relative', flexShrink: 0, boxSizing: 'border-box' }, knob: { position: 'absolute', top: '4px', left: on ? '20px' : '4px', width: '14px', height: '14px', borderRadius: '50%', background: on ? 'var(--color-accent)' : 'var(--color-neutral-500)' } });
+    const line = c => ({ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: c, whiteSpace: 'nowrap' });
+    return {
+      rootStyle, themeOpts,
+      entries: [['GitHub', 'oleg-g', 1], ['Dropbox', 'oleg@fastmail.com', 1], ['AWS root', 'oleg@fastmail.com'], ['Raiffeisen online', 'OG-448120'], ['Steam', 'olegg90'], ['Figma', 'oleg@fastmail.com'], ['Notion', 'oleg@fastmail.com'], ['Home router', 'admin'], ['Gosuslugi', '+7 916 ••• 42 17'], ['Linear', 'oleg@studio.co']].map(([title, user, fav]) => ({ title, user, fav: !!fav, initial: title[0] })),
+      groups: [['All', 148, 'layers', 1], ['Favorites', 12, 'star'], ['Expired', 2, 'clock'], ['2FA', 9, 'shield-check'], ['Passkey', 1, 'key-round'], ['Templates', 3, 'layout-template'], ['Trash', 6, 'trash-2']].map(([label, count, icon, on]) => ({ label, count, icon, row: { display: 'flex', alignItems: 'center', gap: '14px', height: '44px', padding: '0 12px', fontSize: '15px', borderRadius: '4px', background: on ? 'var(--color-accent-100)' : 'transparent', color: on ? 'var(--color-accent-800)' : 'var(--color-text)' } })),
+      tags: [['bank', 4], ['design', 3], ['dev', 11], ['games', 2], ['gov', 1], ['home', 5], ['sync', 2]].map(([label, count]) => ({ label, count })),
+      merged: [['Steam', 'Newer on this phone · Windows version in history'], ['AWS root', 'Newer on Windows · this version in history'], ['Home router', 'New on Windows']].map(([title, detail]) => ({ title, detail, initial: title[0] })),
+      states: [
+        ['Up to date', 'check', 'Synced 12:04', 'var(--color-neutral-700)'],
+        ['Unlock, edit, Sync now', 'refresh-cw', 'Syncing…', 'var(--color-neutral-700)'],
+        ['No network', 'cloud-off', 'Changes waiting — offline', 'var(--color-accent-800)'],
+        ['Both sides changed', 'git-merge', 'Merged 3 entries from Dropbox', 'var(--color-accent-800)'],
+        ['Token expired', 'log-in', 'Sign in to Dropbox again', 'var(--color-accent-800)', 'Sign in'],
+        ['Remote file unreadable', 'triangle-alert', "Dropbox file can't be read", 'var(--color-error, #9b3b2a)', 'Details'],
+      ].map(([when, icon, text, c, action]) => ({ when, icon, text, action: action || false, lineStyle: line(c) })),
+      setTabs, setNote: tab === 'database' ? 'Saved in the file: KeePassXC and Keepass2Android see the same values.' : false,
+      settings: SETTINGS[tab].map(g => ({ title: g.title, rows: g.rows.map(r => r.t === undefined ? { ...r, text: r.text || false, action: r.action || false, value: r.value || false, hint: r.hint || false } : { label: r.label, hint: r.hint || false, ...toggle(r.t), text: false, action: false, value: false }) })),
+    };
+  }
+}
+</script>
+</body>
+</html>
