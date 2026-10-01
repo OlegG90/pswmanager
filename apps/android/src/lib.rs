@@ -4,9 +4,15 @@
 #[cfg(mobile)]
 mod app;
 #[cfg(mobile)]
+mod back;
+#[cfg(mobile)]
 mod clipboard;
 #[cfg(mobile)]
 mod documents;
+#[cfg(mobile)]
+mod dropbox;
+#[cfg(mobile)]
+mod secrets;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

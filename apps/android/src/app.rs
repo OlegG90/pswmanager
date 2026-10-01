@@ -4,6 +4,7 @@
 
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
+use crate::dropbox;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
@@ -14,6 +15,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
@@ -22,14 +24,24 @@ const CLEAR_AFTER: Duration = Duration::from_secs(20);
 
 pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
+        .plugin(crate::back::init())
         .plugin(documents::init())
         .plugin(crate::clipboard::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(crate::secrets::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join("pswm.json")));
             app.manage(Session::default());
             app.manage(LastSync::default());
+            app.manage(dropbox::SignIn::default());
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    dropbox::on_open_url(&handle, url.as_str());
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -46,14 +58,17 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_totp,
             open_url,
             sync_now,
-            last_sync
+            last_sync,
+            dropbox::sign_in_to_dropbox,
+            dropbox::dropbox_files,
+            dropbox::open_dropbox_file
         ])
 }
 
 /// What the unlock screen shows about the database, if there is one.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Status {
+pub struct Status {
     database: Option<Database>,
     unlocked: bool,
 }
@@ -75,15 +90,17 @@ struct Synced {
     problem: bool,
     /// The entries changed: the list is read again.
     changed: bool,
+    /// The store wants the user to sign in again.
+    sign_in: bool,
 }
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
 /// never called from it), and syncs and unlocks take a while.
-async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+pub async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
 }
 
-fn status_of(store: &Store, session: &Session) -> Status {
+pub fn status_of(store: &Store, session: &Session) -> Status {
     let database = store.read(|s| {
         s.current().map(|k| Database {
             title: k.title(),
@@ -105,31 +122,45 @@ fn status(store: State<Store>, session: State<Session>) -> Status {
 async fn open_local_file(app: AppHandle) -> Result<Option<Status>, String> {
     off_main(move || {
         let Some(picked) = app.state::<Documents<Wry>>().pick_file()? else { return Ok(None) };
-        let store = app.state::<Store>();
-        let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|k| k.file.clone()).collect());
-        let local = sync::free_path(&store.dir().join("databases"), &picked.name, &taken);
-        sync::start(&store, Location::Document { uri: picked.uri, name: picked.name }, local)?;
-        Ok(Some(status_of(&store, &app.state::<Session>())))
+        adopt(&app, Location::Document { uri: picked.uri, name: picked.name }).map(Some)
     })
     .await
 }
 
+/// Makes the remote file at `location` the database on this phone: its working
+/// copy is downloaded into the app's storage, under the file's name.
+pub fn adopt(app: &AppHandle, location: Location) -> Result<Status, String> {
+    let store = app.state::<Store>();
+    let taken: Vec<PathBuf> = store.read(|s| s.databases.iter().map(|k| k.file.clone()).collect());
+    let local = sync::free_path(&store.dir().join("databases"), &location.file_name(), &taken);
+    sync::start(&store, location, local)?;
+    Ok(status_of(&store, &app.state::<Session>()))
+}
+
 /// Forgets the database (locking it first); its working copy goes too, the
-/// file it synced with stays where it is. Refused while the working copy has
+/// file it synced with stays where it is, and the store's account is signed
+/// out (the phone has one database). Refused while the working copy has
 /// changes the file lacks: they would be lost.
 #[tauri::command]
-fn forget_database(store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    if sync::has_pending(&store) {
-        return Err("This database has changes its file does not have yet: unlock it to sync them first".into());
-    }
-    session.set(None);
-    if let Some(file) = store.read(|s| s.current.clone()) {
-        store.update(|s| s.remove(&file)).map_err(|e| format!("Cannot save the change: {e}"))?;
-        for suffix in ["", pswm_core::dbfile::BAK, pswm_core::dbfile::REMOTE_BAK] {
-            let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&file, suffix));
+async fn forget_database(app: AppHandle) -> Result<Status, String> {
+    off_main(move || {
+        let (store, session) = (app.state::<Store>(), app.state::<Session>());
+        if sync::has_pending(&store) {
+            return Err("This database has changes its file does not have yet: unlock it to sync them first".into());
         }
-    }
-    Ok(status_of(&store, &session))
+        session.set(None);
+        if let Some(current) = store.read(|s| s.current().cloned()) {
+            store.update(|s| s.remove(&current.file)).map_err(|e| format!("Cannot save the change: {e}"))?;
+            for suffix in ["", pswm_core::dbfile::BAK, pswm_core::dbfile::REMOTE_BAK] {
+                let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&current.file, suffix));
+            }
+            if let Some(cloud) = current.remote.and_then(|r| r.location.cloud()) {
+                cloud.provider().sign_out();
+            }
+        }
+        Ok(status_of(&store, &session))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -177,7 +208,8 @@ fn start_sync(app: AppHandle) {
         let result = sync::sync(location.open().as_ref(), &store, &app.state::<Session>());
         let (text, problem) = sync::describe(&store, &result);
         let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
-        let synced = Synced { text, problem, changed };
+        let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
+        let synced = Synced { text, problem, changed, sign_in };
         *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
         // A page that is not listening reads it with `last_sync`.
         let _ = app.emit("synced", synced);

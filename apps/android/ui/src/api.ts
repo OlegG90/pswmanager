@@ -34,6 +34,19 @@ export interface Synced {
   problem: boolean
   /** The entries changed: read the list again. */
   changed: boolean
+  /** The store wants the user to sign in again. */
+  signIn: boolean
+}
+
+/** A database in the app's Dropbox folder. */
+export interface CloudFile {
+  id: string
+  name: string
+}
+
+/** How a sign-in ended (event `signed-in`). */
+export interface SignedIn {
+  error: string | null
 }
 
 export const api = {
@@ -51,4 +64,7 @@ export const api = {
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),
+  signInToDropbox: () => invoke<void>('sign_in_to_dropbox'),
+  dropboxFiles: () => invoke<CloudFile[]>('dropbox_files'),
+  openDropboxFile: (file: CloudFile) => invoke<Status>('open_dropbox_file', { file }),
 }
