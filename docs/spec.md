@@ -12,7 +12,7 @@ stays out.
 | Display name | PswManager (working name) |
 | Executable / CLI | `pswm.exe` |
 | Repository / data folder | `pswmanager` |
-| Platform | Windows 11 (WebView2 is part of the OS) |
+| Platform | Windows 11 (WebView2 is part of the OS); Android phones — see [`spec-android.md`](spec-android.md) |
 | UI language | English only |
 | Distribution | A single portable `pswm.exe`: no installer, not code-signed, no auto-update |
 | License | MIT |
@@ -22,12 +22,12 @@ stays out.
 | Device | Client |
 |---|---|
 | Windows PCs | PswManager |
-| Android phones | Keepass2Android (opens the same file in the same store with its own client, merges on conflict) |
+| Android phones | PswManager for Android ([`spec-android.md`](spec-android.md)), beside Keepass2Android (which opens the same file in the same store with its own client and merges on conflict) until PswManager replaces it |
 | iPad | **Out of scope for now** |
 
 ### Out of scope
 
-Browser autofill and browser extensions, an own sync server, a database shared between people (each person
+Browser autofill and browser extensions (Android's autofill is a later stage of the Android app), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
 at once (one is open at a time; switching locks the other), importing from other
 password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
