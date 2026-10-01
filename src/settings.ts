@@ -57,8 +57,8 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-type Tab = 'general' | 'window' | 'database' | 'sync' | 'about'
-const TABS: Choice<Tab>[] = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']]
+const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']] as const
+type Tab = (typeof TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
 let shownTab: Tab = 'general'
 
@@ -81,9 +81,9 @@ function tabBar(enabled: (tab: Tab) => boolean, open: (tab: Tab) => void): HTMLE
   const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
   bar.addEventListener('keydown', (e) => {
     const usable = TABS.map(([tab]) => tab).filter(enabled)
-    const at = usable.indexOf(shownTab)
-    const next = { ArrowRight: usable[(at + 1) % usable.length], ArrowLeft: usable[(at - 1 + usable.length) % usable.length],
-      Home: usable[0], End: usable[usable.length - 1] }[e.key]
+    const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key]
+    const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
+      : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
     if (!next) return
     e.preventDefault()
     open(next)
