@@ -216,6 +216,20 @@ main.list-screen {
   border-radius: 6px;
 }
 
+/* Site icons and an entry's own images are drawn for light pages: in the dark
+   theme a light tile keeps a dark drawing visible, as on Windows. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .icon.site {
+    padding: 3px;
+    background: #f3f2f2;
+  }
+}
+
+:root[data-theme="dark"] .icon.site {
+  padding: 3px;
+  background: #f3f2f2;
+}
+
 .line {
   display: flex;
   align-items: center;
