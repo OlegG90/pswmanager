@@ -40,6 +40,8 @@ class UploadWorker(context: Context, params: WorkerParameters) : Worker(context,
       val request = OneTimeWorkRequestBuilder<UploadWorker>()
         .setConstraints(Constraints.Builder().setRequiredNetworkType(network).build())
         .setInputData(workDataOf(STATE to state))
+        // The app sends a change itself about 10 s after it is saved: the work is for when it cannot.
+        .setInitialDelay(1, TimeUnit.MINUTES)
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
         .build()
       WorkManager.getInstance(context).enqueueUniqueWork("upload", ExistingWorkPolicy.KEEP, request)

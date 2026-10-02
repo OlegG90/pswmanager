@@ -489,8 +489,10 @@ fn upload_pending(app: AppHandle) {
     });
 }
 
-/// Asks WorkManager to upload the waiting changes later (`background.rs`).
-fn schedule_background_upload(app: &AppHandle, store: &Store) {
+/// Asks WorkManager to upload the waiting changes later (`background.rs`):
+/// when a change is saved, as the app may go at any moment (Back ends it at
+/// once), and again on going to the background or locking.
+pub fn schedule_background_upload(app: &AppHandle, store: &Store) {
     let cloud = store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some()));
     let Ok(data) = app.path().app_data_dir() else { return };
     // Only a fallback: the upload that follows may well send the changes.
