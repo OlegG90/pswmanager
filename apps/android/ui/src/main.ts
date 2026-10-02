@@ -1,13 +1,14 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
-import { beforeExtension, dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
+import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
+import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type CloudFile, type Entry, type EntryData, type EntryDetail, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type CloudFile, type Entry, type EntryData, type EntryDetail, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -574,43 +575,66 @@ function line(label: string, value: Node | string, copy: (() => Promise<number>)
   return el('div', { className: 'line' }, shown, ...(actions.length ? [menu] : []))
 }
 
-/** A secret's line: masked, with Show / Hide in its menu. */
-function secretLine(id: string, label: string, field: string) {
+/** A secret's line (of an older version with `version`): masked, with Show / Hide in its menu. */
+function secretLine(id: string, label: string, field: string, version: number | null = null) {
   const mask = '••••••••••••'
   const value = el('span', { className: 'masked' }, mask)
   let shown = false
   const toggle = async () => {
     shown = !shown
-    value.textContent = shown ? await api.reveal(id, field) : mask
+    value.textContent = shown ? await api.reveal(id, field, version) : mask
     value.classList.toggle('masked', !shown)
   }
-  return line(label, value, () => api.copyField(id, field), ['Show / hide', () => void toggle()])
+  return line(label, value, () => api.copyField(id, field, version), ['Show / hide', () => void toggle()])
+}
+
+/** The lines of an entry, or of its older version `version`: values are
+ *  copied and revealed from that version, its files opened from it. A
+ *  version's URL is not opened, and its TOTP secret is a secret, not codes.
+ *  Returns the lines and what stops the TOTP countdown. */
+function entryLines(entry: EntryDetail, version: number | null): [Node[], () => void] {
+  const id = entry.id
+  const copy = (field: string) => () => api.copyField(id, field, version)
+  const rows: Node[] = []
+  let stop = () => {}
+  if (entry.username) rows.push(line('User name', entry.username, copy(USERNAME)))
+  if (entry.hasPassword) rows.push(secretLine(id, 'Password', PASSWORD, version))
+  if (version === null && entry.otp) {
+    const [node, stopTotp] = totpLine(id)
+    rows.push(node)
+    stop = stopTotp
+  } else if (version !== null && entry.fields.some((f) => f.name === OTP)) {
+    rows.push(secretLine(id, 'TOTP', OTP, version))
+  }
+  if (entry.url) {
+    const open: Action[] = version === null ? [['Open in the browser', () => void api.openUrl(id).catch((e) => snack(String(e)))]] : []
+    rows.push(line('URL', entry.url, copy(URL_FIELD), ...open))
+  }
+  for (const field of entry.fields.filter((f) => f.name !== OTP)) {
+    const label = labelOf(field.name)
+    if (field.protected) rows.push(secretLine(id, label, field.name, version))
+    else if (field.value) rows.push(line(label, field.value, copy(field.name)))
+  }
+  if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
+  if (entry.attachments.length) {
+    const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])))
+  }
+  return [rows, stop]
+}
+
+/** A sync that changed entries shows entry `id` again, or the list when it is gone. */
+function showAgainOnSync(id: string) {
+  onSynced = (synced) => {
+    if (synced.changed) void api.listing().then((fresh) => (fresh.entries.some((e) => e.id === id) ? entryScreen(id, fresh) : listScreen(fresh)))
+  }
 }
 
 async function entryScreen(id: string, listing: Listing) {
   const entry = await api.entry(id)
-  const rows: Node[] = []
-  const stops: (() => void)[] = []
-  if (entry.username) rows.push(line('User name', entry.username, () => api.copyField(id, 'UserName')))
-  if (entry.hasPassword) rows.push(secretLine(id, 'Password', 'Password'))
-  if (entry.otp) {
-    const [node, stop] = totpLine(id)
-    rows.push(node)
-    stops.push(stop)
-  }
-  if (entry.url) {
-    const open: Action = ['Open in the browser', () => void api.openUrl(id).catch((e) => snack(String(e)))]
-    rows.push(line('URL', entry.url, () => api.copyField(id, 'URL'), open))
-  }
-  for (const field of entry.fields) {
-    rows.push(field.protected ? secretLine(id, field.name, field.name) : line(field.name, field.value ?? '', () => api.copyField(id, field.name)))
-  }
-  if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
-  if (entry.attachments.length) {
-    const open = (name: string) => void api.openAttachment(id, name).catch((e) => snack(String(e)))
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])))
-  }
+  const [rows, stop] = entryLines(entry, null)
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
+  if (entry.versions) rows.push(button(`History (${entry.versions})`, 'Older versions of this entry', () => void historyScreen(entry, listing), 'link'))
   const toList = () => listScreen(listing)
   const back = iconButton('back', 'Back to the list', toList)
   const starred = entry.tags.includes(FAVORITE)
@@ -622,11 +646,63 @@ async function entryScreen(id: string, listing: Listing) {
       void api.deleteEntry(id).then((fresh) => (listScreen(fresh), snack('Moved to the recycle bin')), (e) => snack(String(e))))
   const more = iconButton('more', 'More', () => sheet((close) => [el('b', {}, titleOf(entry)), button('Delete', 'Move to the recycle bin', () => (close(), remove()), 'item')]))
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), star, edit, more), ...rows], toList)
-  leave = () => stops.forEach((stop) => stop())
-  // A sync that changed entries shows this one again, or the list when it is gone.
-  onSynced = (synced) => {
-    if (synced.changed) void api.listing().then((fresh) => (fresh.entries.some((e) => e.id === id) ? entryScreen(id, fresh) : listScreen(fresh)))
+  leave = stop
+  showAgainOnSync(id)
+}
+
+// ------------------------------------------------------------ history
+
+const savedAt = (v: { modified: string | null }) => (v.modified ? formatDateTime(v.modified) : '(no date)')
+
+/** The entry's older versions, newest first: when each was saved and what
+ *  changed after it (names, never values). Read only. */
+async function historyScreen(entry: EntryDetail, listing: Listing) {
+  let versions: Version[]
+  try {
+    versions = await api.entryHistory(entry.id)
+  } catch (e) {
+    snack(String(e))
+    return
   }
+  const toEntry = () => void entryScreen(entry.id, listing)
+  const items = versions.map((v, i) => {
+    const item = el('li', { tabIndex: 0 }, el('span', {},
+      el('b', {}, savedAt(v)),
+      el('small', {}, v.changed.length ? `then changed: ${v.changed.join(', ')}` : 'nothing shown changed after it')))
+    item.addEventListener('click', () => void versionScreen(entry, listing, i))
+    return item
+  })
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back to the entry', toEntry), el('h1', {}, 'History')),
+    el('p', { className: 'muted' }, `${titleOf(entry)} · ${versions.length} older ${versions.length === 1 ? 'version' : 'versions'}`),
+    el('ul', { className: 'entries versions' }, ...items),
+  ], toEntry)
+  showAgainOnSync(entry.id)
+}
+
+/** An older version, shown like the entry, read only, with what differs in
+ *  the entry now (a secret only says that it differs). No restoring here. */
+async function versionScreen(entry: EntryDetail, listing: Listing, index: number) {
+  let at
+  try {
+    at = await api.entryVersion(entry.id, index)
+  } catch (e) {
+    snack(String(e))
+    return
+  }
+  const [rows] = entryLines(at, index)
+  if (at.differs.length) {
+    rows.push(el('h2', {}, 'The entry now'), ...at.differs.map((d) =>
+      el('div', { className: 'line' }, el('span', {}, el('small', {}, labelOf(d.name)),
+        el('span', {}, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now')))))
+  }
+  const toHistory = () => void historyScreen(entry, listing)
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back to the history', toHistory), el('h1', {}, titleOf(at))),
+    el('p', { className: 'muted' }, `Version saved ${savedAt(at)} · read only`),
+    ...rows,
+  ], toHistory)
+  showAgainOnSync(entry.id)
 }
 
 // ------------------------------------------------------------ editing

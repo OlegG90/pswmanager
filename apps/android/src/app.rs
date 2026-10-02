@@ -13,7 +13,7 @@ use pswm_core::session::Session;
 use pswm_core::settings::{self, Settings};
 use pswm_core::store::Store;
 use pswm_core::sync;
-use pswm_core::vault::{self, EntryDetail, Listing, Vault};
+use pswm_core::vault::{self, EntryDetail, Listing, Vault, Version, VersionDetail};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
@@ -59,6 +59,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             lock,
             listing,
             entry,
+            entry_history,
+            entry_version,
             reveal,
             copy_field,
             totp,
@@ -363,15 +365,15 @@ fn open_folder(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(cache.join("open"))
 }
 
-/// Opens an attachment in another app, through a read-only copy that locking
-/// deletes. Packages and scripts are not opened: Android would offer to
-/// install or run them.
+/// Opens an attachment (of an older version with `version`) in another app,
+/// through a read-only copy that locking deletes. Packages and scripts are
+/// not opened: Android would offer to install or run them.
 #[tauri::command]
-async fn open_attachment(app: AppHandle, id: String, name: String) -> Result<(), String> {
+async fn open_attachment(app: AppHandle, id: String, name: String, version: Option<usize>) -> Result<(), String> {
     if opened::is_runnable_on_android(&name) {
         return Err("Apps and scripts are not opened from the database".into());
     }
-    let data = app.state::<Session>().with(|v| v.attachment(&id, None, &name))?;
+    let data = app.state::<Session>().with(|v| v.attachment(&id, version, &name))?;
     let path = opened::write(&open_folder(&app)?, &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
     off_main(move || app.state::<Documents<Wry>>().open_file(&path)).await
 }
@@ -501,15 +503,29 @@ fn entry(session: State<Session>, id: String) -> Result<EntryDetail, String> {
     session.with(|v| v.detail(&id))
 }
 
+/// The entry's older versions, newest first: when, and what changed; never values.
 #[tauri::command]
-fn reveal(session: State<Session>, id: String, field: String) -> Result<String, String> {
-    session.with(|v| v.field_in(&id, None, &field)).map(|value| value.to_string())
+fn entry_history(session: State<Session>, id: String) -> Result<Vec<Version>, String> {
+    session.with(|v| v.history(&id))
 }
 
-/// Copies a field's value; how many seconds it stays on the clipboard.
+/// One older version, read only, secrets masked, with how it differs from the entry now.
 #[tauri::command]
-async fn copy_field(app: AppHandle, id: String, field: String) -> Result<u64, String> {
-    let value = app.state::<Session>().with(|v| v.field_in(&id, None, &field))?;
+fn entry_version(session: State<Session>, id: String, index: usize) -> Result<VersionDetail, String> {
+    session.with(|v| v.version(&id, index))
+}
+
+/// One field's value (of an older version with `version`), for showing it.
+#[tauri::command]
+fn reveal(session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<String, String> {
+    session.with(|v| v.field_in(&id, version, &field)).map(|value| value.to_string())
+}
+
+/// Copies a field's value (of an older version with `version`); how many
+/// seconds it stays on the clipboard.
+#[tauri::command]
+async fn copy_field(app: AppHandle, id: String, field: String, version: Option<usize>) -> Result<u64, String> {
+    let value = app.state::<Session>().with(|v| v.field_in(&id, version, &field))?;
     if value.is_empty() {
         return Err(format!("{field} is empty"));
     }

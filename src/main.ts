@@ -7,7 +7,7 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { ask, askText, choose, isAsking } from './modal'
-import { formatDate, formatDateTime, formatSize, splitCode, titleOf } from './entry-text'
+import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
 import { renderSettings } from './settings'
@@ -456,10 +456,6 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
 const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
 
 const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
-/** Fields by the names people know them by (the standard ones appear among
- *  the others only when protected, or as a version's differences). */
-const NAMES: Record<string, string> = { Title: 'Title', [USERNAME]: 'User name', [PASSWORD]: 'Password', [URL_FIELD]: 'URL', Notes: 'Notes', [OTP]: 'TOTP' }
-const labelOf = (field: string) => NAMES[field] ?? field
 
 function renderDetail() {
   const shown = current
