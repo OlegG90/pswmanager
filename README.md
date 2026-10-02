@@ -43,9 +43,9 @@ The code: `src-tauri` is the Windows app (Tauri), `crates/core` the core it shar
 `target/`.
 
 The Android app (`apps/android`, see [docs/spec-android.md](docs/spec-android.md)) is built only in CI: the
-Android SDK and NDK have no Windows-on-ARM64 builds. Each push that touches it builds a debug APK
-(workflow *Android*, artifact `pswmanager-debug-apk`), installed on the phone with
-`adb install -r app-universal-debug.apk` (`adb` is in Google's platform-tools). Its page is in
+Android SDK and NDK have no Windows-on-ARM64 builds. Each push that touches it builds an APK signed with the release key (workflow *Android*, artifact
+`pswmanager-apk`), so it installs over the released app and keeps its data:
+`adb install -r <the .apk>` (`adb` is in Google's platform-tools). Its page is in
 `apps/android/ui` (`npm run build:android-web`).
 
 Releases: bump `version` in the root `Cargo.toml` (`[workspace.package]`, both apps), merge, then push a tag `v<version>` from `main`.
