@@ -1,5 +1,5 @@
-# Builds the Android app (apps/android) into a debug APK for the phone
-# (arm64 only: the reference phone and every current phone). The Android SDK,
+# Builds the Android app (apps/android) into an APK for the phone, signed with
+# the release key (arm64 only: the reference phone and every current phone). The Android SDK,
 # NDK and JDK have no Windows-on-ARM64 builds, so the APK is made here, never
 # on the PC. The APK is the run's artifact, installed with `adb install`.
 # The Gradle project in apps/android/gen/android was made by
@@ -55,20 +55,29 @@ jobs:
 
       - run: npm ci
 
-      # One debug key for every run, so a new APK installs over the last one
-      # (and keeps the app's data); a run without the secret makes its own.
-      - name: Use the stable debug key
+      # The release key, so the APK installs over the released app and keeps
+      # its data, and what is tried is what is released. A run without the
+      # secret (a fork, Dependabot) builds a debug APK instead.
+      - name: The release key
+        id: key
         env:
-          DEBUG_KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
-        if: env.DEBUG_KEYSTORE != ''
+          KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          PASSWORD: ${{ secrets.ANDROID_RELEASE_PASSWORD }}
+        if: env.KEYSTORE != ''
         run: |
-          mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          echo "::add-mask::$PASSWORD"
+          echo "ANDROID_KEYSTORE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
-      - run: npx tauri android build --debug --apk --target aarch64 --ci
+      - if: steps.key.outputs.signed == 'true'
+        run: npx tauri android build --apk --target aarch64 --ci
+      - if: steps.key.outputs.signed != 'true'
+        run: npx tauri android build --debug --apk --target aarch64 --ci
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pswmanager-debug-apk
+          name: pswmanager-apk
           path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error

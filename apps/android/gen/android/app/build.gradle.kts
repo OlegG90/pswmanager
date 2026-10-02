@@ -1,4 +1,3 @@
-import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -7,11 +6,15 @@ plugins {
     id("rust")
 }
 
-val tauriProperties = Properties().apply {
-    val propFile = file("tauri.properties")
-    if (propFile.exists()) {
-        propFile.inputStream().use { load(it) }
-    }
+// Both apps' version, from the workspace's Cargo.toml ([workspace.package]):
+// `0.5.1` is versionName 0.5.1 and versionCode 501 (each part below 100).
+val appVersion: String = Regex("""\[workspace\.package][^\[]*?^version = "(\d+)\.(\d+)\.(\d+)"""", RegexOption.MULTILINE)
+    .find(rootProject.file("../../../../Cargo.toml").readText())
+    ?.groupValues?.drop(1)?.joinToString(".")
+    ?: error("No x.y.z version under [workspace.package] in the root Cargo.toml")
+val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) ->
+    require(minor < 100 && patch < 100) { "Version parts must stay below 100 for versionCode: $appVersion" }
+    major * 10000 + minor * 100 + patch
 }
 
 android {
@@ -22,8 +25,21 @@ android {
         applicationId = "io.github.olegg90.pswmanager"
         minSdk = 29
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
+    // The release key comes from CI (ANDROID_KEYSTORE_PATH and _PASSWORD, from the
+    // repo's secrets); a release build without it is left unsigned.
+    signingConfigs {
+        System.getenv("ANDROID_KEYSTORE_PATH")?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = "pswmanager"
+                keyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -39,6 +55,7 @@ android {
             }
         }
         getByName("release") {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             optimization {
                enable = true
             }
