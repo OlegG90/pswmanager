@@ -200,14 +200,20 @@ background.
 | Unlock (including after start) | yes; the working copy shows at once, the list updates when the sync finishes |
 | The app comes back to the front, unlocked, more than 1 min after the last sync | yes |
 | An entry is created, edited or deleted (stage A2) | upload about 10 s after the last such change (tags and the star alone wait for the next sync, as on Windows) |
-| The app goes to the background with changes not uploaded | an upload at once; if Android stops it, a WorkManager job (needs a network) uploads the working copy later |
-| Lock (by hand or on its own) | an upload only, as on Windows: a merge waits for the next unlock |
+| The app goes to the background with changes not uploaded | an upload at once; if Android stops it, a WorkManager job (needs a network for a cloud store) uploads the working copy later |
+| Lock (by hand or on its own) | an upload only, as on Windows: a merge waits for the next unlock; the WorkManager job too when changes are waiting |
 | Pull down on the list, or **Sync now** | yes |
 | While the app is in front and unlocked | the remote revision is checked every 5 min (1–60, or off), as on Windows |
 
 - The background upload never needs the database's key: it uploads the encrypted working copy, conditional
   on the remote revision. If the remote file changed meanwhile, the upload stops and the merge waits for the
   next unlock.
+  - The job runs the same Rust code through JNI. With the app alive in the process it is the app's own upload
+    (after a sync that runs); in a process Android started for the job, the core reaches the Keystore and the
+    picked documents through plain Kotlin classes (`Keystore.kt`, `DocumentIo.kt`), as the plugins do.
+  - It is tried again only when it was offline or failed, ten times at most (WorkManager's backoff from a
+    minute); waiting for the unlock or for signing in to the store again is left for the app. A job already
+    waiting or running is kept: it sends whatever is waiting when it runs.
 - **Offline:** everything works on the working copy; the status says changes are waiting.
 - **Status line** (top of the list) with the same texts as on Windows: *Synced 12:04*, *Syncing…*,
   *Changes waiting — offline*, *Merged 3 entries from Dropbox*, *Sign in to Dropbox again*, or the error.
