@@ -8,9 +8,14 @@ plugins {
 
 // Both apps' version, from the workspace's Cargo.toml ([workspace.package]):
 // `0.5.1` is versionName 0.5.1 and versionCode 501 (each part below 100).
-val appVersion: String = Regex("""(?m)^version = "([^"]+)"""")
-    .find(rootProject.file("../../../../Cargo.toml").readText())!!.groupValues[1]
-val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
+val appVersion: String = Regex("""\[workspace\.package][^\[]*?^version = "(\d+)\.(\d+)\.(\d+)"""", RegexOption.MULTILINE)
+    .find(rootProject.file("../../../../Cargo.toml").readText())
+    ?.groupValues?.drop(1)?.joinToString(".")
+    ?: error("No x.y.z version under [workspace.package] in the root Cargo.toml")
+val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) ->
+    require(minor < 100 && patch < 100) { "Version parts must stay below 100 for versionCode: $appVersion" }
+    major * 10000 + minor * 100 + patch
+}
 
 android {
     compileSdk = 37

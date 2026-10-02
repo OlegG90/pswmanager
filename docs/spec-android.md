@@ -248,11 +248,15 @@ background.
   biometric prompt, the sensitive clipboard, `FLAG_SECURE`, the app's lifecycle (front, background, screen
   off), WorkManager, opening attachments; later the autofill service.
 - **Build:** only in CI. The Android SDK, NDK and JDK have no Windows-on-ARM64 builds, so the APK is built
-  on GitHub Actions (Ubuntu): every push to a branch with Android changes builds a debug APK as an
-  artifact; a `v*` tag builds the **release APK**, signed with the app's key, and attaches it to the GitHub
-  Release beside the Windows exes.
-- **Signing key:** made once. The keystore is kept in the CI secrets (base64) with its passwords, and a copy
-  is kept by the owner outside the repo (as an attachment in the PswManager database). Losing it means the
+  on GitHub Actions (Ubuntu): every push to a branch with Android changes builds an APK as an artifact,
+  a release build signed with the app's key, so it installs over the released app and keeps its data, and
+  what is tried is what is released (a run without the key's secret, a fork's or Dependabot's, builds a
+  debug APK). A `v*` tag builds the **release APK** the same way and attaches it to the GitHub Release beside
+  the Windows exes. Both apps have one version (the root `Cargo.toml`), which the tag must match.
+- **Signing key:** made once: a PKCS#12 store (alias `pswmanager`, one password for the store and the key),
+  kept in the CI secrets (base64) with its password, and a copy is kept by the owner outside the repo (as an
+  attachment in the PswManager database). Any workflow in the repo can use the secrets, so a change to a
+  workflow is reviewed before it runs on a branch. Losing it means the
   app cannot be updated in place, and the stores' Android registrations (which use its hash) must be made
   again.
 - **On the PC:** only `adb` (platform-tools), to install the APK on the phone and read `logcat`. The phone
@@ -278,7 +282,7 @@ Each stage is a GitHub issue and lands in one or more PRs.
 
 - **A0 — Shared core:** move the platform-free code into `crates/core`; the Windows app uses it with no
   change in behaviour; its tests run against the crate.
-- **A1 — First usable app:** the Tauri Android project and CI (debug APK per push, signed release APK on
+- **A1 — First usable app:** the Tauri Android project and CI (a signed APK per push and on
   tags); the signing key; Dropbox (the sign-in question decided first); a local file through SAF;
   the visible copy's folder; first run; unlock with a master password and/or key file; list, search, drawer
   (groups and tags), entry view, copying with the sensitive clipboard, TOTP, attachments opened, site

@@ -110,6 +110,7 @@ jobs:
           KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
           PASSWORD: ${{ secrets.ANDROID_RELEASE_PASSWORD }}
         run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$PASSWORD" ]; then echo "::error::The release key's secrets are missing"; exit 1; fi
           echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.p12"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
           echo "::add-mask::$PASSWORD"
@@ -117,17 +118,20 @@ jobs:
 
       - run: npx tauri android build --apk --target aarch64 --ci
 
+      # Only the signed APK: an `-unsigned` one means signing failed.
       - name: Collect the APK
         run: |
           mkdir -p release
-          cp "$(find apps/android/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)" release/pswmanager-android.apk
+          apk="$(find apps/android/gen/android/app/build/outputs/apk -name '*-release.apk' | head -1)"
+          if [ -z "$apk" ]; then echo "::error::No signed release APK was built"; exit 1; fi
+          cp "$apk" release/pswmanager-android.apk
 
       - name: Add it to the release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release upload "$TAG" release/pswmanager-android.apk
+        run: gh release upload "$TAG" release/pswmanager-android.apk --clobber
 
       - name: Keep the APK (manual runs)
         if: github.event_name != 'push'
