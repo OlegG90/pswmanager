@@ -199,13 +199,6 @@ main.list-screen {
   border-radius: 6px;
 }
 
-.icon.letter {
-  display: grid;
-  place-items: center;
-  font-weight: 600;
-  color: var(--color-accent);
-  background: var(--color-accent-100);
-}
 
 .line {
   display: flex;

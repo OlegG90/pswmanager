@@ -5,13 +5,13 @@
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::dropbox;
+use pswm_core::documents::DocumentStore;
 use pswm_core::opened;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::sync;
-use pswm_core::documents::DocumentStore;
 use pswm_core::vault::{self, EntryDetail, Listing, Vault};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
                 cloud.provider().sign_out();
             }
             crate::visible::forget(&store)?;
-            store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))?;
+            forget_key_file(&store)?;
         }
         Ok(status_of(&store, &session))
     })
@@ -208,8 +208,8 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
         let password = Some(password.as_str()).filter(|p| !p.is_empty());
         let key = match key_file(&store) {
             Some(picked) => {
-                let content = app.state::<Documents<Wry>>().read(&picked.uri)?.ok_or(format!("The key file {} is gone", picked.name))?;
-                let content = Zeroizing::new(content);
+                let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
+                let content = Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?);
                 vault::key_reading(password, Some(&mut content.as_slice()))?
             }
             None => vault::key_reading(password, None)?,
@@ -301,8 +301,12 @@ async fn pick_key_file(app: AppHandle) -> Result<Status, String> {
 /// The database is unlocked without a key file from now on.
 #[tauri::command]
 fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
-    store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))?;
+    forget_key_file(&store)?;
     Ok(status_of(&store, &session))
+}
+
+fn forget_key_file(store: &Store) -> Result<(), String> {
+    store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))
 }
 
 /// Where copies of opened attachments go: the app's cache, which the

@@ -1,4 +1,5 @@
 import { DEFAULT_ICON, glyphIcon } from './glyphs'
+import { siteIconCache } from './site-icons'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
@@ -47,8 +48,12 @@ let healthOpen = false
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
 let listing = EMPTY
-/** Site icons by host: a data URL, null when the cache has none (yet). */
-const siteIcons = new Map<string, string | null>()
+/** Site icons by host; one that arrives replaces the key in the images waiting for it. */
+const siteIcons = siteIconCache(api.icon, (host, icon) => {
+  document.querySelectorAll<HTMLImageElement>('img[data-host]').forEach((img) => {
+    if (img.dataset.host === host) setIcon(img, icon)
+  })
+})
 /** What the sidebar shows: a group or a tag. */
 let filter: Filter = ALL
 let shown: Entry[] = []
@@ -274,7 +279,6 @@ function iconFor(entry: Entry): string {
 /** What the Auto choice shows: the site's icon, else the key. */
 function autoIcon(entry: Entry | null): string {
   if (entry?.host) {
-    if (!siteIcons.has(entry.host)) loadSiteIcon(entry.host)
     const icon = siteIcons.get(entry.host)
     if (icon) return icon
   }
@@ -295,16 +299,6 @@ function iconImage(entry: Entry): HTMLImageElement {
 function setIcon(img: HTMLImageElement, src: string) {
   img.src = src
   img.classList.toggle('site', src !== DEFAULT_ICON)
-}
-
-async function loadSiteIcon(host: string) {
-  siteIcons.set(host, null)
-  const icon = await api.icon(host).catch(() => null)
-  if (!icon) return
-  siteIcons.set(host, icon)
-  document.querySelectorAll<HTMLImageElement>('img[data-host]').forEach((img) => {
-    if (img.dataset.host === host) setIcon(img, icon)
-  })
 }
 
 function listItem(entry: Entry): HTMLLIElement {
@@ -1379,8 +1373,7 @@ listen('settings-changed', () => {
 })
 
 listen<string>('icon-ready', (e) => {
-  siteIcons.delete(e.payload)
-  loadSiteIcon(e.payload)
+  siteIcons.refresh(e.payload)
 })
 
 // Which copy this is, under the name on the unlock screen.
