@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength } from '../../../../src/api'
+import type { Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
 
-export type { Entry, EntryData, EntryDetail }
+export type { Entry, EntryData, EntryDetail, Version, VersionDetail }
 
 export interface Database {
   title: string
@@ -94,12 +94,16 @@ export const api = {
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),
-  reveal: (id: string, field: string) => invoke<string>('reveal', { id, field }),
-  copyField: (id: string, field: string) => invoke<number>('copy_field', { id, field }),
+  /** A field's value; of an older version with `version` (as everywhere below). */
+  reveal: (id: string, field: string, version: number | null = null) => invoke<string>('reveal', { id, field, version }),
+  copyField: (id: string, field: string, version: number | null = null) => invoke<number>('copy_field', { id, field, version }),
+  /** The entry's older versions, newest first. */
+  entryHistory: (id: string) => invoke<Version[]>('entry_history', { id }),
+  entryVersion: (id: string, index: number) => invoke<VersionDetail>('entry_version', { id, index }),
   totp: (id: string) => invoke<Code | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
-  openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
+  openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
   lockLater: () => invoke<void>('lock_later'),
   screenOff: () => invoke<boolean>('screen_off'),
   settings: () => invoke<Settings>('settings'),

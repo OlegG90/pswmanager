@@ -1,5 +1,7 @@
 /** How tags, dates and sizes are written in one line of text. */
 
+import { OTP, PASSWORD, URL_FIELD, USERNAME } from './api'
+
 export const formatTags = (tags: string[]) => tags.join(', ')
 
 /** Line breaks an <input> cannot hold. */
@@ -65,6 +67,11 @@ export function beforeExtension(name: string): number {
   const dot = name.lastIndexOf('.')
   return dot > 0 ? dot : name.length
 }
+
+/** Fields by the names people know them by (the standard ones appear among
+ *  the others only when protected, or as a version's differences). */
+const LABELS: Record<string, string> = { Title: 'Title', [USERNAME]: 'User name', [PASSWORD]: 'Password', [URL_FIELD]: 'URL', Notes: 'Notes', [OTP]: 'TOTP' }
+export const labelOf = (field: string) => LABELS[field] ?? field
 
 export const titleOf = (entry: { title: string }) => entry.title || '(no title)'
 
