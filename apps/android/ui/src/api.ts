@@ -12,6 +12,8 @@ export interface Database {
   cloud: boolean
   /** The folder its visible copy is in, if one was chosen. */
   copyFolder: string | null
+  /** The key file it is unlocked with, by name, if it has one. */
+  keyFile: string | null
 }
 
 export interface Status {
@@ -86,4 +88,7 @@ export const api = {
   pickFolder: () => invoke<Picked | null>('pick_folder'),
   setCopyFolder: (folder: Picked) => invoke<Status>('set_copy_folder', { folder }),
   syncIfPending: () => invoke<void>('sync_if_pending'),
+  pickKeyFile: () => invoke<Status>('pick_key_file'),
+  clearKeyFile: () => invoke<Status>('clear_key_file'),
+  icon: (host: string) => invoke<string | null>('icon', { host }),
 }

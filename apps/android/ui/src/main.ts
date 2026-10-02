@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
+import { glyphIcon } from '../../../../src/glyphs'
 import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { svgIcon, type IconName } from './icons'
 import { api, type CloudFile, type Entry, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
@@ -228,11 +229,19 @@ function unlockScreen() {
         error.show(String(e))
       }
     })
+  const keyFile = (status: Status) => {
+    database = status.database
+    unlockScreen()
+  }
+  const keyLine = current.keyFile
+    ? el('p', { className: 'muted' }, `Key file: ${current.keyFile} `, button('Remove', 'Unlock without a key file', () => void api.clearKeyFile().then(keyFile, error.show), 'link'))
+    : button('Use a key file…', 'For a database set up with one: a .keyx or .key file kept apart from it', () => void api.pickKeyFile().then(keyFile, error.show), 'link')
   show([
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
     password,
+    keyLine,
     unlock,
     error.line,
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
@@ -351,11 +360,44 @@ function row(entry: Entry, listing: Listing): HTMLLIElement {
   return item
 }
 
+/** Site icons as `data:` URLs, by host; `null` while asked for or when there is none. */
+const siteIcons = new Map<string, string | null>()
+
+/** An entry's own image, else the drawing chosen for it, else its site's icon
+ *  (when it arrives), else its first letter, as on Windows. */
 function icon(entry: Entry, listing: Listing) {
   const custom = entry.customIcon && listing.customIcons[entry.customIcon]
   if (custom) return el('img', { className: 'icon', src: custom, alt: '' })
-  return el('span', { className: 'icon letter' }, titleOf(entry).slice(0, 1).toUpperCase())
+  if (entry.icon !== null) return el('img', { className: 'icon', src: glyphIcon(entry.icon), alt: '' })
+  const letter = el('span', { className: 'icon letter' }, titleOf(entry).slice(0, 1).toUpperCase())
+  if (!entry.host) return letter
+  letter.dataset.host = entry.host
+  const known = siteIcons.get(entry.host)
+  if (known) return siteImage(entry.host, known)
+  if (!siteIcons.has(entry.host)) void loadSiteIcon(entry.host)
+  return letter
 }
+
+function siteImage(host: string, src: string) {
+  const img = el('img', { className: 'icon site', src, alt: '' })
+  img.dataset.host = host
+  return img
+}
+
+/** Asks for a site's icon and puts it in place of the letters waiting for it. */
+async function loadSiteIcon(host: string) {
+  siteIcons.set(host, null)
+  const src = await api.icon(host).catch(() => null)
+  if (!src) return
+  siteIcons.set(host, src)
+  document.querySelectorAll<HTMLElement>('.icon.letter[data-host]').forEach((n) => n.dataset.host === host && n.replaceWith(siteImage(host, src)))
+}
+
+/** A site's icon fetched in the background: shown where it is waited for. */
+void listen<string>('icon-ready', (e) => {
+  siteIcons.delete(e.payload)
+  void loadSiteIcon(e.payload)
+})
 
 /** A long press: copy without opening the entry. */
 function quickCopy(entry: Entry) {
