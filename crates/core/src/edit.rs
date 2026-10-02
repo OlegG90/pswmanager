@@ -97,8 +97,8 @@ pub struct FieldData {
 pub enum FileChange<C = u64> {
     /// A new file; a name the entry already uses gets a number (`scan (2).pdf`).
     Add { name: String, content: C },
-    /// One of the entry's files renamed to `to`, given new content, or both.
-    Change { name: String, to: String, content: Option<C> },
+    /// One of the entry's files renamed to `to`.
+    Rename { name: String, to: String },
     Remove { name: String },
 }
 
@@ -404,16 +404,16 @@ pub fn check_icon_image(bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Makes `changes` to the entry's files, leaving its history to the caller;
-/// true when anything changed. Removals go first, then changes, then new
+/// true when anything changed. Removals go first, then renames, then new
 /// files, so a name one frees can be taken by another.
-/// keepass-rs can neither rename a file nor change its content: a changed
-/// file is let go of (history keeps it, see [drop_attachments]) and its
-/// content attached under the name anew. A new file never replaces one:
-/// keepass-rs would take the old one from the history too.
+/// keepass-rs cannot rename a file: a renamed file is let go of (history
+/// keeps it, see [drop_attachments]) and its content attached under the new
+/// name. A new file never replaces one: keepass-rs would take the old one
+/// from the history too.
 fn change_files(db: &mut Database, id: EntryId, changes: &[FileEdit]) -> Result<bool, String> {
     let entry = db.entry(id).ok_or(NOT_FOUND)?;
     for change in changes {
-        if let FileChange::Add { content, .. } | FileChange::Change { content: Some(content), .. } = change {
+        if let FileChange::Add { content, .. } = change {
             if content.len() > MAX_ATTACHMENT {
                 return Err(too_big());
             }
@@ -430,35 +430,21 @@ fn change_files(db: &mut Database, id: EntryId, changes: &[FileEdit]) -> Result<
     let mut changed = !removed.is_empty();
     drop_attachments(db, id, &removed);
     for change in changes {
-        let FileChange::Change { name, to, content } = change else { continue };
+        let FileChange::Rename { name, to } = change else { continue };
         let to = to.trim();
         if to.is_empty() {
             return Err("A file needs a name".into());
         }
         let entry = db.entry(id).expect("checked above");
-        let Some(old) = entry.attachment_by_name(name) else {
-            // Removed on another device meanwhile: new content comes back as
-            // a new file; a new name alone has nothing left to name.
-            if let Some(content) = content {
-                let name = free_name(&entry, to);
-                db.entry_mut(id).expect("checked above").add_attachment(name, Value::protected(content.to_vec()));
-                changed = true;
-            }
-            continue;
-        };
-        // New content is protected in memory as the old was.
-        let value = match content {
-            Some(new) if new.as_slice() != old.data.get().as_slice() => {
-                if old.data.is_protected() { Value::protected(new.to_vec()) } else { Value::unprotected(new.to_vec()) }
-            }
-            _ => old.data.clone(),
-        };
-        if to == name && value.get() == old.data.get() {
+        // Removed on another device meanwhile: nothing left to name.
+        let Some(old) = entry.attachment_by_name(name) else { continue };
+        if to == name {
             continue;
         }
-        if to != name && entry.attachment_by_name(to).is_some() {
+        if entry.attachment_by_name(to).is_some() {
             return Err(format!("The entry already has a file named \"{to}\""));
         }
+        let value = old.data.clone();
         drop_attachments(db, id, std::slice::from_ref(name));
         db.entry_mut(id).expect("checked above").add_attachment(to, value);
         changed = true;
@@ -1325,12 +1311,8 @@ mod tests {
     }
 
     fn rename_attachment(db: &mut Database, id: EntryId, from: &str, to: &str, hidden: &HashSet<GroupId>) -> Result<String, String> {
-        edit_files(db, id, &[FileChange::Change { name: from.into(), to: to.into(), content: None }], hidden)?;
+        edit_files(db, id, &[FileChange::Rename { name: from.into(), to: to.into() }], hidden)?;
         Ok(to.trim().to_string())
-    }
-
-    fn replace_attachment(db: &mut Database, id: EntryId, name: &str, data: &[u8], hidden: &HashSet<GroupId>) -> Result<(), String> {
-        edit_files(db, id, &[FileChange::Change { name: name.into(), to: name.into(), content: Some(content(data)) }], hidden)
     }
 
     fn history_len(db: &Database, id: EntryId) -> usize {
@@ -1788,7 +1770,8 @@ mod tests {
         let mut db = Database::new();
         let id = apply(&mut db, None, &data("Mail"), &HashSet::new()).unwrap();
         attach(&mut db, id, "old.txt", b"old file", &HashSet::new()).unwrap();
-        replace_attachment(&mut db, id, "old.txt", b"new file", &HashSet::new()).unwrap();
+        let replace = [FileChange::Remove { name: "old.txt".into() }, FileChange::Add { name: "old.txt".into(), content: content(b"new file") }];
+        edit_files(&mut db, id, &replace, &HashSet::new()).unwrap();
         assert_eq!(db.num_attachments(), 2, "history keeps the old content");
 
         set_history_limits(&mut db, 0, -1);
@@ -1952,27 +1935,6 @@ mod tests {
     }
 
     #[test]
-    fn replacing_keeps_the_old_content_in_history() {
-        let mut db = Database::new();
-        let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
-        attach(&mut db, id, "a.txt", b"old", &HashSet::new()).unwrap();
-        attach(&mut db, id, "b.txt", b"b", &HashSet::new()).unwrap();
-        replace_attachment(&mut db, id, "a.txt", b"new", &HashSet::new()).unwrap();
-        assert_eq!(files(&db, id), [("a.txt".to_string(), b"new".to_vec()), ("b.txt".to_string(), b"b".to_vec())]);
-        let entry = db.entry(id).unwrap();
-        assert_eq!(entry.historical(0).unwrap().attachment_by_name("a.txt").unwrap().data.get(), b"old");
-        assert!(db.entry(id).unwrap().attachment_by_name("a.txt").unwrap().data.is_protected());
-        // The same content, a file too big: nothing changes.
-        let before = db.clone();
-        replace_attachment(&mut db, id, "a.txt", b"new", &HashSet::new()).unwrap();
-        assert!(replace_attachment(&mut db, id, "a.txt", &vec![0; MAX_ATTACHMENT + 1], &HashSet::new()).is_err());
-        assert_eq!(db, before);
-        // New content for a file removed elsewhere meanwhile comes back as a file.
-        replace_attachment(&mut db, id, "gone.txt", b"x", &HashSet::new()).unwrap();
-        assert_eq!(db.entry(id).unwrap().attachment_by_name("gone.txt").unwrap().data.get(), b"x");
-    }
-
-    #[test]
     fn detaching_keeps_the_file_for_history() {
         let mut db = Database::new();
         let id = apply(&mut db, None, &data("x"), &HashSet::new()).unwrap();
@@ -2089,8 +2051,9 @@ mod tests {
         let edited = with("x", |d| d.password = "new".into());
         let changes = [
             FileChange::Remove { name: "a.txt".into() },
-            FileChange::Change { name: "b.txt".into(), to: "a.txt".into(), content: None },
-            FileChange::Change { name: "c.txt".into(), to: "c.txt".into(), content: Some(content(b"c2")) },
+            FileChange::Rename { name: "b.txt".into(), to: "a.txt".into() },
+            FileChange::Remove { name: "c.txt".into() },
+            FileChange::Add { name: "c.txt".into(), content: content(b"c2") },
             FileChange::Add { name: "c.txt".into(), content: content(b"another") },
         ];
         apply_with_files(&mut db, Some(id), &edited, &changes, &HashSet::new()).unwrap();

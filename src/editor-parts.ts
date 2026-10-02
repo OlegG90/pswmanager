@@ -211,7 +211,7 @@ export interface FileUi {
 }
 
 /** One file in the files section: one the entry has (`original`), or one
- *  picked here; `staged` is new content picked for it. */
+ *  picked here (`staged`). */
 interface FileState {
   original: string | null
   staged: StagedFile | null
@@ -221,13 +221,14 @@ interface FileState {
 /** What will happen to the file on Save, as its line says it. */
 function fileNote(f: FileState): string {
   if (f.original === null) return 'new'
-  return [f.name !== f.original ? `renamed from ${f.original}` : '', f.staged ? 'replaced' : ''].filter(Boolean).join(' · ')
+  return f.name !== f.original ? `renamed from ${f.original}` : ''
 }
 
 /**
  * The entry's files in the editor, as SafeInCloud and Keepass2Android have
- * them: each file's menu renames, replaces or removes it, and new ones are
- * added; each line says what Save will do to its file. Nothing changes until
+ * them: each file's menu renames or removes it, and new ones are added (other
+ * content for a file: remove it and add the new one); each line says what
+ * Save will do to its file. Nothing changes until
  * the entry is saved: `changes` are sent with it. `release` lets go of every
  * picked file (the editor closed without saving).
  */
@@ -260,13 +261,6 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
       state.name = to
       draw()
     }
-    const replace = async () => {
-      const picked = await pick()
-      if (!picked) return
-      if (state.staged) void ui.release([state.staged.content])
-      state.staged = picked
-      draw()
-    }
     const remove = () => {
       if (state.staged) void ui.release([state.staged.content])
       states.splice(states.indexOf(state), 1)
@@ -274,7 +268,6 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
     }
     const items: MenuItem[] = [
       { label: 'Rename…', title: 'Give the file another name', action: () => void rename() },
-      ...(state.original ? [{ label: 'Replace…', title: 'Replace with another file (the entry’s history keeps this one)', action: () => void replace() }] : []),
       { label: 'Remove', title: 'Remove from the entry (its history keeps the file)', action: remove, danger: true },
     ]
     const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), sizeText, ui.menu(`More for ${state.name}`, items))
@@ -299,8 +292,7 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
     const removed: FileChange[] = initial.filter((f) => !kept.has(f.name)).map((f) => ({ kind: 'remove', name: f.name }))
     const changed: FileChange[] = states.flatMap((f): FileChange[] => {
       if (f.original === null) return [{ kind: 'add', name: f.name, content: f.staged!.content }]
-      if (f.name === f.original && !f.staged) return []
-      return [{ kind: 'change', name: f.original, to: f.name, content: f.staged?.content ?? null }]
+      return f.name === f.original ? [] : [{ kind: 'rename', name: f.original, to: f.name }]
     })
     return [...removed, ...changed]
   }

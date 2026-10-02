@@ -193,8 +193,7 @@ export interface StagedFile {
 export type FileChange =
   /** A name the entry already uses gets a number (`scan (2).pdf`). */
   | { kind: 'add'; name: string; content: number }
-  /** Renamed to `to`, given new content (a staged file), or both. */
-  | { kind: 'change'; name: string; to: string; content: number | null }
+  | { kind: 'rename'; name: string; to: string }
   | { kind: 'remove'; name: string }
 
 export interface Listing {

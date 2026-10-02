@@ -1288,14 +1288,14 @@ pub mod tests {
         // Attaching and renaming after a removal still number the files right.
         let mut reopened = reopened;
         add_file(&mut reopened, &id, "new.txt", b"new");
-        change_files(&mut reopened, &mail, vec![FileChange::Change { name: "later.txt".into(), to: "renamed.txt".into(), content: None }]);
+        change_files(&mut reopened, &mail, vec![FileChange::Rename { name: "later.txt".into(), to: "renamed.txt".into() }]);
         let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(again.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");
         assert_eq!(again.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"attached later");
         assert!(again.attachment(&mail, None, "later.txt").is_none());
         let mut again = again;
-        let replaced = Some(Zeroizing::new(b"replaced".to_vec()));
-        change_files(&mut again, &mail, vec![FileChange::Change { name: "renamed.txt".into(), to: "renamed.txt".into(), content: replaced }]);
+        let replaced = Zeroizing::new(b"replaced".to_vec());
+        change_files(&mut again, &mail, vec![FileChange::Remove { name: "renamed.txt".into() }, FileChange::Add { name: "renamed.txt".into(), content: replaced }]);
         let last = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(last.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"replaced");
         assert_eq!(last.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");

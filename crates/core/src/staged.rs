@@ -51,9 +51,7 @@ impl Staged {
             .map(|change| {
                 Ok(match change {
                     FileChange::Add { name, content: id } => FileChange::Add { name: name.clone(), content: content(id)? },
-                    FileChange::Change { name, to, content: id } => {
-                        FileChange::Change { name: name.clone(), to: to.clone(), content: id.as_ref().map(content).transpose()? }
-                    }
+                    FileChange::Rename { name, to } => FileChange::Rename { name: name.clone(), to: to.clone() },
                     FileChange::Remove { name } => FileChange::Remove { name: name.clone() },
                 })
             })
@@ -79,8 +77,7 @@ impl<C> FileChange<C> {
     pub fn content(&self) -> Option<&C> {
         match self {
             FileChange::Add { content, .. } => Some(content),
-            FileChange::Change { content, .. } => content.as_ref(),
-            FileChange::Remove { .. } => None,
+            FileChange::Rename { .. } | FileChange::Remove { .. } => None,
         }
     }
 }
@@ -96,7 +93,7 @@ mod tests {
         assert_eq!((a.name.as_str(), a.size), ("a.txt", 1));
         let changes = [
             FileChange::Add { name: "a.txt".into(), content: a.content },
-            FileChange::Change { name: "b.txt".into(), to: "c.txt".into(), content: None },
+            FileChange::Rename { name: "b.txt".into(), to: "c.txt".into() },
             FileChange::Remove { name: "d.txt".into() },
         ];
         let edits = staged.resolve(&changes).unwrap();

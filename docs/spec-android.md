@@ -135,8 +135,8 @@ As in the mockups `1e`–`1j`.
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
 - **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
-  another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, replaced,
-  renamed and removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
+  another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, renamed and
+  removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
   Android's file picker and read once, without keeping access to it.
 - **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
   downloaded the same way and cached in the app's private storage, with the same hashed file names (the
