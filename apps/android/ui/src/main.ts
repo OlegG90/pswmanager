@@ -591,7 +591,7 @@ function secretLine(id: string, label: string, field: string, version: number | 
 /** The lines of an entry, or of its older version `version`: values are
  *  copied and revealed from that version, its files opened from it. A
  *  version's URL is not opened, and its TOTP secret is a secret, not codes.
- *  With what stops the TOTP countdown. */
+ *  Returns the lines and what stops the TOTP countdown. */
 function entryLines(entry: EntryDetail, version: number | null): [Node[], () => void] {
   const id = entry.id
   const copy = (field: string) => () => api.copyField(id, field, version)
@@ -612,7 +612,8 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   }
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     const label = labelOf(field.name)
-    rows.push(field.protected ? secretLine(id, label, field.name, version) : line(label, field.value ?? '', copy(field.name)))
+    if (field.protected) rows.push(secretLine(id, label, field.name, version))
+    else if (field.value) rows.push(line(label, field.value, copy(field.name)))
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
@@ -651,6 +652,8 @@ async function entryScreen(id: string, listing: Listing) {
 
 // ------------------------------------------------------------ history
 
+const savedAt = (v: { modified: string | null }) => (v.modified ? formatDateTime(v.modified) : '(no date)')
+
 /** The entry's older versions, newest first: when each was saved and what
  *  changed after it (names, never values). Read only. */
 async function historyScreen(entry: EntryDetail, listing: Listing) {
@@ -664,7 +667,7 @@ async function historyScreen(entry: EntryDetail, listing: Listing) {
   const toEntry = () => void entryScreen(entry.id, listing)
   const items = versions.map((v, i) => {
     const item = el('li', { tabIndex: 0 }, el('span', {},
-      el('b', {}, v.modified ? formatDateTime(v.modified) : '(no date)'),
+      el('b', {}, savedAt(v)),
       el('small', {}, v.changed.length ? `then changed: ${v.changed.join(', ')}` : 'nothing shown changed after it')))
     item.addEventListener('click', () => void versionScreen(entry, listing, i))
     return item
@@ -696,7 +699,7 @@ async function versionScreen(entry: EntryDetail, listing: Listing, index: number
   const toHistory = () => void historyScreen(entry, listing)
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back to the history', toHistory), el('h1', {}, titleOf(at))),
-    el('p', { className: 'muted' }, `Version saved ${at.modified ? formatDateTime(at.modified) : '(no date)'} · read only`),
+    el('p', { className: 'muted' }, `Version saved ${savedAt(at)} · read only`),
     ...rows,
   ], toHistory)
   showAgainOnSync(entry.id)

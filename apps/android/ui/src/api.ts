@@ -94,7 +94,7 @@ export const api = {
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),
-  /** A field's value; of an older version with `version` (as everywhere below). */
+  /** A field's value; with `version`, an older version's (so too for copyField and openAttachment). */
   reveal: (id: string, field: string, version: number | null = null) => invoke<string>('reveal', { id, field, version }),
   copyField: (id: string, field: string, version: number | null = null) => invoke<number>('copy_field', { id, field, version }),
   /** The entry's older versions, newest first. */

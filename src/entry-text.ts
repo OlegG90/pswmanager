@@ -68,8 +68,8 @@ export function beforeExtension(name: string): number {
   return dot > 0 ? dot : name.length
 }
 
-/** Fields by the names people know them by (the standard ones appear among
- *  the others only when protected, or as a version's differences). */
+/** Fields by the names people know them by: a standard field listed among
+ *  the others (a protected one, or a version's difference) gets its label. */
 const LABELS: Record<string, string> = { Title: 'Title', [USERNAME]: 'User name', [PASSWORD]: 'Password', [URL_FIELD]: 'URL', Notes: 'Notes', [OTP]: 'TOTP' }
 export const labelOf = (field: string) => LABELS[field] ?? field
 
