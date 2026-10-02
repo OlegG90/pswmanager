@@ -36,6 +36,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(LastSync::default());
             app.manage(Syncing::default());
             app.manage(LockLater::default());
+            app.manage(crate::editing::UploadSoon::default());
             app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
             if let Ok(folder) = open_folder(app.handle()) {
@@ -80,7 +81,13 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             dropbox::sign_in_to_dropbox,
             dropbox::dropbox_files,
             dropbox::open_dropbox_file,
-            crate::visible::copy_name_taken
+            crate::visible::copy_name_taken,
+            crate::editing::edit_entry,
+            crate::editing::save_entry,
+            crate::editing::delete_entry,
+            crate::editing::set_favorite,
+            crate::editing::generate_password,
+            crate::editing::password_strength
         ])
 }
 
@@ -235,6 +242,8 @@ fn lock(app: AppHandle) {
 
 fn lock_now(app: &AppHandle) {
     app.state::<Session>().set(None);
+    // As on Windows: what has not gone up yet goes now; a merge waits for the next unlock.
+    upload_pending(app.clone());
     if let Ok(folder) = open_folder(app) {
         opened::clean(&folder);
     }
@@ -406,7 +415,7 @@ impl Syncing {
 }
 
 /// Syncs in the background and tells the page (`synced`) what happened.
-fn start_sync(app: AppHandle) {
+pub fn start_sync(app: AppHandle) {
     if !app.state::<Syncing>().begin() {
         return;
     }
@@ -440,6 +449,10 @@ fn sync_once(app: &AppHandle, session: &Session) {
 /// only (as when locking; a merge needs the key and waits for the front).
 #[tauri::command]
 fn sync_if_pending(app: AppHandle) {
+    upload_pending(app);
+}
+
+fn upload_pending(app: AppHandle) {
     if !sync::has_pending(&app.state::<Store>()) || !app.state::<Syncing>().begin() {
         return;
     }

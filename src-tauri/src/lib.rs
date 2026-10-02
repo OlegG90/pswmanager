@@ -1199,23 +1199,9 @@ fn generate_password(options: generator::Options) -> Result<String, String> {
     generator::generate(&options).map(|password| password.to_string())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Strength {
-    /// 0 (guessed at once) to 4 (very hard).
-    score: u8,
-    /// How long an offline attack on a slow hash would take, e.g. "3 hours".
-    crack_time: String,
-}
-
 #[tauri::command(async)]
-fn password_strength(password: String) -> Strength {
-    let password = Zeroizing::new(password);
-    let estimate = zxcvbn::zxcvbn(&password, &[]);
-    Strength {
-        score: estimate.score().into(),
-        crack_time: estimate.crack_times().offline_slow_hashing_1e4_per_second().to_string(),
-    }
+fn password_strength(password: String) -> health::Strength {
+    health::strength(&Zeroizing::new(password))
 }
 
 /// Reused, weak and old passwords; worked out here, so no password leaves the backend.

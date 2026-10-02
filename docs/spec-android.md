@@ -123,7 +123,7 @@ As in the mockups `1e`–`1j`.
   *Sync now*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
-  stage A2, **+** for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
+  stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
@@ -131,8 +131,9 @@ As in the mockups `1e`–`1j`.
 - **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
   attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). As in Keepass2Android, each line ends in **⋮**, a menu of its commands (*Copy*, *Show / hide*
-  for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears. The star
-  toggles the favorite (stage A2).
+  for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
+  From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
+  editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
 - **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
   another app (Android's chooser), see *Security behaviour*. Adding, replacing, renaming and removing files
@@ -143,7 +144,9 @@ As in the mockups `1e`–`1j`.
 - **Theme:** light or dark, or as the system is set (the default).
 - **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes.
-  A new entry is blank (not from a template). Delete moves an entry to the recycle bin after a
+  A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
+  top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
 - **History** (stage A2): the list of older versions with what changed, and a version shown read only, its
   values copied as in the entry view. No restoring.
@@ -196,9 +199,9 @@ background.
 |---|---|
 | Unlock (including after start) | yes; the working copy shows at once, the list updates when the sync finishes |
 | The app comes back to the front, unlocked, more than 1 min after the last sync | yes |
-| An entry is created, edited or deleted (stage A2) | upload about 10 s after the last such change |
+| An entry is created, edited or deleted (stage A2) | upload about 10 s after the last such change (tags and the star alone wait for the next sync, as on Windows) |
 | The app goes to the background with changes not uploaded | an upload at once; if Android stops it, a WorkManager job (needs a network) uploads the working copy later |
-| Lock | an upload only, as on Windows: a merge waits for the next unlock |
+| Lock (by hand or on its own) | an upload only, as on Windows: a merge waits for the next unlock |
 | Pull down on the list, or **Sync now** | yes |
 | While the app is in front and unlocked | the remote revision is checked every 5 min (1–60, or off), as on Windows |
 

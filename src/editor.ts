@@ -1,5 +1,6 @@
-import { api, type EntryData, type FieldData, type GeneratorOptions, type Saved } from './api'
+import { api, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
+import { EMPTY_ENTRY, chip, fieldRow, generatorPanel, input, readField, showHide, strengthMeter, withStar } from './editor-parts'
 import { dateOf, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
 import { ask } from './modal'
 import { iconPicker } from './icon-picker'
@@ -25,19 +26,6 @@ export interface EditorOptions {
   from?: EntryData
   /** A template is edited, or made (it goes among the templates). */
   template?: boolean
-}
-
-const EMPTY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
-const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
-
-/** Kept for the session, so the generator opens as it was last used. */
-let generatorOptions: GeneratorOptions = {
-  length: 20,
-  upper: true,
-  lower: true,
-  digits: true,
-  symbols: true,
-  excludeLookAlikes: true,
 }
 
 /** The open editor, from the moment it starts loading. */
@@ -75,127 +63,10 @@ export function changedElsewhere(ids: string[]) {
   active?.changedElsewhere?.(ids)
 }
 
-const input = (value: string, props: object = {}) => el('input', { value, spellcheck: false, ...props })
-
-function showHide(target: HTMLInputElement): HTMLButtonElement {
-  const toggle = button('Show', 'Show / hide', () => {
-    const hidden = target.type === 'password'
-    target.type = hidden ? 'text' : 'password'
-    toggle.textContent = hidden ? 'Hide' : 'Show'
-  })
-  return toggle
-}
-
-/** A button that stays pressed or not, like a check box. */
-function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void): HTMLButtonElement {
-  const chip = button(label, title, () => {
-    const next = chip.getAttribute('aria-pressed') !== 'true'
-    chip.setAttribute('aria-pressed', String(next))
-    onChange(next)
-  }, 'chip')
-  chip.setAttribute('aria-pressed', String(pressed))
-  return chip
-}
-
-/** The password generator panel; `use` receives the chosen password. */
-function generatorPanel(use: (password: string) => void, onError: (message: string) => void) {
-  const preview = el('code', { className: 'preview' })
-  const regenerate = async () => {
-    try {
-      preview.textContent = await api.generatePassword(generatorOptions)
-    } catch (e) {
-      preview.textContent = ''
-      onError(String(e))
-    }
-  }
-  const option = (key: keyof GeneratorOptions, label: string) =>
-    chip(label, label, generatorOptions[key] as boolean, (on) => {
-      generatorOptions = { ...generatorOptions, [key]: on }
-      regenerate()
-    })
-  // 8–64: the range the backend allows.
-  const length = el('input', { type: 'range', min: 8, max: 64, value: String(generatorOptions.length), ariaLabel: 'Length' })
-  const lengthValue = el('span', { className: 'length-value' }, String(generatorOptions.length))
-  // How far the track is filled, for the CSS: a range input cannot tell it.
-  const fill = () => length.style.setProperty('--fill', `${((Number(length.value) - 8) / (64 - 8)) * 100}%`)
-  fill()
-  length.addEventListener('input', () => {
-    generatorOptions = { ...generatorOptions, length: Number(length.value) || 20 }
-    lengthValue.textContent = String(generatorOptions.length)
-    fill()
-    regenerate()
-  })
-  const show = (visible: boolean) => {
-    panel.hidden = !visible
-    open.setAttribute('aria-pressed', String(visible))
-  }
-  const panel = el(
-    'div',
-    { className: 'generator', hidden: true },
-    el('div', { className: 'result' }, preview, button('Again', 'Another password', regenerate, 'ghost'),
-      button('Use', 'Use this password', () => {
-        use(preview.textContent ?? '')
-        show(false)
-      }, 'primary')),
-    el('div', { className: 'length' }, el('span', { className: 'label' }, 'Length'), length, lengthValue),
-    el('div', { className: 'options' }, option('upper', 'A–Z'), option('lower', 'a–z'),
-      option('digits', '0–9'), option('symbols', '!#$'), option('excludeLookAlikes', 'No look-alikes')),
-  )
-  const open = chip('Generate', 'Generate a password', false, (on) => {
-    show(on)
-    if (on) regenerate()
-  })
-  return { panel, open }
-}
-
-/** The tags with the star (the tag Favorite) on or off; a star the entry had
- *  keeps its place among the tags, so an untouched entry saves unchanged. */
-function withStar(tags: string[], on: boolean, original: string[]): string[] {
-  const rest = tags.filter((t) => t !== FAVORITE)
-  if (!on) return rest
-  const at = original.indexOf(FAVORITE)
-  return at < 0 ? [...rest, FAVORITE] : [...rest.slice(0, at), FAVORITE, ...rest.slice(at)]
-}
-
 /** What a new entry takes from a template: everything but its title, expiry,
  *  TOTP secret (every entry has its own) and star. */
 function fromTemplate(template?: EntryData): Partial<EntryData> {
   return template ? { ...template, title: '', expires: null, otp: '', tags: template.tags.filter((t) => t !== FAVORITE) } : {}
-}
-
-/** The field each row started from, to keep values the form only reformatted. */
-const originals = new WeakMap<HTMLElement, FieldData>()
-
-/** One additional field: name, value (a textarea keeps line breaks an <input>
- *  would drop; a protected value is masked by CSS), protected, remove. */
-function fieldRow(field: FieldData = { name: '', value: '', protected: false }): HTMLDivElement {
-  const name = input(field.name, { placeholder: 'Name', className: 'name' })
-  const value = el('textarea', { value: field.value, rows: 1, spellcheck: false, className: 'value' })
-  const fit = () => {
-    value.style.height = 'auto'
-    value.style.height = `${value.scrollHeight + 2}px`
-  }
-  value.addEventListener('input', fit)
-  requestAnimationFrame(fit)
-  const mask = (on: boolean) => value.classList.toggle('masked', on)
-  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask)
-  mask(field.protected)
-  const row = el('div', { className: 'field-row' }, name, value, protect,
-    button('✕', 'Remove field', () => row.remove(), 'ghost icon'))
-  originals.set(row, field)
-  return row
-}
-
-function readField(row: HTMLElement): FieldData {
-  const name = row.querySelector('input')!
-  const value = row.querySelector('textarea')!
-  const protect = row.querySelector('.chip')!
-  const original = originals.get(row)!
-  return {
-    name: keep(original.name, name.value.trim(), (n) => singleLine(n).trim()),
-    value: keep(original.value, value.value, textareaLines),
-    protected: protect.getAttribute('aria-pressed') === 'true',
-  }
 }
 
 /** Shows the editor in `container`. */
@@ -209,7 +80,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     const blank = !options.from && !options.template
     data = options.id
       ? await api.editEntry(options.id)
-      : { ...EMPTY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
+      : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
   } catch (e) {
     if (active === loading) active = null
     throw e
@@ -231,7 +102,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const icon = iconPicker(data.icon, options.autoIcon, (message) => showError(message))
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
   const error = el('p', { className: 'error', hidden: true })
-  const strength = el('div', { className: 'strength' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
 
   // Under the heading, and scrolled to: at the bottom of a long form the
@@ -242,27 +112,11 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     error.scrollIntoView({ block: 'nearest' })
   }
 
-  let strengthTimer: number | undefined
-  const showStrength = () => {
-    clearTimeout(strengthTimer)
-    strengthTimer = window.setTimeout(async () => {
-      if (!password.value) {
-        strength.replaceChildren()
-        return
-      }
-      const { score, crackTime } = await api.passwordStrength(password.value)
-      strength.dataset.score = String(score)
-      // At least one bar, so "very weak" still shows as a red mark.
-      const bars = [1, 2, 3, 4].map((i) => el('span', { className: i <= Math.max(score, 1) ? 'bar on' : 'bar' }))
-      strength.replaceChildren(el('span', { className: 'bars' }, ...bars), `${STRENGTH[score]} · cracked in ${crackTime}`)
-    }, 200)
-  }
-  password.addEventListener('input', showStrength)
-  showStrength()
+  const strength = strengthMeter(password, api.passwordStrength)
 
-  const generator = generatorPanel((chosen) => {
+  const generator = generatorPanel(api.generatePassword, (chosen) => {
     password.value = chosen
-    showStrength()
+    strength.refresh()
   }, showError)
 
   const trimmedLine = (text: string) => singleLine(text).trim()
@@ -326,7 +180,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('Title', title),
     row('User name', username),
     row('Password', password, showHide(password), generator.open),
-    row('', strength),
+    row('', strength.element),
     generator.panel,
     row('URL', url),
     row('TOTP', otp, showHide(otp)),

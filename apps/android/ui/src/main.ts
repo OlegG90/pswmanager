@@ -1,11 +1,13 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
+import { EMPTY_ENTRY, chip, fieldRow, generatorPanel, input, readField, showHide, strengthMeter, withStar } from '../../../../src/editor-parts'
+import { dateOf, formatDateTime, formatSize, formatTags, keep, parseTags, singleLine, splitCode, startOfDay, textareaLines, titleOf } from '../../../../src/entry-text'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type CloudFile, type Entry, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type CloudFile, type Entry, type EntryData, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -317,7 +319,8 @@ function listScreen(opened: Listing) {
     backs.push(closeSearch)
     searchField.focus()
   }, 'fab')
-  show([query ? searching : toolbar, scroll, findButton, status], undefined, 'list-screen')
+  const add = iconButton('plus', 'New entry', () => void editorScreen(null, listing, () => listScreen(listing)), 'fab')
+  show([query ? searching : toolbar, scroll, el('div', { className: 'fabs' }, findButton, add), status], undefined, 'list-screen')
   if (query) {
     findButton.hidden = true
     backs.push(closeSearch)
@@ -604,8 +607,119 @@ async function entryScreen(id: string, listing: Listing) {
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
   const toList = () => listScreen(listing)
   const back = iconButton('back', 'Back to the list', toList)
-  show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows], toList)
+  const starred = entry.tags.includes(FAVORITE)
+  const star = iconButton('star', starred ? 'Not favorite' : 'Favorite', () =>
+    void api.setFavorite(id, !starred).then((fresh) => entryScreen(id, fresh), (e) => snack(String(e))), starred ? 'icon starred' : 'icon')
+  const edit = iconButton('pencil', 'Edit', () => void editorScreen(id, listing, () => void entryScreen(id, listing)))
+  const remove = () =>
+    confirmSheet(`Move “${titleOf(entry)}” to the recycle bin?`, 'Delete', () =>
+      void api.deleteEntry(id).then((fresh) => (listScreen(fresh), snack('Moved to the recycle bin')), (e) => snack(String(e))))
+  const more = iconButton('more', 'More', () => sheet((close) => [el('b', {}, titleOf(entry)), button('Delete', 'Move to the recycle bin', () => (close(), remove()), 'item')]))
+  show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), star, edit, more), ...rows], toList)
   leave = () => stops.forEach((stop) => stop())
+}
+
+// ------------------------------------------------------------ editing
+
+/** The editor, as `spec.md` *Editing* has it; a new blank entry when `id` is
+ *  null. Cancel and Back return with `back`; saving shows the entry. */
+async function editorScreen(id: string | null, listing: Listing, back: () => void) {
+  let data: EntryData
+  try {
+    // A new entry goes to the top group, with the database's default user name.
+    data = id ? await api.editEntry(id) : { ...EMPTY_ENTRY, username: listing.database.defaultUsername }
+  } catch (e) {
+    snack(String(e))
+    return
+  }
+  const error = el('p', { className: 'error', hidden: true })
+  const showError = (message: string) => {
+    error.textContent = message
+    error.hidden = false
+    error.scrollIntoView({ block: 'nearest' })
+  }
+  const title = input(data.title, { className: 'field' })
+  const username = input(data.username, { className: 'field', autocapitalize: 'off' })
+  const password = input(data.password, { type: 'password', className: 'field secret' })
+  const url = input(data.url, { type: 'url', className: 'field', placeholder: 'https://' })
+  const otp = input(data.otp, { type: 'password', className: 'field secret', placeholder: 'Secret or otpauth:// URI' })
+  const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), tagCounts(listing.entries).map(([tag]) => tag))
+  let starred = data.tags.includes(FAVORITE)
+  const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
+  // A date input holds a day: an expiry time on that day stays as it was.
+  const expiryDay = data.expires ? dateOf(data.expires) : ''
+  const expires = el('input', { type: 'date', value: expiryDay, className: 'field' })
+  const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
+  const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
+  const strength = strengthMeter(password, api.passwordStrength)
+  const generator = generatorPanel(api.generatePassword, (chosen) => {
+    password.value = chosen
+    strength.refresh()
+  }, showError)
+
+  const trimmedLine = (text: string) => singleLine(text).trim()
+  // Values the form only reformats are kept as they were, as on Windows.
+  const collect = (): EntryData => ({
+    ...data,
+    title: keep(data.title, title.value, singleLine),
+    username: keep(data.username, username.value, singleLine),
+    password: keep(data.password, password.value, singleLine),
+    url: keep(data.url, url.value.trim(), trimmedLine),
+    notes: keep(data.notes, notes.value, textareaLines),
+    otp: keep(data.otp, otp.value.trim(), trimmedLine),
+    // Typing the tag Favorite stars the entry.
+    tags: keep(data.tags, withStar(tags.value(), starred || tags.value().includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
+    fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
+    expires: expires.value === expiryDay ? data.expires : expires.value ? startOfDay(expires.value) : null,
+  })
+
+  let saving = false
+  const save = async () => {
+    if (saving) return
+    saving = true
+    try {
+      const saved = await api.saveEntry(id, id ? data : null, collect())
+      await entryScreen(saved.id, saved.listing)
+      if (saved.conflicts.length) snack(`Also changed on another device: ${saved.conflicts.join(', ')}. That version is in the history.`)
+    } catch (e) {
+      showError(String(e))
+    } finally {
+      saving = false
+    }
+  }
+  const close = () => {
+    if (JSON.stringify(collect()) === untouched) back()
+    else confirmSheet('Discard the changes?', 'Discard', back)
+  }
+  // Android's Back cancels too, and stays on the editor when the changes are kept.
+  const onBack = () => {
+    backs.push(onBack)
+    close()
+  }
+  const label = (text: string, ...controls: Node[]) => el('label', { className: 'edit-row' }, el('small', {}, text), ...controls)
+  const together = (...controls: Node[]) => el('div', { className: 'together' }, ...controls)
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Cancel', close), el('h1', {}, id ? 'Edit entry' : 'New entry'), iconButton('check', 'Save', () => void save())),
+    el('form', { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), void save()) },
+      error,
+      label('Title', title),
+      label('User name', username),
+      label('Password', together(password, showHide(password), generator.open)),
+      strength.element,
+      generator.panel,
+      label('URL', url),
+      label('TOTP secret', together(otp, showHide(otp))),
+      label('Tags', tags.element),
+      star,
+      label('Expires', together(expires, button('Never', 'Does not expire', () => (expires.value = ''), 'link'))),
+      label('Notes', notes),
+      el('h2', {}, 'Additional fields'),
+      fieldList,
+      button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'link'),
+      ...(id ? [el('p', { className: 'muted' }, 'Saving keeps the previous version in the history.')] : [])),
+  ], onBack)
+  const untouched = JSON.stringify(collect())
+  if (!id) title.focus()
 }
 
 /** The TOTP code with its countdown, and what stops the countdown. A new
