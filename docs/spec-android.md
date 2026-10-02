@@ -281,17 +281,18 @@ background.
 
 ### Known issues
 
-- **A FORTIFY abort at exit (not ours, harmless).** When the app is closed with Back or swiped from
-  Recents, `adb logcat -b crash` sometimes shows `F libc: FORTIFY: pthread_mutex_lock called on a
-  destroyed mutex`, and the process still `exited cleanly (0)`. It is the Tauri runtime's exit: once the
-  activity is destroyed and no window is left, Tauri ends the event loop and tao calls
-  `std::process::exit` from its own thread. `exit` runs the C++ static destructors of the system's
-  graphics library (HWUI, preloaded by zygote, so the mutex's address is the same in every run) while
-  HWUI's `RenderThread` is still alive; that thread then locks a destroyed mutex. The faulting thread was
-  `RenderThread` in every run traced, and the same abort happens in builds from before WorkManager
-  (checked on `6b838bc`), so no thread or static of the app is involved. The user sees nothing (the
-  process is ending anyway, data is already saved). Left to Tauri/tao; ending the process with `_exit`
-  from `RunEvent::Exit` would hide it, but skips Tauri's own clean-up, so it is not done.
+- **A FORTIFY abort at exit.** In about a third of the closes with Back or a swipe from Recents,
+  `adb logcat -b crash` shows one line,
+  `F libc: FORTIFY: pthread_mutex_lock called on a destroyed mutex`,
+  yet the process ends on its own with `exited cleanly (0)`, and no tombstone or backtrace is written
+  (the exit wins the race). The exit is the Tauri runtime's: when the last window is destroyed, the event
+  loop ends unless the app prevents it, and tao calls `std::process::exit` on the thread it runs the app
+  on. The faulting thread was `RenderThread` (Android's hardware UI renderer, HWUI) in 3 of 3 traced
+  runs, and the mutex has the same address in every run, so it lives in a library zygote preloads; most
+  likely `exit` runs that library's C++ static destructors while `RenderThread` still works. The same
+  abort happens in builds from before the background upload, and there is no sign of the app's own code
+  in it. Nothing shows to the user. Left to Tauri/tao: ending the process with `_exit` in `RunEvent::Exit`
+  would hide it, but would skip Tauri's own clean-up, which runs after that event.
 
 ## Stages
 
