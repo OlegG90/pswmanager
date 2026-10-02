@@ -8,6 +8,7 @@ use pswm_core::edit::{self, EntryData, FileChange};
 use pswm_core::generator;
 use pswm_core::health;
 use pswm_core::session::Session;
+use pswm_core::store::Store;
 use pswm_core::staged::StagedFile;
 use pswm_core::vault::{Listing, Saved};
 use std::time::Duration;
@@ -21,9 +22,16 @@ const UPLOAD_DELAY: Duration = Duration::from_secs(10);
 #[derive(Default)]
 pub struct UploadSoon(crate::app::Latest);
 
+/// A change was saved: should the app go before it is sent, WorkManager
+/// sends it later.
+fn changed(app: &AppHandle) {
+    crate::app::schedule_background_upload(app, &app.state::<Store>());
+}
+
 /// Syncs `UPLOAD_DELAY` after the last change. Going to the background first
 /// sends it at once (`sync_if_pending`).
 fn upload_soon(app: &AppHandle) {
+    changed(app);
     let wait = app.state::<UploadSoon>().0.next();
     let app = app.clone();
     std::thread::spawn(move || {
@@ -61,6 +69,8 @@ pub fn save_entry(
     // Tags alone can wait for the next sync (going to the background, locking).
     if edit::needs_upload(base.as_ref(), &data, &files) {
         upload_soon(&app);
+    } else {
+        changed(&app);
     }
     Ok(saved)
 }
@@ -97,11 +107,13 @@ pub fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Resu
 /// Stars the entry or takes the star off (the tag Favorite); like a tag, it
 /// goes up with the next sync.
 #[tauri::command(async)]
-pub fn set_favorite(session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
-    session.with_mut(|v| {
+pub fn set_favorite(app: AppHandle, session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
         v.set_tag(&[id], edit::FAVORITE, on)?;
         Ok(v.listing())
-    })
+    })?;
+    changed(&app);
+    Ok(listing)
 }
 
 #[tauri::command(async)]

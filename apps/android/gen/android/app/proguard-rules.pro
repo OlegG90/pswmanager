@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# WorkManager makes its Room database by reflection (UploadWorker): R8 removed
+# the constructor, and the app crashed at start.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class * extends androidx.work.ListenableWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }
+
+# Called from Rust through JNI by name (src/background.rs): kept as they are.
+-keep class io.github.olegg90.pswmanager.Keystore { public static *; }
+-keep class io.github.olegg90.pswmanager.DocumentIo { public static *; }
+-keepclasseswithmembernames class io.github.olegg90.pswmanager.** { native <methods>; }

@@ -4,6 +4,8 @@
 #[cfg(mobile)]
 mod app;
 #[cfg(mobile)]
+mod background;
+#[cfg(mobile)]
 mod clipboard;
 #[cfg(mobile)]
 mod documents;

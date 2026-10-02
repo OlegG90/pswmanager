@@ -17,7 +17,6 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
-import java.io.FileNotFoundException
 
 @InvokeArg
 class DocumentArgs {
@@ -129,21 +128,14 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   /** The content, base64; `data` is null when the document is gone. */
   @Command
   fun read(invoke: Invoke) = background(invoke) {
-    val bytes = try {
-      resolver.openInputStream(uriOf(invoke))?.use { it.readBytes() }
-    } catch (e: FileNotFoundException) {
-      null
-    }
+    val bytes = DocumentIo.read(activity, invoke.parseArgs(DocumentArgs::class.java).uri)
     JSObject().put("data", bytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) })
   }
 
   @Command
   fun write(invoke: Invoke) = background(invoke) {
     val args = invoke.parseArgs(WriteArgs::class.java)
-    val bytes = Base64.decode(args.data, Base64.NO_WRAP)
-    // "wt": truncate, so a shorter file leaves nothing of the longer one behind.
-    resolver.openOutputStream(Uri.parse(args.uri), "wt")?.use { it.write(bytes); it.flush() }
-      ?: throw Exception("Cannot write the file")
+    DocumentIo.write(activity, args.uri, Base64.decode(args.data, Base64.NO_WRAP))
     JSObject()
   }
 
@@ -161,8 +153,6 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       invoke.reject("Cannot open the file: ${e.message}")
     }
   }
-
-  private fun uriOf(invoke: Invoke): Uri = Uri.parse(invoke.parseArgs(DocumentArgs::class.java).uri)
 
   private fun folderDocument(folder: Uri): Uri =
     DocumentsContract.buildDocumentUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
