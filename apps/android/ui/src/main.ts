@@ -156,7 +156,7 @@ function signIn(): Promise<void> {
 /** First run with Dropbox: sign in, then pick the file in the app's folder. */
 async function dropboxScreen() {
   const error = errorLine()
-  const back = button('←', 'Back', chooseScreen, 'icon')
+  const back = iconButton('back', 'Back', chooseScreen)
   const waiting = el('p', {}, 'Waiting for Dropbox…')
   show([el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line], chooseScreen)
   try {
@@ -173,7 +173,7 @@ function filesScreen(files: CloudFile[]) {
   const error = errorLine()
   const pick = (file: CloudFile) => button(file.name, `Use ${file.name}`, () => folderScreen(files, file), 'card')
   show([
-    el('header', { className: 'bar' }, button('←', 'Back', chooseScreen, 'icon'), el('h1', {}, 'Pick the file')),
+    el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'Pick the file')),
     el('p', { className: 'muted' }, 'Apps / PswManager Sync'),
     ...(files.length ? files.map(pick) : [el('p', {}, 'There is no .kdbx in the app’s folder yet. Put one there from PswManager on Windows (Settings → Sync → Upload) and come back.')]),
     el('p', { className: 'muted' }, 'PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.'),
@@ -204,7 +204,7 @@ function folderScreen(files: CloudFile[], file: CloudFile) {
   }, error.show)
   const back = () => filesScreen(files)
   show([
-    el('header', { className: 'bar' }, button('←', 'Back', back, 'icon'), el('h1', {}, 'Where to keep it')),
+    el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Where to keep it')),
     el('p', {}, `${file.name} syncs with Dropbox. A copy of it is kept in a folder on this phone, where you can see it and back it up; it is updated after every change.`),
     choose,
     chosen,
@@ -513,7 +513,7 @@ async function settingsScreen(back: () => void) {
     body.replaceChildren(...tab(settingsTab, settings!))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
-  show([el('header', { className: 'bar' }, button('←', 'Back', back, 'icon'), el('h1', {}, 'Settings')), bar, body], back)
+  show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], back)
   fill()
 }
 
@@ -603,7 +603,7 @@ async function entryScreen(id: string, listing: Listing) {
   }
   if (entry.modified) rows.push(el('p', { className: 'muted' }, `Changed ${formatDateTime(entry.modified)}`))
   const toList = () => listScreen(listing)
-  const back = button('←', 'Back to the list', toList, 'icon')
+  const back = iconButton('back', 'Back to the list', toList)
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows], toList)
   leave = () => stops.forEach((stop) => stop())
 }
