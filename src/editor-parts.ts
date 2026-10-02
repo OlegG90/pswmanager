@@ -1,7 +1,8 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
-import type { EntryData, FieldData, GeneratorOptions, Strength } from './api'
+import type { Attachment, EntryData, FieldData, FileChange, GeneratorOptions, StagedFile, Strength } from './api'
 import { button, el } from './dom'
-import { dateOf, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
+import type { MenuItem } from './menu'
+import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
 
 export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
@@ -195,5 +196,105 @@ export function collectEntry(data: EntryData, inputs: EditorInputs): EntryData {
     tags: keep(data.tags, withStar(typedTags, inputs.starred() || typedTags.includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
     fields: [...inputs.fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
     expires: expires === expiryDay ? data.expires : expires ? startOfDay(expires) : null,
+  }
+}
+
+/** What the files section needs from the app: picking a file (held by the
+ *  backend, see StagedFile), letting go of picked files, asking for a new
+ *  name, and a file's menu button. */
+export interface FileUi {
+  pick: () => Promise<StagedFile | null>
+  release: (files: number[]) => Promise<void>
+  /** A new name for the file; null when cancelled. */
+  askName: (current: string) => Promise<string | null>
+  menu: (title: string, items: MenuItem[]) => HTMLElement
+}
+
+/** One file in the files section: one the entry has (`original`), or one
+ *  picked here (`staged`). */
+interface FileState {
+  original: string | null
+  staged: StagedFile | null
+  name: string
+}
+
+/** What will happen to the file on Save, as its line says it. */
+function fileNote(f: FileState): string {
+  if (f.original === null) return 'new'
+  return f.name !== f.original ? `renamed from ${f.original}` : ''
+}
+
+/**
+ * The entry's files in the editor, as SafeInCloud and Keepass2Android have
+ * them: each file's menu renames or removes it, and new ones are added (other
+ * content for a file: remove it and add the new one); each line says what
+ * Save will do to its file. Nothing changes until
+ * the entry is saved: `changes` are sent with it. `release` lets go of every
+ * picked file (the editor closed without saving).
+ */
+export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message: string) => void) {
+  const states: FileState[] = []
+  const list = el('div', { className: 'files' })
+  const held = () => states.flatMap((f) => (f.staged ? [f.staged.id] : []))
+
+  const pick = async (): Promise<StagedFile | null> => {
+    try {
+      return await ui.pick()
+    } catch (e) {
+      onError(String(e))
+      return null
+    }
+  }
+  const row = (state: FileState, size: number) => {
+    states.push(state)
+    const name = el('span', {})
+    const note = el('small', { className: 'note' })
+    const draw = () => {
+      name.textContent = state.name
+      note.textContent = fileNote(state)
+    }
+    const rename = async () => {
+      const to = (await ui.askName(state.name))?.trim()
+      if (!to || to === state.name) return
+      if (states.some((f) => f !== state && f.name === to)) return onError(`The entry already has a file named “${to}”`)
+      state.name = to
+      draw()
+    }
+    const remove = () => {
+      if (state.staged) void ui.release([state.staged.id])
+      states.splice(states.indexOf(state), 1)
+      line.remove()
+    }
+    const items: MenuItem[] = [
+      { label: 'Rename…', title: 'Give the file another name', action: () => void rename() },
+      { label: 'Remove', title: 'Remove from the entry (its history keeps the file)', action: remove, danger: true },
+    ]
+    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), el('span', { className: 'size' }, formatSize(size)), ui.menu(`More for ${state.name}`, items))
+    draw()
+    list.append(line)
+  }
+  for (const file of initial) row({ original: file.name, staged: null, name: file.name }, file.size)
+  const add = button('+ Add file…', 'Attach a file (up to 20 MB)', async () => {
+    const picked = await pick()
+    if (!picked) return
+    row({ original: null, staged: picked, name: picked.name }, picked.size)
+  }, 'ghost add-field')
+
+  const changes = (): FileChange[] => {
+    const kept = new Set(states.map((f) => f.original))
+    const removed: FileChange[] = initial.filter((f) => !kept.has(f.name)).map((f) => ({ kind: 'remove', name: f.name }))
+    const changed: FileChange[] = states.flatMap((f): FileChange[] => {
+      if (f.original === null) return [{ kind: 'add', name: f.name, content: f.staged!.id }]
+      return f.name === f.original ? [] : [{ kind: 'rename', name: f.original, to: f.name }]
+    })
+    return [...removed, ...changed]
+  }
+  return {
+    element: el('div', { className: 'files-editor' }, list, add),
+    changes,
+    release: () => {
+      const files = held()
+      if (files.length) void ui.release(files)
+    },
   }
 }

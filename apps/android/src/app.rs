@@ -87,7 +87,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::delete_entry,
             crate::editing::set_favorite,
             crate::editing::generate_password,
-            crate::editing::password_strength
+            crate::editing::password_strength,
+            crate::editing::pick_file_to_attach,
+            crate::editing::release_files
         ])
 }
 

@@ -60,6 +60,9 @@ struct PickAnswer {
     uri: Option<String>,
     #[serde(default)]
     name: String,
+    /// Bytes, for a file picked to read; -1 when the provider does not say.
+    #[serde(default)]
+    size: i64,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +92,19 @@ impl<R: Runtime> Documents<R> {
     /// A `.kdbx` the user picks; `None` when they cancelled.
     pub fn pick_file(&self) -> Result<Option<Picked>, String> {
         self.pick("pickFile")
+    }
+
+    /// A file the user picks to attach, read once: its name and content;
+    /// `None` when they cancelled. A file too big to attach is refused before
+    /// it is read, when the provider tells its size.
+    pub fn pick_to_read(&self) -> Result<Option<(String, Vec<u8>)>, String> {
+        let answer: PickAnswer = self.call("pickToRead", ())?;
+        let Some(uri) = answer.uri else { return Ok(None) };
+        if let Ok(size) = u64::try_from(answer.size) {
+            pswm_core::edit::check_size(size)?;
+        }
+        let content = self.read(&uri)?.ok_or(format!("Cannot read {}", answer.name))?;
+        Ok(Some((answer.name, content)))
     }
 
     /// A folder the user picks; `None` when they cancelled.

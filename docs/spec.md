@@ -146,9 +146,9 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
   **History** (see *Entry history*). Protected attributes are masked like the
   password. **Open** next to a file opens it in the app Windows uses for its type; the **⋯** menu beside it
-  has **Save…** (writes it where the user chooses), **Replace…** (gives it the content of another file),
-  **Rename…** and **Remove…** (after a confirmation). **Attach file…** adds one (see *Editing*). A file's
-  content goes between the database and the disk in the backend, never through the webview.
+  has **Save…** (writes it where the user chooses); files are added, renamed and removed in the editor
+  (see *Editing*). A file's content goes between the database and the disk in the backend, never through
+  the webview.
 - Clicking a value in the entry view copies it, as its Copy button does (clipboard clearing included); a
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
@@ -338,15 +338,21 @@ while the database is locked):
   not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
-- **Attachments:** in the entry view a file can be added to an entry, replaced, renamed or removed (up to
-  20 MB — the whole database is synced on every change); the change is saved at once, with the previous
-  version in history, like an edit. A name the entry already uses gets a number (`scan (2).pdf`) rather
-  than replacing the file. A removed file stays in the database for the history version that has it:
+- **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a
+  file can be added (up to 20 MB — the whole database is synced on every change); each file's name is
+  shown as text, and its menu renames or removes it, so a file is never lost by editing its name. Other
+  content for a file is a removal and an addition: no *Replace*, which would hide that the old content goes.
+  Each line says what Save will do to its file (*new*, *renamed from …*). Nothing changes until **Save**, which saves the files with the rest
+  of the entry as one edit (one previous version in history); Cancel drops them. The entry view only
+  opens and saves files; a template's files are not changed. A picked file is read by the backend at
+  once and held there until the entry is saved, the editor is cancelled or the database locks: its
+  content never passes through the window. A name the entry already uses gets a number (`scan (2).pdf`)
+  rather than replacing the file. A file another device removed meanwhile needs nothing to remove, and a
+  new name for it has nothing left to name. A removed file stays in the database for the history version that has it:
   keepass-rs would drop it from the database's file pool although that version still uses it, so the file
   is removed on a copy of the database and only the entry is taken from it.
-  keepass-rs cannot rename a file or change its content either: renaming and replacing let the entry go of
-  the file the same way and attach the content under the name again (history keeps the old name and
-  content). Replacing a file with the same content changes nothing; renaming to a name another file of the
+  keepass-rs cannot rename a file either: renaming lets the entry go of the file the same way and attaches
+  its content under the new name (history keeps the old name). Renaming to a name another file of the
   entry has is refused.
 - Every edit pushes the previous version into the entry's history.
 - **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,

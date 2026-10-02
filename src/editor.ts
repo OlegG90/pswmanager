@@ -1,8 +1,9 @@
-import { api, type EntryData, type Saved } from './api'
+import { api, type Attachment, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf } from './entry-text'
-import { ask } from './modal'
+import { ask, askText, beforeExtension } from './modal'
+import { menuButton } from './menu'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
 import { FAVORITE } from './search'
@@ -75,12 +76,14 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const loading = { save: () => {}, close: () => {} }
   active = loading
   let data: EntryData
+  let attachments: Attachment[] = []
   try {
     // A blank new entry (not from a template, not a template) gets the default user name.
     const blank = !options.from && !options.template
     data = options.id
       ? await api.editEntry(options.id)
       : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
+    if (options.id) attachments = (await api.entry(options.id)).attachments
   } catch (e) {
     if (active === loading) active = null
     throw e
@@ -103,6 +106,13 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
   const error = el('p', { className: 'error', hidden: true })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
+  // A template's files are not changed (as before), so it has no files section.
+  const files = filesEditor(options.template ? [] : attachments, {
+    pick: api.pickFileToAttach,
+    release: api.releaseFiles,
+    askName: (current) => askText('Rename the file to:', current, 'Rename', beforeExtension(current)),
+    menu: menuButton,
+  }, (message) => showError(message))
 
   // Under the heading, and scrolled to: at the bottom of a long form the
   // message ended up out of sight.
@@ -127,7 +137,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(options.id, options.id ? data : null, collect(), options.template)
+      const saved = await api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes())
       // Locking while the save ran closed this editor: the vault is gone.
       if (active !== self) return
       active = null
@@ -139,11 +149,12 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     }
   }
   const close = async () => {
-    if (JSON.stringify(collect()) !== untouched) {
+    if (JSON.stringify(collect()) !== untouched || files.changes().length) {
       const discard = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
       if (!discard || active !== self) return
     }
     active = null
+    files.release()
     options.onClose()
   }
   // Saving still works: this edit is applied to the file as it is now, wins
@@ -178,6 +189,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     el('h3', {}, 'Additional fields'),
     fieldList,
     button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'ghost add-field'),
+    ...(options.template ? [] : [el('h3', {}, 'Files'), files.element]),
     el('div', { className: 'buttons' },
       el('button', { type: 'submit', className: 'primary', textContent: 'Save', title: 'Save (Ctrl+S)' }),
       button('Cancel', 'Cancel (Esc)', close),

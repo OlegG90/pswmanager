@@ -407,17 +407,22 @@ impl Vault {
     /// editor's version won). Nothing changes when saving fails.
     /// A `template` (a new one, or one being edited) is kept in the templates'
     /// group, made when missing; the editor's group does not move it.
+    /// The entry's `files` change with it, as one edit (see [edit::apply_with_files]).
     pub fn save_entry(
         &mut self,
         id: Option<&str>,
         base: Option<&EntryData>,
         data: &EntryData,
         template: bool,
+        files: &[edit::FileEdit],
     ) -> Result<(String, Vec<String>), String> {
         let id = id.map(parse_id).transpose()?;
         let (id, conflicts) = self.change(|db, hidden| {
             let current = id.and_then(|id| db.entry(id));
             let template = template || current.as_ref().is_some_and(|e| is_template(e));
+            if template && !files.is_empty() {
+                return Err("A template's files are not changed".into());
+            }
             let mut data = data.clone();
             if template {
                 // Where it is now (the top for a new one): nothing moves until
@@ -427,9 +432,9 @@ impl Vault {
             let (saved, conflicts) = match (current, base) {
                 (Some(entry), Some(base)) => {
                     let (merged, conflicts) = edit::merge3(&edit::read(&entry, group_path(&entry)), base, &data);
-                    (edit::apply(db, id, &merged, hidden)?, conflicts)
+                    (edit::apply_with_files(db, id, &merged, files, hidden)?, conflicts)
                 }
-                _ => (edit::apply(db, id, &data, hidden)?, Vec::new()),
+                _ => (edit::apply_with_files(db, id, &data, files, hidden)?, Vec::new()),
             };
             if template {
                 edit::put_among_templates(db, saved)?;
@@ -437,35 +442,6 @@ impl Vault {
             Ok((saved, conflicts))
         })?;
         Ok((id.uuid().to_string(), conflicts))
-    }
-
-    /// Attaches a file to an entry and saves the file; returns the name the
-    /// file got (see [edit::attach]).
-    pub fn attach(&mut self, id: &str, name: &str, data: &[u8]) -> Result<String, String> {
-        let id = parse_id(id)?;
-        // Templates and the recycle bin are among the hidden groups.
-        self.change(|db, hidden| edit::attach(db, id, name, data, hidden))
-    }
-
-    /// Removes a file from an entry and saves the file; the entry's history
-    /// keeps it (see [edit::detach]).
-    pub fn detach(&mut self, id: &str, name: &str) -> Result<(), String> {
-        let id = parse_id(id)?;
-        self.change(|db, hidden| edit::detach(db, id, name, hidden))
-    }
-
-    /// Renames one of an entry's files and saves the file; returns the new
-    /// name (see [edit::rename_attachment]).
-    pub fn rename_attachment(&mut self, id: &str, from: &str, to: &str) -> Result<String, String> {
-        let id = parse_id(id)?;
-        self.change(|db, hidden| edit::rename_attachment(db, id, from, to, hidden))
-    }
-
-    /// Gives one of an entry's files new content and saves the file (see
-    /// [edit::replace_attachment]).
-    pub fn replace_attachment(&mut self, id: &str, name: &str, data: &[u8]) -> Result<(), String> {
-        let id = parse_id(id)?;
-        self.change(|db, hidden| edit::replace_attachment(db, id, name, data, hidden))
     }
 
     /// Gives entries a tag or takes it off (the star is the tag Favorite), and
@@ -923,6 +899,8 @@ fn new_database_config() -> keepass::config::DatabaseConfig {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::edit::{FileChange, FileEdit};
+    use zeroize::Zeroizing;
 
     /// A small database like the ones `sic2kdbx` writes.
     pub fn sample() -> Database {
@@ -1014,7 +992,10 @@ pub mod tests {
         let mut card = EntryData::default();
         card.title = "Card".into();
         card.group = vec!["Work".into()]; // ignored: a template goes among the templates
-        let (id, _) = vault.save_entry(None, None, &card, true).unwrap();
+        let (id, _) = vault.save_entry(None, None, &card, true, &[]).unwrap();
+        // A template's files are not changed.
+        let file = FileChange::Add { name: "a.txt".into(), content: Zeroizing::new(b"a".to_vec()) };
+        assert!(vault.save_entry(Some(&id), None, &card, false, &[file]).is_err());
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
         let templates = vault.db.meta.entry_templates_group.expect("made on demand");
         assert_eq!(vault.db.group(GroupId::from(templates)).unwrap().name, "Templates");
@@ -1022,13 +1003,13 @@ pub mod tests {
         // Edited like an entry; it stays a template.
         let mut edited = vault.edit_data(&id).unwrap();
         edited.username = "holder".into();
-        vault.save_entry(Some(&id), None, &edited, false).unwrap();
+        vault.save_entry(Some(&id), None, &edited, false, &[]).unwrap();
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
         assert_eq!(vault.field(&id, fields::USERNAME).unwrap().as_str(), "holder");
 
         // The editor's group does not move it out.
         edited.group = vec!["Work".into()];
-        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        vault.save_entry(Some(&id), None, &edited, true, &[]).unwrap();
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
 
         // Deleted into the trash, where it is not edited.
@@ -1036,7 +1017,7 @@ pub mod tests {
         assert_eq!(kind_of(&vault, &id), Some(Kind::Trash));
         assert!(vault.edit_data(&id).is_none());
         // Deleted elsewhere while the editor had it open: saving brings it back.
-        vault.save_entry(Some(&id), None, &edited, true).unwrap();
+        vault.save_entry(Some(&id), None, &edited, true, &[]).unwrap();
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
     }
 
@@ -1049,8 +1030,8 @@ pub mod tests {
         let mut data = vault.edit_data(&id).unwrap();
         data.password = "newer".into();
         data.url = "example.org".into();
-        vault.save_entry(Some(&id), None, &data, false).unwrap();
-        vault.attach(&id, "a.txt", b"file").unwrap();
+        vault.save_entry(Some(&id), None, &data, false, &[]).unwrap();
+        add_file(&mut vault, &id, "a.txt", b"file");
 
         assert_eq!(vault.detail(&id).unwrap().versions, 2);
         let history = vault.history(&id).unwrap();
@@ -1226,7 +1207,7 @@ pub mod tests {
 
         let mut data = vault.edit_data(&id).unwrap();
         data.password = "changed".into();
-        vault.save_entry(Some(&id), None, &data, false).unwrap();
+        vault.save_entry(Some(&id), None, &data, false, &[]).unwrap();
 
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let entry = reopened.db.entry(old.id()).unwrap();
@@ -1260,7 +1241,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         assert!(vault.detail(&mail).unwrap().attachments.is_empty());
 
-        assert_eq!(vault.attach(&mail, "key.txt", b"recovery codes").unwrap(), "key.txt");
+        add_file(&mut vault, &mail, "key.txt", b"recovery codes");
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(reopened.detail(&mail).unwrap().attachments, [Attachment { name: "key.txt".into(), size: 14 }]);
         assert_eq!(reopened.attachment(&mail, None, "key.txt").unwrap().as_slice(), b"recovery codes");
@@ -1274,6 +1255,16 @@ pub mod tests {
         assert_eq!(reopened.detail(&router).unwrap().attachments.len(), 2);
     }
 
+    /// Saves the entry unchanged with these file changes, as the editor does.
+    fn change_files(vault: &mut Vault, id: &str, changes: Vec<FileEdit>) {
+        let data = vault.edit_data(id).unwrap();
+        vault.save_entry(Some(id), None, &data, false, &changes).unwrap();
+    }
+
+    fn add_file(vault: &mut Vault, id: &str, name: &str, content: &[u8]) {
+        change_files(vault, id, vec![FileChange::Add { name: name.into(), content: Zeroizing::new(content.to_vec()) }]);
+    }
+
     #[test]
     fn removing_a_file_keeps_it_in_history_and_the_other_files_intact() {
         let dir = tempfile::tempdir().unwrap();
@@ -1283,7 +1274,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         // A file after the router's in the database: it must keep its data
         // when one of the router's is removed.
-        vault.attach(&mail, "later.txt", b"attached later").unwrap();
+        add_file(&mut vault, &mail, "later.txt", b"attached later");
         let files = |v: &Vault, id: EntryId| {
             let mut all: Vec<(String, Vec<u8>)> =
                 v.db.entry(id).unwrap().attachments_named().map(|(n, a)| (n.to_string(), a.data.get().clone())).collect();
@@ -1293,8 +1284,7 @@ pub mod tests {
         let before = files(&vault, router);
         let (gone, kept) = (before[0].clone(), before[1].clone());
 
-        vault.detach(&id, &gone.0).unwrap();
-        vault.detach(&id, "no such file").unwrap();
+        change_files(&mut vault, &id, vec![FileChange::Remove { name: gone.0.clone() }, FileChange::Remove { name: "no such file".into() }]);
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(files(&reopened, router), [kept]);
         assert_eq!(reopened.detail(&id).unwrap().attachments.len(), 1);
@@ -1303,14 +1293,15 @@ pub mod tests {
         assert!(previous.contains(&gone), "{previous:?}");
         // Attaching and renaming after a removal still number the files right.
         let mut reopened = reopened;
-        reopened.attach(&id, "new.txt", b"new").unwrap();
-        assert_eq!(reopened.rename_attachment(&mail, "later.txt", "renamed.txt").unwrap(), "renamed.txt");
+        add_file(&mut reopened, &id, "new.txt", b"new");
+        change_files(&mut reopened, &mail, vec![FileChange::Rename { name: "later.txt".into(), to: "renamed.txt".into() }]);
         let again = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(again.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");
         assert_eq!(again.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"attached later");
         assert!(again.attachment(&mail, None, "later.txt").is_none());
         let mut again = again;
-        again.replace_attachment(&mail, "renamed.txt", b"replaced").unwrap();
+        let replaced = Zeroizing::new(b"replaced".to_vec());
+        change_files(&mut again, &mail, vec![FileChange::Remove { name: "renamed.txt".into() }, FileChange::Add { name: "renamed.txt".into(), content: replaced }]);
         let last = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(last.attachment(&mail, None, "renamed.txt").unwrap().as_slice(), b"replaced");
         assert_eq!(last.attachment(&id, None, "new.txt").unwrap().as_slice(), b"new");
@@ -1322,7 +1313,7 @@ pub mod tests {
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
         let id = in_use(&vault)[0].id.clone();
         let data = vault.edit_data(&id).unwrap();
-        vault.save_entry(Some(&id), None, &data, false).unwrap();
+        vault.save_entry(Some(&id), None, &data, false, &[]).unwrap();
         assert!(!dir.path().join("sic2kdbx.kdbx.bak").exists());
     }
 
@@ -1337,7 +1328,7 @@ pub mod tests {
         for (id, icon) in [(&mail, edit::IconChoice::Custom { data: png }), (&router, edit::IconChoice::Builtin { id: 37 })] {
             let mut data = vault.edit_data(id).unwrap();
             data.icon = icon;
-            vault.save_entry(Some(id), None, &data, false).unwrap();
+            vault.save_entry(Some(id), None, &data, false, &[]).unwrap();
         }
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let listing = reopened.listing();
@@ -1357,7 +1348,7 @@ pub mod tests {
         // It takes entries, and deleting one makes the recycle bin.
         let mut first = edit::EntryData::default();
         first.title = "First".into();
-        let (id, _) = vault.save_entry(None, None, &first, false).unwrap();
+        let (id, _) = vault.save_entry(None, None, &first, false, &[]).unwrap();
         vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         assert!(Vault::create(&path, "Again", Some("pw"), None).unwrap_err().contains("already there"));
         assert!(Vault::create(&dir.path().join("b.kdbx"), "B", None, None).is_err());
@@ -1411,7 +1402,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "from this PC".into();
-        vault.save_entry(Some(&mail), None, &data, false).unwrap();
+        vault.save_entry(Some(&mail), None, &data, false, &[]).unwrap();
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         let titles: Vec<String> = reopened.listing().entries.into_iter().map(|e| e.title).collect();
@@ -1431,7 +1422,7 @@ pub mod tests {
         });
         let mut data = base.clone();
         data.password = "from this PC".into();
-        let (_, conflicts) = vault.save_entry(Some(&mail.uuid().to_string()), Some(&base), &data, false).unwrap();
+        let (_, conflicts) = vault.save_entry(Some(&mail.uuid().to_string()), Some(&base), &data, false, &[]).unwrap();
         assert_eq!(conflicts, ["Password"]);
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
@@ -1452,7 +1443,7 @@ pub mod tests {
             let bin = db.recycle_bin().unwrap().id();
             db.entry_mut(mail).unwrap().move_to(bin).unwrap();
         });
-        vault.save_entry(Some(&mail.uuid().to_string()), None, &data, false).unwrap();
+        vault.save_entry(Some(&mail.uuid().to_string()), None, &data, false, &[]).unwrap();
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(kind_of(&reopened, &mail.uuid().to_string()), Some(Kind::Entry));
     }
@@ -1482,7 +1473,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "saved here".into();
-        vault.save_entry(Some(&mail), None, &data, false).unwrap();
+        vault.save_entry(Some(&mail), None, &data, false, &[]).unwrap();
 
         std::fs::write(&path, &older).unwrap(); // a sync client brings the old copy back
         vault.reload().unwrap();
@@ -1630,7 +1621,7 @@ pub mod tests {
         let router = id_of(&vault, "Router").uuid().to_string();
         let mut data = vault.edit_data(&router).unwrap();
         data.notes = "a change here".into();
-        vault.save_entry(Some(&router), None, &data, false).unwrap();
+        vault.save_entry(Some(&router), None, &data, false, &[]).unwrap();
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();
         assert_eq!(reopened.detail(&mail.uuid().to_string()).unwrap().versions, 1);
@@ -1674,7 +1665,7 @@ pub mod tests {
         let mail = id_of(&vault, "Mail").uuid().to_string();
         let mut data = vault.edit_data(&mail).unwrap();
         data.password = "x".into();
-        assert!(vault.save_entry(Some(&mail), None, &data, false).unwrap_err().contains("cannot be read now"));
+        assert!(vault.save_entry(Some(&mail), None, &data, false, &[]).unwrap_err().contains("cannot be read now"));
         assert_eq!(std::fs::read(&path).unwrap(), b"half-synced");
     }
 
@@ -1686,7 +1677,7 @@ pub mod tests {
         let mut data = vault.edit_data(&router).unwrap();
         data.group = vec!["Elsewhere".into()];
         data.password = "and changed".into();
-        vault.save_entry(Some(&router), None, &data, false).unwrap();
+        vault.save_entry(Some(&router), None, &data, false, &[]).unwrap();
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         let detail = reopened.detail(&router).unwrap();
         assert_eq!(detail.summary.group, ["Elsewhere"]);
@@ -1710,7 +1701,7 @@ pub mod tests {
         });
         let mut data = base.clone();
         data.password = "changed on the PC".into();
-        let (_, conflicts) = vault.save_entry(Some(&router.uuid().to_string()), Some(&base), &data, false).unwrap();
+        let (_, conflicts) = vault.save_entry(Some(&router.uuid().to_string()), Some(&base), &data, false, &[]).unwrap();
         assert!(conflicts.is_empty());
 
         let reopened = Vault::open(&path, Some("test"), None).unwrap();

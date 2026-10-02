@@ -50,12 +50,7 @@ export function choose(message: string, choices: string[]): Promise<number | nul
   }))
 }
 
-/** How much of a file name to select for renaming: the name without its
- *  extension, as Explorer does. */
-export function beforeExtension(name: string): number {
-  const dot = name.lastIndexOf('.')
-  return dot > 0 ? dot : name.length
-}
+export { beforeExtension } from './entry-text'
 
 /** Asks for a line of text, starting from `value` with `selected` of it
  *  selected, offering `suggestions` as it is typed; resolves to the text, or

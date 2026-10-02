@@ -216,7 +216,6 @@ main.list-screen {
   border-radius: 6px;
 }
 
-
 .line {
   display: flex;
   align-items: center;
@@ -673,4 +672,43 @@ button.chip[aria-pressed="true"] {
 
 .editor > button.link {
   align-self: flex-start;
+}
+
+/* The entry's files in the editor: the name with what Save will do to it, the size, the menu. */
+.attachment-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.attachment-row .size {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+.attachment-row button.icon {
+  color: var(--color-neutral-700);
+}
+
+.files-editor > button.add-field {
+  border: 0;
+  padding: 10px 0;
+}
+
+.attachment-row .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.attachment-row .note:empty {
+  display: none;
+}
+
+.sheet button.item.danger {
+  color: var(--color-error);
 }

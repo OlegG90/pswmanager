@@ -1,13 +1,13 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
-import { dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
+import { beforeExtension, dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type CloudFile, type Entry, type EntryData, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type CloudFile, type Entry, type EntryData, type EntryDetail, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -625,13 +625,31 @@ async function entryScreen(id: string, listing: Listing) {
 
 // ------------------------------------------------------------ editing
 
+/** Asks for a file's new name in a sheet; null when cancelled. */
+function askName(current: string): Promise<string | null> {
+  return new Promise((done) => {
+    const name = input(current, { className: 'field', ariaLabel: 'New name' })
+    sheet((close) => {
+      const answer = (value: string | null) => (close(), done(value))
+      const rename = button('Rename', 'Rename', () => answer(name.value), 'primary')
+      enterPresses(rename, name)
+      return [el('b', {}, 'Rename the file'), name, rename, button('Cancel', 'Cancel', () => answer(null), 'link')]
+    })
+    // The name without its extension is chosen, ready to type over.
+    name.focus()
+    name.setSelectionRange(0, beforeExtension(current))
+  })
+}
+
 /** The editor, as `spec.md` *Editing* has it; a new blank entry when `id` is
  *  null. Cancel and Back return with `back`; saving shows the entry. */
 async function editorScreen(id: string | null, listing: Listing, back: () => void) {
   let data: EntryData
+  let attachments: EntryDetail['attachments'] = []
   try {
     // A new entry goes to the top group, with the database's default user name.
     data = id ? await api.editEntry(id) : { ...EMPTY_ENTRY, username: listing.database.defaultUsername }
+    if (id) attachments = (await api.entry(id)).attachments
   } catch (e) {
     snack(String(e))
     return
@@ -653,6 +671,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const expires = el('input', { type: 'date', value: data.expires ? dateOf(data.expires) : '', className: 'field' })
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
+  const files = filesEditor(attachments, {
+    pick: api.pickFileToAttach,
+    release: api.releaseFiles,
+    askName,
+    menu: (title, items) => iconButton('more', title, () =>
+      sheet((close) => [el('b', {}, title), ...items.map((item) => button(item.label, item.title, () => (close(), item.action()), item.danger ? 'item danger' : 'item'))])),
+  }, (message) => showError(message))
   const strength = strengthMeter(password, api.passwordStrength)
   const generator = generatorPanel(api.generatePassword, (chosen) => {
     password.value = chosen
@@ -668,7 +693,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(id, id ? data : null, collect())
+      const saved = await api.saveEntry(id, id ? data : null, collect(), files.changes())
       await entryScreen(saved.id, saved.listing)
       if (saved.conflicts.length) snack(`Also changed on another device: ${saved.conflicts.join(', ')}. That version is in the history.`)
     } catch (e) {
@@ -677,9 +702,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       saving = false
     }
   }
+  const leaveEditor = () => {
+    files.release()
+    back()
+  }
   const close = () => {
-    if (JSON.stringify(collect()) === untouched) back()
-    else confirmSheet('Discard the changes?', 'Discard', back)
+    if (JSON.stringify(collect()) === untouched && !files.changes().length) leaveEditor()
+    else confirmSheet('Discard the changes?', 'Discard', leaveEditor)
   }
   // Android's Back cancels too, and stays on the editor when the changes are kept.
   const onBack = () => {
@@ -706,6 +735,8 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       el('h2', {}, 'Additional fields'),
       fieldList,
       button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'link'),
+      el('h2', {}, 'Files'),
+      files.element,
       ...(id ? [el('p', { className: 'muted' }, 'Saving keeps the previous version in the history.')] : [])),
   ], onBack)
   if (!id) title.focus()

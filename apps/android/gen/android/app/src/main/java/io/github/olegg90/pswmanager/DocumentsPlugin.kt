@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.activity.result.ActivityResult
@@ -93,6 +94,29 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
+  /** A file to read once (to attach it): no lasting access is kept. */
+  @Command
+  fun pickToRead(invoke: Invoke) {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+      .addCategory(Intent.CATEGORY_OPENABLE)
+      .setType("*/*")
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    startActivityForResult(invoke, intent, "pickedToRead")
+  }
+
+  /** The file picked to read, with its size (-1 when the provider does not say); `uri` is null when the user cancelled. */
+  @ActivityCallback
+  fun pickedToRead(invoke: Invoke, result: ActivityResult) {
+    val uri = result.data?.data
+    if (result.resultCode != Activity.RESULT_OK || uri == null) {
+      invoke.resolve(JSObject().put("uri", null as String?))
+      return
+    }
+    background(invoke) {
+      JSObject().put("uri", uri.toString()).put("name", displayName(uri)).put("size", sizeOf(uri))
+    }
+  }
+
   /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */
   @Command
   fun child(invoke: Invoke) = background(invoke) {
@@ -168,6 +192,13 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
       if (cursor.moveToFirst()) return cursor.getString(0)
     }
     return uri.lastPathSegment ?: ""
+  }
+
+  private fun sizeOf(uri: Uri): Long {
+    resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+      if (cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getLong(0)
+    }
+    return -1
   }
 
   /** Runs `work` off the main thread and answers with what it returns, or its error. */
