@@ -20,16 +20,21 @@ import java.util.concurrent.TimeUnit
  * for the next unlock. The work is done in Rust ([BackgroundUpload]).
  */
 class UploadWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+  /** Tried again (offline, a failure that may pass) a few times; then the app
+   *  sends the changes when it is next opened. */
   override fun doWork(): Result {
     val state = inputData.getString(STATE) ?: return Result.failure()
-    return if (BackgroundUpload.uploadPending(applicationContext, state)) Result.success() else Result.retry()
+    val settled = BackgroundUpload.uploadPending(applicationContext, state)
+    return if (settled || runAttemptCount >= MAX_ATTEMPTS) Result.success() else Result.retry()
   }
 
   companion object {
     private const val STATE = "state"
+    private const val MAX_ATTEMPTS = 10
 
     /** Asks for the upload of what the app's state file `state` says is waiting;
-     *  a cloud store needs a network first. Replaces one asked for before. */
+     *  a cloud store needs a network first. One asked for before is kept (a
+     *  running one is never stopped halfway): it sends whatever is waiting. */
     fun schedule(context: Context, state: String, cloud: Boolean) {
       val network = if (cloud) NetworkType.CONNECTED else NetworkType.NOT_REQUIRED
       val request = OneTimeWorkRequestBuilder<UploadWorker>()
@@ -37,7 +42,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : Worker(context,
         .setInputData(workDataOf(STATE to state))
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
         .build()
-      WorkManager.getInstance(context).enqueueUniqueWork("upload", ExistingWorkPolicy.REPLACE, request)
+      WorkManager.getInstance(context).enqueueUniqueWork("upload", ExistingWorkPolicy.KEEP, request)
     }
   }
 }
@@ -48,7 +53,8 @@ object BackgroundUpload {
     System.loadLibrary("pswm_android_lib")
   }
 
-  /** Uploads what is waiting; true when nothing is left to send. */
+  /** Uploads what is waiting; true when that is settled (sent, nothing to
+   *  send, or left for the app), false when it is worth trying again. */
   @JvmStatic
   external fun uploadPending(context: Context, state: String): Boolean
 }

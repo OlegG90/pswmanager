@@ -35,6 +35,13 @@ pub enum SyncError {
     Failed(String),
 }
 
+/// Whether a background upload is done with `result`: sent, nothing to send,
+/// or left for the app (a merge needs the key, an account needs signing in);
+/// not when it was offline or failed, which may pass.
+pub fn settled(result: &Result<Outcome, SyncError>) -> bool {
+    !matches!(result, Err(SyncError::Offline(_) | SyncError::Failed(_)))
+}
+
 impl From<RemoteError> for SyncError {
     fn from(e: RemoteError) -> Self {
         match e {
@@ -335,6 +342,15 @@ pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_offline_or_a_failure_is_worth_trying_again() {
+        assert!(settled(&Ok(Outcome::WaitingForUnlock)));
+        assert!(settled(&Err(SyncError::SignIn("again".into()))));
+        assert!(settled(&Err(SyncError::OtherKey)));
+        assert!(!settled(&Err(SyncError::Offline("no network".into()))));
+        assert!(!settled(&Err(SyncError::Failed("timeout".into()))));
+    }
     use std::sync::Mutex;
     use crate::remote::{Folder, Location};
     use crate::store::State;

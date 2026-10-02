@@ -21,6 +21,9 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
+/// The app's state file, in its data folder.
+const STATE_FILE: &str = "pswm.json";
+
 pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
         .plugin(crate::system::init())
@@ -95,9 +98,6 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::release_files
         ])
 }
-
-/// The app's state file, in its data folder.
-const STATE_FILE: &str = "pswm.json";
 
 /// What the unlock screen shows about the database, if there is one.
 #[derive(Serialize)]
@@ -418,6 +418,10 @@ impl Syncing {
         true
     }
 
+    fn is_running(&self) -> bool {
+        self.0.lock().unwrap().running
+    }
+
     /// True when it was asked again meanwhile: run once more.
     fn again(&self) -> bool {
         let mut flags = self.0.lock().unwrap();
@@ -441,11 +445,13 @@ pub fn start_sync(app: AppHandle) {
 }
 
 /// One sync with `session`: the unlocked database (merges if need be), or a
-/// locked one (uploads only; a merge waits for the next unlock).
-fn sync_once(app: &AppHandle, session: &Session) {
+/// locked one (uploads only; a merge waits for the next unlock). Whether it
+/// is settled ([sync::settled]).
+fn sync_once(app: &AppHandle, session: &Session) -> bool {
     let store = app.state::<Store>();
-    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return };
+    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return true };
     let result = sync::sync(location.open().as_ref(), &store, session);
+    let settled = sync::settled(&result);
     let (text, problem) = sync::describe(&store, &result);
     let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
     let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
@@ -455,6 +461,7 @@ fn sync_once(app: &AppHandle, session: &Session) {
     *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
     // A page that is not listening reads it with `last_sync`.
     let _ = app.emit("synced", synced);
+    settled
 }
 
 /// Going to the background: what has not gone up yet goes now, as an upload
@@ -486,29 +493,28 @@ fn upload_pending(app: AppHandle) {
 fn schedule_background_upload(app: &AppHandle, store: &Store) {
     let cloud = store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some()));
     let Ok(data) = app.path().app_data_dir() else { return };
+    // Only a fallback: the upload that follows may well send the changes.
     let _ = app.state::<crate::system::System<Wry>>().schedule_upload(&data.join(STATE_FILE).to_string_lossy(), cloud);
 }
 
 /// The background upload with the app running in this process: what has not
 /// gone up yet goes now, as an upload only, after a sync that runs (waiting
-/// two minutes at most). True when nothing is left to send.
+/// two minutes at most). Whether it is settled ([sync::settled]).
 pub fn upload_pending_now(app: &AppHandle) -> bool {
     let syncing = app.state::<Syncing>();
-    let mut waited = 0;
-    while !syncing.begin() {
-        if waited == 120 {
-            return false;
+    for _ in 0..120 {
+        if !syncing.is_running() && syncing.begin() {
+            let mut settled;
+            loop {
+                settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(app, &Session::default()))).unwrap_or(false);
+                if !syncing.again() {
+                    return settled;
+                }
+            }
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
-        waited += 1;
     }
-    loop {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(app, &Session::default())));
-        if !syncing.again() {
-            break;
-        }
-    }
-    !sync::has_pending(&app.state::<Store>())
+    false
 }
 
 /// Puts the synced database's visible copy into `folder` (in place of where it was).

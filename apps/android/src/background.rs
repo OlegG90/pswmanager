@@ -47,7 +47,13 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_BackgroundUpload_upload
     }
 }
 
-/// True when nothing is left to send.
+/// Whether the upload is settled ([sync::settled]): WorkManager tries again
+/// only when it is not.
+///
+/// Without the app the work has its own `Store` on the state file. Should the
+/// app start in this process meanwhile, both write the file whole; the
+/// app's may put back an older sync state, which costs a needless check or
+/// merge at the next sync, never data.
 fn upload(env: &mut JNIEnv, context: &JObject, state: &JString) -> Result<bool, String> {
     if let Some(app) = APP.get() {
         return Ok(crate::app::upload_pending_now(app));
@@ -59,21 +65,24 @@ fn upload(env: &mut JNIEnv, context: &JObject, state: &JString) -> Result<bool, 
         return Ok(true);
     }
     let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return Ok(true) };
-    // Offline, signed out or changed elsewhere: tried again later, or left for the app.
-    let _ = sync::sync(location.open().as_ref(), &store, &Session::default());
-    Ok(!sync::has_pending(&store))
+    Ok(sync::settled(&sync::sync(location.open().as_ref(), &store, &Session::default())))
 }
 
 /// The Kotlin side, reached from any thread: the classes are found once, on
-/// the worker's thread, whose class loader knows them.
+/// the worker's thread, whose class loader knows them. Installed before the
+/// app's own plugins (the work started the process), these serve the app too.
 struct Kotlin {
     vm: JavaVM,
     context: GlobalRef,
     keystore: GlobalRef,
-    documents: GlobalRef,
+    document_io: GlobalRef,
 }
 
-const CONTEXT_STRING: &str = "(Landroid/content/Context;Ljava/lang/String;)";
+/// An argument after the app's context.
+enum Arg<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
+}
 
 impl Kotlin {
     /// Installs the core's secrets and documents through JNI, once.
@@ -90,7 +99,7 @@ impl Kotlin {
             vm: env.get_java_vm().map_err(|e| e.to_string())?,
             context: env.new_global_ref(context).map_err(|e| e.to_string())?,
             keystore: class(env, "io/github/olegg90/pswmanager/Keystore")?,
-            documents: class(env, "io/github/olegg90/pswmanager/DocumentIo")?,
+            document_io: class(env, "io/github/olegg90/pswmanager/DocumentIo")?,
         });
         secrets::install(Box::new(Secrets(kotlin.clone())));
         documents::install(Box::new(Documents(kotlin)));
@@ -98,28 +107,33 @@ impl Kotlin {
         Ok(())
     }
 
-    /// Calls a static method of `class` with the app's context and a string
-    /// first; a Java exception is cleared and becomes the error.
+    /// Calls `class`'s static `method` with the app's context and `args`, in a
+    /// local frame (a whole database can pass through), and reads the answer
+    /// with `read`; a Java exception is cleared and becomes the error.
     fn call<T>(
         &self,
         class: &GlobalRef,
         method: &str,
         signature: &str,
-        text: &str,
-        more: Option<&[u8]>,
-        answer: impl FnOnce(&mut JNIEnv, JValueOwned) -> jni::errors::Result<T>,
+        args: &[Arg],
+        read: impl FnOnce(&mut JNIEnv, JValueOwned) -> jni::errors::Result<T>,
     ) -> Result<T, String> {
         let mut env = self.vm.attach_current_thread().map_err(|e| e.to_string())?;
-        let result = (|| {
-            let text = env.new_string(text)?;
-            let bytes = more.map(|bytes| env.byte_array_from_slice(bytes)).transpose()?;
-            let mut args = vec![JValue::Object(self.context.as_obj()), JValue::Object(&text)];
-            if let Some(bytes) = &bytes {
-                args.push(JValue::Object(bytes));
+        let result = env.with_local_frame(8, |env| -> jni::errors::Result<T> {
+            let mut objects = Vec::with_capacity(args.len());
+            for arg in args {
+                objects.push(match arg {
+                    Arg::Text(text) => JObject::from(env.new_string(text)?),
+                    Arg::Bytes(bytes) => JObject::from(env.byte_array_from_slice(bytes)?),
+                });
             }
-            let value = env.call_static_method(<&JClass>::from(class.as_obj()), method, signature, &args)?;
-            answer(&mut env, value)
-        })();
+            let mut values = vec![JValue::Object(self.context.as_obj())];
+            for object in &objects {
+                values.push(JValue::Object(object));
+            }
+            let value = env.call_static_method(<&JClass>::from(class.as_obj()), method, signature, &values)?;
+            read(env, value)
+        });
         if env.exception_check().unwrap_or(false) {
             let _ = env.exception_clear();
             return Err(format!("{method} failed"));
@@ -132,25 +146,14 @@ struct Secrets(Arc<Kotlin>);
 
 impl SecretStore for Secrets {
     fn write(&self, name: &str, secret: &str) -> Result<(), String> {
-        let k = &self.0;
         let signature = "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V";
-        let mut env = k.vm.attach_current_thread().map_err(|e| e.to_string())?;
-        let result = (|| {
-            let (name, secret) = (env.new_string(name)?, env.new_string(secret)?);
-            let args = [JValue::Object(k.context.as_obj()), JValue::Object(&name), JValue::Object(&secret)];
-            env.call_static_method(<&JClass>::from(k.keystore.as_obj()), "write", signature, &args).map(|_| ())
-        })();
-        if env.exception_check().unwrap_or(false) {
-            let _ = env.exception_clear();
-            return Err("Cannot keep the secret".into());
-        }
-        result.map_err(|e| e.to_string())
+        self.0.call(&self.0.keystore, "write", signature, &[Arg::Text(name), Arg::Text(secret)], |_, _| Ok(()))
     }
 
     fn read(&self, name: &str) -> Option<Zeroizing<String>> {
-        let signature = format!("{CONTEXT_STRING}Ljava/lang/String;");
+        let signature = "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;";
         self.0
-            .call(&self.0.keystore, "read", &signature, name, None, |env, value| {
+            .call(&self.0.keystore, "read", signature, &[Arg::Text(name)], |env, value| {
                 let value = value.l()?;
                 if value.is_null() {
                     return Ok(None);
@@ -162,8 +165,8 @@ impl SecretStore for Secrets {
     }
 
     fn delete(&self, name: &str) {
-        let signature = format!("{CONTEXT_STRING}V");
-        let _ = self.0.call(&self.0.keystore, "delete", &signature, name, None, |_, _| Ok(()));
+        let signature = "(Landroid/content/Context;Ljava/lang/String;)V";
+        let _ = self.0.call(&self.0.keystore, "delete", signature, &[Arg::Text(name)], |_, _| Ok(()));
     }
 }
 
@@ -171,8 +174,8 @@ struct Documents(Arc<Kotlin>);
 
 impl DocumentStore for Documents {
     fn read(&self, uri: &str) -> Result<Option<Vec<u8>>, String> {
-        let signature = format!("{CONTEXT_STRING}[B");
-        self.0.call(&self.0.documents, "read", &signature, uri, None, |env, value| {
+        let signature = "(Landroid/content/Context;Ljava/lang/String;)[B";
+        self.0.call(&self.0.document_io, "read", signature, &[Arg::Text(uri)], |env, value| {
             let value = value.l()?;
             if value.is_null() {
                 return Ok(None);
@@ -183,6 +186,6 @@ impl DocumentStore for Documents {
 
     fn write(&self, uri: &str, bytes: &[u8]) -> Result<(), String> {
         let signature = "(Landroid/content/Context;Ljava/lang/String;[B)V";
-        self.0.call(&self.0.documents, "write", signature, uri, Some(bytes), |_, _| Ok(()))
+        self.0.call(&self.0.document_io, "write", signature, &[Arg::Text(uri), Arg::Bytes(bytes)], |_, _| Ok(()))
     }
 }
