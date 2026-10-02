@@ -296,6 +296,10 @@ function listScreen(opened: Listing) {
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
+    iconButton('sync', 'Sync now', () => {
+      status.textContent = 'Syncing…'
+      void api.syncNow()
+    }),
     iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
   const closeSearch = () => {

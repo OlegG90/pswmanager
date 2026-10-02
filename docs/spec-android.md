@@ -120,7 +120,7 @@ A local file skips steps 2–3.
 As in the mockups `1e`–`1j`.
 
 - **List**, laid out as in Keepass2Android: a toolbar on top (☰ for the drawer, the group or tag shown,
-  *Lock*; *Settings* from stage A1's settings), the entries with their icons, and floating buttons at the
+  *Sync now*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
