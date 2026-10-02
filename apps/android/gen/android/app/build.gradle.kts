@@ -14,6 +14,12 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Both apps' version, from the workspace's Cargo.toml ([workspace.package]):
+// `0.5.1` is versionName 0.5.1 and versionCode 501 (each part below 100).
+val appVersion: String = Regex("""(?m)^version = "([^"]+)"""")
+    .find(rootProject.file("../../../../Cargo.toml").readText())!!.groupValues[1]
+val appVersionCode: Int = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
+
 android {
     compileSdk = 37
     namespace = "io.github.olegg90.pswmanager"
@@ -22,8 +28,8 @@ android {
         applicationId = "io.github.olegg90.pswmanager"
         minSdk = 29
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = appVersionCode
+        versionName = appVersion
     }
     // The release key comes from CI (ANDROID_KEYSTORE_PATH and _PASSWORD, from the
     // repo's secrets); a release build without it is left unsigned.
