@@ -306,7 +306,7 @@ main.list-screen {
   background: var(--color-accent-100);
 }
 
-.drawer button.lock {
+.drawer button.action {
   margin-top: 20px;
   color: var(--color-accent);
 }

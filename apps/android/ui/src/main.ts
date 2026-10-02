@@ -446,8 +446,8 @@ function drawer(listing: Listing, changed: () => void) {
     }),
     el('h2', {}, 'Tags'),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
-    button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'lock'),
-    button('Lock', 'Lock the database', () => void lock(), 'lock'),
+    button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
+    button('Lock', 'Lock the database', () => void lock(), 'action'),
   )
 }
 
@@ -497,16 +497,16 @@ async function save(name: string, value: unknown) {
   }
 }
 
-const MINUTES = (values: number[], never: string): [number, string][] => values.map((m) => [m, m === 0 ? never : `${m} min`])
+/** The minutes offered for a setting in minutes (1–60), with 0 called `never`. */
+const minutes = (never: string): [number, string][] => [1, 2, 5, 10, 15, 30, 60, 0].map((m) => [m, m === 0 ? never : `${m} min`])
 
 async function settingsScreen(back: () => void) {
-  const s = await api.settings()
-  applySettings(s)
+  applySettings(await api.settings())
   const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['sync', 'Sync'], ['about', 'About']]
   const body = el('div', { className: 'settings' })
   const fill = () => {
     bar.querySelectorAll('button').forEach((b, i) => b.classList.toggle('chosen', tabs[i][0] === settingsTab))
-    body.replaceChildren(...tab(settingsTab, s))
+    body.replaceChildren(...tab(settingsTab, settings!))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
   show([el('header', { className: 'bar' }, button('←', 'Back', back, 'icon'), el('h1', {}, 'Settings')), bar, body], back)
@@ -520,7 +520,7 @@ function tab(which: Tab, s: Settings): Node[] {
         el('h2', {}, 'Locking'),
         choice('In the background', 'Locks this long after the app goes away', 'lockInBackground', s.lockInBackground, [[0, 'At once'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [null, 'Never']]),
         toggle('When the screen turns off', 'Locks at once', 'lockOnScreenOff', s.lockOnScreenOff),
-        choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, MINUTES([1, 2, 5, 10, 15, 30, 60, 0], 'Never')),
+        choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, minutes('Never')),
         el('h2', {}, 'Clipboard'),
         choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),
       ]
@@ -533,7 +533,7 @@ function tab(which: Tab, s: Settings): Node[] {
       return [
         el('p', {}, database?.syncedWith ? `Syncs with ${database.syncedWith}` : 'Not synced'),
         ...(database?.cloud ? [el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet')] : []),
-        choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, MINUTES([1, 2, 5, 10, 15, 30, 60, 0], 'Off')),
+        choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, minutes('Off')),
         button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary'),
         el('p', { className: 'muted' }, 'To use another database or stop syncing this one, lock it and choose “Use another database…”: its file stays where it is.'),
       ]
@@ -640,8 +640,8 @@ let hiddenAt = Date.now()
 let lastTouch = Date.now()
 
 /** Syncs on its own while unlocked: coming back to the app after a minute
- *  (AGAIN_AFTER), every 5 minutes while it is in front (EVERY); going away
- *  sends what is waiting. */
+ *  (AGAIN_AFTER), and as often as the setting says while it is in front;
+ *  going away sends what is waiting. */
 const AGAIN_AFTER = 60 * 1000
 const syncIfOlder = (age: number) => {
   if (unlocked && !document.hidden && age > 0 && Date.now() - lastSynced >= age) void api.syncNow()
