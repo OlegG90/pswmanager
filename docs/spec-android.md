@@ -39,8 +39,7 @@ completely is a goal for later stages.
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
 database on the phone), creating a new database, *Database settings* (name, history limits, key and
 encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates and Trash
-groups, managing tags (rename, merge, remove), password health, restoring a history version, adding or
-changing attachments, a LAN folder as a store, tablets and landscape, Google Play.
+groups, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
 
 ## The database on the phone
 
@@ -136,15 +135,16 @@ As in the mockups `1e`–`1j`.
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
 - **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
-  another app (Android's chooser), see *Security behaviour*. Adding, replacing, renaming and removing files
-  come later.
+  another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, replaced,
+  renamed and removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
+  Android's file picker and read once, without keeping access to it.
 - **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
   downloaded the same way and cached in the app's private storage, with the same hashed file names (the
   hashing key kept in the Keystore). The *Download site icons* setting turns it off.
 - **Theme:** light or dark, or as the system is set (the default).
 - **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
-  strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes.
-  A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
+  files (saved with the entry). A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
@@ -292,8 +292,9 @@ Each stage is a GitHub issue and lands in one or more PRs.
   icons; sync with every trigger and the status line and sheet; locking and `FLAG_SECURE`; settings
   (General, Appearance, Sync, About).
 - **A2 — Editing:** the editor with the generator and strength indicator, new entry, delete to the recycle
-  bin, the favorite star, tags as chips, expiry date, TOTP secret; entry history read only.
+  bin, the favorite star, tags as chips, expiry date, TOTP secret, files changed in the editor; entry
+  history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
 - **Later:** autofill; several databases and creating one; database settings; backup; Templates and Trash;
-  managing tags; attachments changed on the phone; restoring a history version; password health.
+  managing tags; restoring a history version; password health.

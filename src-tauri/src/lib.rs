@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, settings, store, vault};
+use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, settings, staged, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -781,6 +781,7 @@ fn lock_now(app: &AppHandle) {
     }
     clipboard::clear_if_ours();
     opened::clean(&opened::folder());
+    app.state::<staged::Staged>().clear();
 }
 
 /// The window reports use, which keeps the database unlocked.
@@ -880,24 +881,30 @@ fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> 
     session.with(|v| v.edit_data(&id))
 }
 
-/// Creates (no `id`) or changes an entry, saves the file and returns the new
-/// listing with the entry's id.
+/// Creates (no `id`) or changes an entry with its `files`, saves the file
+/// and returns the new listing with the entry's id.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)] // a command's arguments are what the window sends
 fn save_entry(
     app: AppHandle,
     session: State<Session>,
+    staged: State<staged::Staged>,
     id: Option<String>,
     base: Option<EntryData>,
     data: EntryData,
     template: Option<bool>,
+    files: Option<Vec<edit::FileChange>>,
 ) -> Result<Saved, String> {
+    let files = files.unwrap_or_default();
+    let edits = staged.resolve(&files)?;
     let saved = session.with_mut(|v| {
-        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template.unwrap_or(false))?;
+        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template.unwrap_or(false), &edits)?;
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
+    staged.release(files.iter().filter_map(edit::FileChange::content).copied());
     fetch_icons(&app, &saved.listing);
     // Tags alone can wait for the next sync (hiding, locking, quitting).
-    if edit::needs_upload(base.as_ref(), &data) {
+    if edit::needs_upload(base.as_ref(), &data, &files) {
         sync::upload_soon(&app);
     }
     Ok(saved)
@@ -1012,78 +1019,25 @@ fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: St
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Attached {
-    /// The name the file got in the entry.
-    name: String,
-    listing: Listing,
-}
-
-/// A file the user picked to attach: its name and content.
-type Picked = (String, Zeroizing<Vec<u8>>);
-
-/// A file the user picks to attach; nothing when cancelled.
-fn pick_attachment(window: &Window) -> Result<Option<Picked>, String> {
-    let Some(path) = pick(window, "", &[])? else { return Ok(None) };
+/// A file the user picks to attach in the editor, read and held in the
+/// backend until the entry is saved: the window gets its name and size only.
+/// Nothing when cancelled.
+#[tauri::command(async)]
+fn pick_file_to_attach(window: Window, staged: State<staged::Staged>) -> Result<Option<staged::StagedFile>, String> {
+    let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
     let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len();
     if size > edit::MAX_ATTACHMENT as u64 {
         return Err(edit::too_big());
     }
-    let data = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
+    let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(Some((name, data)))
+    staged.add(name, content).map(Some)
 }
 
-/// Replaces the content of one of the entry's files with a file the user
-/// picks (the entry's history keeps the old content), saves the database
-/// and returns the new listing; nothing when the user cancelled.
+/// The editor let go of files it had picked (cancelled, or removed them).
 #[tauri::command(async)]
-fn replace_attachment(app: AppHandle, window: Window, session: State<Session>, id: String, name: String) -> Result<Option<Listing>, String> {
-    let Some((_, data)) = pick_attachment(&window)? else { return Ok(None) };
-    let listing = session.with_mut(|v| {
-        v.replace_attachment(&id, &name, &data)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(Some(listing))
-}
-
-/// Attaches a file the user picks to an entry and saves the database; the
-/// content never passes through the frontend. Nothing when the user cancelled.
-#[tauri::command(async)]
-fn attach_file(app: AppHandle, window: Window, session: State<Session>, id: String) -> Result<Option<Attached>, String> {
-    let Some((name, data)) = pick_attachment(&window)? else { return Ok(None) };
-    let attached = session.with_mut(|v| {
-        let name = v.attach(&id, &name, &data)?;
-        Ok(Attached { name, listing: v.listing() })
-    })?;
-    sync::upload_soon(&app);
-    Ok(Some(attached))
-}
-
-/// Removes a file from an entry (the entry's history keeps it), saves the
-/// database and returns the new listing.
-#[tauri::command(async)]
-fn remove_attachment(app: AppHandle, session: State<Session>, id: String, name: String) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.detach(&id, &name)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// Renames a file of an entry (the entry's history keeps the old name),
-/// saves the database and returns the new name with the new listing.
-#[tauri::command(async)]
-fn rename_attachment(app: AppHandle, session: State<Session>, id: String, from: String, to: String) -> Result<Attached, String> {
-    let renamed = session.with_mut(|v| {
-        let name = v.rename_attachment(&id, &from, &to)?;
-        Ok(Attached { name, listing: v.listing() })
-    })?;
-    sync::upload_soon(&app);
-    Ok(renamed)
+fn release_files(staged: State<staged::Staged>, files: Vec<u64>) {
+    staged.release(files);
 }
 
 /// Gives entries a tag or takes it off (the star is the tag Favorite),
@@ -1411,10 +1365,8 @@ pub fn run() {
             remove_tag,
             save_attachment,
             open_attachment,
-            attach_file,
-            remove_attachment,
-            rename_attachment,
-            replace_attachment,
+            pick_file_to_attach,
+            release_files,
             pick_icon_image,
             totp,
             copy_totp,
@@ -1435,6 +1387,7 @@ pub fn run() {
             let store = Store::load(state_file);
             app.manage(icons::Cache::in_data_dir(store.dir()));
             app.manage(store);
+            app.manage(staged::Staged::default());
             opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
             if let Some(database) = options.database {

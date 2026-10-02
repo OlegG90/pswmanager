@@ -37,6 +37,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(Syncing::default());
             app.manage(LockLater::default());
             app.manage(crate::editing::UploadSoon::default());
+            app.manage(pswm_core::staged::Staged::default());
             app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
             if let Ok(folder) = open_folder(app.handle()) {
@@ -87,7 +88,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::delete_entry,
             crate::editing::set_favorite,
             crate::editing::generate_password,
-            crate::editing::password_strength
+            crate::editing::password_strength,
+            crate::editing::pick_file_to_attach,
+            crate::editing::release_files
         ])
 }
 
@@ -242,6 +245,7 @@ fn lock(app: AppHandle) {
 
 fn lock_now(app: &AppHandle) {
     app.state::<Session>().set(None);
+    app.state::<pswm_core::staged::Staged>().clear();
     // As on Windows: what has not gone up yet goes now; a merge waits for the next unlock.
     upload_pending(app.clone());
     if let Ok(folder) = open_folder(app) {

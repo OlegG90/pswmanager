@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Entry, EntryData, EntryDetail, GeneratorOptions, Strength } from '../../../../src/api'
+import type { Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength } from '../../../../src/api'
 
 export type { Entry, EntryData, EntryDetail }
 
@@ -118,7 +118,9 @@ export const api = {
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
-  saveEntry: (id: string | null, base: EntryData | null, data: EntryData) => invoke<Saved>('save_entry', { id, base, data }),
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, files: FileChange[]) => invoke<Saved>('save_entry', { id, base, data, files }),
+  pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
+  releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
   setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),

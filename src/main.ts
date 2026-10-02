@@ -6,7 +6,7 @@ import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type Database
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
-import { ask, askText, beforeExtension, choose, isAsking } from './modal'
+import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
@@ -510,7 +510,7 @@ function renderDetail() {
   }
   if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
   if (entry.attachments.length) {
-    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map((file) => fileRow(file, !version && editable(entry))))
+    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
   }
   if (version) {
     if (version.at.differs.length) {
@@ -527,7 +527,6 @@ function renderDetail() {
     rows.push(
       el('div', { className: 'buttons' },
         button('Edit', 'Edit (Ctrl+E)', editEntry, 'primary'),
-        button('Attach file…', 'Attach a file to this entry', attachFile),
         button('Delete', 'Move to the recycle bin (Del)', deleteEntry)),
     )
   } else if (isTemplate(entry)) {
@@ -629,15 +628,10 @@ async function restoreVersion() {
   }
 }
 
-/** An attached file: its name and size; the content is only ever saved to disk.
- *  Only an entry in use has its files changed. */
-function fileRow(file: Attachment, changeable: boolean): HTMLDivElement {
+/** An attached file: its name and size; the content is only ever saved to
+ *  disk. Files are added, replaced, renamed and removed in the editor. */
+function fileRow(file: Attachment): HTMLDivElement {
   const save = { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) }
-  const changes = [
-    { label: 'Replace…', title: 'Replace with another file (its history keeps this one)', action: () => replaceAttachment(file.name) },
-    { label: 'Rename…', title: 'Rename (its history keeps the old name)', action: () => renameAttachment(file.name) },
-    { label: 'Remove…', title: 'Remove from this entry (its history keeps the file)', action: () => removeAttachment(file.name), danger: true },
-  ]
   return el(
     'div',
     { className: 'row file' },
@@ -645,7 +639,7 @@ function fileRow(file: Attachment, changeable: boolean): HTMLDivElement {
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
       button('Open', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
-      menuButton(`More for ${file.name}`, changeable ? [save, ...changes] : [save])),
+      menuButton(`More for ${file.name}`, [save])),
   )
 }
 
@@ -954,54 +948,6 @@ async function deleteEntry() {
   if (!yes || selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntries([entry.id]), 'Moved to the recycle bin')
-  } catch (e) {
-    notify(String(e))
-  }
-}
-
-async function attachFile() {
-  const entry = current
-  if (!editable(entry) || isEditing()) return
-  try {
-    const attached = await api.attachFile(entry.id)
-    if (attached) applyListing(attached.listing, `Attached ${attached.name}`)
-  } catch (e) {
-    notify(String(e))
-  }
-}
-
-async function replaceAttachment(name: string) {
-  const entry = current
-  if (!entry || isEditing()) return
-  try {
-    const listing = await api.replaceAttachment(entry.id, name)
-    if (listing) applyListing(listing, `Replaced ${name} · the previous one is in the entry's history`)
-  } catch (e) {
-    notify(String(e))
-  }
-}
-
-async function renameAttachment(name: string) {
-  const entry = current
-  if (!entry || isEditing()) return
-  const to = await askText(`Rename "${name}" to:`, name, 'Rename', beforeExtension(name))
-  if (to === null || to.trim() === name || selectedId !== entry.id) return
-  try {
-    const renamed = await api.renameAttachment(entry.id, name, to)
-    applyListing(renamed.listing, `Renamed to ${renamed.name}`)
-  } catch (e) {
-    notify(String(e))
-  }
-}
-
-/** Asks first, like deleting an entry. */
-async function removeAttachment(name: string) {
-  const entry = current
-  if (!entry || isEditing()) return
-  const yes = await ask(`Remove "${name}" from "${titleOf(entry)}"? The entry's history keeps it.`, 'Remove')
-  if (!yes || selectedId !== entry.id) return
-  try {
-    applyListing(await api.removeAttachment(entry.id, name), `Removed ${name}`)
   } catch (e) {
     notify(String(e))
   }

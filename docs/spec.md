@@ -338,10 +338,15 @@ while the database is locked):
   not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
-- **Attachments:** in the entry view a file can be added to an entry, replaced, renamed or removed (up to
-  20 MB — the whole database is synced on every change); the change is saved at once, with the previous
-  version in history, like an edit. A name the entry already uses gets a number (`scan (2).pdf`) rather
-  than replacing the file. A removed file stays in the database for the history version that has it:
+- **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a
+  file can be added (up to 20 MB — the whole database is synced on every change), replaced, renamed (its
+  name is edited in place) or removed. Nothing changes until **Save**, which saves the files with the rest
+  of the entry as one edit (one previous version in history); Cancel drops them. The entry view only
+  opens and saves files; a template's files are not changed. A picked file is read by the backend at
+  once and held there until the entry is saved, the editor is cancelled or the database locks: its
+  content never passes through the window. A name the entry already uses gets a number (`scan (2).pdf`)
+  rather than replacing the file. A file another device removed meanwhile needs nothing to remove; new
+  content for it comes back as a file, and a new name alone has nothing left to name. A removed file stays in the database for the history version that has it:
   keepass-rs would drop it from the database's file pool although that version still uses it, so the file
   is removed on a copy of the database and only the entry is taken from it.
   keepass-rs cannot rename a file or change its content either: renaming and replacing let the entry go of

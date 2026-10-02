@@ -1477,6 +1477,33 @@ input::-ms-reveal {
   padding: 3px 8px;
 }
 
+/* The entry's files in the editor: the name (renamed in place), size, Replace, remove. */
+.files {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-divider);
+}
+
+.attachment-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.attachment-row .name {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+}
+
+.attachment-row .size {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-neutral-700);
+}
+
 .editor .add-field {
   align-self: flex-start;
   margin-top: -6px;

@@ -181,12 +181,21 @@ export interface Difference {
   protected: boolean
 }
 
-/** After attaching a file. */
-export interface Attached {
-  /** The name the file got: a name the entry already uses gets a number. */
+/** A file picked in the editor, held by the backend until the entry is saved. */
+export interface StagedFile {
+  /** What a FileChange names it by. */
+  content: number
   name: string
-  listing: Listing
+  size: number
 }
+
+/** A change the editor makes to the entry's files, saved with the entry. */
+export type FileChange =
+  /** A name the entry already uses gets a number (`scan (2).pdf`). */
+  | { kind: 'add'; name: string; content: number }
+  /** Renamed to `to`, given new content (a staged file), or both. */
+  | { kind: 'change'; name: string; to: string; content: number | null }
+  | { kind: 'remove'; name: string }
 
 export interface Listing {
   entries: Entry[]
@@ -376,8 +385,8 @@ export const api = {
   /** Creates an entry when `id` is null. */
   /** Creates an entry when `id` is null. `base` is the entry as the editor
    *  opened it: only what changed against it is saved. */
-  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, template = false) =>
-    invoke<Saved>('save_entry', { id, base, data, template }),
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, template = false, files: FileChange[] = []) =>
+    invoke<Saved>('save_entry', { id, base, data, template, files }),
   /** Moves the entries to the recycle bin, as one change. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts entries from the trash back where they were. */
@@ -397,15 +406,10 @@ export const api = {
   /** Opens the file in the app Windows uses for its type, from a read-only
    *  copy deleted when the database locks. */
   openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
-  /** Asks for a file and attaches it to the entry; null when cancelled. */
-  attachFile: (id: string) => invoke<Attached | null>('attach_file', { id }),
-  /** Asks for a file and makes its content the entry's file `name`; its
-   *  history keeps the old content. Null when cancelled. */
-  replaceAttachment: (id: string, name: string) => invoke<Listing | null>('replace_attachment', { id, name }),
-  /** Renames the entry's file; its history keeps the old name. */
-  renameAttachment: (id: string, from: string, to: string) => invoke<Attached>('rename_attachment', { id, from, to }),
-  /** Removes the file from the entry; its history keeps it. */
-  removeAttachment: (id: string, name: string) => invoke<Listing>('remove_attachment', { id, name }),
+  /** Asks for a file to attach in the editor; null when cancelled. */
+  pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
+  /** The editor let go of files it had picked. */
+  releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
   /** An image file for an entry's icon, base64; null when cancelled. */
   pickIconImage: () => invoke<string | null>('pick_icon_image'),
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),

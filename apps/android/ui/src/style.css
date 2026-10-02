@@ -674,3 +674,43 @@ button.chip[aria-pressed="true"] {
 .editor > button.link {
   align-self: flex-start;
 }
+
+/* The entry's files in the editor: the name (renamed in place), size, Replace, remove. */
+.attachment-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.attachment-row .name {
+  grid-column: 1 / -1;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.attachment-row .size {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+.attachment-row button {
+  padding: 6px 10px;
+}
+
+.attachment-row button.icon {
+  font-size: 16px;
+  border: 0;
+  color: var(--color-neutral-700);
+}
+
+.files-editor > button.add-field {
+  border: 0;
+  padding: 10px 0;
+}
