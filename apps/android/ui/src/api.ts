@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Entry, EntryDetail } from '../../../../src/api'
+import type { Entry, EntryData, EntryDetail, GeneratorOptions, Strength } from '../../../../src/api'
 
-export type { Entry, EntryDetail }
+export type { Entry, EntryData, EntryDetail }
 
 export interface Database {
   title: string
@@ -25,6 +25,14 @@ export interface Listing {
   entries: Entry[]
   /** The database's own icons, as `data:` URLs. */
   customIcons: Record<string, string>
+  database: { defaultUsername: string }
+}
+
+export interface Saved {
+  id: string
+  listing: Listing
+  /** Fields another device also changed; this edit replaced them. */
+  conflicts: string[]
 }
 
 export interface Code {
@@ -109,4 +117,10 @@ export const api = {
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
+  editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData) => invoke<Saved>('save_entry', { id, base, data }),
+  deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
+  generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
+  passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
 }

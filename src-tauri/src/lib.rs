@@ -26,7 +26,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 use edit::EntryData;
-use vault::{EntryDetail, Kind, Listing, Vault, Version, VersionDetail};
+use vault::{EntryDetail, Kind, Listing, Saved, Vault, Version, VersionDetail};
 use zeroize::Zeroizing;
 
 /// How often the inactivity check runs.
@@ -880,15 +880,6 @@ fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> 
     session.with(|v| v.edit_data(&id))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Saved {
-    id: String,
-    listing: Listing,
-    /// Fields another device also changed; this edit replaced them.
-    conflicts: Vec<String>,
-}
-
 /// Creates (no `id`) or changes an entry, saves the file and returns the new
 /// listing with the entry's id.
 #[tauri::command(async)]
@@ -906,7 +897,7 @@ fn save_entry(
     })?;
     fetch_icons(&app, &saved.listing);
     // Tags alone can wait for the next sync (hiding, locking, quitting).
-    if !base.as_ref().is_some_and(|base| edit::only_tags_changed(base, &data)) {
+    if edit::needs_upload(base.as_ref(), &data) {
         sync::upload_soon(&app);
     }
     Ok(saved)
@@ -1199,23 +1190,9 @@ fn generate_password(options: generator::Options) -> Result<String, String> {
     generator::generate(&options).map(|password| password.to_string())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Strength {
-    /// 0 (guessed at once) to 4 (very hard).
-    score: u8,
-    /// How long an offline attack on a slow hash would take, e.g. "3 hours".
-    crack_time: String,
-}
-
 #[tauri::command(async)]
-fn password_strength(password: String) -> Strength {
-    let password = Zeroizing::new(password);
-    let estimate = zxcvbn::zxcvbn(&password, &[]);
-    Strength {
-        score: estimate.score().into(),
-        crack_time: estimate.crack_times().offline_slow_hashing_1e4_per_second().to_string(),
-    }
+fn password_strength(password: String) -> health::Strength {
+    health::strength(&Zeroizing::new(password))
 }
 
 /// Reused, weak and old passwords; worked out here, so no password leaves the backend.

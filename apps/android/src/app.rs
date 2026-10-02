@@ -36,6 +36,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(LastSync::default());
             app.manage(Syncing::default());
             app.manage(LockLater::default());
+            app.manage(crate::editing::UploadSoon::default());
             app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
             if let Ok(folder) = open_folder(app.handle()) {
@@ -80,7 +81,13 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             dropbox::sign_in_to_dropbox,
             dropbox::dropbox_files,
             dropbox::open_dropbox_file,
-            crate::visible::copy_name_taken
+            crate::visible::copy_name_taken,
+            crate::editing::edit_entry,
+            crate::editing::save_entry,
+            crate::editing::delete_entry,
+            crate::editing::set_favorite,
+            crate::editing::generate_password,
+            crate::editing::password_strength
         ])
 }
 
@@ -235,26 +242,32 @@ fn lock(app: AppHandle) {
 
 fn lock_now(app: &AppHandle) {
     app.state::<Session>().set(None);
+    // As on Windows: what has not gone up yet goes now; a merge waits for the next unlock.
+    upload_pending(app.clone());
     if let Ok(folder) = open_folder(app) {
         opened::clean(&folder);
     }
 }
 
-/// A lock waiting to happen (the app went to the background): each new wait
-/// or `stay_unlocked` makes the ones before void.
+/// Waits where only the latest counts: each new one makes the ones before void.
 #[derive(Default)]
-struct LockLater(std::sync::atomic::AtomicU64);
+pub struct Latest(std::sync::atomic::AtomicU64);
 
-impl LockLater {
+impl Latest {
     /// Voids the waits before; the new one's number.
-    fn next(&self) -> u64 {
+    pub fn next(&self) -> u64 {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
 
-    fn is_latest(&self, wait: u64) -> bool {
+    pub fn is_latest(&self, wait: u64) -> bool {
         self.0.load(std::sync::atomic::Ordering::SeqCst) == wait
     }
 }
+
+/// A lock waiting to happen (the app went to the background); `stay_unlocked`
+/// voids it too.
+#[derive(Default)]
+struct LockLater(Latest);
 
 /// Locks after the setting's time in the background unless the app comes
 /// back first (`stay_unlocked`); tells the page (`locked`). The page also
@@ -262,11 +275,11 @@ impl LockLater {
 /// running on time.
 #[tauri::command]
 fn lock_later(app: AppHandle) {
-    let wait = app.state::<LockLater>().next();
+    let wait = app.state::<LockLater>().0.next();
     let Some(after) = Settings::of(&app.state()).lock_in_background() else { return };
     std::thread::spawn(move || {
         std::thread::sleep(after);
-        if app.state::<LockLater>().is_latest(wait) && app.state::<Session>().is_unlocked() {
+        if app.state::<LockLater>().0.is_latest(wait) && app.state::<Session>().is_unlocked() {
             lock_now(&app);
             let _ = app.emit("locked", ());
         }
@@ -275,7 +288,7 @@ fn lock_later(app: AppHandle) {
 
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
-    later.next();
+    later.0.next();
 }
 
 /// The screen turned off: locks when the setting says so; whether it did.
@@ -406,7 +419,7 @@ impl Syncing {
 }
 
 /// Syncs in the background and tells the page (`synced`) what happened.
-fn start_sync(app: AppHandle) {
+pub fn start_sync(app: AppHandle) {
     if !app.state::<Syncing>().begin() {
         return;
     }
@@ -440,6 +453,10 @@ fn sync_once(app: &AppHandle, session: &Session) {
 /// only (as when locking; a merge needs the key and waits for the front).
 #[tauri::command]
 fn sync_if_pending(app: AppHandle) {
+    upload_pending(app);
+}
+
+fn upload_pending(app: AppHandle) {
     if !sync::has_pending(&app.state::<Store>()) || !app.state::<Syncing>().begin() {
         return;
     }

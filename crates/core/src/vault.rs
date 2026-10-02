@@ -123,6 +123,16 @@ pub struct Difference {
     pub protected: bool,
 }
 
+/// An entry the editor saved, and the listing after it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Saved {
+    pub id: String,
+    pub listing: Listing,
+    /// Fields another device also changed; this edit replaced them.
+    pub conflicts: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Listing {

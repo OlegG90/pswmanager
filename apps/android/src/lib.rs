@@ -10,6 +10,8 @@ mod documents;
 #[cfg(mobile)]
 mod dropbox;
 #[cfg(mobile)]
+mod editing;
+#[cfg(mobile)]
 mod icons;
 #[cfg(mobile)]
 mod secrets;

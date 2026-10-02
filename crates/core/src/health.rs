@@ -14,6 +14,24 @@ const OLD_AFTER_DAYS: i64 = 365;
 const WEAK_UP_TO: u8 = 1;
 const STRENGTH: [&str; 5] = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
 
+/// The strength indicator's estimate of a password (zxcvbn).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Strength {
+    /// 0 (guessed at once) to 4 (very hard).
+    pub score: u8,
+    /// How long an offline attack on a slow hash would take, e.g. "3 hours".
+    pub crack_time: String,
+}
+
+pub fn strength(password: &str) -> Strength {
+    let estimate = zxcvbn::zxcvbn(password, &[]);
+    Strength {
+        score: estimate.score().into(),
+        crack_time: estimate.crack_times().offline_slow_hashing_1e4_per_second().to_string(),
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Serialize)]
 pub struct Health {
     pub reused: Vec<Finding>,

@@ -1085,6 +1085,13 @@ fn retag(db: &mut Database, id: EntryId, change: impl FnOnce(&[String]) -> Vec<S
 
 /// True when an edit (`data` against the entry as the editor opened it,
 /// `base`) changed only the tags.
+/// Whether saving `data` over `base` (the entry as the editor opened it; none
+/// for a new entry) is sent soon: tags alone wait for the next sync, and an
+/// entry saved unchanged has nothing to send.
+pub fn needs_upload(base: Option<&EntryData>, data: &EntryData) -> bool {
+    base.is_none_or(|base| base != data && !only_tags_changed(base, data))
+}
+
 pub fn only_tags_changed(base: &EntryData, data: &EntryData) -> bool {
     let mut same_tags = data.clone();
     same_tags.tags = base.tags.clone();
@@ -2024,6 +2031,15 @@ mod tests {
             d.password = "new".into();
         })));
         assert!(!only_tags_changed(&base, &base.clone()));
+    }
+
+    #[test]
+    fn only_a_new_entry_or_a_change_beyond_tags_goes_up_soon() {
+        let base = data("x");
+        assert!(needs_upload(None, &base));
+        assert!(needs_upload(Some(&base), &with("x", |d| d.password = "new".into())));
+        assert!(!needs_upload(Some(&base), &with("x", |d| d.tags = vec!["a".into()])));
+        assert!(!needs_upload(Some(&base), &base.clone()));
     }
 
     #[test]
