@@ -60,14 +60,7 @@ struct PickAnswer {
     uri: Option<String>,
     #[serde(default)]
     name: String,
-}
-
-#[derive(Deserialize)]
-struct PickToReadAnswer {
-    uri: Option<String>,
-    #[serde(default)]
-    name: String,
-    /// Bytes; -1 when the provider does not say.
+    /// Bytes, for a file picked to read; -1 when the provider does not say.
     #[serde(default)]
     size: i64,
 }
@@ -102,13 +95,13 @@ impl<R: Runtime> Documents<R> {
     }
 
     /// A file the user picks to attach, read once: its name and content;
-    /// `None` when they cancelled. A file over `limit` bytes is refused
-    /// before it is read, when the provider tells its size.
-    pub fn pick_to_read(&self, limit: usize, too_big: impl FnOnce() -> String) -> Result<Option<(String, Vec<u8>)>, String> {
-        let answer: PickToReadAnswer = self.call("pickToRead", ())?;
+    /// `None` when they cancelled. A file too big to attach is refused before
+    /// it is read, when the provider tells its size.
+    pub fn pick_to_read(&self) -> Result<Option<(String, Vec<u8>)>, String> {
+        let answer: PickAnswer = self.call("pickToRead", ())?;
         let Some(uri) = answer.uri else { return Ok(None) };
-        if answer.size > limit as i64 {
-            return Err(too_big());
+        if let Ok(size) = u64::try_from(answer.size) {
+            pswm_core::edit::check_size(size)?;
         }
         let content = self.read(&uri)?.ok_or(format!("Cannot read {}", answer.name))?;
         Ok(Some((answer.name, content)))

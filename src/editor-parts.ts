@@ -235,7 +235,7 @@ function fileNote(f: FileState): string {
 export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message: string) => void) {
   const states: FileState[] = []
   const list = el('div', { className: 'files' })
-  const held = () => states.flatMap((f) => (f.staged ? [f.staged.content] : []))
+  const held = () => states.flatMap((f) => (f.staged ? [f.staged.id] : []))
 
   const pick = async (): Promise<StagedFile | null> => {
     try {
@@ -246,13 +246,12 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
     }
   }
   const row = (state: FileState, size: number) => {
-    const name = el('span', { className: 'name' })
+    states.push(state)
+    const name = el('span', {})
     const note = el('small', { className: 'note' })
-    const sizeText = el('span', { className: 'size' })
     const draw = () => {
       name.textContent = state.name
       note.textContent = fileNote(state)
-      sizeText.textContent = formatSize(state.staged?.size ?? size)
     }
     const rename = async () => {
       const to = (await ui.askName(state.name))?.trim()
@@ -262,7 +261,7 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
       draw()
     }
     const remove = () => {
-      if (state.staged) void ui.release([state.staged.content])
+      if (state.staged) void ui.release([state.staged.id])
       states.splice(states.indexOf(state), 1)
       line.remove()
     }
@@ -270,28 +269,22 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
       { label: 'Rename…', title: 'Give the file another name', action: () => void rename() },
       { label: 'Remove', title: 'Remove from the entry (its history keeps the file)', action: remove, danger: true },
     ]
-    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), sizeText, ui.menu(`More for ${state.name}`, items))
+    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), el('span', { className: 'size' }, formatSize(size)), ui.menu(`More for ${state.name}`, items))
     draw()
     list.append(line)
   }
-  for (const file of initial) {
-    const state: FileState = { original: file.name, staged: null, name: file.name }
-    states.push(state)
-    row(state, file.size)
-  }
+  for (const file of initial) row({ original: file.name, staged: null, name: file.name }, file.size)
   const add = button('+ Add file…', 'Attach a file (up to 20 MB)', async () => {
     const picked = await pick()
     if (!picked) return
-    const state: FileState = { original: null, staged: picked, name: picked.name }
-    states.push(state)
-    row(state, picked.size)
+    row({ original: null, staged: picked, name: picked.name }, picked.size)
   }, 'ghost add-field')
 
   const changes = (): FileChange[] => {
     const kept = new Set(states.map((f) => f.original))
     const removed: FileChange[] = initial.filter((f) => !kept.has(f.name)).map((f) => ({ kind: 'remove', name: f.name }))
     const changed: FileChange[] = states.flatMap((f): FileChange[] => {
-      if (f.original === null) return [{ kind: 'add', name: f.name, content: f.staged!.content }]
+      if (f.original === null) return [{ kind: 'add', name: f.name, content: f.staged!.id }]
       return f.name === f.original ? [] : [{ kind: 'rename', name: f.original, to: f.name }]
     })
     return [...removed, ...changed]

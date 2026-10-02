@@ -216,7 +216,6 @@ main.list-screen {
   border-radius: 6px;
 }
 
-
 .line {
   display: flex;
   align-items: center;
@@ -684,7 +683,6 @@ button.chip[aria-pressed="true"] {
   padding: 8px 0;
   border-bottom: 1px solid var(--color-neutral-300);
 }
-
 
 .attachment-row .size {
   font-size: 13px;

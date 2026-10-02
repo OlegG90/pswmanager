@@ -8,7 +8,7 @@ use pswm_core::edit::{self, EntryData, FileChange};
 use pswm_core::generator;
 use pswm_core::health;
 use pswm_core::session::Session;
-use pswm_core::staged::{Staged, StagedFile};
+use pswm_core::staged::StagedFile;
 use pswm_core::vault::{Listing, Saved};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Wry};
@@ -46,18 +46,17 @@ pub fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, Stri
 pub fn save_entry(
     app: AppHandle,
     session: State<Session>,
-    staged: State<Staged>,
     id: Option<String>,
     base: Option<EntryData>,
     data: EntryData,
     files: Vec<FileChange>,
 ) -> Result<Saved, String> {
-    let edits = staged.resolve(&files)?;
+    let edits = session.staged().resolve(&files)?;
     let saved = session.with_mut(|v| {
         let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, false, &edits)?;
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
-    staged.release(files.iter().filter_map(FileChange::content).copied());
+    session.staged().release_changes(&files);
     crate::icons::fetch(&app, &saved.listing);
     // Tags alone can wait for the next sync (going to the background, locking).
     if edit::needs_upload(base.as_ref(), &data, &files) {
@@ -72,17 +71,16 @@ pub fn save_entry(
 #[tauri::command]
 pub async fn pick_file_to_attach(app: AppHandle) -> Result<Option<StagedFile>, String> {
     crate::app::off_main(move || {
-        let picked = app.state::<Documents<Wry>>().pick_to_read(edit::MAX_ATTACHMENT, edit::too_big)?;
-        let Some((name, content)) = picked else { return Ok(None) };
-        app.state::<Staged>().add(name, Zeroizing::new(content)).map(Some)
+        let Some((name, content)) = app.state::<Documents<Wry>>().pick_to_read()? else { return Ok(None) };
+        app.state::<Session>().staged().add(name, Zeroizing::new(content)).map(Some)
     })
     .await
 }
 
 /// The editor let go of files it had picked (cancelled, or removed them).
 #[tauri::command]
-pub fn release_files(staged: State<Staged>, files: Vec<u64>) {
-    staged.release(files);
+pub fn release_files(session: State<Session>, files: Vec<u64>) {
+    session.staged().release(files);
 }
 
 /// Moves the entry to the recycle bin.

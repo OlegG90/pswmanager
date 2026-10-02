@@ -183,8 +183,8 @@ export interface Difference {
 
 /** A file picked in the editor, held by the backend until the entry is saved. */
 export interface StagedFile {
-  /** What a FileChange names it by. */
-  content: number
+  /** What a FileChange names it by (its `content`). */
+  id: number
   name: string
   size: number
 }

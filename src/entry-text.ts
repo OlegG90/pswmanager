@@ -59,6 +59,13 @@ export function formatSize(bytes: number): string {
 }
 
 /** An entry's title, or what stands for it when it has none. */
+/** How much of a file name to select for renaming: the name without its
+ *  extension, as Explorer does. */
+export function beforeExtension(name: string): number {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? dot : name.length
+}
+
 export const titleOf = (entry: { title: string }) => entry.title || '(no title)'
 
 /** A TOTP code split in two halves for reading: `123 456`. */

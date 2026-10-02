@@ -420,6 +420,9 @@ impl Vault {
         let (id, conflicts) = self.change(|db, hidden| {
             let current = id.and_then(|id| db.entry(id));
             let template = template || current.as_ref().is_some_and(|e| is_template(e));
+            if template && !files.is_empty() {
+                return Err("A template's files are not changed".into());
+            }
             let mut data = data.clone();
             if template {
                 // Where it is now (the top for a new one): nothing moves until
@@ -990,6 +993,9 @@ pub mod tests {
         card.title = "Card".into();
         card.group = vec!["Work".into()]; // ignored: a template goes among the templates
         let (id, _) = vault.save_entry(None, None, &card, true, &[]).unwrap();
+        // A template's files are not changed.
+        let file = FileChange::Add { name: "a.txt".into(), content: Zeroizing::new(b"a".to_vec()) };
+        assert!(vault.save_entry(Some(&id), None, &card, false, &[file]).is_err());
         assert_eq!(kind_of(&vault, &id), Some(Kind::Template));
         let templates = vault.db.meta.entry_templates_group.expect("made on demand");
         assert_eq!(vault.db.group(GroupId::from(templates)).unwrap().name, "Templates");

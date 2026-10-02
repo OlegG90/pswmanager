@@ -404,8 +404,9 @@ pub fn check_icon_image(bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Makes `changes` to the entry's files, leaving its history to the caller;
-/// true when anything changed. Removals go first, then renames, then new
-/// files, so a name one frees can be taken by another.
+/// true when anything changed. Removals go first, then renames (all at once,
+/// so a chain like c→d, a→c or a swap works), then new files, so a name one
+/// frees can be taken by another.
 /// keepass-rs cannot rename a file: a renamed file is let go of (history
 /// keeps it, see [drop_attachments]) and its content attached under the new
 /// name. A new file never replaces one: keepass-rs would take the old one
@@ -414,9 +415,7 @@ fn change_files(db: &mut Database, id: EntryId, changes: &[FileEdit]) -> Result<
     let entry = db.entry(id).ok_or(NOT_FOUND)?;
     for change in changes {
         if let FileChange::Add { content, .. } = change {
-            if content.len() > MAX_ATTACHMENT {
-                return Err(too_big());
-            }
+            check_size(content.len() as u64)?;
         }
     }
     // A file removed on another device meanwhile needs nothing.
@@ -427,27 +426,31 @@ fn change_files(db: &mut Database, id: EntryId, changes: &[FileEdit]) -> Result<
             _ => None,
         })
         .collect();
-    let mut changed = !removed.is_empty();
-    drop_attachments(db, id, &removed);
+    let mut renamed: Vec<(String, String, Value<Vec<u8>>)> = Vec::new();
     for change in changes {
         let FileChange::Rename { name, to } = change else { continue };
         let to = to.trim();
         if to.is_empty() {
             return Err("A file needs a name".into());
         }
-        let entry = db.entry(id).expect("checked above");
         // Removed on another device meanwhile: nothing left to name.
         let Some(old) = entry.attachment_by_name(name) else { continue };
-        if to == name {
-            continue;
+        if to != name {
+            renamed.push((name.clone(), to.to_string(), old.data.clone()));
         }
-        if entry.attachment_by_name(to).is_some() {
+    }
+    // Removed and renamed files are let go of together.
+    let freed: Vec<String> = removed.into_iter().chain(renamed.iter().map(|(name, _, _)| name.clone())).collect();
+    for (_, to, _) in &renamed {
+        let taken = entry.attachment_by_name(to).is_some() && !freed.contains(to);
+        if taken || renamed.iter().filter(|(_, other, _)| other == to).count() > 1 {
             return Err(format!("The entry already has a file named \"{to}\""));
         }
-        let value = old.data.clone();
-        drop_attachments(db, id, std::slice::from_ref(name));
+    }
+    let mut changed = !freed.is_empty();
+    drop_attachments(db, id, &freed);
+    for (_, to, value) in renamed {
         db.entry_mut(id).expect("checked above").add_attachment(to, value);
-        changed = true;
     }
     for change in changes {
         let FileChange::Add { name, content } = change else { continue };
@@ -458,8 +461,12 @@ fn change_files(db: &mut Database, id: EntryId, changes: &[FileEdit]) -> Result<
     Ok(changed)
 }
 
-pub fn too_big() -> String {
-    format!("Files over {} MB cannot be attached: the whole database is synced on every change", MAX_ATTACHMENT >> 20)
+/// A file of `len` bytes can be attached: up to [MAX_ATTACHMENT].
+pub fn check_size(len: u64) -> Result<(), String> {
+    if len > MAX_ATTACHMENT as u64 {
+        return Err(format!("Files over {} MB cannot be attached: the whole database is synced on every change", MAX_ATTACHMENT >> 20));
+    }
+    Ok(())
 }
 
 /// `name`, or with a number before its extension if the entry has a file by that name.
@@ -2087,6 +2094,24 @@ mod tests {
             attach(db, id, name, data, &HashSet::new()).unwrap();
         }
         id
+    }
+
+    #[test]
+    fn renames_are_made_together() {
+        let mut db = Database::new();
+        let id = attach_to_new(&mut db, &[("a.txt", b"a"), ("b.txt", b"b"), ("c.txt", b"c")]);
+        let rename = |name: &str, to: &str| FileChange::Rename { name: name.into(), to: to.into() };
+        // A chain listed in the "wrong" order, and a swap.
+        edit_files(&mut db, id, &[rename("a.txt", "c.txt"), rename("c.txt", "d.txt")], &HashSet::new()).unwrap();
+        edit_files(&mut db, id, &[rename("b.txt", "c.txt"), rename("c.txt", "b.txt")], &HashSet::new()).unwrap();
+        assert_eq!(files(&db, id), [
+            ("b.txt".to_string(), b"a".to_vec()),
+            ("c.txt".to_string(), b"b".to_vec()),
+            ("d.txt".to_string(), b"c".to_vec()),
+        ]);
+        // Two files to one name, or onto a file that stays: refused.
+        assert!(edit_files(&mut db, id, &[rename("b.txt", "x.txt"), rename("c.txt", "x.txt")], &HashSet::new()).is_err());
+        assert!(edit_files(&mut db, id, &[rename("b.txt", "d.txt")], &HashSet::new()).is_err());
     }
 
     #[test]

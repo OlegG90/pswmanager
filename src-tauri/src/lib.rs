@@ -781,7 +781,6 @@ fn lock_now(app: &AppHandle) {
     }
     clipboard::clear_if_ours();
     opened::clean(&opened::folder());
-    app.state::<staged::Staged>().clear();
 }
 
 /// The window reports use, which keeps the database unlocked.
@@ -884,24 +883,21 @@ fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> 
 /// Creates (no `id`) or changes an entry with its `files`, saves the file
 /// and returns the new listing with the entry's id.
 #[tauri::command(async)]
-#[allow(clippy::too_many_arguments)] // a command's arguments are what the window sends
 fn save_entry(
     app: AppHandle,
     session: State<Session>,
-    staged: State<staged::Staged>,
     id: Option<String>,
     base: Option<EntryData>,
     data: EntryData,
     template: Option<bool>,
-    files: Option<Vec<edit::FileChange>>,
+    files: Vec<edit::FileChange>,
 ) -> Result<Saved, String> {
-    let files = files.unwrap_or_default();
-    let edits = staged.resolve(&files)?;
+    let edits = session.staged().resolve(&files)?;
     let saved = session.with_mut(|v| {
         let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template.unwrap_or(false), &edits)?;
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
-    staged.release(files.iter().filter_map(edit::FileChange::content).copied());
+    session.staged().release_changes(&files);
     fetch_icons(&app, &saved.listing);
     // Tags alone can wait for the next sync (hiding, locking, quitting).
     if edit::needs_upload(base.as_ref(), &data, &files) {
@@ -1023,21 +1019,18 @@ fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: St
 /// backend until the entry is saved: the window gets its name and size only.
 /// Nothing when cancelled.
 #[tauri::command(async)]
-fn pick_file_to_attach(window: Window, staged: State<staged::Staged>) -> Result<Option<staged::StagedFile>, String> {
+fn pick_file_to_attach(window: Window, session: State<Session>) -> Result<Option<staged::StagedFile>, String> {
     let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
-    let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len();
-    if size > edit::MAX_ATTACHMENT as u64 {
-        return Err(edit::too_big());
-    }
+    edit::check_size(std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len())?;
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    staged.add(name, content).map(Some)
+    session.staged().add(name, content).map(Some)
 }
 
 /// The editor let go of files it had picked (cancelled, or removed them).
 #[tauri::command(async)]
-fn release_files(staged: State<staged::Staged>, files: Vec<u64>) {
-    staged.release(files);
+fn release_files(session: State<Session>, files: Vec<u64>) {
+    session.staged().release(files);
 }
 
 /// Gives entries a tag or takes it off (the star is the tag Favorite),
@@ -1387,7 +1380,6 @@ pub fn run() {
             let store = Store::load(state_file);
             app.manage(icons::Cache::in_data_dir(store.dir()));
             app.manage(store);
-            app.manage(staged::Staged::default());
             opened::clean(&opened::folder()); // copies left by a crash
             let handle = app.handle();
             if let Some(database) = options.database {

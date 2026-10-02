@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
-import { dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
+import { beforeExtension, dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
@@ -631,13 +631,13 @@ function askName(current: string): Promise<string | null> {
     const name = input(current, { className: 'field', ariaLabel: 'New name' })
     sheet((close) => {
       const answer = (value: string | null) => (close(), done(value))
-      return [el('b', {}, 'Rename the file'), name,
-        button('Rename', 'Rename', () => answer(name.value), 'primary'), button('Cancel', 'Cancel', () => answer(null), 'link')]
+      const rename = button('Rename', 'Rename', () => answer(name.value), 'primary')
+      enterPresses(rename, name)
+      return [el('b', {}, 'Rename the file'), name, rename, button('Cancel', 'Cancel', () => answer(null), 'link')]
     })
     // The name without its extension is chosen, ready to type over.
-    const dot = current.lastIndexOf('.')
     name.focus()
-    name.setSelectionRange(0, dot > 0 ? dot : current.length)
+    name.setSelectionRange(0, beforeExtension(current))
   })
 }
 
