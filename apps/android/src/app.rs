@@ -31,7 +31,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(crate::secrets::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
-            app.manage(Store::load(data.join("pswm.json")));
+            app.manage(Store::load(data.join(STATE_FILE)));
+            crate::background::remember(app.handle());
             app.manage(Session::default());
             app.manage(LastSync::default());
             app.manage(Syncing::default());
@@ -94,6 +95,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::release_files
         ])
 }
+
+/// The app's state file, in its data folder.
+const STATE_FILE: &str = "pswm.json";
 
 /// What the unlock screen shows about the database, if there is one.
 #[derive(Serialize)]
@@ -461,7 +465,13 @@ fn sync_if_pending(app: AppHandle) {
 }
 
 fn upload_pending(app: AppHandle) {
-    if !sync::has_pending(&app.state::<Store>()) || !app.state::<Syncing>().begin() {
+    let store = app.state::<Store>();
+    if !sync::has_pending(&store) {
+        return;
+    }
+    // In case Android stops the app before this upload is through.
+    schedule_background_upload(&app, &store);
+    if !app.state::<Syncing>().begin() {
         return;
     }
     tauri::async_runtime::spawn_blocking(move || loop {
@@ -470,6 +480,35 @@ fn upload_pending(app: AppHandle) {
             return;
         }
     });
+}
+
+/// Asks WorkManager to upload the waiting changes later (`background.rs`).
+fn schedule_background_upload(app: &AppHandle, store: &Store) {
+    let cloud = store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some()));
+    let Ok(data) = app.path().app_data_dir() else { return };
+    let _ = app.state::<crate::system::System<Wry>>().schedule_upload(&data.join(STATE_FILE).to_string_lossy(), cloud);
+}
+
+/// The background upload with the app running in this process: what has not
+/// gone up yet goes now, as an upload only, after a sync that runs (waiting
+/// two minutes at most). True when nothing is left to send.
+pub fn upload_pending_now(app: &AppHandle) -> bool {
+    let syncing = app.state::<Syncing>();
+    let mut waited = 0;
+    while !syncing.begin() {
+        if waited == 120 {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        waited += 1;
+    }
+    loop {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_once(app, &Session::default())));
+        if !syncing.again() {
+            break;
+        }
+    }
+    !sync::has_pending(&app.state::<Store>())
 }
 
 /// Puts the synced database's visible copy into `folder` (in place of where it was).

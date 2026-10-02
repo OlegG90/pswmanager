@@ -9,8 +9,20 @@ import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+
+@InvokeArg
+class UploadArgs {
+  /** The app's state file. */
+  lateinit var state: String
+  /** The database syncs with a cloud store: the upload waits for a network. */
+  var cloud: Boolean = true
+}
 
 /**
  * What Android tells the page. One plugin: Tauri keeps one Kotlin plugin per
@@ -21,6 +33,8 @@ import app.tauri.plugin.Plugin
  *   page has nothing to close, Back does what it does anyway (leaves the app).
  *   Added after the webview's own handler, so it is asked first.
  * - The screen turning off: `window.pswmScreenOff()`, which locks.
+ *
+ * And what the app asks of Android: the background upload ([UploadWorker]).
  */
 @TauriPlugin
 class SystemPlugin(private val activity: Activity) : Plugin(activity) {
@@ -45,5 +59,17 @@ class SystemPlugin(private val activity: Activity) : Plugin(activity) {
       }
     }
     ContextCompat.registerReceiver(activity, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+  }
+
+  /** Changes are waiting: they go up in the background if the app cannot send them first. */
+  @Command
+  fun scheduleUpload(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(UploadArgs::class.java)
+      UploadWorker.schedule(activity.applicationContext, args.state, args.cloud)
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: e.toString())
+    }
   }
 }
