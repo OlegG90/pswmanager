@@ -1,5 +1,6 @@
 //! The user's settings, kept by the frontend in the state file: every name,
-//! default and allowed range in one place.
+//! default and allowed range in one place, for both apps (each offers the
+//! ones it has: the hotkey is the PC's, locking in the background the phone's).
 
 use crate::store::Store;
 use serde::Serialize;
@@ -13,8 +14,12 @@ const LOCK_AFTER_MINUTES: (u64, u64, u64) = (5, 1, 60);
 const SYNC_EVERY_MINUTES: (u64, u64, u64) = (5, 1, 60);
 /// Seconds before a copied value is cleared.
 const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
-/// Light or dark, or as Windows is set (`system`, the default).
+/// Light or dark, or as the system is set (`system`, the default).
 const THEMES: [&str; 3] = ["system", "light", "dark"];
+/// On the phone, seconds in the background before locking: at once, 30 s
+/// (the default), 1 min, 5 min; `null` for never.
+const LOCK_IN_BACKGROUND: [u64; 4] = [0, 30, 60, 300];
+const LOCK_IN_BACKGROUND_DEFAULT: u64 = 30;
 
 pub struct Settings<'a>(&'a Store);
 
@@ -43,6 +48,21 @@ impl<'a> Settings<'a> {
         self.get("lockWhenHidden", Value::as_bool).unwrap_or(false)
     }
 
+    /// On the phone: how long in the background before locking; `None` for never.
+    pub fn lock_in_background(&self) -> Option<Duration> {
+        match self.0.read(|s| s.settings.get("lockInBackground").cloned()) {
+            Some(Value::Null) => None,
+            Some(v) => Some(v.as_u64().filter(|s| LOCK_IN_BACKGROUND.contains(s)).unwrap_or(LOCK_IN_BACKGROUND_DEFAULT)),
+            None => Some(LOCK_IN_BACKGROUND_DEFAULT),
+        }
+        .map(Duration::from_secs)
+    }
+
+    /// On the phone: lock when the screen turns off.
+    pub fn lock_on_screen_off(&self) -> bool {
+        self.get("lockOnScreenOff", Value::as_bool).unwrap_or(true)
+    }
+
     pub fn clear_clipboard_after(&self) -> Duration {
         clear_after(self.get("clearClipboard", Value::as_u64))
     }
@@ -61,15 +81,6 @@ impl<'a> Settings<'a> {
         THEMES.into_iter().find(|t| chosen.as_deref() == Some(*t)).unwrap_or(THEMES[0])
     }
 
-    /// The window's theme; `None` follows Windows.
-    pub fn window_theme(&self) -> Option<tauri::Theme> {
-        match self.theme() {
-            "light" => Some(tauri::Theme::Light),
-            "dark" => Some(tauri::Theme::Dark),
-            _ => None,
-        }
-    }
-
     /// Every setting as it is in effect, for the settings screen.
     pub fn view(&self) -> View {
         let in_minutes = |d: Option<Duration>| d.map_or(0, |d| d.as_secs() / 60);
@@ -82,6 +93,8 @@ impl<'a> Settings<'a> {
             download_icons: self.download_icons(),
             theme: self.theme(),
             hotkey: self.hotkey(),
+            lock_in_background: self.lock_in_background().map(|d| d.as_secs()),
+            lock_on_screen_off: self.lock_on_screen_off(),
         }
     }
 
@@ -98,7 +111,7 @@ impl<'a> Settings<'a> {
 }
 
 /// The settings screen's values; "Start with Windows" comes from the
-/// registry instead.
+/// registry instead. Each app shows the ones it has.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
@@ -112,6 +125,9 @@ pub struct View {
     pub download_icons: bool,
     pub theme: &'static str,
     pub hotkey: String,
+    /// Seconds; `None` for never.
+    pub lock_in_background: Option<u64>,
+    pub lock_on_screen_off: bool,
 }
 
 fn check(name: &str, value: &Value) -> Result<(), String> {
@@ -122,7 +138,8 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
-        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" => value.is_boolean(),
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" => value.is_boolean(),
+        "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
         // Checked and registered by the caller before it is kept.
         "hotkey" => value.as_str().is_some_and(|k| !k.trim().is_empty()),
@@ -221,8 +238,24 @@ mod tests {
         settings.set("syncEveryMinutes", 0.into()).unwrap();
         assert_eq!(settings.sync_every(), None);
         assert!(settings.set("theme", "blue".into()).is_err());
-        assert_eq!((settings.theme(), settings.window_theme()), ("system", None));
+        assert_eq!(settings.theme(), "system");
         settings.set("theme", "dark".into()).unwrap();
-        assert_eq!(settings.window_theme(), Some(tauri::Theme::Dark));
+        assert_eq!(settings.theme(), "dark");
+    }
+
+    #[test]
+    fn the_phone_locks_in_the_background_after_a_choice_or_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let settings = Settings::of(&store);
+        assert_eq!(settings.lock_in_background(), Some(Duration::from_secs(30)));
+        assert!(settings.lock_on_screen_off());
+        settings.set("lockInBackground", 0.into()).unwrap();
+        assert_eq!(settings.lock_in_background(), Some(Duration::ZERO));
+        settings.set("lockInBackground", Value::Null).unwrap();
+        assert_eq!(settings.lock_in_background(), None);
+        assert!(settings.set("lockInBackground", 45.into()).is_err());
+        settings.set("lockOnScreenOff", false.into()).unwrap();
+        assert!(!settings.view().lock_on_screen_off);
     }
 }

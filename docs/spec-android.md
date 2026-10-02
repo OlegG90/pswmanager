@@ -156,10 +156,11 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
-| Sync | the remote file and **Stop syncing**; the store's account and **Disconnect**; **Sync now** |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. Stopping, or another database, is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
-Settings belong to this phone; they are not synced with the PC.
+Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the
+PC's where both have one (`crates/core/src/settings.rs`). The screen opens from the toolbar's ⚙ and the drawer.
 
 ## Security behaviour
 

@@ -6,6 +6,7 @@ const PATHS = {
   lock: 'M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
   close: 'M6 6l12 12M18 6L6 18',
   back: 'M15 5l-7 7l7 7',
+  settings: 'M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1',
 }
 
 export type IconName = keyof typeof PATHS

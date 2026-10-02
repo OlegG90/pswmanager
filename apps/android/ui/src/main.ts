@@ -5,7 +5,7 @@ import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { svgIcon, type IconName } from './icons'
-import { api, type CloudFile, type Entry, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type CloudFile, type Entry, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -94,7 +94,18 @@ async function copied(copy: Promise<number>) {
   }
 }
 
+/** The settings in effect (see applySettings). */
+let settings: Settings | null = null
+
+/** Takes the settings: the theme now, the timings where they are used. */
+function applySettings(fresh: Settings) {
+  settings = fresh
+  if (fresh.theme === 'system') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = fresh.theme
+}
+
 async function start() {
+  applySettings(await api.settings())
   const status = await api.status()
   database = status.database
   unlocked = status.unlocked
@@ -285,6 +296,7 @@ function listScreen(opened: Listing) {
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
+    iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
   const closeSearch = () => {
     searching.replaceWith(toolbar)
@@ -434,6 +446,7 @@ function drawer(listing: Listing, changed: () => void) {
     }),
     el('h2', {}, 'Tags'),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
+    button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'lock'),
     button('Lock', 'Lock the database', () => void lock(), 'lock'),
   )
 }
@@ -446,10 +459,90 @@ void listen('locked', () => {
 })
 
 async function lock() {
+  await api.lock()
+  afterLock()
+}
+
+/** The database is locked: nothing of it stays on the page. */
+function afterLock() {
   unlocked = false
   query = ''
-  await api.lock()
   unlockScreen()
+}
+
+// ------------------------------------------------------------ settings
+
+type Tab = 'general' | 'appearance' | 'sync' | 'about'
+let settingsTab: Tab = 'general'
+
+/** A choice among values, saved as soon as it changes. */
+function choice<T>(label: string, hint: string, name: string, value: T, options: [T, string][]) {
+  const select = el('select', { className: 'field' }, ...options.map(([v, text], i) => el('option', { value: String(i), selected: v === value }, text)))
+  select.addEventListener('change', () => void save(name, options[Number(select.value)][0]))
+  return el('label', { className: 'setting' }, el('span', {}, label, el('small', {}, hint)), select)
+}
+
+/** A switch, saved as soon as it changes. */
+function toggle(label: string, hint: string, name: string, on: boolean) {
+  const box = el('input', { type: 'checkbox', checked: on })
+  box.addEventListener('change', () => void save(name, box.checked))
+  return el('label', { className: 'setting' }, el('span', {}, label, el('small', {}, hint)), box)
+}
+
+async function save(name: string, value: unknown) {
+  try {
+    applySettings(await api.setSetting(name, value))
+  } catch (e) {
+    snack(String(e))
+  }
+}
+
+const MINUTES = (values: number[], never: string): [number, string][] => values.map((m) => [m, m === 0 ? never : `${m} min`])
+
+async function settingsScreen(back: () => void) {
+  const s = await api.settings()
+  applySettings(s)
+  const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['sync', 'Sync'], ['about', 'About']]
+  const body = el('div', { className: 'settings' })
+  const fill = () => {
+    bar.querySelectorAll('button').forEach((b, i) => b.classList.toggle('chosen', tabs[i][0] === settingsTab))
+    body.replaceChildren(...tab(settingsTab, s))
+  }
+  const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
+  show([el('header', { className: 'bar' }, button('←', 'Back', back, 'icon'), el('h1', {}, 'Settings')), bar, body], back)
+  fill()
+}
+
+function tab(which: Tab, s: Settings): Node[] {
+  switch (which) {
+    case 'general':
+      return [
+        el('h2', {}, 'Locking'),
+        choice('In the background', 'Locks this long after the app goes away', 'lockInBackground', s.lockInBackground, [[0, 'At once'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [null, 'Never']]),
+        toggle('When the screen turns off', 'Locks at once', 'lockOnScreenOff', s.lockOnScreenOff),
+        choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, MINUTES([1, 2, 5, 10, 15, 30, 60, 0], 'Never')),
+        el('h2', {}, 'Clipboard'),
+        choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),
+      ]
+    case 'appearance':
+      return [
+        choice('Theme', 'Light or dark, or as the phone is set', 'theme', s.theme, [['system', 'As the phone'], ['light', 'Light'], ['dark', 'Dark']]),
+        toggle('Download site icons', 'From each site itself, never through a third party', 'downloadIcons', s.downloadIcons),
+      ]
+    case 'sync':
+      return [
+        el('p', {}, database?.syncedWith ? `Syncs with ${database.syncedWith}` : 'Not synced'),
+        ...(database?.cloud ? [el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet')] : []),
+        choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, MINUTES([1, 2, 5, 10, 15, 30, 60, 0], 'Off')),
+        button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary'),
+        el('p', { className: 'muted' }, 'To use another database or stop syncing this one, lock it and choose “Use another database…”: its file stays where it is.'),
+      ]
+    case 'about':
+      return [
+        el('p', {}, `PswManager for Android, version ${s.version}`),
+        el('p', { className: 'muted' }, 'The database is a KeePass file (KDBX 4.1): it opens in PswManager on Windows, KeePassXC and Keepass2Android.'),
+      ]
+  }
 }
 
 // ------------------------------------------------------------ an entry
@@ -542,9 +635,6 @@ function totpLine(id: string): [HTMLElement, () => void] {
 
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
-/** How long (ms) in the background, and in front without a touch, before the database locks. */
-const LOCK_IN_BACKGROUND = 30 * 1000
-const LOCK_WHEN_IDLE = 5 * 60 * 1000
 /** When the app went to the background, and when it was last touched (ms). */
 let hiddenAt = Date.now()
 let lastTouch = Date.now()
@@ -553,34 +643,35 @@ let lastTouch = Date.now()
  *  (AGAIN_AFTER), every 5 minutes while it is in front (EVERY); going away
  *  sends what is waiting. */
 const AGAIN_AFTER = 60 * 1000
-const EVERY = 5 * 60 * 1000
 const syncIfOlder = (age: number) => {
-  if (unlocked && !document.hidden && Date.now() - lastSynced >= age) void api.syncNow()
+  if (unlocked && !document.hidden && age > 0 && Date.now() - lastSynced >= age) void api.syncNow()
 }
 document.addEventListener('visibilitychange', () => {
   if (unlocked && document.hidden) {
     hiddenAt = Date.now()
     void api.syncIfPending()
-    void api.lockLater(LOCK_IN_BACKGROUND / 1000)
+    void api.lockLater()
   } else if (!document.hidden) {
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.
-    if (unlocked && Date.now() - hiddenAt > LOCK_IN_BACKGROUND) void lock()
+    const after = settings?.lockInBackground
+    if (unlocked && after != null && Date.now() - hiddenAt > after * 1000) void lock()
     else syncIfOlder(AGAIN_AFTER)
   }
 })
-setInterval(() => syncIfOlder(EVERY), 30 * 1000)
+setInterval(() => syncIfOlder((settings?.syncEveryMinutes ?? 5) * 60 * 1000), 30 * 1000)
 
 // ------------------------------------------------------------ locking
 
 for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListener(type, () => (lastTouch = Date.now()), { passive: true, capture: true })
 setInterval(() => {
-  if (unlocked && !document.hidden && Date.now() - lastTouch > LOCK_WHEN_IDLE) void lock()
+  const idle = (settings?.lockAfterMinutes ?? 5) * 60 * 1000
+  if (unlocked && !document.hidden && idle > 0 && Date.now() - lastTouch > idle) void lock()
 }, 10 * 1000)
-/** The screen turned off (SystemPlugin.kt): lock at once. */
+/** The screen turned off (SystemPlugin.kt): the backend locks when the setting says so. */
 ;(window as unknown as { pswmScreenOff: () => void }).pswmScreenOff = () => {
-  if (unlocked) void lock()
+  if (unlocked) void api.screenOff().then((locked) => locked && afterLock())
 }
 
 void start()
