@@ -5,13 +5,14 @@
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::dropbox;
+use pswm_core::documents::DocumentStore;
 use pswm_core::opened;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::sync;
-use pswm_core::vault::{EntryDetail, Listing, Vault};
+use pswm_core::vault::{self, EntryDetail, Listing, Vault};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -38,6 +39,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(LastSync::default());
             app.manage(Syncing::default());
             app.manage(LockLater::default());
+            app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
             if let Ok(folder) = open_folder(app.handle()) {
                 opened::clean(&folder);
@@ -65,6 +67,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_totp,
             open_url,
             open_attachment,
+            pick_key_file,
+            clear_key_file,
+            crate::icons::icon,
             lock_later,
             stay_unlocked,
             sync_now,
@@ -98,6 +103,8 @@ struct Database {
     cloud: bool,
     /// The folder its visible copy is in, if one was chosen.
     copy_folder: Option<String>,
+    /// The key file it is unlocked with, by name, if it has one.
+    key_file: Option<String>,
 }
 
 /// What the last sync did, for the status line (event `synced`).
@@ -129,9 +136,11 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
             cloud: k.remote.as_ref().is_some_and(|r| r.location.cloud().is_some()),
             // Read from the same state: not inside this read, which holds it.
             copy_folder: None,
+            key_file: None,
         })
     });
-    let database = database.map(|d| Database { copy_folder: crate::visible::folder_name(store), ..d });
+    let key_file = key_file(store).map(|k| k.name);
+    let database = database.map(|d| Database { copy_folder: crate::visible::folder_name(store), key_file, ..d });
     Status { database, unlocked: session.is_unlocked() }
 }
 
@@ -182,6 +191,7 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
                 cloud.provider().sign_out();
             }
             crate::visible::forget(&store)?;
+            forget_key_file(&store)?;
         }
         Ok(status_of(&store, &session))
     })
@@ -195,8 +205,18 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
         let store = app.state::<Store>();
         sync::ensure_working_copy(&store)?;
         let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
-        let vault = Vault::open(&file, Some(password.as_str()).filter(|p| !p.is_empty()), None)?;
+        let password = Some(password.as_str()).filter(|p| !p.is_empty());
+        let key = match key_file(&store) {
+            Some(picked) => {
+                let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
+                let content = Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?);
+                vault::key_reading(password, Some(&mut content.as_slice()))?
+            }
+            None => vault::key_reading(password, None)?,
+        };
+        let vault = Vault::open_with_key(&file, key)?;
         let listing = vault.listing();
+        crate::icons::fetch(&app, &listing);
         // Only for the unlock screen next time: not worth failing the unlock over.
         let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
         app.state::<Session>().set(Some(vault));
@@ -254,6 +274,39 @@ fn lock_later(app: AppHandle, seconds: u64) {
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
     later.next();
+}
+
+/// Where the key file is kept in the state file (the phone has one database):
+/// the document the user picked, read at each unlock.
+const KEY_FILE: &str = "keyFile";
+
+fn key_file(store: &Store) -> Option<documents::Picked> {
+    store.read(|s| s.settings.get(KEY_FILE).cloned()).and_then(|v| serde_json::from_value(v).ok())
+}
+
+/// Picks the key file the database is unlocked with (its access is kept).
+#[tauri::command]
+async fn pick_key_file(app: AppHandle) -> Result<Status, String> {
+    off_main(move || {
+        let store = app.state::<Store>();
+        if let Some(picked) = app.state::<Documents<Wry>>().pick_file()? {
+            let value = serde_json::to_value(&picked).map_err(|e| e.to_string())?;
+            store.update(|s| drop(s.settings.insert(KEY_FILE.into(), value))).map_err(|e| format!("Cannot save the key file: {e}"))?;
+        }
+        Ok(status_of(&store, &app.state::<Session>()))
+    })
+    .await
+}
+
+/// The database is unlocked without a key file from now on.
+#[tauri::command]
+fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
+    forget_key_file(&store)?;
+    Ok(status_of(&store, &session))
+}
+
+fn forget_key_file(store: &Store) -> Result<(), String> {
+    store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))
 }
 
 /// Where copies of opened attachments go: the app's cache, which the
@@ -386,8 +439,10 @@ async fn pick_folder(app: AppHandle) -> Result<Option<documents::Picked>, String
 }
 
 #[tauri::command]
-fn listing(session: State<Session>) -> Result<Listing, String> {
-    session.read(Vault::listing)
+fn listing(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.read(Vault::listing)?;
+    crate::icons::fetch(&app, &listing);
+    Ok(listing)
 }
 
 #[tauri::command]

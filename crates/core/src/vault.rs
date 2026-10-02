@@ -152,7 +152,12 @@ pub struct DatabaseSettings {
 impl Vault {
     /// Opens a KDBX file with a password, a key file, or both.
     pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, String> {
-        let (db, file) = DbFile::open(path, key(password, key_file)?)?;
+        Self::open_with_key(path, key(password, key_file)?)
+    }
+
+    /// [Vault::open] with the key already made ([key_reading]).
+    pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+        let (db, file) = DbFile::open(path, key)?;
         Ok(Vault { db, file: Some(file), unsaved: false })
     }
 
@@ -835,13 +840,24 @@ const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
 pub fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {
+    match key_file {
+        Some(path) => {
+            let mut file = File::open(path).map_err(|e| format!("Cannot read the key file: {e}"))?;
+            key_reading(password, Some(&mut file))
+        }
+        None => key_reading(password, None),
+    }
+}
+
+/// [key] with the key file's content read from `key_file` (on a phone, a
+/// document read into memory rather than a path).
+pub fn key_reading(password: Option<&str>, key_file: Option<&mut dyn std::io::Read>) -> Result<DatabaseKey, String> {
     let mut key = DatabaseKey::new();
     if let Some(password) = password {
         key = key.with_password(password);
     }
     if let Some(key_file) = key_file {
-        let mut file = File::open(key_file).map_err(|e| format!("Cannot read the key file: {e}"))?;
-        key = key.with_keyfile(&mut file).map_err(|e| format!("Cannot read the key file: {e}"))?;
+        key = key.with_keyfile(key_file).map_err(|e| format!("Cannot read the key file: {e}"))?;
     }
     Ok(key)
 }
@@ -1562,6 +1578,20 @@ pub mod tests {
         vault.change_key((Some("test"), None), None, Some(&key_file)).unwrap();
         assert!(Vault::open(&path, None, Some(&key_file)).is_ok());
         assert!(Vault::open(&path, Some("test"), None).is_err());
+    }
+
+    #[test]
+    fn a_key_file_read_into_memory_opens_the_file_as_its_path_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let key_file = dir.path().join("PswManager.keyx");
+        create_key_file(&key_file).unwrap();
+        vault.change_key((Some("test"), None), Some("pw"), Some(&key_file)).unwrap();
+        let content = std::fs::read(&key_file).unwrap();
+        let key = |password| key_reading(password, Some(&mut content.as_slice())).unwrap();
+        assert!(Vault::open_with_key(&path, key(Some("pw"))).is_ok());
+        assert!(Vault::open_with_key(&path, key(None)).is_err());
     }
 
     #[test]
