@@ -1,7 +1,7 @@
 import { api, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { EMPTY_ENTRY, chip, fieldRow, generatorPanel, input, readField, showHide, strengthMeter, withStar } from './editor-parts'
-import { dateOf, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines } from './entry-text'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
+import { dateOf } from './entry-text'
 import { ask } from './modal'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
@@ -119,22 +119,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     strength.refresh()
   }, showError)
 
-  const trimmedLine = (text: string) => singleLine(text).trim()
-  const collect = (): EntryData => ({
-    title: keep(data.title, title.value, singleLine),
-    username: keep(data.username, username.value, singleLine),
-    password: keep(data.password, password.value, singleLine),
-    url: keep(data.url, url.value.trim(), trimmedLine),
-    notes: keep(data.notes, notes.value, textareaLines),
-    otp: keep(data.otp, otp.value.trim(), trimmedLine),
-    // Typing the tag Favorite stars the entry.
-    tags: keep(data.tags, withStar(tags.value(), starred || tags.value().includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
-    // Not edited: an entry stays in its KDBX group; a new one goes to the top.
-    group: data.group,
-    fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
-    icon: icon.value(),
-    expires: expires.value === expiryDay ? data.expires : expires.value ? startOfDay(expires.value) : null,
-  })
+  const inputs = { title, username, password, url, otp, notes, tags, starred: () => starred, fieldList, expires }
+  const collect = (): EntryData => ({ ...collectEntry(data, inputs), icon: icon.value() })
 
   let saving = false
   const save = async () => {

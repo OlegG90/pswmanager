@@ -1,7 +1,7 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
 import type { EntryData, FieldData, GeneratorOptions, Strength } from './api'
 import { button, el } from './dom'
-import { keep, singleLine, textareaLines } from './entry-text'
+import { dateOf, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
 
 export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
@@ -152,8 +152,48 @@ export function readField(row: HTMLElement): FieldData {
   const protect = row.querySelector('.chip')!
   const original = originals.get(row)!
   return {
-    name: keep(original.name, name.value.trim(), (n) => singleLine(n).trim()),
+    name: keep(original.name, name.value.trim(), trimmedLine),
     value: keep(original.value, value.value, textareaLines),
     protected: protect.getAttribute('aria-pressed') === 'true',
+  }
+}
+
+/** The editor's inputs, as both apps have them. */
+export interface EditorInputs {
+  title: HTMLInputElement
+  username: HTMLInputElement
+  password: HTMLInputElement
+  url: HTMLInputElement
+  otp: HTMLInputElement
+  notes: HTMLTextAreaElement
+  tags: { value: () => string[] }
+  starred: () => boolean
+  /** The additional fields' rows (`fieldRow`). */
+  fieldList: HTMLElement
+  /** A date input: a day. */
+  expires: HTMLInputElement
+}
+
+/** The entry as the editor's inputs have it now. Values the form only
+ *  reformats stay as they were in `data`, so an untouched entry saves
+ *  unchanged; what the editor does not edit (the group: an entry stays in its
+ *  KDBX group, a new one goes to the top) comes from `data`. */
+export function collectEntry(data: EntryData, inputs: EditorInputs): EntryData {
+  const typedTags = inputs.tags.value()
+  // An expiry time on the day shown stays as it was.
+  const expiryDay = data.expires ? dateOf(data.expires) : ''
+  const expires = inputs.expires.value
+  return {
+    ...data,
+    title: keep(data.title, inputs.title.value, singleLine),
+    username: keep(data.username, inputs.username.value, singleLine),
+    password: keep(data.password, inputs.password.value, singleLine),
+    url: keep(data.url, inputs.url.value.trim(), trimmedLine),
+    notes: keep(data.notes, inputs.notes.value, textareaLines),
+    otp: keep(data.otp, inputs.otp.value.trim(), trimmedLine),
+    // Typing the tag Favorite stars the entry.
+    tags: keep(data.tags, withStar(typedTags, inputs.starred() || typedTags.includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
+    fields: [...inputs.fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
+    expires: expires === expiryDay ? data.expires : expires ? startOfDay(expires) : null,
   }
 }

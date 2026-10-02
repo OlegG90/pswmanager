@@ -249,21 +249,25 @@ fn lock_now(app: &AppHandle) {
     }
 }
 
-/// A lock waiting to happen (the app went to the background): each new wait
-/// or `stay_unlocked` makes the ones before void.
+/// Waits where only the latest counts: each new one makes the ones before void.
 #[derive(Default)]
-struct LockLater(std::sync::atomic::AtomicU64);
+pub struct Latest(std::sync::atomic::AtomicU64);
 
-impl LockLater {
+impl Latest {
     /// Voids the waits before; the new one's number.
-    fn next(&self) -> u64 {
+    pub fn next(&self) -> u64 {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
     }
 
-    fn is_latest(&self, wait: u64) -> bool {
+    pub fn is_latest(&self, wait: u64) -> bool {
         self.0.load(std::sync::atomic::Ordering::SeqCst) == wait
     }
 }
+
+/// A lock waiting to happen (the app went to the background); `stay_unlocked`
+/// voids it too.
+#[derive(Default)]
+struct LockLater(Latest);
 
 /// Locks after the setting's time in the background unless the app comes
 /// back first (`stay_unlocked`); tells the page (`locked`). The page also
@@ -271,11 +275,11 @@ impl LockLater {
 /// running on time.
 #[tauri::command]
 fn lock_later(app: AppHandle) {
-    let wait = app.state::<LockLater>().next();
+    let wait = app.state::<LockLater>().0.next();
     let Some(after) = Settings::of(&app.state()).lock_in_background() else { return };
     std::thread::spawn(move || {
         std::thread::sleep(after);
-        if app.state::<LockLater>().is_latest(wait) && app.state::<Session>().is_unlocked() {
+        if app.state::<LockLater>().0.is_latest(wait) && app.state::<Session>().is_unlocked() {
             lock_now(&app);
             let _ = app.emit("locked", ());
         }
@@ -284,7 +288,7 @@ fn lock_later(app: AppHandle) {
 
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
-    later.next();
+    later.0.next();
 }
 
 /// The screen turned off: locks when the setting says so; whether it did.

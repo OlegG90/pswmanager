@@ -7,9 +7,7 @@ use pswm_core::edit::{self, EntryData};
 use pswm_core::generator;
 use pswm_core::health;
 use pswm_core::session::Session;
-use pswm_core::vault::Listing;
-use serde::Serialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use pswm_core::vault::{Listing, Saved};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroizing;
@@ -17,18 +15,18 @@ use zeroize::Zeroizing;
 /// How long after the last change it goes up.
 const UPLOAD_DELAY: Duration = Duration::from_secs(10);
 
-/// The latest upload waiting: each change makes the ones before it void.
+/// The upload waiting for the last change.
 #[derive(Default)]
-pub struct UploadSoon(AtomicU64);
+pub struct UploadSoon(crate::app::Latest);
 
 /// Syncs `UPLOAD_DELAY` after the last change. Going to the background first
 /// sends it at once (`sync_if_pending`).
 fn upload_soon(app: &AppHandle) {
-    let wait = app.state::<UploadSoon>().0.fetch_add(1, Ordering::SeqCst) + 1;
+    let wait = app.state::<UploadSoon>().0.next();
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(UPLOAD_DELAY);
-        if app.state::<UploadSoon>().0.load(Ordering::SeqCst) == wait {
+        if app.state::<UploadSoon>().0.is_latest(wait) {
             crate::app::start_sync(app);
         }
     });
@@ -40,15 +38,6 @@ pub fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, Stri
     session.with(|v| v.edit_data(&id))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Saved {
-    id: String,
-    listing: Listing,
-    /// Fields another device also changed; this edit replaced them.
-    conflicts: Vec<String>,
-}
-
 /// Creates (no `id`) or changes an entry; `base` is the entry as the editor
 /// opened it, so only what the editor changed is applied.
 #[tauri::command(async)]
@@ -58,8 +47,8 @@ pub fn save_entry(app: AppHandle, session: State<Session>, id: Option<String>, b
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
     crate::icons::fetch(&app, &saved.listing);
-    // Tags alone can wait for the next sync (going to the background, locking), as on Windows.
-    if !base.as_ref().is_some_and(|base| edit::only_tags_changed(base, &data)) {
+    // Tags alone can wait for the next sync (going to the background, locking).
+    if edit::needs_upload(base.as_ref(), &data) {
         upload_soon(&app);
     }
     Ok(saved)
@@ -81,7 +70,7 @@ pub fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Resu
 #[tauri::command(async)]
 pub fn set_favorite(session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
     session.with_mut(|v| {
-        v.set_tag(&[id], "Favorite", on)?;
+        v.set_tag(&[id], edit::FAVORITE, on)?;
         Ok(v.listing())
     })
 }

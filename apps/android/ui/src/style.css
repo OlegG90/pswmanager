@@ -390,8 +390,9 @@ button.fab[hidden] {
   display: none;
 }
 
+/* Room for the two floating buttons above the last entry. */
 .list-screen .entries {
-  padding-bottom: 152px;
+  padding-bottom: calc(2 * 56px + 40px);
 }
 
 .tabs {

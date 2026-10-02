@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { EMPTY_ENTRY, chip, fieldRow, generatorPanel, input, readField, showHide, strengthMeter, withStar } from '../../../../src/editor-parts'
-import { dateOf, formatDateTime, formatSize, formatTags, keep, parseTags, singleLine, splitCode, startOfDay, textareaLines, titleOf } from '../../../../src/entry-text'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
+import { dateOf, formatDateTime, formatSize, splitCode, titleOf } from '../../../../src/entry-text'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
@@ -617,6 +617,10 @@ async function entryScreen(id: string, listing: Listing) {
   const more = iconButton('more', 'More', () => sheet((close) => [el('b', {}, titleOf(entry)), button('Delete', 'Move to the recycle bin', () => (close(), remove()), 'item')]))
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), star, edit, more), ...rows], toList)
   leave = () => stops.forEach((stop) => stop())
+  // A sync that changed entries shows this one again, or the list when it is gone.
+  onSynced = (synced) => {
+    if (synced.changed) void api.listing().then((fresh) => (fresh.entries.some((e) => e.id === id) ? entryScreen(id, fresh) : listScreen(fresh)))
+  }
 }
 
 // ------------------------------------------------------------ editing
@@ -646,9 +650,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), tagCounts(listing.entries).map(([tag]) => tag))
   let starred = data.tags.includes(FAVORITE)
   const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
-  // A date input holds a day: an expiry time on that day stays as it was.
-  const expiryDay = data.expires ? dateOf(data.expires) : ''
-  const expires = el('input', { type: 'date', value: expiryDay, className: 'field' })
+  const expires = el('input', { type: 'date', value: data.expires ? dateOf(data.expires) : '', className: 'field' })
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
   const strength = strengthMeter(password, api.passwordStrength)
@@ -657,21 +659,9 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     strength.refresh()
   }, showError)
 
-  const trimmedLine = (text: string) => singleLine(text).trim()
-  // Values the form only reformats are kept as they were, as on Windows.
-  const collect = (): EntryData => ({
-    ...data,
-    title: keep(data.title, title.value, singleLine),
-    username: keep(data.username, username.value, singleLine),
-    password: keep(data.password, password.value, singleLine),
-    url: keep(data.url, url.value.trim(), trimmedLine),
-    notes: keep(data.notes, notes.value, textareaLines),
-    otp: keep(data.otp, otp.value.trim(), trimmedLine),
-    // Typing the tag Favorite stars the entry.
-    tags: keep(data.tags, withStar(tags.value(), starred || tags.value().includes(FAVORITE), data.tags), (t) => parseTags(formatTags(t))),
-    fields: [...fieldList.querySelectorAll<HTMLDivElement>('.field-row')].map(readField),
-    expires: expires.value === expiryDay ? data.expires : expires.value ? startOfDay(expires.value) : null,
-  })
+  const inputs = { title, username, password, url, otp, notes, tags, starred: () => starred, fieldList, expires }
+  const collect = () => collectEntry(data, inputs)
+  const untouched = JSON.stringify(collect())
 
   let saving = false
   const save = async () => {
@@ -718,8 +708,15 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'link'),
       ...(id ? [el('p', { className: 'muted' }, 'Saving keeps the previous version in the history.')] : [])),
   ], onBack)
-  const untouched = JSON.stringify(collect())
   if (!id) title.focus()
+  // Saving still works: only what was edited here is applied, and where both
+  // changed a field the other version goes to the entry's history.
+  onSynced = (synced) => {
+    if (!id || !synced.changed) return
+    void api.editEntry(id).then((now) => {
+      if (JSON.stringify(now) !== JSON.stringify(data)) showError('This entry was just changed on another device. Saving keeps your version; the other one goes to the entry’s history.')
+    }, () => showError('This entry was just deleted on another device. Saving brings it back.'))
+  }
 }
 
 /** The TOTP code with its countdown, and what stops the countdown. A new

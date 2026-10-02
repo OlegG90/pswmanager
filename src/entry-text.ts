@@ -5,6 +5,9 @@ export const formatTags = (tags: string[]) => tags.join(', ')
 /** Line breaks an <input> cannot hold. */
 export const singleLine = (text: string) => text.replace(/[\r\n]/g, '')
 
+/** A one-line value without the spaces around it (a URL, a TOTP secret, a field's name). */
+export const trimmedLine = (text: string) => singleLine(text).trim()
+
 /** Line ends a <textarea> hands back. */
 export const textareaLines = (text: string) => text.replace(/\r\n?/g, '\n')
 
