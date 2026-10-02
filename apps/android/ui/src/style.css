@@ -11,8 +11,9 @@
   --color-error: #9b3b2a;
 }
 
+/* Dark as the phone is set, unless the user chose light; or dark when chosen. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg: #1d1b19;
     --color-surface: #24211f;
     --color-text: #ebe5da;
@@ -22,6 +23,22 @@
     --color-accent-100: #33281a;
     --color-error: #e08a74;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #1d1b19;
+  --color-surface: #24211f;
+  --color-text: #ebe5da;
+  --color-neutral-300: #3a3633;
+  --color-neutral-700: #b3ada5;
+  --color-accent: #d3a35c;
+  --color-accent-100: #33281a;
+  --color-error: #e08a74;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -289,7 +306,7 @@ main.list-screen {
   background: var(--color-accent-100);
 }
 
-.drawer button.lock {
+.drawer button.action {
   margin-top: 20px;
   color: var(--color-accent);
 }
@@ -368,4 +385,53 @@ button.fab[hidden] {
 
 .list-screen .entries {
   padding-bottom: 80px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  margin: 8px -16px 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.tabs button.tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--color-neutral-700);
+  font-weight: 600;
+  padding: 10px 12px 8px;
+}
+
+.tabs button.tab.chosen {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-neutral-300);
+}
+
+.setting > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting select.field {
+  width: auto;
+  margin: 0;
+  padding: 8px;
+}
+
+.setting input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--color-accent);
 }

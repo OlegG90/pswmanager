@@ -63,6 +63,21 @@ export interface SignedIn {
   error: string | null
 }
 
+/** The settings screen's values (names as in crates/core/src/settings.rs). */
+export interface Settings {
+  /** Seconds in the background before locking; null for never. */
+  lockInBackground: number | null
+  lockOnScreenOff: boolean
+  /** Minutes in front without a touch; 0 for never. */
+  lockAfterMinutes: number
+  clearClipboard: number
+  /** Minutes between checks of the remote file while in front; 0 for never. */
+  syncEveryMinutes: number
+  downloadIcons: boolean
+  theme: 'system' | 'light' | 'dark'
+  version: string
+}
+
 export const api = {
   status: () => invoke<Status>('status'),
   openLocalFile: () => invoke<Status | null>('open_local_file'),
@@ -77,7 +92,10 @@ export const api = {
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   openAttachment: (id: string, name: string) => invoke<void>('open_attachment', { id, name }),
-  lockLater: (seconds: number) => invoke<void>('lock_later', { seconds }),
+  lockLater: () => invoke<void>('lock_later'),
+  screenOff: () => invoke<boolean>('screen_off'),
+  settings: () => invoke<Settings>('settings'),
+  setSetting: (name: string, value: unknown) => invoke<Settings>('set_setting', { name, value }),
   stayUnlocked: () => invoke<void>('stay_unlocked'),
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),

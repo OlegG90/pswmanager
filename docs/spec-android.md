@@ -120,7 +120,7 @@ A local file skips steps 2–3.
 As in the mockups `1e`–`1j`.
 
 - **List**, laid out as in Keepass2Android: a toolbar on top (☰ for the drawer, the group or tag shown,
-  *Lock*; *Settings* from stage A1's settings), the entries with their icons, and floating buttons at the
+  *Sync now*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
@@ -156,10 +156,11 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
-| Sync | the remote file and **Stop syncing**; the store's account and **Disconnect**; **Sync now** |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4, with more stores: **Stop syncing** (the database stays as a local file, e.g. when the store cannot be reached or the account has a problem) and the store's account with **Disconnect**. Until then another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
-Settings belong to this phone; they are not synced with the PC.
+Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the
+PC's where both have one (`crates/core/src/settings.rs`). The screen opens from the toolbar's ⚙ and the drawer.
 
 ## Security behaviour
 

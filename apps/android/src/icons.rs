@@ -5,6 +5,7 @@
 
 use crate::app::off_main;
 use pswm_core::icons::{self, Cache};
+use pswm_core::settings::Settings;
 use pswm_core::store::Store;
 use pswm_core::vault::{Kind, Listing};
 use std::sync::OnceLock;
@@ -22,6 +23,9 @@ fn with_cache<T>(app: &AppHandle, f: impl FnOnce(&Cache) -> T) -> T {
 /// Fetches the listed sites' missing icons in the background, and tells the
 /// page about each one that arrives (`icon-ready`).
 pub fn fetch(app: &AppHandle, listing: &Listing) {
+    if !Settings::of(&app.state()).download_icons() {
+        return;
+    }
     // Only the entries in use: not the recycle bin's or the templates' sites.
     let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
     hosts.sort();

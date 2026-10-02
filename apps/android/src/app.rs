@@ -10,19 +10,16 @@ use pswm_core::opened;
 use pswm_core::otp;
 use pswm_core::remote::Location;
 use pswm_core::session::Session;
+use pswm_core::settings::{self, Settings};
 use pswm_core::store::Store;
 use pswm_core::sync;
 use pswm_core::vault::{self, EntryDetail, Listing, Vault};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::time::Duration;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
-
-/// How long a copied value stays on the clipboard (a setting later).
-const CLEAR_AFTER: Duration = Duration::from_secs(20);
 
 pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
     builder
@@ -67,6 +64,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_totp,
             open_url,
             open_attachment,
+            settings,
+            set_setting,
+            screen_off,
             pick_key_file,
             clear_key_file,
             crate::icons::icon,
@@ -256,14 +256,16 @@ impl LockLater {
     }
 }
 
-/// Locks after `seconds` unless the app comes back first (`stay_unlocked`);
-/// tells the page (`locked`). The page also checks the time itself when it
-/// comes back, in case Android kept this from running on time.
+/// Locks after the setting's time in the background unless the app comes
+/// back first (`stay_unlocked`); tells the page (`locked`). The page also
+/// checks the time itself when it comes back, in case Android kept this from
+/// running on time.
 #[tauri::command]
-fn lock_later(app: AppHandle, seconds: u64) {
+fn lock_later(app: AppHandle) {
     let wait = app.state::<LockLater>().next();
+    let Some(after) = Settings::of(&app.state()).lock_in_background() else { return };
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(seconds));
+        std::thread::sleep(after);
         if app.state::<LockLater>().is_latest(wait) && app.state::<Session>().is_unlocked() {
             lock_now(&app);
             let _ = app.emit("locked", ());
@@ -274,6 +276,36 @@ fn lock_later(app: AppHandle, seconds: u64) {
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
     later.next();
+}
+
+/// The screen turned off: locks when the setting says so; whether it did.
+#[tauri::command]
+fn screen_off(app: AppHandle) -> bool {
+    let lock = Settings::of(&app.state()).lock_on_screen_off() && app.state::<Session>().is_unlocked();
+    if lock {
+        lock_now(&app);
+    }
+    lock
+}
+
+/// The settings screen's values, and what it says about the app.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    #[serde(flatten)]
+    settings: settings::View,
+    version: &'static str,
+}
+
+#[tauri::command]
+fn settings(store: State<Store>) -> SettingsView {
+    SettingsView { settings: Settings::of(&store).view(), version: env!("CARGO_PKG_VERSION") }
+}
+
+#[tauri::command]
+fn set_setting(store: State<Store>, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
+    Settings::of(&store).set(&name, value)?;
+    Ok(settings(store))
 }
 
 /// Where the key file is kept in the state file (the phone has one database):
@@ -484,6 +516,7 @@ fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), S
 }
 
 async fn copy_to_clipboard(app: AppHandle, value: Zeroizing<String>) -> Result<u64, String> {
-    off_main(move || app.state::<Clipboard<Wry>>().copy(&value, CLEAR_AFTER)).await?;
-    Ok(CLEAR_AFTER.as_secs())
+    let clear_after = Settings::of(&app.state()).clear_clipboard_after();
+    off_main(move || app.state::<Clipboard<Wry>>().copy(&value, clear_after)).await?;
+    Ok(clear_after.as_secs())
 }
