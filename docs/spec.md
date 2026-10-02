@@ -339,8 +339,9 @@ while the database is locked):
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
 - **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a
-  file can be added (up to 20 MB — the whole database is synced on every change), replaced, renamed (its
-  name is edited in place) or removed. Nothing changes until **Save**, which saves the files with the rest
+  file can be added (up to 20 MB — the whole database is synced on every change); each file's name is
+  shown as text, and its menu renames, replaces or removes it, so a file is never lost by editing its name.
+  Each line says what Save will do to its file (*new*, *renamed from …*, *replaced*). Nothing changes until **Save**, which saves the files with the rest
   of the entry as one edit (one previous version in history); Cancel drops them. The entry view only
   opens and saves files; a template's files are not changed. A picked file is read by the backend at
   once and held there until the entry is saved, the editor is cancelled or the database locks: its

@@ -625,6 +625,22 @@ async function entryScreen(id: string, listing: Listing) {
 
 // ------------------------------------------------------------ editing
 
+/** Asks for a file's new name in a sheet; null when cancelled. */
+function askName(current: string): Promise<string | null> {
+  return new Promise((done) => {
+    const name = input(current, { className: 'field', ariaLabel: 'New name' })
+    sheet((close) => {
+      const answer = (value: string | null) => (close(), done(value))
+      return [el('b', {}, 'Rename the file'), name,
+        button('Rename', 'Rename', () => answer(name.value), 'primary'), button('Cancel', 'Cancel', () => answer(null), 'link')]
+    })
+    // The name without its extension is chosen, ready to type over.
+    const dot = current.lastIndexOf('.')
+    name.focus()
+    name.setSelectionRange(0, dot > 0 ? dot : current.length)
+  })
+}
+
 /** The editor, as `spec.md` *Editing* has it; a new blank entry when `id` is
  *  null. Cancel and Back return with `back`; saving shows the entry. */
 async function editorScreen(id: string | null, listing: Listing, back: () => void) {
@@ -655,7 +671,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const expires = el('input', { type: 'date', value: data.expires ? dateOf(data.expires) : '', className: 'field' })
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
-  const files = filesEditor(attachments, { pick: api.pickFileToAttach, release: api.releaseFiles }, (message) => showError(message))
+  const files = filesEditor(attachments, {
+    pick: api.pickFileToAttach,
+    release: api.releaseFiles,
+    askName,
+    menu: (title, items) => iconButton('more', title, () =>
+      sheet((close) => [el('b', {}, title), ...items.map((item) => button(item.label, item.title, () => (close(), item.action()), item.danger ? 'item danger' : 'item'))])),
+  }, (message) => showError(message))
   const strength = strengthMeter(password, api.passwordStrength)
   const generator = generatorPanel(api.generatePassword, (chosen) => {
     password.value = chosen

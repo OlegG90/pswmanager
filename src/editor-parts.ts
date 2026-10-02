@@ -1,6 +1,7 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
 import type { Attachment, EntryData, FieldData, FileChange, GeneratorOptions, StagedFile, Strength } from './api'
 import { button, el } from './dom'
+import type { MenuItem } from './menu'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
 
@@ -199,10 +200,14 @@ export function collectEntry(data: EntryData, inputs: EditorInputs): EntryData {
 }
 
 /** What the files section needs from the app: picking a file (held by the
- *  backend, see StagedFile) and letting go of picked files. */
-export interface FilePicking {
+ *  backend, see StagedFile), letting go of picked files, asking for a new
+ *  name, and a file's menu button. */
+export interface FileUi {
   pick: () => Promise<StagedFile | null>
   release: (files: number[]) => Promise<void>
+  /** A new name for the file; null when cancelled. */
+  askName: (current: string) => Promise<string | null>
+  menu: (title: string, items: MenuItem[]) => HTMLElement
 }
 
 /** One file in the files section: one the entry has (`original`), or one
@@ -210,67 +215,92 @@ export interface FilePicking {
 interface FileState {
   original: string | null
   staged: StagedFile | null
-  name: HTMLInputElement
+  name: string
+}
+
+/** What will happen to the file on Save, as its line says it. */
+function fileNote(f: FileState): string {
+  if (f.original === null) return 'new'
+  return [f.name !== f.original ? `renamed from ${f.original}` : '', f.staged ? 'replaced' : ''].filter(Boolean).join(' · ')
 }
 
 /**
  * The entry's files in the editor, as SafeInCloud and Keepass2Android have
- * them: renamed in place, replaced or removed, new ones added. Nothing changes
- * until the entry is saved: `changes` are sent with it. `release` lets go of
- * every picked file (the editor closed without saving).
+ * them: each file's menu renames, replaces or removes it, and new ones are
+ * added; each line says what Save will do to its file. Nothing changes until
+ * the entry is saved: `changes` are sent with it. `release` lets go of every
+ * picked file (the editor closed without saving).
  */
-export function filesEditor(initial: Attachment[], picking: FilePicking, onError: (message: string) => void) {
+export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message: string) => void) {
   const states: FileState[] = []
   const list = el('div', { className: 'files' })
   const held = () => states.flatMap((f) => (f.staged ? [f.staged.content] : []))
 
   const pick = async (): Promise<StagedFile | null> => {
     try {
-      return await picking.pick()
+      return await ui.pick()
     } catch (e) {
       onError(String(e))
       return null
     }
   }
   const row = (state: FileState, size: number) => {
-    const sizeText = el('span', { className: 'size' }, formatSize(size))
-    const replace = button('Replace…', 'Replace with another file (the entry’s history keeps this one)', async () => {
+    const name = el('span', { className: 'name' })
+    const note = el('small', { className: 'note' })
+    const sizeText = el('span', { className: 'size' })
+    const draw = () => {
+      name.textContent = state.name
+      note.textContent = fileNote(state)
+      sizeText.textContent = formatSize(state.staged?.size ?? size)
+    }
+    const rename = async () => {
+      const to = (await ui.askName(state.name))?.trim()
+      if (!to || to === state.name) return
+      if (states.some((f) => f !== state && f.name === to)) return onError(`The entry already has a file named “${to}”`)
+      state.name = to
+      draw()
+    }
+    const replace = async () => {
       const picked = await pick()
       if (!picked) return
-      if (state.staged) void picking.release([state.staged.content])
+      if (state.staged) void ui.release([state.staged.content])
       state.staged = picked
-      sizeText.textContent = `${formatSize(picked.size)} · new`
-    }, 'ghost')
-    const remove = button('✕', 'Remove from the entry (its history keeps the file)', () => {
-      if (state.staged) void picking.release([state.staged.content])
+      draw()
+    }
+    const remove = () => {
+      if (state.staged) void ui.release([state.staged.content])
       states.splice(states.indexOf(state), 1)
       line.remove()
-    }, 'ghost icon')
-    const line = el('div', { className: 'attachment-row' }, state.name, sizeText, ...(state.original ? [replace] : []), remove)
+    }
+    const items: MenuItem[] = [
+      { label: 'Rename…', title: 'Give the file another name', action: () => void rename() },
+      ...(state.original ? [{ label: 'Replace…', title: 'Replace with another file (the entry’s history keeps this one)', action: () => void replace() }] : []),
+      { label: 'Remove', title: 'Remove from the entry (its history keeps the file)', action: remove, danger: true },
+    ]
+    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), sizeText, ui.menu(`More for ${state.name}`, items))
+    draw()
     list.append(line)
   }
   for (const file of initial) {
-    const state: FileState = { original: file.name, staged: null, name: input(file.name, { className: 'name', ariaLabel: 'File name' }) }
+    const state: FileState = { original: file.name, staged: null, name: file.name }
     states.push(state)
     row(state, file.size)
   }
   const add = button('+ Add file…', 'Attach a file (up to 20 MB)', async () => {
     const picked = await pick()
     if (!picked) return
-    const state: FileState = { original: null, staged: picked, name: input(picked.name, { className: 'name', ariaLabel: 'File name' }) }
+    const state: FileState = { original: null, staged: picked, name: picked.name }
     states.push(state)
     row(state, picked.size)
-    list.lastElementChild?.querySelector('.size')?.append(' · new')
   }, 'ghost add-field')
 
   const changes = (): FileChange[] => {
     const kept = new Set(states.map((f) => f.original))
     const removed: FileChange[] = initial.filter((f) => !kept.has(f.name)).map((f) => ({ kind: 'remove', name: f.name }))
     const changed: FileChange[] = states.flatMap((f): FileChange[] => {
-      const name = f.name.value.trim()
-      if (f.original === null) return [{ kind: 'add', name: name || f.staged!.name, content: f.staged!.content }]
-      if (name === f.original && !f.staged) return []
-      return [{ kind: 'change', name: f.original, to: name, content: f.staged?.content ?? null }]
+      if (f.original === null) return [{ kind: 'add', name: f.name, content: f.staged!.content }]
+      if (f.name === f.original && !f.staged) return []
+      return [{ kind: 'change', name: f.original, to: f.name, content: f.staged?.content ?? null }]
     })
     return [...removed, ...changed]
   }
@@ -279,7 +309,7 @@ export function filesEditor(initial: Attachment[], picking: FilePicking, onError
     changes,
     release: () => {
       const files = held()
-      if (files.length) void picking.release(files)
+      if (files.length) void ui.release(files)
     },
   }
 }

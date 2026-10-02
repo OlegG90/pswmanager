@@ -2,7 +2,8 @@ import { api, type Attachment, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf } from './entry-text'
-import { ask } from './modal'
+import { ask, askText, beforeExtension } from './modal'
+import { menuButton } from './menu'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
 import { FAVORITE } from './search'
@@ -106,7 +107,12 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const error = el('p', { className: 'error', hidden: true })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
   // A template's files are not changed (as before), so it has no files section.
-  const files = filesEditor(options.template ? [] : attachments, { pick: api.pickFileToAttach, release: api.releaseFiles }, (message) => showError(message))
+  const files = filesEditor(options.template ? [] : attachments, {
+    pick: api.pickFileToAttach,
+    release: api.releaseFiles,
+    askName: (current) => askText('Rename the file to:', current, 'Rename', beforeExtension(current)),
+    menu: menuButton,
+  }, (message) => showError(message))
 
   // Under the heading, and scrolled to: at the bottom of a long form the
   // message ended up out of sight.

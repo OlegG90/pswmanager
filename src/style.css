@@ -1477,7 +1477,7 @@ input::-ms-reveal {
   padding: 3px 8px;
 }
 
-/* The entry's files in the editor: the name (renamed in place), size, Replace, remove. */
+/* The entry's files in the editor: the name with what Save will do to it, the size, the menu. */
 .files {
   display: flex;
   flex-direction: column;
@@ -1492,10 +1492,21 @@ input::-ms-reveal {
   border-bottom: 1px solid var(--color-divider);
 }
 
-.attachment-row .name {
+.attachment-row .what {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  height: 32px;
+  overflow-wrap: anywhere;
+}
+
+.attachment-row .note {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+}
+
+.attachment-row .note:empty {
+  display: none;
 }
 
 .attachment-row .size {
