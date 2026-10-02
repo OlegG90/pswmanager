@@ -9,6 +9,9 @@
   --color-accent: #b68235;
   --color-accent-100: #f3e7d4;
   --color-error: #9b3b2a;
+  /* The tile under images drawn for light pages (.icon.site): none here. */
+  --icon-tile: transparent;
+  --icon-tile-padding: 0;
 }
 
 /* Dark as the phone is set, unless the user chose light; or dark when chosen. */
@@ -22,11 +25,15 @@
     --color-accent: #d3a35c;
     --color-accent-100: #33281a;
     --color-error: #e08a74;
+    --icon-tile: #f3f2f2;
+    --icon-tile-padding: 3px;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --icon-tile: #f3f2f2;
+  --icon-tile-padding: 3px;
   --color-bg: #1d1b19;
   --color-surface: #24211f;
   --color-text: #ebe5da;
@@ -214,6 +221,13 @@ main.list-screen {
   width: 36px;
   height: 36px;
   border-radius: 6px;
+}
+
+/* Site icons and an entry's own images are drawn for light pages: in the dark
+   theme a light tile keeps a dark drawing visible, as on Windows. */
+.icon.site {
+  padding: var(--icon-tile-padding);
+  background: var(--icon-tile);
 }
 
 .line {

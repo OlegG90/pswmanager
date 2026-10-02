@@ -382,17 +382,23 @@ function row(entry: Entry, listing: Listing): HTMLLIElement {
 
 /** Site icons by host; one that arrives replaces the key in the images waiting for it. */
 const siteIcons = siteIconCache(api.icon, (host, src) => {
-  document.querySelectorAll<HTMLImageElement>('img.icon[data-host]').forEach((img) => img.dataset.host === host && (img.src = src))
+  document.querySelectorAll<HTMLImageElement>('img.icon[data-host]').forEach((img) => {
+    if (img.dataset.host !== host) return
+    img.src = src
+    img.classList.add('site')
+  })
 })
 void listen<string>('icon-ready', (e) => siteIcons.refresh(e.payload))
 
 /** An entry's own image, else the drawing chosen for it, else its site's icon
- *  (when it arrives), else the key: as on Windows. */
+ *  (when it arrives), else the key: as on Windows. Images drawn for light
+ *  pages (the entry's own, a site's) are marked `site` for their light tile. */
 function icon(entry: Entry, listing: Listing) {
   const custom = entry.customIcon && listing.customIcons[entry.customIcon]
-  if (custom) return el('img', { className: 'icon', src: custom, alt: '' })
+  if (custom) return el('img', { className: 'icon site', src: custom, alt: '' })
   if (entry.icon !== null) return el('img', { className: 'icon', src: glyphIcon(entry.icon), alt: '' })
-  const img = el('img', { className: 'icon', src: (entry.host && siteIcons.get(entry.host)) || DEFAULT_ICON, alt: '' })
+  const site = entry.host && siteIcons.get(entry.host)
+  const img = el('img', { className: site ? 'icon site' : 'icon', src: site || DEFAULT_ICON, alt: '' })
   if (entry.host) img.dataset.host = entry.host
   return img
 }
