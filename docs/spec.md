@@ -555,7 +555,7 @@ with code 2.
 - **Build:** Tauri bundling (MSI/NSIS) disabled; only `pswm.exe` is produced. `npm run build` builds it for
   the local architecture; `npm run build:x64` / `build:arm64` for a given one.
 - **CI:** GitHub Actions builds `pswm.exe` for **ARM64 and x64** on `v*` tags (the tag must match the
-  version in `src-tauri/Cargo.toml`) and attaches both, as `pswm-x64.exe` and `pswm-arm64.exe`, to the
+  version in the root `Cargo.toml`) and attaches both, as `pswm-x64.exe` and `pswm-arm64.exe`, to the
   GitHub Release. A manual run builds both as an artifact without publishing.
 - The exe is unsigned, so SmartScreen asks for confirmation on first run.
 

@@ -1,6 +1,6 @@
 [package]
 name = "pswm-android"
-version = "0.1.0"
+version.workspace = true
 description = "PswManager for Android"
 authors.workspace = true
 license.workspace = true

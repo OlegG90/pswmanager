@@ -1,5 +1,6 @@
-# Builds pswm.exe for x64 and ARM64. A pushed `v*` tag publishes both to a
-# GitHub Release; a manual run ("Run workflow") only uploads them as an artifact.
+# Builds pswm.exe for x64 and ARM64 and the Android app's APK. A pushed `v*` tag
+# publishes them to a GitHub Release; a manual run ("Run workflow") only
+# uploads them as artifacts.
 name: Release
 
 on:
@@ -23,9 +24,9 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          $version = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
           if ("v$version" -ne $env:TAG) {
-            throw "Tag $env:TAG does not match the version in src-tauri/Cargo.toml (v$version)"
+            throw "Tag $env:TAG does not match the version in Cargo.toml (v$version)"
           }
 
       - uses: actions/setup-node@v7
@@ -73,4 +74,64 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: pswm
+          path: release/
+
+  # The Android app, signed with its release key, added to the same release.
+  android:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAURI_APP_PATH: apps/android
+      TAURI_FRONTEND_PATH: .
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: The release key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          PASSWORD: ${{ secrets.ANDROID_RELEASE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          echo "::add-mask::$PASSWORD"
+          echo "ANDROID_KEYSTORE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+
+      - run: npx tauri android build --apk --target aarch64 --ci
+
+      - name: Collect the APK
+        run: |
+          mkdir -p release
+          cp "$(find apps/android/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)" release/pswmanager-android.apk
+
+      - name: Add it to the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" release/pswmanager-android.apk
+
+      - name: Keep the APK (manual runs)
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pswmanager-android
           path: release/

@@ -48,7 +48,7 @@ Android SDK and NDK have no Windows-on-ARM64 builds. Each push that touches it b
 `adb install -r app-universal-debug.apk` (`adb` is in Google's platform-tools). Its page is in
 `apps/android/ui` (`npm run build:android-web`).
 
-Releases: bump `version` in `src-tauri/Cargo.toml`, merge, then push a tag `v<version>` from `main`.
+Releases: bump `version` in the root `Cargo.toml` (`[workspace.package]`, both apps), merge, then push a tag `v<version>` from `main`.
 GitHub Actions ([release.yml](.github/workflows/release.yml)) runs the tests, builds both exes and
 attaches them to the release; *Run workflow* by hand builds them as an artifact without publishing.
 
