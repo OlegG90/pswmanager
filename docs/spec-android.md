@@ -279,6 +279,21 @@ background.
   reaches PswManager on Windows and Keepass2Android, and theirs reach the phone, without loss — through
   each supported store and for a local file.
 
+### Known issues
+
+- **A FORTIFY abort at exit.** In about a third of the closes with Back or a swipe from Recents,
+  `adb logcat -b crash` shows one line,
+  `F libc: FORTIFY: pthread_mutex_lock called on a destroyed mutex`,
+  yet the process ends on its own with `exited cleanly (0)`, and no tombstone or backtrace is written
+  (the exit wins the race). The exit is the Tauri runtime's: when the last window is destroyed, the event
+  loop ends unless the app prevents it, and tao calls `std::process::exit` on the thread it runs the app
+  on. The faulting thread was `RenderThread` (Android's hardware UI renderer, HWUI) in 3 of 3 traced
+  runs, and the mutex has the same address in every run, so it lives in a library zygote preloads; most
+  likely `exit` runs that library's C++ static destructors while `RenderThread` still works. The same
+  abort happens in builds from before the background upload, and there is no sign of the app's own code
+  in it. Nothing shows to the user. Left to Tauri/tao: ending the process with `_exit` in `RunEvent::Exit`
+  would hide it, but would skip Tauri's own clean-up, which runs after that event.
+
 ## Stages
 
 Each stage is a GitHub issue and lands in one or more PRs.
