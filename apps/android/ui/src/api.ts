@@ -61,7 +61,7 @@ export interface Picked {
 }
 
 /** A cloud store the phone syncs with. */
-export type Cloud = 'dropbox' | 'onedrive'
+export type Cloud = 'dropbox' | 'onedrive' | 'google'
 
 /** A database in the app's folder in a cloud store. */
 export interface CloudFile {

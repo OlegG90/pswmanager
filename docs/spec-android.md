@@ -43,8 +43,8 @@ groups, managing tags (rename, merge, remove), password health, restoring a hist
 
 ## The database on the phone
 
-One database at a time. It is either **synced** with a cloud store (Dropbox from stage A1, OneDrive from
-A4) or a **local file** without a cloud.
+One database at a time. It is either **synced** with a cloud store (Dropbox from stage A1, OneDrive and
+Google Drive from A4) or a **local file** without a cloud.
 
 Android's file access gives documents, not paths, and a document cannot be renamed over. So in both cases
 the core works, as on Windows, on a **working copy** in the app's private storage (with its `.bak` and
@@ -87,9 +87,11 @@ on Windows (*Synchronisation with a remote store* in `spec.md`):
 
 The screens in the mockups `1a`–`1d`:
 
-1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive* (stage A4) or *Open a local file*.
-2. **Dropbox or OneDrive:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app
-   folder (`Apps/PswManager Sync` in Dropbox, `Apps/PswManager` in OneDrive) are listed; pick one.
+1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive*, *Sync with Google Drive* (stage A4)
+   or *Open a local file*.
+2. **A cloud store:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app's folder
+   (`Apps/PswManager Sync` in Dropbox, `Apps/PswManager` in OneDrive, `PswManager` in Google Drive, where
+   it sees only the files PswManager made) are listed; pick one.
    PswManager sees only its app folder, so a file to be shared with PswManager for Windows (and
    Keepass2Android, which opens it there with full access) must be there.
 3. **Where to keep it on this phone:** the folder for the visible copy (see above) and the file name; the
@@ -166,7 +168,7 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
-| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…** and **Sync with OneDrive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
 Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the
@@ -238,7 +240,9 @@ background.
   - **OneDrive** (stage A4): a custom-scheme redirect, `io.github.olegg90.pswmanager://onedrive`, registered
     in the existing Entra app (*Mobile and desktop applications*) beside the localhost one, as for Dropbox;
     Microsoft accepts it for personal accounts (checked: a redirect not registered is refused).
-  - **Google Drive** (stage A4): an Android OAuth client for the package name and the signing key's SHA-1.
+  - **Google Drive** (stage A4): an Android OAuth client for the package name and the release key's SHA-1,
+    with its *custom URI scheme* turned on (Google keeps it off for new Android clients); the redirect is
+    `io.github.olegg90.pswmanager:/oauth2redirect`, and the client has no secret.
 - The same narrow access as on Windows (Dropbox's app folder, OneDrive's app folder, Google's `drive.file`).
 - The refresh token is kept in the app's private storage, **encrypted with a key in the Android Keystore**
   (not bound to a biometric, so the background upload can use it). **Disconnect** deletes it; the working
@@ -284,7 +288,7 @@ background.
 - **Automated:** everything the core does is tested on the PC as now (`cargo test`), once it is in
   `crates/core`; the Windows app's tests keep passing after A0 unchanged. The Android-only parts (SAF save,
   lifecycle triggers, Keystore) are thin and tested by hand.
-- **By hand on the phone, before a release:** first run with Dropbox, with OneDrive and with a local file;
+- **By hand on the phone, before a release:** first run with Dropbox, OneDrive, Google Drive and a local file;
   Stop syncing, Disconnect and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
   screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
