@@ -227,28 +227,15 @@ async function unlockedWith(opened: Listing) {
   if (last) applySync(last)
 }
 
-/** Resolves when the app is in front (a prompt cannot show behind it). */
-const inFront = () =>
-  new Promise<void>((done) => {
-    if (!document.hidden) return done()
-    const shown = () => {
-      if (document.hidden) return
-      document.removeEventListener('visibilitychange', shown)
-      done()
-    }
-    document.addEventListener('visibilitychange', shown)
-  })
-
 function unlockScreen() {
   const current = database!
   const error = errorLine()
   const password = el('input', { type: 'password', autocomplete: 'off', placeholder: 'Master password', className: 'field' })
-  // Biometric unlock, offered for next time and used when its key is ready.
-  const remember = el('input', { type: 'checkbox', checked: true })
-  const rememberRow = el('label', { className: 'setting', hidden: true }, el('span', {}, 'Unlock with fingerprint next time', el('small', {}, 'The master password is asked for again now and then')), remember)
+  // Biometric unlock, when its key is sealed: the fingerprint button, or Unlock with no password typed.
   const unlock = busyButton('Unlock', 'Unlock the database', async () => {
+    if (!password.value && !fingerprint.hidden) return withBiometric()
     syncLine = 'Syncing…'
-    const opened = await api.unlock(password.value, !rememberRow.hidden && remember.checked)
+    const opened = await api.unlock(password.value)
     password.value = ''
     await unlockedWith(opened)
   }, error.show, 'primary')
@@ -261,7 +248,7 @@ function unlockScreen() {
       password.focus()
     }
   }
-  const fingerprint = button('Use fingerprint', 'Unlock with your fingerprint or face', () => void withBiometric(), 'link')
+  const fingerprint = iconButton('fingerprint', 'Unlock with your fingerprint or face', () => void withBiometric(), 'icon fingerprint')
   fingerprint.hidden = true
   enterPresses(unlock, password)
   error.hideOnInput(password)
@@ -285,23 +272,14 @@ function unlockScreen() {
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
-    password,
+    el('div', { className: 'together' }, password, fingerprint),
     keyLine,
-    rememberRow,
     unlock,
-    fingerprint,
     error.line,
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
   ])
   password.focus()
-  void api.biometricStatus().then(async (biometric) => {
-    rememberRow.hidden = !biometric.offered
-    if (!biometric.ready) return
-    fingerprint.hidden = false
-    await inFront()
-    // Still this screen: a sync or a lock may have moved on.
-    if (fingerprint.isConnected) void withBiometric()
-  }, () => {})
+  void api.biometricReady().then((ready) => (fingerprint.hidden = !ready), () => {})
 }
 
 // ------------------------------------------------------------ the list
@@ -578,7 +556,7 @@ function tab(which: Tab, s: Settings): Node[] {
         toggle('When the screen turns off', 'Locks at once', 'lockOnScreenOff', s.lockOnScreenOff),
         choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, minutes('Never')),
         el('h2', {}, 'Unlock'),
-        toggle('Unlock with fingerprint', 'Fingerprint or face; turning it off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
+        toggle('Unlock with fingerprint', 'The fingerprint button on the unlock screen; set up at the next unlock with the password. Off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
         choice('Master password', 'Asked for again after', 'passwordEveryDays', s.passwordEveryDays, [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`] as [number, string])),
         el('h2', {}, 'Clipboard'),
         choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),

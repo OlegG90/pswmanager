@@ -64,7 +64,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             forget_database,
             unlock,
             unlock_with_biometric,
-            biometric_status,
+            biometric_ready,
             forget_biometric,
             lock,
             listing,
@@ -219,12 +219,12 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
     .await
 }
 
-/// Unlocks with the master password and/or the key file. With `remember`
-/// (biometric unlock is on), the key is then sealed for biometric unlock
-/// (the user confirms with a fingerprint or face; declining changes nothing
-/// else); without it, a sealed key is deleted.
+/// Unlocks with the master password and/or the key file. With biometric
+/// unlock on and no sealed key, or the master password due, the key is then
+/// sealed for it (the user confirms with a fingerprint or face; declining
+/// changes nothing else).
 #[tauri::command]
-async fn unlock(app: AppHandle, password: String, remember: bool) -> Result<Listing, String> {
+async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
     off_main(move || {
         let store = app.state::<Store>();
@@ -238,14 +238,13 @@ async fn unlock(app: AppHandle, password: String, remember: bool) -> Result<List
         };
         let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice))?;
         let biometric = app.state::<Biometric<Wry>>();
-        if remember && Settings::of(&store).biometric_unlock() {
+        let wanted = Settings::of(&store).biometric_unlock() && biometric.status().is_ok_and(|s| s.available && (!s.stored || password_due(&store)));
+        if wanted {
             let secret = Secret { password: password.map(str::to_string), key_file: key_file.as_deref().map(|k| B64.encode(k)) };
             let sealed = Zeroizing::new(serde_json::to_string(&secret).map_err(|e| e.to_string())?);
             if biometric.store(&sealed).is_ok() {
                 password_asked(&store);
             }
-        } else {
-            let _ = biometric.forget();
         }
         Ok(listing)
     })
@@ -297,26 +296,15 @@ fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Res
     Ok(listing)
 }
 
-/// What the unlock screen offers about biometric unlock.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BiometricView {
-    /// The phone can (a strong biometric is enrolled) and the setting is on:
-    /// the unlock screen offers it for next time.
-    offered: bool,
-    /// A sealed key is kept.
-    stored: bool,
-    /// Unlock with it now: stored, offered, and the master password is not due.
-    ready: bool,
-}
-
+/// Whether the unlock screen shows the fingerprint button: the setting is
+/// on, the phone has a strong biometric, a key is sealed, and the master
+/// password is not due.
 #[tauri::command]
-async fn biometric_status(app: AppHandle) -> Result<BiometricView, String> {
+async fn biometric_ready(app: AppHandle) -> Result<bool, String> {
     off_main(move || {
         let store = app.state::<Store>();
         let status = app.state::<Biometric<Wry>>().status()?;
-        let offered = status.available && Settings::of(&store).biometric_unlock();
-        Ok(BiometricView { offered, stored: status.stored, ready: offered && status.stored && !password_due(&store) })
+        Ok(Settings::of(&store).biometric_unlock() && status.available && status.stored && !password_due(&store))
     })
     .await
 }

@@ -1,5 +1,5 @@
 /** The phone's toolbar icons: strokes in the text's colour. The gear, the
- *  sync arrows, the pencil and the star are Lucide's (lucide.dev, ISC licence),
+ *  sync arrows, the pencil, the star and the fingerprint are Lucide's (lucide.dev, ISC licence),
  *  as in the mockups. */
 
 const PATHS = {
@@ -9,6 +9,8 @@ const PATHS = {
   close: 'M6 6l12 12M18 6L6 18',
   back: 'M15 5l-7 7l7 7',
   plus: 'M12 5v14M5 12h14',
+  fingerprint:
+    'M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   more: 'M12 5.5v.01M12 12v.01M12 18.5v.01',
   pencil: 'M21.17 6.81a1 1 0 0 0-3.98-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4',

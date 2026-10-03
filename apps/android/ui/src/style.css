@@ -730,3 +730,18 @@ button.chip[aria-pressed="true"] {
 .setting[hidden] {
   display: none;
 }
+
+/* The fingerprint button beside the master password. */
+button.fingerprint {
+  margin-top: 16px;
+  padding: 8px;
+}
+
+button.fingerprint svg {
+  width: 32px;
+  height: 32px;
+}
+
+button.fingerprint[hidden] {
+  display: none;
+}
