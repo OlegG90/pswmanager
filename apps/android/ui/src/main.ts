@@ -475,6 +475,10 @@ function quickCopy(entry: Entry) {
   sheet((close) => [el('b', {}, titleOf(entry)), ...choices.map(([label, copy]) => button(label, label, () => void copied(copy()).then(close), 'item'))])
 }
 
+/** Signs in to `cloud` again (the store asked), then syncs. */
+const signInButton = (cloud: Cloud, close: () => void) =>
+  button('Sign in', 'Sign in again', () => (close(), void signIn(cloud).then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')
+
 /** The status line's sheet: what the last sync did, and Sync now. */
 function syncSheet() {
   sheet((close) => [
@@ -491,7 +495,7 @@ function syncSheet() {
           }, 'link'),
         ]
       : []),
-    ...(signInAgain ? [button('Sign in', 'Sign in again', () => (close(), void signIn(database!.cloud!).then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')] : []),
+    ...(signInAgain && database?.cloud ? [signInButton(database.cloud, close)] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()

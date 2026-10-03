@@ -43,8 +43,8 @@ groups, managing tags (rename, merge, remove), password health, restoring a hist
 
 ## The database on the phone
 
-One database at a time. It is either **synced** with a cloud store (Dropbox in stage A1) or a **local
-file** without a cloud.
+One database at a time. It is either **synced** with a cloud store (Dropbox from stage A1, OneDrive from
+A4) or a **local file** without a cloud.
 
 Android's file access gives documents, not paths, and a document cannot be renamed over. So in both cases
 the core works, as on Windows, on a **working copy** in the app's private storage (with its `.bak` and
@@ -88,10 +88,10 @@ on Windows (*Synchronisation with a remote store* in `spec.md`):
 The screens in the mockups `1a`–`1d`:
 
 1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive* (stage A4) or *Open a local file*.
-2. **Dropbox:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app folder
-   `Apps/PswManager Sync` are listed with size and date; pick one. PswManager sees only its app folder, so a
-   file to be shared with Keepass2Android and PswManager for Windows must be there (Keepass2Android, with
-   full Dropbox access, opens it there).
+2. **Dropbox or OneDrive:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app
+   folder (`Apps/PswManager Sync` in Dropbox, `Apps/PswManager` in OneDrive) are listed; pick one.
+   PswManager sees only its app folder, so a file to be shared with PswManager for Windows (and
+   Keepass2Android, which opens it there with full access) must be there.
 3. **Where to keep it on this phone:** the folder for the visible copy (see above) and the file name; the
    file is downloaded, and sync is on from the start.
 4. **Unlock** with the master password and/or the key file (picked with the file picker, permission kept).
@@ -231,11 +231,10 @@ background.
 
 - OAuth 2 with PKCE, in the default browser, with no client secret. A loopback redirect does
   not work on a phone, so each store needs an Android redirect registered for the app:
-  - **Dropbox** (stage A1): **open question**, decided as the first step of A1 — either a custom-scheme
-    redirect (`io.github.olegg90.pswmanager://dropbox`) registered in the Dropbox app console beside the
-    localhost one, or Dropbox's Android SDK used **for sign-in only** (its `db-<app key>` scheme and the
-    hand-off to the Dropbox app), handing the refresh token to the Rust code, which does everything else as
-    on Windows. If neither works, the code Dropbox shows is pasted into the app by hand.
+  - **Dropbox** (stage A1): a custom-scheme redirect, `io.github.olegg90.pswmanager://dropbox`, registered
+    in the Dropbox app console beside the localhost one (decided in A1: Dropbox accepts it, so no SDK).
+  - The browser comes back to the app's scheme with the store as the host; only the sign-in waiting for
+    that address takes the answer.
   - **OneDrive** (stage A4): a custom-scheme redirect, `io.github.olegg90.pswmanager://onedrive`, registered
     in the existing Entra app (*Mobile and desktop applications*) beside the localhost one, as for Dropbox;
     Microsoft accepts it for personal accounts (checked: a redirect not registered is refused).
@@ -285,7 +284,8 @@ background.
 - **Automated:** everything the core does is tested on the PC as now (`cargo test`), once it is in
   `crates/core`; the Windows app's tests keep passing after A0 unchanged. The Android-only parts (SAF save,
   lifecycle triggers, Keystore) are thin and tested by hand.
-- **By hand on the phone, before a release:** first run with Dropbox and with a local file; unlock;
+- **By hand on the phone, before a release:** first run with Dropbox, with OneDrive and with a local file;
+  Stop syncing, Disconnect and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
   screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
   back; biometric unlock and its invalidation (stage A3).

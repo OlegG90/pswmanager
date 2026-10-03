@@ -48,19 +48,28 @@ pub fn sign_in(app: AppHandle, cloud: Cloud) -> Result<(), String> {
     Ok(())
 }
 
-/// An address the app was opened with: the end of a sign-in when it is ours.
+/// An address the app was opened with: the end of a sign-in when it comes
+/// back to the waiting sign-in's own address.
 pub fn on_open_url(app: &AppHandle, url: &str) {
-    if !url.starts_with(SCHEME) {
+    if !url.starts_with(&format!("{SCHEME}://")) {
         return;
     }
-    let Some((cloud, pending)) = app.state::<SignIn>().0.lock().unwrap().take() else {
+    let taken = {
+        let mut waiting = app.state::<SignIn>().0.lock().unwrap();
+        match waiting.as_ref() {
+            // Another store's address, or a stray link: the sign-in goes on waiting.
+            Some((cloud, _)) if redirect(*cloud).is_ok_and(|r| !url.starts_with(&r)) => return,
+            _ => waiting.take(),
+        }
+    };
+    let Some((cloud, pending)) = taken else {
         // The app was closed while the browser was open: the sign-in starts again.
         let _ = app.emit("signed-in", SignedIn { error: Some("The sign-in was interrupted; sign in again".into()) });
         return;
     };
     let (app, url) = (app.clone(), url.to_string());
     tauri::async_runtime::spawn_blocking(move || {
-        // The core checks it is the answer to this sign-in (its redirect and state).
+        // The core checks it answers this sign-in (its state).
         let error = cloud.provider().finish(&pending, &url).err();
         let _ = app.emit("signed-in", SignedIn { error });
     });
