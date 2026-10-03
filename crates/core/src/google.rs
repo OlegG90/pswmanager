@@ -13,7 +13,7 @@ use url::Url;
 const CLIENT_ID: &str = "488783310128-a29rg9cu85a3ki2kdibuvvruapgc7ua3.apps.googleusercontent.com";
 /// Google wants one for installed apps though it is no secret there; it is
 /// given at build time (`PSWM_GOOGLE_CLIENT_SECRET`) rather than kept in the
-/// source. Without it the build offers no Google Drive.
+/// source. Without it the desktop build offers no Google Drive.
 #[cfg(not(target_os = "android"))]
 const CLIENT_SECRET: Option<&str> = match option_env!("PSWM_GOOGLE_CLIENT_SECRET") {
     // CI gives an empty value when the repository has no such secret.

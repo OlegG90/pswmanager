@@ -21,12 +21,12 @@ use tauri_plugin_opener::OpenerExt;
 const SCHEME: &str = "io.github.olegg90.pswmanager";
 
 /// Where the browser comes back to from `cloud`'s sign-in.
-fn redirect(cloud: Cloud) -> Result<String, String> {
-    Ok(match cloud {
+fn redirect(cloud: Cloud) -> String {
+    match cloud {
         Cloud::Dropbox => format!("{SCHEME}://dropbox"),
         Cloud::OneDrive => format!("{SCHEME}://onedrive"),
         Cloud::Google => format!("{SCHEME}:/oauth2redirect"),
-    })
+    }
 }
 
 /// The sign-in waiting for the browser to come back, if one is.
@@ -42,7 +42,7 @@ struct SignedIn {
 /// Sends the browser (the default one) to `cloud`'s sign-in; the answer comes to [on_open_url].
 #[tauri::command]
 pub fn sign_in(app: AppHandle, cloud: Cloud) -> Result<(), String> {
-    let pending = cloud.provider().start(&redirect(cloud)?)?;
+    let pending = cloud.provider().start(&redirect(cloud))?;
     app.opener().open_url(&pending.url, None::<&str>).map_err(|e| e.to_string())?;
     *app.state::<SignIn>().0.lock().unwrap() = Some((cloud, pending));
     Ok(())
@@ -59,7 +59,7 @@ pub fn on_open_url(app: &AppHandle, url: &str) {
         let mut waiting = sign_in.0.lock().unwrap();
         match waiting.as_ref() {
             // Another store's address, or a stray link: the sign-in goes on waiting.
-            Some((cloud, _)) if redirect(*cloud).is_ok_and(|r| !url.starts_with(&r)) => return,
+            Some((cloud, _)) if !url.starts_with(&redirect(*cloud)) => return,
             _ => waiting.take(),
         }
     };
