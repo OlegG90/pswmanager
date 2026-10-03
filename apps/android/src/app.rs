@@ -9,7 +9,7 @@ use crate::dropbox;
 use pswm_core::documents::DocumentStore;
 use pswm_core::opened;
 use pswm_core::otp;
-use pswm_core::remote::Location;
+use pswm_core::remote::{Cloud, Location};
 use pswm_core::session::Session;
 use pswm_core::settings::{self, Settings};
 use pswm_core::store::Store;
@@ -210,7 +210,8 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
             for suffix in ["", pswm_core::dbfile::BAK, pswm_core::dbfile::REMOTE_BAK] {
                 let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&current.file, suffix));
             }
-            if let Some(cloud) = current.remote.and_then(|r| r.location.cloud()) {
+            // Every store: one whose syncing was stopped is signed in still.
+            for cloud in [Cloud::Dropbox, Cloud::OneDrive] {
                 cloud.provider().sign_out();
             }
             crate::visible::forget(&store)?;
@@ -223,10 +224,6 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
     .await
 }
 
-/// Unlocks with the master password and/or the key file. With biometric
-/// unlock on and no sealed key, or the master password due, the key is then
-/// sealed for it (the user confirms with a fingerprint or face; declining
-/// changes nothing else).
 /// Stops syncing with the cloud store (it cannot be reached, the account has
 /// a problem, or another store is wanted). The visible copy becomes the
 /// database's file, synced like a local file; without one the database stays
@@ -238,8 +235,7 @@ async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> 
         while_not_syncing(&app, || {
             let store = app.state::<Store>();
             let cloud = store.read(|s| s.remote().and_then(|r| r.location.cloud())).ok_or("This database does not sync with a cloud store")?;
-            let remote = crate::visible::into_local_file(&store)?;
-            store.update(|s| drop(s.current_mut().map(|k| k.remote = remote))).map_err(|e| format!("Cannot save the change: {e}"))?;
+            crate::visible::stop_syncing(&store)?;
             *app.state::<LastSync>().0.lock().unwrap() = None;
             if sign_out {
                 cloud.provider().sign_out();
@@ -250,6 +246,10 @@ async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> 
     .await
 }
 
+/// Unlocks with the master password and/or the key file. With biometric
+/// unlock on and no sealed key, or the master password due, the key is then
+/// sealed for it (the user confirms with a fingerprint or face; declining
+/// changes nothing else).
 #[tauri::command]
 async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
@@ -584,7 +584,8 @@ pub fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, 
     if !app.state::<Syncing>().begin() {
         return Err("A sync is running; try again in a moment".into());
     }
-    let result = change();
+    // A change that panics must not leave the syncs stopped.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(change)).unwrap_or_else(|_| Err("Something went wrong".into()));
     if app.state::<Syncing>().finish() {
         start_sync(app.clone());
     }

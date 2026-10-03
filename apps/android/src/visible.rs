@@ -91,16 +91,28 @@ pub fn forget(store: &Store) -> Result<(), String> {
     set_at(store, STOPPED, None)
 }
 
-/// The visible copy as the database's file from now on (syncing with the
-/// store stopped): a document it syncs with like a local file, as it was last
+/// Syncing with the store stopped: the visible copy is the database's file
+/// from now on, a document it syncs with like a local file, as it was last
 /// written there, so changes the copy lacks go there at the next sync and a
-/// change something else made to it is merged. `None` without a copy.
-pub fn into_local_file(store: &Store) -> Result<Option<Remote>, String> {
-    let Some(copy) = get(store) else { return Ok(None) };
-    set_at(store, STOPPED, Some(&copy))?;
-    set(store, None)?;
-    let location = Location::Document { uri: copy.uri, name: copy.name };
-    Ok(Some(Remote { location, revision: copy.written.clone(), synced: copy.written }))
+/// change something else made to it is merged. Without a copy the database
+/// syncs with nothing. One change to the state file.
+pub fn stop_syncing(store: &Store) -> Result<(), String> {
+    let copy = get(store);
+    store
+        .update(|s| {
+            let remote = copy.as_ref().map(|copy| Remote {
+                location: Location::Document { uri: copy.uri.clone(), name: copy.name.clone() },
+                revision: copy.written.clone(),
+                synced: copy.written.clone(),
+            });
+            if let Some(known) = s.current_mut() {
+                known.remote = remote;
+            }
+            if let Some(copy) = s.settings.remove(KEY) {
+                s.settings.insert(STOPPED.into(), copy);
+            }
+        })
+        .map_err(|e| format!("Cannot save the change: {e}"))
 }
 
 fn working(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
@@ -109,14 +121,13 @@ fn working(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
 }
 
 /// Syncing with a store again: the copy that was the database's file meanwhile
-/// is its visible copy again, as it is now (the next sync writes the merged
-/// database there).
-pub fn restore(app: &AppHandle) -> Result<(), String> {
-    let store = app.state::<Store>();
-    let Some(mut copy) = get_at(&store, STOPPED) else { return Ok(()) };
-    copy.written = app.state::<Documents<Wry>>().read(&copy.uri)?.map(|b| hash_hex(&b));
-    set(&store, Some(&copy))?;
-    set_at(&store, STOPPED, None)
+/// is its visible copy again, as the last sync with it left it (`written`, its
+/// revision then), so a change something else made since is not written over.
+pub fn restore(store: &Store, written: Option<String>) -> Result<(), String> {
+    let Some(mut copy) = get_at(store, STOPPED) else { return Ok(()) };
+    copy.written = written;
+    set(store, Some(&copy))?;
+    set_at(store, STOPPED, None)
 }
 
 /// Writes the working copy into the visible copy when they differ (after a
