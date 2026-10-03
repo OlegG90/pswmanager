@@ -3,6 +3,10 @@
 //! as registered with the Dropbox app.
 
 use crate::app::{adopt, off_main, Status};
+use pswm_core::session::Session;
+use pswm_core::store::Store;
+use pswm_core::sync::{self, LinkChoice};
+use pswm_core::vault::Vault;
 use crate::documents::Picked;
 use pswm_core::dropbox::DROPBOX;
 use pswm_core::oauth::Pending;
@@ -55,6 +59,43 @@ pub fn on_open_url(app: &AppHandle, url: &str) {
 #[tauri::command]
 pub async fn dropbox_files() -> Result<Vec<CloudFile>, String> {
     off_main(|| Cloud::Dropbox.list().map_err(|e| e.message())).await
+}
+
+/// Syncs the database on this phone (synced with no cloud store: a local file,
+/// or one that stopped syncing) with `file` in Dropbox, merging the two, or
+/// without `file` uploads it there as a new file. The visible copy that
+/// stopping made the database's file is its copy again. The sync that carries
+/// it out starts at once. Needs the database unlocked (a merge needs its key).
+#[tauri::command]
+pub async fn sync_with_dropbox(app: AppHandle, file: Option<CloudFile>) -> Result<Status, String> {
+    off_main(move || {
+        let store = app.state::<Store>();
+        if store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())) {
+            return Err("This database syncs with a cloud store already".into());
+        }
+        let working = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
+        let key = app.state::<Session>().read(Vault::snapshot).ok().flatten().ok_or("Unlock the database first")?;
+        crate::app::while_not_syncing(&app, || {
+            match file {
+                Some(file) => {
+                    sync::link(&store, &working, Cloud::Dropbox.location(file), Some(LinkChoice::Merge), Some(&key))?;
+                }
+                None => {
+                    let bytes = std::fs::read(&working).map_err(|e| format!("Cannot read the database: {e}"))?;
+                    let name = pswm_core::remote::file_name(&working);
+                    let (location, revision) = Cloud::Dropbox.create(&name, &bytes).map_err(|e| match e {
+                        pswm_core::remote::RemoteError::Changed => format!("{name} is in Dropbox already: choose it instead"),
+                        e => e.message(),
+                    })?;
+                    sync::attach(&store, &working, location, revision, &bytes)?;
+                }
+            }
+            crate::visible::restore(&app)
+        })?;
+        crate::app::start_sync(app.clone());
+        Ok(crate::app::status_of(&store, &app.state::<Session>()))
+    })
+    .await
 }
 
 /// A database chosen, and why its visible copy could not be made, if it could not.

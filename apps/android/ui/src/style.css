@@ -741,3 +741,10 @@ button.fingerprint svg {
 button.fingerprint[hidden] {
   display: none;
 }
+
+/* A button of its own, the width of the screen (the store's Stop syncing, Disconnect). */
+button.wide {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+}
