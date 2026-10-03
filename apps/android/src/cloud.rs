@@ -1,7 +1,8 @@
-//! Cloud stores on the phone (Dropbox, OneDrive). Signing in is the core's
-//! ([pswm_core::oauth]); the browser comes back to the app's own scheme, a
-//! host per store (`io.github.olegg90.pswmanager://dropbox`, `…://onedrive`),
-//! instead of a loopback address, as registered with each store.
+//! Cloud stores on the phone (Dropbox, OneDrive, Google Drive). Signing in is
+//! the core's ([pswm_core::oauth]); the browser comes back to the app's own
+//! scheme instead of a loopback address, as registered with each store: a host
+//! per store (`io.github.olegg90.pswmanager://dropbox`, `…://onedrive`), and
+//! Google's form for an Android client (`io.github.olegg90.pswmanager:/oauth2redirect`).
 
 use crate::app::{adopt, off_main, Status};
 use crate::documents::Picked;
@@ -21,12 +22,11 @@ const SCHEME: &str = "io.github.olegg90.pswmanager";
 
 /// Where the browser comes back to from `cloud`'s sign-in.
 fn redirect(cloud: Cloud) -> Result<String, String> {
-    let host = match cloud {
-        Cloud::Dropbox => "dropbox",
-        Cloud::OneDrive => "onedrive",
-        Cloud::Google => return Err("Google Drive is not on this phone yet".into()),
-    };
-    Ok(format!("{SCHEME}://{host}"))
+    Ok(match cloud {
+        Cloud::Dropbox => format!("{SCHEME}://dropbox"),
+        Cloud::OneDrive => format!("{SCHEME}://onedrive"),
+        Cloud::Google => format!("{SCHEME}:/oauth2redirect"),
+    })
 }
 
 /// The sign-in waiting for the browser to come back, if one is.
@@ -51,7 +51,7 @@ pub fn sign_in(app: AppHandle, cloud: Cloud) -> Result<(), String> {
 /// An address the app was opened with: the end of a sign-in when it comes
 /// back to the waiting sign-in's own address.
 pub fn on_open_url(app: &AppHandle, url: &str) {
-    if !url.starts_with(&format!("{SCHEME}://")) {
+    if !url.starts_with(&format!("{SCHEME}:/")) {
         return;
     }
     let sign_in = app.state::<SignIn>();

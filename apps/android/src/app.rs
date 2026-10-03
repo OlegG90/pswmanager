@@ -211,7 +211,7 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
                 let _ = std::fs::remove_file(pswm_core::dbfile::sibling(&current.file, suffix));
             }
             // Every store: one whose syncing was stopped is signed in still.
-            for cloud in [Cloud::Dropbox, Cloud::OneDrive] {
+            for cloud in [Cloud::Dropbox, Cloud::OneDrive, Cloud::Google] {
                 cloud.provider().sign_out();
             }
             crate::visible::forget(&store)?;

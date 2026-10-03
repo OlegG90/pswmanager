@@ -8,15 +8,25 @@ use serde_json::{json, Value};
 use std::sync::Mutex;
 use url::Url;
 
+/// The desktop client (Windows): it signs in through a loopback address.
+#[cfg(not(target_os = "android"))]
 const CLIENT_ID: &str = "488783310128-a29rg9cu85a3ki2kdibuvvruapgc7ua3.apps.googleusercontent.com";
 /// Google wants one for installed apps though it is no secret there; it is
 /// given at build time (`PSWM_GOOGLE_CLIENT_SECRET`) rather than kept in the
 /// source. Without it the build offers no Google Drive.
+#[cfg(not(target_os = "android"))]
 const CLIENT_SECRET: Option<&str> = match option_env!("PSWM_GOOGLE_CLIENT_SECRET") {
     // CI gives an empty value when the repository has no such secret.
     Some(secret) if !secret.is_empty() => Some(secret),
     _ => None,
 };
+/// The Android client (the package and the release key's SHA-1, with its
+/// custom URI scheme on): it comes back to `io.github.olegg90.pswmanager:/oauth2redirect`
+/// and has no secret.
+#[cfg(target_os = "android")]
+const CLIENT_ID: &str = "488783310128-cbvgi85j606j5903d8sheqvhqtahefn1.apps.googleusercontent.com";
+#[cfg(target_os = "android")]
+const CLIENT_SECRET: Option<&str> = None;
 const FILE_LIMIT: u64 = 100 * 1024 * 1024;
 const FILES: &str = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD: &str = "https://www.googleapis.com/upload/drive/v3/files";
@@ -31,9 +41,10 @@ pub const GOOGLE: Provider = Provider {
     token_url: "https://oauth2.googleapis.com/token",
     path: "/google",
     redirect_host: "127.0.0.1",
-    client_id: match CLIENT_SECRET {
-        Some(_) => CLIENT_ID,
-        None => "",
+    // Without its secret the desktop client cannot sign in; the Android one needs none.
+    client_id: match (CLIENT_SECRET, cfg!(target_os = "android")) {
+        (Some(_), _) | (None, true) => CLIENT_ID,
+        (None, false) => "",
     },
     client_secret: CLIENT_SECRET,
     // `prompt=consent`: Google gives a refresh token only when asked again.

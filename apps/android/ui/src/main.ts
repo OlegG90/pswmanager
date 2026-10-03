@@ -149,10 +149,11 @@ let onSignedIn = (_signedIn: SignedIn) => {}
 void listen<SignedIn>('signed-in', (e) => onSignedIn(e.payload))
 
 /** The stores the phone syncs with, and where the app's files are in each. */
-const CLOUDS: Cloud[] = ['dropbox', 'onedrive']
+const CLOUDS: Cloud[] = ['dropbox', 'onedrive', 'google']
 const STORES: Record<Cloud, { name: string; folder: string }> = {
   dropbox: { name: 'Dropbox', folder: 'Apps / PswManager Sync' },
   onedrive: { name: 'OneDrive', folder: 'Apps / PswManager' },
+  google: { name: 'Google Drive', folder: 'PswManager, at the top of the Drive' },
 }
 
 /** Signs in to `cloud` in the browser, then waits for it to come back. A
