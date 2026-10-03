@@ -166,7 +166,7 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
-| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4, with more stores: **Stop syncing** (the database stays as a local file, e.g. when the store cannot be reached or the account has a problem) and the store's account with **Disconnect**. Until then another database is *Use another database…* on the unlock screen (it signs the store's account out) |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
 Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the

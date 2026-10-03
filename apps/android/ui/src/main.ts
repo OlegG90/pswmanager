@@ -557,7 +557,36 @@ async function save(name: string, value: unknown) {
 /** The minutes offered for a setting in minutes (1–60), with 0 called `never`. */
 const minutes = (never: string): [number, string][] => [1, 2, 5, 10, 15, 30, 60, 0].map((m) => [m, m === 0 ? never : `${m} min`])
 
+/** Where the settings screen goes back to. */
+let settingsBack = () => {}
+
+/** Stop syncing and Disconnect, for a database synced with a cloud store. */
+function stopSyncing(current: NonNullable<Status['database']>): Node[] {
+  const store = current.syncedWith ?? 'the store'
+  const after = current.copyFolder
+    ? `From then on it syncs with its copy in ${current.copyFolder}, like a local file.`
+    : 'There is no copy on this phone: the database stays inside the app only.'
+  const stop = (signOut: boolean) => async () => {
+    try {
+      database = (await api.stopSyncing(signOut)).database
+      syncLine = ''
+      snack(signOut ? 'Disconnected' : 'Syncing stopped')
+      void settingsScreen(settingsBack)
+    } catch (e) {
+      snack(String(e))
+    }
+  }
+  return [
+    el('h2', {}, 'Store'),
+    button('Stop syncing', 'Stop syncing with the store', () =>
+      confirmSheet(`Stop syncing with ${store}? The file there stays as it is. ${after}`, 'Stop syncing', () => void stop(false)()), 'link'),
+    button('Disconnect…', 'Stop syncing and sign out of the store', () =>
+      confirmSheet(`Stop syncing and sign out of ${store}? The file there stays as it is. ${after}`, 'Disconnect', () => void stop(true)()), 'link'),
+  ]
+}
+
 async function settingsScreen(back: () => void) {
+  settingsBack = back
   applySettings(await api.settings())
   const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['sync', 'Sync'], ['about', 'About']]
   const body = el('div', { className: 'settings' })
@@ -595,7 +624,8 @@ function tab(which: Tab, s: Settings): Node[] {
         ...(database?.cloud ? [el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet')] : []),
         choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, minutes('Off')),
         button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary'),
-        el('p', { className: 'muted' }, 'To use another database or stop syncing this one, lock it and choose “Use another database…”: its file stays where it is.'),
+        ...(database?.cloud ? stopSyncing(database) : []),
+        el('p', { className: 'muted' }, 'To use another database, lock this one and choose “Use another database…”: its file stays where it is.'),
       ]
     case 'about':
       return [

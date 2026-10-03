@@ -6,7 +6,8 @@
 use crate::documents::Documents;
 use pswm_core::dbfile::{hash_hex, BAK};
 use pswm_core::documents::DocumentStore;
-use pswm_core::store::Store;
+use pswm_core::remote::Location;
+use pswm_core::store::{Remote, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, Wry};
@@ -76,6 +77,17 @@ pub fn folder_name(store: &Store) -> Option<String> {
 /// Forgets the visible copy's place; the file stays.
 pub fn forget(store: &Store) -> Result<(), String> {
     set(store, None)
+}
+
+/// The visible copy as the database's file from now on (syncing with the
+/// store stopped): a document it syncs with like a local file, as it was last
+/// written there, so changes the copy lacks go there at the next sync and a
+/// change something else made to it is merged. `None` without a copy.
+pub fn into_local_file(store: &Store) -> Result<Option<Remote>, String> {
+    let Some(copy) = get(store) else { return Ok(None) };
+    forget(store)?;
+    let location = Location::Document { uri: copy.uri, name: copy.name };
+    Ok(Some(Remote { location, revision: copy.written.clone(), synced: copy.written }))
 }
 
 fn working(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {

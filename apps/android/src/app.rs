@@ -62,6 +62,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             status,
             open_local_file,
             forget_database,
+            stop_syncing,
             unlock,
             unlock_with_biometric,
             biometric_ready,
@@ -225,6 +226,37 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
 /// unlock on and no sealed key, or the master password due, the key is then
 /// sealed for it (the user confirms with a fingerprint or face; declining
 /// changes nothing else).
+/// Stops syncing with the cloud store (it cannot be reached, the account has
+/// a problem, or another store is wanted). The visible copy becomes the
+/// database's file, synced like a local file; without one the database stays
+/// in the app only. With `sign_out` the store's account is signed out too
+/// (*Disconnect*). The remote file is left alone.
+#[tauri::command]
+async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> {
+    off_main(move || {
+        if !app.state::<Syncing>().begin() {
+            return Err("A sync is running; try again in a moment".into());
+        }
+        let result = (|| {
+            let store = app.state::<Store>();
+            let cloud = store.read(|s| s.remote().and_then(|r| r.location.cloud())).ok_or("This database does not sync with a cloud store")?;
+            let remote = crate::visible::into_local_file(&store)?;
+            store.update(|s| drop(s.current_mut().map(|k| k.remote = remote))).map_err(|e| format!("Cannot save the change: {e}"))?;
+            *app.state::<LastSync>().0.lock().unwrap() = None;
+            if sign_out {
+                cloud.provider().sign_out();
+            }
+            Ok(status_of(&store, &app.state::<Session>()))
+        })();
+        // A sync asked for meanwhile runs now, with the new file.
+        if app.state::<Syncing>().finish() {
+            start_sync(app.clone());
+        }
+        result
+    })
+    .await
+}
+
 #[tauri::command]
 async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
@@ -536,6 +568,13 @@ impl Syncing {
 
     fn is_running(&self) -> bool {
         self.0.lock().unwrap().running
+    }
+
+    /// Ends a run that will not go again; true when one was asked for meanwhile.
+    fn finish(&self) -> bool {
+        let mut flags = self.0.lock().unwrap();
+        flags.running = false;
+        std::mem::take(&mut flags.again)
     }
 
     /// True when it was asked again meanwhile: run once more.
