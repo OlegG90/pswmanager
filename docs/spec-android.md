@@ -95,7 +95,7 @@ The screens in the mockups `1a`–`1d`:
 3. **Where to keep it on this phone:** the folder for the visible copy (see above) and the file name; the
    file is downloaded, and sync is on from the start.
 4. **Unlock** with the master password and/or the key file (picked with the file picker, permission kept).
-5. After the first unlock the app offers **biometric unlock** (from stage A3).
+5. With the *Unlock with fingerprint* setting on (the default), that unlock sets up **biometric unlock** (from stage A3).
 
 A local file skips steps 2–3.
 
@@ -107,6 +107,13 @@ A local file skips steps 2–3.
   (the master password and the key file's content) is encrypted with a key in the **Android Keystore**
   that needs a strong biometric (`BIOMETRIC_STRONG`) to use and is invalidated when a new fingerprint or
   face is enrolled. The next unlocks ask for the fingerprint or face.
+  - With the *Unlock with fingerprint* setting on (the default) and a strong biometric enrolled, an unlock
+    with the master password seals the key when none is sealed or the password was due; it asks for the
+    fingerprint once.
+  - When a key is sealed and the password is not due, the unlock screen shows a **fingerprint button**
+    beside the password field; it, or *Unlock* with no password typed, opens the prompt. Coming back to the
+    app from another one, to the unlock screen, opens the prompt by itself; otherwise (the app started, Lock
+    pressed) it waits for the button. *Use the master password* in it goes back to the field.
 - The **master password is asked again every 14 days** (a setting: 1–90 days), after the Keystore key is
   invalidated, and when the database's key changed on another device (the stored key no longer opens it).
   Then the stored key is replaced.

@@ -83,6 +83,10 @@ export interface Settings {
   syncEveryMinutes: number
   downloadIcons: boolean
   theme: 'system' | 'light' | 'dark'
+  /** Unlock with a fingerprint or face (offered on the unlock screen). */
+  biometricUnlock: boolean
+  /** Days between asking for the master password when biometric unlock is on. */
+  passwordEveryDays: number
   version: string
 }
 
@@ -90,7 +94,13 @@ export const api = {
   status: () => invoke<Status>('status'),
   openLocalFile: () => invoke<Status | null>('open_local_file'),
   forgetDatabase: () => invoke<Status>('forget_database'),
+  /** With biometric unlock on and no sealed key (or the password due), the key is then sealed for it. */
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
+  /** Rejects with `cancelled` when the user chose the master password. */
+  unlockWithBiometric: () => invoke<Listing>('unlock_with_biometric'),
+  /** The unlock screen shows the fingerprint button. */
+  biometricReady: () => invoke<boolean>('biometric_ready'),
+  forgetBiometric: () => invoke<void>('forget_biometric'),
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),

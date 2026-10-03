@@ -34,6 +34,10 @@ let unlocked = false
 let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
 let onSynced = (_synced: Synced) => {}
+/** The screen shown's answer to coming back from another app (the unlock screen's prompt). */
+let onReturn = () => {}
+/** When the app last came back from another app (ms). */
+let returnedAt = 0
 
 /** What Back closes or returns to, innermost last (see SystemPlugin.kt). */
 let backs: (() => void)[] = []
@@ -50,6 +54,7 @@ function show(children: Node[], back?: () => void, className = '') {
   leave()
   leave = () => {}
   onSynced = () => {}
+  onReturn = () => {}
   document.querySelectorAll('.shade, .sheet').forEach((n) => n.remove())
   backs = back ? [back] : []
   screen.className = className
@@ -219,20 +224,43 @@ function folderScreen(files: CloudFile[], file: CloudFile) {
 
 // ------------------------------------------------------------ unlock
 
+/** The list after an unlock; the sync may have finished before it was there to hear it. */
+async function unlockedWith(opened: Listing) {
+  unlocked = true
+  listScreen(opened)
+  const last = await api.lastSync()
+  if (last) applySync(last)
+}
+
+/** How soon after coming back the unlock screen still counts as come back to (ms). */
+const RETURN_PROMPT = 3000
+
 function unlockScreen() {
   const current = database!
   const error = errorLine()
   const password = el('input', { type: 'password', autocomplete: 'off', placeholder: 'Master password', className: 'field' })
+  // Biometric unlock, when its key is sealed: the fingerprint button, or Unlock
+  // with no password typed, once (again, it unlocks with the key file alone).
+  let prompted = false
   const unlock = busyButton('Unlock', 'Unlock the database', async () => {
+    if (!password.value && !fingerprint.hidden && !prompted) return withBiometric()
     syncLine = 'Syncing…'
     const opened = await api.unlock(password.value)
-    unlocked = true
     password.value = ''
-    listScreen(opened)
-    // The sync may have finished before the list was there to hear it.
-    const last = await api.lastSync()
-    if (last) applySync(last)
+    await unlockedWith(opened)
   }, error.show, 'primary')
+  const withBiometric = async () => {
+    prompted = true
+    try {
+      syncLine = 'Syncing…'
+      await unlockedWith(await api.unlockWithBiometric())
+    } catch (e) {
+      if (String(e) !== 'cancelled') error.show(String(e))
+      password.focus()
+    }
+  }
+  const fingerprint = iconButton('fingerprint', 'Unlock with your fingerprint or face', () => void withBiometric(), 'icon fingerprint')
+  fingerprint.hidden = true
   enterPresses(unlock, password)
   error.hideOnInput(password)
   const forget = () =>
@@ -255,13 +283,26 @@ function unlockScreen() {
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
-    password,
+    el('div', { className: 'together' }, password, fingerprint),
     keyLine,
     unlock,
     error.line,
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
   ])
   password.focus()
+  // Coming back from another app to this screen opens the prompt by itself
+  // (the lock may have happened while away, just before the screen was shown).
+  const prompt = (ready: boolean) => {
+    if (ready && fingerprint.isConnected && Date.now() - returnedAt < RETURN_PROMPT) {
+      // Shown before the app is fully back, Android would cancel it.
+      window.setTimeout(() => fingerprint.isConnected && void withBiometric(), 400)
+    }
+  }
+  void api.biometricReady().then((ready) => {
+    fingerprint.hidden = !ready
+    prompt(ready)
+    onReturn = () => prompt(!fingerprint.hidden)
+  }, () => {})
 }
 
 // ------------------------------------------------------------ the list
@@ -506,6 +547,8 @@ function toggle(label: string, hint: string, name: string, on: boolean) {
 async function save(name: string, value: unknown) {
   try {
     applySettings(await api.setSetting(name, value))
+    // Turned off: the sealed key goes.
+    if (name === 'biometricUnlock' && value === false) await api.forgetBiometric()
   } catch (e) {
     snack(String(e))
   }
@@ -535,6 +578,9 @@ function tab(which: Tab, s: Settings): Node[] {
         choice('In the background', 'Locks this long after the app goes away', 'lockInBackground', s.lockInBackground, [[0, 'At once'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [null, 'Never']]),
         toggle('When the screen turns off', 'Locks at once', 'lockOnScreenOff', s.lockOnScreenOff),
         choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, minutes('Never')),
+        el('h2', {}, 'Unlock'),
+        toggle('Unlock with fingerprint', 'The fingerprint button on the unlock screen; set up at the next unlock with the password. Off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
+        choice('Master password', 'Asked for again after', 'passwordEveryDays', s.passwordEveryDays, [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`] as [number, string])),
         el('h2', {}, 'Clipboard'),
         choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),
       ]
@@ -880,6 +926,8 @@ document.addEventListener('visibilitychange', () => {
     void api.syncIfPending()
     void api.lockLater()
   } else if (!document.hidden) {
+    returnedAt = Date.now()
+    onReturn()
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.

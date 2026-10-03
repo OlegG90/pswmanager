@@ -20,6 +20,9 @@ const THEMES: [&str; 3] = ["system", "light", "dark"];
 /// (the default), 1 min, 5 min; `null` for never.
 const LOCK_IN_BACKGROUND: [u64; 4] = [0, 30, 60, 300];
 const LOCK_IN_BACKGROUND_DEFAULT: u64 = 30;
+/// On the phone, days between asking for the master password when biometric
+/// unlock is on.
+const PASSWORD_EVERY_DAYS: (u64, u64, u64) = (14, 1, 90);
 
 pub struct Settings<'a>(&'a Store);
 
@@ -63,6 +66,17 @@ impl<'a> Settings<'a> {
         self.get("lockOnScreenOff", Value::as_bool).unwrap_or(true)
     }
 
+    /// On the phone: unlock with a fingerprint or face (offered on the unlock screen).
+    pub fn biometric_unlock(&self) -> bool {
+        self.get("biometricUnlock", Value::as_bool).unwrap_or(true)
+    }
+
+    /// On the phone: how often the master password is asked for anyway.
+    pub fn password_every(&self) -> Duration {
+        let (default, min, max) = PASSWORD_EVERY_DAYS;
+        Duration::from_secs(self.get("passwordEveryDays", Value::as_u64).unwrap_or(default).clamp(min, max) * 24 * 60 * 60)
+    }
+
     pub fn clear_clipboard_after(&self) -> Duration {
         clear_after(self.get("clearClipboard", Value::as_u64))
     }
@@ -95,6 +109,8 @@ impl<'a> Settings<'a> {
             hotkey: self.hotkey(),
             lock_in_background: self.lock_in_background().map(|d| d.as_secs()),
             lock_on_screen_off: self.lock_on_screen_off(),
+            biometric_unlock: self.biometric_unlock(),
+            password_every_days: self.password_every().as_secs() / (24 * 60 * 60),
         }
     }
 
@@ -128,6 +144,8 @@ pub struct View {
     /// Seconds; `None` for never.
     pub lock_in_background: Option<u64>,
     pub lock_on_screen_off: bool,
+    pub biometric_unlock: bool,
+    pub password_every_days: u64,
 }
 
 fn check(name: &str, value: &Value) -> Result<(), String> {
@@ -138,7 +156,8 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
-        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" => value.is_boolean(),
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" => value.is_boolean(),
+        "passwordEveryDays" => within(PASSWORD_EVERY_DAYS, false),
         "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
         // Checked and registered by the caller before it is kept.
@@ -179,6 +198,19 @@ mod tests {
         assert_eq!(lock_after(Some(0)), None);
         assert_eq!(lock_after(Some(15)), Some(Duration::from_secs(15 * 60)));
         assert_eq!(lock_after(Some(1000)), Some(Duration::from_secs(60 * 60)));
+    }
+
+    #[test]
+    fn the_master_password_is_asked_for_every_14_days_or_as_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let days = |s: &Store| Settings::of(s).password_every().as_secs() / 86400;
+        assert_eq!(days(&store), 14);
+        Settings::of(&store).set("passwordEveryDays", 30.into()).unwrap();
+        assert_eq!(days(&store), 30);
+        assert!(Settings::of(&store).set("passwordEveryDays", 0.into()).is_err());
+        assert!(Settings::of(&store).set("passwordEveryDays", 91.into()).is_err());
+        assert!(Settings::of(&store).biometric_unlock());
     }
 
     #[test]

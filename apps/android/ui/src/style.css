@@ -726,3 +726,18 @@ button.chip[aria-pressed="true"] {
 .sheet button.item.danger {
   color: var(--color-error);
 }
+
+/* The fingerprint button beside the master password. */
+button.fingerprint {
+  margin-top: 16px;
+  padding: 8px;
+}
+
+button.fingerprint svg {
+  width: 32px;
+  height: 32px;
+}
+
+button.fingerprint[hidden] {
+  display: none;
+}
