@@ -8,7 +8,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type CloudFile, type Entry, type EntryData, type EntryDetail, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -136,7 +136,8 @@ function chooseScreen() {
     el('p', { className: 'muted' }, 'First run'),
     el('h1', {}, 'Choose your database'),
     el('p', {}, 'PswManager opens one KeePass (KDBX 4) file. The same file opens in PswManager on Windows and in KeePassXC.'),
-    el('button', { type: 'button', className: 'card', onclick: () => void dropboxScreen() }, 'Sync with Dropbox', el('small', {}, 'Sign in once. The file lives in Apps/PswManager Sync; a working copy stays on this phone.')),
+    ...CLOUDS.map((cloud) => el('button', { type: 'button', className: 'card', onclick: () => void cloudScreen(cloud) }, `Sync with ${STORES[cloud].name}`,
+      el('small', {}, `Sign in once. The file lives in ${STORES[cloud].folder}; a working copy stays on this phone.`))),
     local,
     el('p', { className: 'muted' }, 'A local file is picked with Android’s file picker; it can be anywhere the picker reaches, also a folder another app syncs.'),
     error.line,
@@ -147,9 +148,16 @@ function chooseScreen() {
 let onSignedIn = (_signedIn: SignedIn) => {}
 void listen<SignedIn>('signed-in', (e) => onSignedIn(e.payload))
 
-/** Signs in to Dropbox in the browser, then waits for it to come back. A
+/** The stores the phone syncs with, and where the app's files are in each. */
+const CLOUDS: Cloud[] = ['dropbox', 'onedrive']
+const STORES: Record<Cloud, { name: string; folder: string }> = {
+  dropbox: { name: 'Dropbox', folder: 'Apps / PswManager Sync' },
+  onedrive: { name: 'OneDrive', folder: 'Apps / PswManager' },
+}
+
+/** Signs in to `cloud` in the browser, then waits for it to come back. A
  *  sign-in started again gives up on the one before. */
-function signIn(): Promise<void> {
+function signIn(cloud: Cloud): Promise<void> {
   onSignedIn({ error: 'A new sign-in was started' })
   return new Promise((done, fail) => {
     onSignedIn = (signedIn) => {
@@ -157,46 +165,58 @@ function signIn(): Promise<void> {
       if (signedIn.error) fail(signedIn.error)
       else done()
     }
-    api.signInToDropbox().catch(fail)
+    api.signIn(cloud).catch(fail)
   })
 }
 
-/** First run with Dropbox: sign in, then pick the file in the app's folder. */
-async function dropboxScreen() {
-  const error = errorLine()
-  const back = iconButton('back', 'Back', chooseScreen)
-  const waiting = el('p', {}, 'Waiting for Dropbox…')
-  show([el('header', { className: 'bar' }, back, el('h1', {}, 'Dropbox')), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line], chooseScreen)
+/** The databases in `cloud`'s app folder, signing in first when the store asks. */
+async function filesIn(cloud: Cloud): Promise<CloudFile[]> {
   try {
-    await signIn()
-    filesScreen(await api.dropboxFiles())
-  } catch (e) {
-    waiting.remove()
-    error.show(String(e))
-    screen.append(busyButton('Sign in to Dropbox', 'Sign in again', dropboxScreen, error.show, 'primary'))
+    return await api.cloudFiles(cloud)
+  } catch {
+    await signIn(cloud)
+    return api.cloudFiles(cloud)
   }
 }
 
-function filesScreen(files: CloudFile[]) {
+/** First run with a cloud store: sign in, then pick the file in the app's folder. */
+async function cloudScreen(cloud: Cloud) {
+  const { name } = STORES[cloud]
   const error = errorLine()
-  const pick = (file: CloudFile) => button(file.name, `Use ${file.name}`, () => folderScreen(files, file), 'card')
+  const back = iconButton('back', 'Back', chooseScreen)
+  const waiting = el('p', {}, `Waiting for ${name}…`)
+  show([el('header', { className: 'bar' }, back, el('h1', {}, name)), el('p', { className: 'muted' }, 'Sign-in opens in the browser. Nothing is uploaded.'), waiting, error.line], chooseScreen)
+  try {
+    await signIn(cloud)
+    filesScreen(cloud, await api.cloudFiles(cloud))
+  } catch (e) {
+    waiting.remove()
+    error.show(String(e))
+    screen.append(busyButton(`Sign in to ${name}`, 'Sign in again', () => cloudScreen(cloud), error.show, 'primary'))
+  }
+}
+
+function filesScreen(cloud: Cloud, files: CloudFile[]) {
+  const { name, folder } = STORES[cloud]
+  const error = errorLine()
+  const pick = (file: CloudFile) => button(file.name, `Use ${file.name}`, () => folderScreen(cloud, files, file), 'card')
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'Pick the file')),
-    el('p', { className: 'muted' }, 'Apps / PswManager Sync'),
+    el('p', { className: 'muted' }, folder),
     ...(files.length ? files.map(pick) : [el('p', {}, 'There is no .kdbx in the app’s folder yet. Put one there from PswManager on Windows (Settings → Sync → Upload) and come back.')]),
-    el('p', { className: 'muted' }, 'PswManager sees only its app folder in Dropbox. Keepass2Android and PswManager for Windows open the same file there.'),
+    el('p', { className: 'muted' }, `PswManager sees only its app folder in ${name}. PswManager for Windows opens the same file there.`),
     error.line,
   ], chooseScreen)
 }
 
-/** First run with Dropbox, step 3: where the visible copy goes on this phone. */
-function folderScreen(files: CloudFile[], file: CloudFile) {
+/** First run with a cloud store, step 3: where the visible copy goes on this phone. */
+function folderScreen(cloud: Cloud, files: CloudFile[], file: CloudFile) {
   const error = errorLine()
   let folder: Picked | null = null
   const chosen = el('p', {}, 'No folder chosen yet.')
   const taken = el('p', { className: 'muted' })
   const go = busyButton('Download and continue', 'Download the database', async () => {
-    const opened = await api.openDropboxFile(file, folder!)
+    const opened = await api.openCloudFile(cloud, file, folder!)
     database = opened.status.database
     unlockScreen()
     if (opened.copyProblem) snack(`${opened.copyProblem}. Choose the folder again in the sync sheet.`)
@@ -210,10 +230,10 @@ function folderScreen(files: CloudFile[], file: CloudFile) {
     taken.textContent = (await api.copyNameTaken(picked.uri, file.name)) ? `A ${file.name} is already in this folder. It will be kept as ${file.name}.bak.` : ''
     go.disabled = false
   }, error.show)
-  const back = () => filesScreen(files)
+  const back = () => filesScreen(cloud, files)
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Where to keep it')),
-    el('p', {}, `${file.name} syncs with Dropbox. A copy of it is kept in a folder on this phone, where you can see it and back it up; it is updated after every change.`),
+    el('p', {}, `${file.name} syncs with ${STORES[cloud].name}. A copy of it is kept in a folder on this phone, where you can see it and back it up; it is updated after every change.`),
     choose,
     chosen,
     taken,
@@ -471,7 +491,7 @@ function syncSheet() {
           }, 'link'),
         ]
       : []),
-    ...(signInAgain ? [button('Sign in', 'Sign in again', () => (close(), void signIn().then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')] : []),
+    ...(signInAgain ? [button('Sign in', 'Sign in again', () => (close(), void signIn(database!.cloud!).then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()
@@ -560,41 +580,36 @@ const minutes = (never: string): [number, string][] => [1, 2, 5, 10, 15, 30, 60,
 /** Where the settings screen goes back to. */
 let settingsBack = () => {}
 
-/** For a database synced with no cloud store: sync it with a file in Dropbox
+/** For a database synced with no cloud store: sync it with a file in a store
  *  (the two are merged) or upload it there. */
 function syncWithStore(): Node[] {
-  const link = async (file: CloudFile | null) => {
+  const link = async (cloud: Cloud, file: CloudFile | null) => {
     try {
-      database = (await api.syncWithDropbox(file)).database
+      database = (await api.syncWithCloud(cloud, file)).database
       syncLine = 'Syncing…'
-      snack(file ? `Merging with ${file.name} in Dropbox…` : 'Uploaded to Dropbox')
+      snack(file ? `Merging with ${file.name} in ${STORES[cloud].name}…` : `Uploaded to ${STORES[cloud].name}`)
       void settingsScreen(settingsBack)
     } catch (e) {
       snack(String(e))
     }
   }
-  const choose = async () => {
+  const choose = async (cloud: Cloud) => {
+    const { name, folder } = STORES[cloud]
     let files: CloudFile[]
     try {
-      files = await api.dropboxFiles()
-    } catch {
-      // Signed out: sign in first.
-      try {
-        await signIn()
-        files = await api.dropboxFiles()
-      } catch (e) {
-        snack(String(e))
-        return
-      }
+      files = await filesIn(cloud)
+    } catch (e) {
+      snack(String(e))
+      return
     }
     sheet((close) => [
-      el('b', {}, 'Sync with Dropbox'),
-      el('p', { className: 'muted' }, 'A file in Apps / PswManager Sync is merged with this database: changes on both sides are kept.'),
-      ...files.map((file) => button(file.name, `Merge with ${file.name}`, () => (close(), void link(file)), 'item')),
-      button('Upload as a new file', 'Put this database into Dropbox', () => (close(), void link(null)), 'item'),
+      el('b', {}, `Sync with ${name}`),
+      el('p', { className: 'muted' }, `A file in ${folder} is merged with this database: changes on both sides are kept.`),
+      ...files.map((file) => button(file.name, `Merge with ${file.name}`, () => (close(), void link(cloud, file)), 'item')),
+      button('Upload as a new file', `Put this database into ${name}`, () => (close(), void link(cloud, null)), 'item'),
     ])
   }
-  return [el('h2', {}, 'Store'), button('Sync with Dropbox…', 'Sync this database with Dropbox', () => void choose(), 'wide')]
+  return [el('h2', {}, 'Store'), ...CLOUDS.map((cloud) => button(`Sync with ${STORES[cloud].name}…`, `Sync this database with ${STORES[cloud].name}`, () => void choose(cloud), 'wide'))]
 }
 
 /** Stop syncing and Disconnect, for a database synced with a cloud store. */

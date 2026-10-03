@@ -5,7 +5,7 @@
 use crate::biometric::{Biometric, Failure};
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
-use crate::dropbox;
+use crate::cloud;
 use pswm_core::documents::DocumentStore;
 use pswm_core::opened;
 use pswm_core::otp;
@@ -49,11 +49,11 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             if let Ok(folder) = open_folder(app.handle()) {
                 opened::clean(&folder);
             }
-            app.manage(dropbox::SignIn::default());
+            app.manage(cloud::SignIn::default());
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    dropbox::on_open_url(&handle, url.as_str());
+                    cloud::on_open_url(&handle, url.as_str());
                 }
             });
             Ok(())
@@ -91,10 +91,10 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             pick_folder,
             set_copy_folder,
             sync_if_pending,
-            dropbox::sign_in_to_dropbox,
-            dropbox::dropbox_files,
-            dropbox::open_dropbox_file,
-            dropbox::sync_with_dropbox,
+            cloud::sign_in,
+            cloud::cloud_files,
+            cloud::open_cloud_file,
+            cloud::sync_with_cloud,
             crate::visible::copy_name_taken,
             crate::editing::edit_entry,
             crate::editing::save_entry,
@@ -122,8 +122,8 @@ struct Database {
     description: String,
     /// Where it syncs with, for people.
     synced_with: Option<String>,
-    /// It syncs with a cloud store (and so may have a visible copy).
-    cloud: bool,
+    /// The cloud store it syncs with, if one (and so it may have a visible copy).
+    cloud: Option<pswm_core::remote::Cloud>,
     /// The folder its visible copy is in, if one was chosen.
     copy_folder: Option<String>,
     /// The key file it is unlocked with, by name, if it has one.
@@ -156,7 +156,7 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
             title: k.title(),
             description: k.description.clone().unwrap_or_default(),
             synced_with: k.remote.as_ref().map(|r| r.location.describe()),
-            cloud: k.remote.as_ref().is_some_and(|r| r.location.cloud().is_some()),
+            cloud: k.remote.as_ref().and_then(|r| r.location.cloud()),
             // Read from the same state: not inside this read, which holds it.
             copy_folder: None,
             key_file: None,

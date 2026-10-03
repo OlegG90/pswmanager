@@ -56,7 +56,7 @@ pub enum Location {
 }
 
 /// A cloud store one signs in to.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Cloud {
     Dropbox,
