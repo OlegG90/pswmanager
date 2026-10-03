@@ -726,3 +726,7 @@ button.chip[aria-pressed="true"] {
 .sheet button.item.danger {
   color: var(--color-error);
 }
+
+.setting[hidden] {
+  display: none;
+}

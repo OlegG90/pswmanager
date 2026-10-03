@@ -12,6 +12,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// Why a database does not open with the key given.
+pub const WRONG_KEY: &str = "Wrong password or key file";
+
 /// Why a save did not happen.
 #[derive(Debug, PartialEq)]
 pub enum SaveError {
@@ -569,7 +572,7 @@ pub const UNORDERED: &str = "This database stores its elements in an unusual ord
 
 fn open_error(e: &DatabaseOpenError) -> String {
     match e {
-        DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => "Wrong password or key file".into(),
+        DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => WRONG_KEY.into(),
         DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => "Enter the password or choose a key file".into(),
         DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}"),
         DatabaseOpenError::UnsupportedVersion => "This database version is not supported".into(),

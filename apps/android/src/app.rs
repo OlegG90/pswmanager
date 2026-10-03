@@ -2,6 +2,7 @@
 //! `docs/spec-android.md`), unlocking it, and reading and copying its entries.
 //! The core does the work, on a working copy in the app's private storage.
 
+use crate::biometric::{Biometric, Failure};
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::dropbox;
@@ -14,7 +15,8 @@ use pswm_core::settings::{self, Settings};
 use pswm_core::store::Store;
 use pswm_core::sync;
 use pswm_core::vault::{self, EntryDetail, Listing, Vault, Version, VersionDetail};
-use serde::Serialize;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Builder, Emitter, Manager, State, Wry};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -32,6 +34,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(crate::secrets::init())
+        .plugin(crate::biometric::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join(STATE_FILE)));
@@ -60,6 +63,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             open_local_file,
             forget_database,
             unlock,
+            unlock_with_biometric,
+            biometric_status,
+            forget_biometric,
             lock,
             listing,
             entry,
@@ -213,32 +219,142 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
     .await
 }
 
+/// Unlocks with the master password and/or the key file. With `remember`
+/// (biometric unlock is on), the key is then sealed for biometric unlock
+/// (the user confirms with a fingerprint or face; declining changes nothing
+/// else); without it, a sealed key is deleted.
 #[tauri::command]
-async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
+async fn unlock(app: AppHandle, password: String, remember: bool) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
     off_main(move || {
         let store = app.state::<Store>();
-        sync::ensure_working_copy(&store)?;
-        let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
         let password = Some(password.as_str()).filter(|p| !p.is_empty());
-        let key = match key_file(&store) {
+        let key_file = match key_file(&store) {
             Some(picked) => {
                 let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
-                let content = Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?);
-                vault::key_reading(password, Some(&mut content.as_slice()))?
+                Some(Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?))
             }
-            None => vault::key_reading(password, None)?,
+            None => None,
         };
-        let vault = Vault::open_with_key(&file, key)?;
-        let listing = vault.listing();
-        crate::icons::fetch(&app, &listing);
-        // Only for the unlock screen next time: not worth failing the unlock over.
-        let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
-        app.state::<Session>().set(Some(vault));
-        start_sync(app.clone());
+        let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice))?;
+        let biometric = app.state::<Biometric<Wry>>();
+        if remember && Settings::of(&store).biometric_unlock() {
+            let secret = Secret { password: password.map(str::to_string), key_file: key_file.as_deref().map(|k| B64.encode(k)) };
+            let sealed = Zeroizing::new(serde_json::to_string(&secret).map_err(|e| e.to_string())?);
+            if biometric.store(&sealed).is_ok() {
+                password_asked(&store);
+            }
+        } else {
+            let _ = biometric.forget();
+        }
         Ok(listing)
     })
     .await
+}
+
+const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+
+/// The database's key as biometric unlock keeps it (sealed in the Keystore):
+/// what the user typed and the key file's content, base64.
+#[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+struct Secret {
+    password: Option<String>,
+    key_file: Option<String>,
+}
+
+/// Where the time the master password was last asked for is kept (seconds
+/// since 1970): biometric unlock asks for it again after the set days.
+const PASSWORD_ASKED: &str = "passwordAsked";
+
+fn now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn password_asked(store: &Store) {
+    let _ = store.update(|s| drop(s.settings.insert(PASSWORD_ASKED.into(), now().into())));
+}
+
+/// The master password is due again (biometric unlock is not offered).
+fn password_due(store: &Store) -> bool {
+    let asked = store.read(|s| s.settings.get(PASSWORD_ASKED).and_then(serde_json::Value::as_u64)).unwrap_or(0);
+    now().saturating_sub(asked) >= Settings::of(store).password_every().as_secs()
+}
+
+/// Opens the database with this key and makes it the session's; the sync starts.
+fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Result<Listing, String> {
+    let store = app.state::<Store>();
+    sync::ensure_working_copy(&store)?;
+    let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
+    let mut key_file = key_file;
+    let key = vault::key_reading(password, key_file.as_mut().map(|k| k as &mut dyn std::io::Read))?;
+    let vault = Vault::open_with_key(&file, key)?;
+    let listing = vault.listing();
+    crate::icons::fetch(app, &listing);
+    // Only for the unlock screen next time: not worth failing the unlock over.
+    let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
+    app.state::<Session>().set(Some(vault));
+    start_sync(app.clone());
+    Ok(listing)
+}
+
+/// What the unlock screen offers about biometric unlock.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BiometricView {
+    /// The phone can (a strong biometric is enrolled) and the setting is on:
+    /// the unlock screen offers it for next time.
+    offered: bool,
+    /// A sealed key is kept.
+    stored: bool,
+    /// Unlock with it now: stored, offered, and the master password is not due.
+    ready: bool,
+}
+
+#[tauri::command]
+async fn biometric_status(app: AppHandle) -> Result<BiometricView, String> {
+    off_main(move || {
+        let store = app.state::<Store>();
+        let status = app.state::<Biometric<Wry>>().status()?;
+        let offered = status.available && Settings::of(&store).biometric_unlock();
+        Ok(BiometricView { offered, stored: status.stored, ready: offered && status.stored && !password_due(&store) })
+    })
+    .await
+}
+
+/// The answer when the user chose the master password at the prompt.
+const CANCELLED: &str = "cancelled";
+
+/// Unlocks with the key sealed for biometric unlock. A key that no longer
+/// opens the database (changed on another device) is deleted: the master
+/// password is asked for, and the new key sealed.
+#[tauri::command]
+async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, String> {
+    off_main(move || {
+        let biometric = app.state::<Biometric<Wry>>();
+        let sealed = biometric.retrieve().map_err(|failure| match failure {
+            Failure::Cancelled => CANCELLED.to_string(),
+            Failure::Invalidated => "A new fingerprint or face was added: unlock with the master password once to use it again".into(),
+            Failure::None => "Unlock with the master password".into(),
+            Failure::Other(message) => message,
+        })?;
+        let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;
+        let key_file = secret.key_file.as_deref().map(|k| B64.decode(k).map(Zeroizing::new)).transpose().map_err(|e| e.to_string())?;
+        open(&app, secret.password.as_deref(), key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
+            if e == pswm_core::dbfile::WRONG_KEY {
+                let _ = biometric.forget();
+                "The database's key has changed: unlock with the new master password".to_string()
+            } else {
+                e
+            }
+        })
+    })
+    .await
+}
+
+/// Biometric unlock was turned off: the sealed key goes.
+#[tauri::command]
+async fn forget_biometric(app: AppHandle) -> Result<(), String> {
+    off_main(move || app.state::<Biometric<Wry>>().forget()).await
 }
 
 /// Locks: the key and every decrypted value go, and so do the copies of

@@ -83,14 +83,33 @@ export interface Settings {
   syncEveryMinutes: number
   downloadIcons: boolean
   theme: 'system' | 'light' | 'dark'
+  /** Unlock with a fingerprint or face (offered on the unlock screen). */
+  biometricUnlock: boolean
+  /** Days between asking for the master password when biometric unlock is on. */
+  passwordEveryDays: number
   version: string
+}
+
+/** What the unlock screen offers about biometric unlock. */
+export interface BiometricView {
+  /** Offered for next time: the phone can, and the setting is on. */
+  offered: boolean
+  /** A sealed key is kept. */
+  stored: boolean
+  /** Unlock with it now (the master password is not due). */
+  ready: boolean
 }
 
 export const api = {
   status: () => invoke<Status>('status'),
   openLocalFile: () => invoke<Status | null>('open_local_file'),
   forgetDatabase: () => invoke<Status>('forget_database'),
-  unlock: (password: string) => invoke<Listing>('unlock', { password }),
+  /** With `remember`, the key is then sealed for biometric unlock; without it, a sealed one is deleted. */
+  unlock: (password: string, remember: boolean) => invoke<Listing>('unlock', { password, remember }),
+  /** Rejects with `cancelled` when the user chose the master password. */
+  unlockWithBiometric: () => invoke<Listing>('unlock_with_biometric'),
+  biometricStatus: () => invoke<BiometricView>('biometric_status'),
+  forgetBiometric: () => invoke<void>('forget_biometric'),
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   entry: (id: string) => invoke<EntryDetail>('entry', { id }),

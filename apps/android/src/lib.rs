@@ -6,6 +6,8 @@ mod app;
 #[cfg(mobile)]
 mod background;
 #[cfg(mobile)]
+mod biometric;
+#[cfg(mobile)]
 mod clipboard;
 #[cfg(mobile)]
 mod documents;

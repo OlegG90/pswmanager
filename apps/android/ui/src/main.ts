@@ -219,20 +219,50 @@ function folderScreen(files: CloudFile[], file: CloudFile) {
 
 // ------------------------------------------------------------ unlock
 
+/** The list after an unlock; the sync may have finished before it was there to hear it. */
+async function unlockedWith(opened: Listing) {
+  unlocked = true
+  listScreen(opened)
+  const last = await api.lastSync()
+  if (last) applySync(last)
+}
+
+/** Resolves when the app is in front (a prompt cannot show behind it). */
+const inFront = () =>
+  new Promise<void>((done) => {
+    if (!document.hidden) return done()
+    const shown = () => {
+      if (document.hidden) return
+      document.removeEventListener('visibilitychange', shown)
+      done()
+    }
+    document.addEventListener('visibilitychange', shown)
+  })
+
 function unlockScreen() {
   const current = database!
   const error = errorLine()
   const password = el('input', { type: 'password', autocomplete: 'off', placeholder: 'Master password', className: 'field' })
+  // Biometric unlock, offered for next time and used when its key is ready.
+  const remember = el('input', { type: 'checkbox', checked: true })
+  const rememberRow = el('label', { className: 'setting', hidden: true }, el('span', {}, 'Unlock with fingerprint next time', el('small', {}, 'The master password is asked for again now and then')), remember)
   const unlock = busyButton('Unlock', 'Unlock the database', async () => {
     syncLine = 'Syncing…'
-    const opened = await api.unlock(password.value)
-    unlocked = true
+    const opened = await api.unlock(password.value, !rememberRow.hidden && remember.checked)
     password.value = ''
-    listScreen(opened)
-    // The sync may have finished before the list was there to hear it.
-    const last = await api.lastSync()
-    if (last) applySync(last)
+    await unlockedWith(opened)
   }, error.show, 'primary')
+  const withBiometric = async () => {
+    try {
+      syncLine = 'Syncing…'
+      await unlockedWith(await api.unlockWithBiometric())
+    } catch (e) {
+      if (String(e) !== 'cancelled') error.show(String(e))
+      password.focus()
+    }
+  }
+  const fingerprint = button('Use fingerprint', 'Unlock with your fingerprint or face', () => void withBiometric(), 'link')
+  fingerprint.hidden = true
   enterPresses(unlock, password)
   error.hideOnInput(password)
   const forget = () =>
@@ -257,11 +287,21 @@ function unlockScreen() {
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
     password,
     keyLine,
+    rememberRow,
     unlock,
+    fingerprint,
     error.line,
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
   ])
   password.focus()
+  void api.biometricStatus().then(async (biometric) => {
+    rememberRow.hidden = !biometric.offered
+    if (!biometric.ready) return
+    fingerprint.hidden = false
+    await inFront()
+    // Still this screen: a sync or a lock may have moved on.
+    if (fingerprint.isConnected) void withBiometric()
+  }, () => {})
 }
 
 // ------------------------------------------------------------ the list
@@ -506,6 +546,8 @@ function toggle(label: string, hint: string, name: string, on: boolean) {
 async function save(name: string, value: unknown) {
   try {
     applySettings(await api.setSetting(name, value))
+    // Turned off: the sealed key goes.
+    if (name === 'biometricUnlock' && value === false) await api.forgetBiometric()
   } catch (e) {
     snack(String(e))
   }
@@ -535,6 +577,9 @@ function tab(which: Tab, s: Settings): Node[] {
         choice('In the background', 'Locks this long after the app goes away', 'lockInBackground', s.lockInBackground, [[0, 'At once'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [null, 'Never']]),
         toggle('When the screen turns off', 'Locks at once', 'lockOnScreenOff', s.lockOnScreenOff),
         choice('Without a touch', 'While the app is in front', 'lockAfterMinutes', s.lockAfterMinutes, minutes('Never')),
+        el('h2', {}, 'Unlock'),
+        toggle('Unlock with fingerprint', 'Fingerprint or face; turning it off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
+        choice('Master password', 'Asked for again after', 'passwordEveryDays', s.passwordEveryDays, [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`] as [number, string])),
         el('h2', {}, 'Clipboard'),
         choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),
       ]
