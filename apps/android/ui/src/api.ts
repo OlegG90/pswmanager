@@ -129,6 +129,9 @@ export const api = {
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),
   signIn: (cloud: Cloud) => invoke<void>('sign_in', { cloud }),
+  /** Makes a new database and puts it in a store (with its visible copy in `folder`) or a folder. */
+  createDatabase: (name: string, password: string, place: { kind: 'cloud'; cloud: Cloud; folder: Picked } | { kind: 'folder'; folder: Picked }) =>
+    invoke<{ status: Status; copyProblem: string | null }>('create_database', { name, password, place }),
   cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),
   openCloudFile: (cloud: Cloud, file: CloudFile, folder: Picked) =>
     invoke<{ status: Status; copyProblem: string | null }>('open_cloud_file', { cloud, file, folder }),

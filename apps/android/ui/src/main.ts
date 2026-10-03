@@ -139,9 +139,64 @@ function chooseScreen() {
     ...CLOUDS.map((cloud) => el('button', { type: 'button', className: 'card', onclick: () => void cloudScreen(cloud) }, `Sync with ${STORES[cloud].name}`,
       el('small', {}, `Sign in once. The file lives in ${STORES[cloud].folder}; a working copy stays on this phone.`))),
     local,
+    el('button', { type: 'button', className: 'card', onclick: () => newDatabaseScreen() }, 'Create a new database',
+      el('small', {}, 'With a master password; it goes to a cloud store or a folder on this phone.')),
     el('p', { className: 'muted' }, 'A local file is picked with Android’s file picker; it can be anywhere the picker reaches, also a folder another app syncs.'),
     error.line,
   ])
+}
+
+/** A new database: its name and master password, then where it lives (a
+ *  cloud store, with a copy in a folder on this phone, or a folder). */
+function newDatabaseScreen() {
+  const error = errorLine()
+  const name = input('Passwords', { className: 'field', placeholder: 'Name' })
+  const password = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Master password', className: 'field' })
+  const again = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'The master password again', className: 'field' })
+  const strength = strengthMeter(password, api.passwordStrength)
+  error.hideOnInput(name)
+  error.hideOnInput(password)
+  error.hideOnInput(again)
+  const ready = () => {
+    if (!name.value.trim()) throw new Error('Give the database a name')
+    if (!password.value) throw new Error('Choose a master password')
+    if (password.value !== again.value) throw new Error('The two passwords differ')
+  }
+  const create = async (place: Parameters<typeof api.createDatabase>[2]) => {
+    const made = await api.createDatabase(name.value, password.value, place)
+    password.value = again.value = ''
+    database = made.status.database
+    unlockScreen()
+    if (made.copyProblem) snack(`${made.copyProblem}. Choose the folder again in the sync sheet.`)
+  }
+  const folder = async (): Promise<Picked | null> => api.pickFolder()
+  const inCloud = (cloud: Cloud) =>
+    busyButton(STORES[cloud].name, `Put it into ${STORES[cloud].folder} in ${STORES[cloud].name}`, async () => {
+      ready()
+      // Signed in (the store is asked for its files), then the copy's folder.
+      await filesIn(cloud)
+      snack('Choose the folder for the copy on this phone')
+      const picked = await folder()
+      if (picked) await create({ kind: 'cloud', cloud, folder: picked })
+    }, (e) => error.show(e.replace(/^Error: /, '')), 'card')
+  const onPhone = busyButton('On this phone', 'A local file in a folder you choose', async () => {
+    ready()
+    const picked = await folder()
+    if (picked) await create({ kind: 'folder', folder: picked })
+  }, (e) => error.show(e.replace(/^Error: /, '')), 'card')
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'New database')),
+    name,
+    password,
+    again,
+    strength.element,
+    el('h2', {}, 'Where it lives'),
+    ...CLOUDS.map(inCloud),
+    onPhone,
+    el('p', { className: 'muted' }, 'A file of the same name already there is never replaced. A key file can be added later in PswManager for Windows.'),
+    error.line,
+  ], chooseScreen)
+  name.focus()
 }
 
 /** What to do when a sign-in ends (event `signed-in`). */

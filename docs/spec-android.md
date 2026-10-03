@@ -37,7 +37,7 @@ completely is a goal for later stages.
 ### Out of scope for now
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
-database on the phone), creating a new database, *Database settings* (name, history limits, key and
+database on the phone), *Database settings* (name, history limits, key and
 encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates and Trash
 groups, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
 
@@ -87,8 +87,12 @@ on Windows (*Synchronisation with a remote store* in `spec.md`):
 
 The screens in the mockups `1a`–`1d`:
 
-1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive*, *Sync with Google Drive* (stage A4)
-   or *Open a local file*.
+1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive*, *Sync with Google Drive* (stage A4),
+   *Open a local file*, or **Create a new database** (#146): a name and a master password (twice, with the
+   strength indicator; a key file can be added later on Windows), made by the core as on Windows, then where it
+   lives: uploaded to a cloud store's app folder as a new file (with a visible copy in a folder on the phone,
+   synced from the start), or a new local file in a folder on the phone. A file of the same name already there
+   is never replaced; then the unlock screen.
 2. **A cloud store:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app's folder
    (`Apps/PswManager Sync` in Dropbox, `Apps/PswManager` in OneDrive, `PswManager` in Google Drive, where
    it sees only the files PswManager made) are listed; pick one.
