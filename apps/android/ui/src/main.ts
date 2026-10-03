@@ -579,9 +579,9 @@ function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   return [
     el('h2', {}, 'Store'),
     button('Stop syncing', 'Stop syncing with the store', () =>
-      confirmSheet(`Stop syncing with ${store}? The file there stays as it is. ${after}`, 'Stop syncing', () => void stop(false)()), 'link'),
+      confirmSheet(`Stop syncing with ${store}? The file there stays as it is. ${after}`, 'Stop syncing', () => void stop(false)()), 'wide'),
     button('Disconnect…', 'Stop syncing and sign out of the store', () =>
-      confirmSheet(`Stop syncing and sign out of ${store}? The file there stays as it is. ${after}`, 'Disconnect', () => void stop(true)()), 'link'),
+      confirmSheet(`Stop syncing and sign out of ${store}? The file there stays as it is. ${after}`, 'Disconnect', () => void stop(true)()), 'wide'),
   ]
 }
 
