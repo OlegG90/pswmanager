@@ -166,7 +166,7 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
-| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…** and **Sync with OneDrive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
 Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the
@@ -236,8 +236,9 @@ background.
     localhost one, or Dropbox's Android SDK used **for sign-in only** (its `db-<app key>` scheme and the
     hand-off to the Dropbox app), handing the refresh token to the Rust code, which does everything else as
     on Windows. If neither works, the code Dropbox shows is pasted into the app by hand.
-  - **OneDrive** (stage A4): an Android platform in the existing Entra registration (the package name and
-    the signing key's hash; the redirect `msauth://io.github.olegg90.pswmanager/<hash>`).
+  - **OneDrive** (stage A4): a custom-scheme redirect, `io.github.olegg90.pswmanager://onedrive`, registered
+    in the existing Entra app (*Mobile and desktop applications*) beside the localhost one, as for Dropbox;
+    Microsoft accepts it for personal accounts (checked: a redirect not registered is refused).
   - **Google Drive** (stage A4): an Android OAuth client for the package name and the signing key's SHA-1.
 - The same narrow access as on Windows (Dropbox's app folder, OneDrive's app folder, Google's `drive.file`).
 - The refresh token is kept in the app's private storage, **encrypted with a key in the Android Keystore**
