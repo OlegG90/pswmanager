@@ -94,6 +94,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             dropbox::sign_in_to_dropbox,
             dropbox::dropbox_files,
             dropbox::open_dropbox_file,
+            dropbox::sync_with_dropbox,
             crate::visible::copy_name_taken,
             crate::editing::edit_entry,
             crate::editing::save_entry,
@@ -234,10 +235,7 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
 #[tauri::command]
 async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> {
     off_main(move || {
-        if !app.state::<Syncing>().begin() {
-            return Err("A sync is running; try again in a moment".into());
-        }
-        let result = (|| {
+        while_not_syncing(&app, || {
             let store = app.state::<Store>();
             let cloud = store.read(|s| s.remote().and_then(|r| r.location.cloud())).ok_or("This database does not sync with a cloud store")?;
             let remote = crate::visible::into_local_file(&store)?;
@@ -247,12 +245,7 @@ async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> 
                 cloud.provider().sign_out();
             }
             Ok(status_of(&store, &app.state::<Session>()))
-        })();
-        // A sync asked for meanwhile runs now, with the new file.
-        if app.state::<Syncing>().finish() {
-            start_sync(app.clone());
-        }
-        result
+        })
     })
     .await
 }
@@ -583,6 +576,19 @@ impl Syncing {
         flags.running = std::mem::take(&mut flags.again);
         flags.running
     }
+}
+
+/// Runs `change` to where the database syncs while no sync runs (refused
+/// while one does); a sync asked for meanwhile runs after it, with the change.
+pub fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    if !app.state::<Syncing>().begin() {
+        return Err("A sync is running; try again in a moment".into());
+    }
+    let result = change();
+    if app.state::<Syncing>().finish() {
+        start_sync(app.clone());
+    }
+    result
 }
 
 /// Syncs in the background and tells the page (`synced`) what happened.

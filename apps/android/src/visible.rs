@@ -14,6 +14,9 @@ use tauri::{AppHandle, Manager, Wry};
 
 /// Where it is kept in the state file (the phone has one database).
 const KEY: &str = "visibleCopy";
+/// Where it waits while syncing with the store is stopped (the copy is then
+/// the database's file), to come back when it syncs with a store again.
+const STOPPED: &str = "stoppedCopy";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,17 +33,25 @@ struct VisibleCopy {
 }
 
 fn get(store: &Store) -> Option<VisibleCopy> {
-    store.read(|s| s.settings.get(KEY).cloned()).and_then(|v| serde_json::from_value(v).ok())
+    get_at(store, KEY)
+}
+
+fn get_at(store: &Store, key: &str) -> Option<VisibleCopy> {
+    store.read(|s| s.settings.get(key).cloned()).and_then(|v| serde_json::from_value(v).ok())
 }
 
 fn set(store: &Store, copy: Option<&VisibleCopy>) -> Result<(), String> {
+    set_at(store, KEY, copy)
+}
+
+fn set_at(store: &Store, key: &str, copy: Option<&VisibleCopy>) -> Result<(), String> {
     store
         .update(|s| match copy {
             Some(copy) => {
-                s.settings.insert(KEY.into(), serde_json::to_value(copy).unwrap_or(Value::Null));
+                s.settings.insert(key.into(), serde_json::to_value(copy).unwrap_or(Value::Null));
             }
             None => {
-                s.settings.remove(KEY);
+                s.settings.remove(key);
             }
         })
         .map_err(|e| format!("Cannot save the copy's place: {e}"))
@@ -74,9 +85,10 @@ pub fn folder_name(store: &Store) -> Option<String> {
     get(store).map(|c| c.folder_name)
 }
 
-/// Forgets the visible copy's place; the file stays.
+/// Forgets the visible copy's place (and one kept while syncing is stopped); the file stays.
 pub fn forget(store: &Store) -> Result<(), String> {
-    set(store, None)
+    set(store, None)?;
+    set_at(store, STOPPED, None)
 }
 
 /// The visible copy as the database's file from now on (syncing with the
@@ -85,7 +97,8 @@ pub fn forget(store: &Store) -> Result<(), String> {
 /// change something else made to it is merged. `None` without a copy.
 pub fn into_local_file(store: &Store) -> Result<Option<Remote>, String> {
     let Some(copy) = get(store) else { return Ok(None) };
-    forget(store)?;
+    set_at(store, STOPPED, Some(&copy))?;
+    set(store, None)?;
     let location = Location::Document { uri: copy.uri, name: copy.name };
     Ok(Some(Remote { location, revision: copy.written.clone(), synced: copy.written }))
 }
@@ -93,6 +106,17 @@ pub fn into_local_file(store: &Store) -> Result<Option<Remote>, String> {
 fn working(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
     let Some(file) = app.state::<Store>().read(|s| s.current.clone()) else { return Ok(None) };
     std::fs::read(&file).map(Some).map_err(|e| format!("Cannot read the working copy: {e}"))
+}
+
+/// Syncing with a store again: the copy that was the database's file meanwhile
+/// is its visible copy again, as it is now (the next sync writes the merged
+/// database there).
+pub fn restore(app: &AppHandle) -> Result<(), String> {
+    let store = app.state::<Store>();
+    let Some(mut copy) = get_at(&store, STOPPED) else { return Ok(()) };
+    copy.written = app.state::<Documents<Wry>>().read(&copy.uri)?.map(|b| hash_hex(&b));
+    set(&store, Some(&copy))?;
+    set_at(&store, STOPPED, None)
 }
 
 /// Writes the working copy into the visible copy when they differ (after a

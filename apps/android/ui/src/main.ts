@@ -560,6 +560,43 @@ const minutes = (never: string): [number, string][] => [1, 2, 5, 10, 15, 30, 60,
 /** Where the settings screen goes back to. */
 let settingsBack = () => {}
 
+/** For a database synced with no cloud store: sync it with a file in Dropbox
+ *  (the two are merged) or upload it there. */
+function syncWithStore(): Node[] {
+  const link = async (file: CloudFile | null) => {
+    try {
+      database = (await api.syncWithDropbox(file)).database
+      syncLine = 'Syncing…'
+      snack(file ? `Merging with ${file.name} in Dropbox…` : 'Uploaded to Dropbox')
+      void settingsScreen(settingsBack)
+    } catch (e) {
+      snack(String(e))
+    }
+  }
+  const choose = async () => {
+    let files: CloudFile[]
+    try {
+      files = await api.dropboxFiles()
+    } catch {
+      // Signed out: sign in first.
+      try {
+        await signIn()
+        files = await api.dropboxFiles()
+      } catch (e) {
+        snack(String(e))
+        return
+      }
+    }
+    sheet((close) => [
+      el('b', {}, 'Sync with Dropbox'),
+      el('p', { className: 'muted' }, 'A file in Apps / PswManager Sync is merged with this database: changes on both sides are kept.'),
+      ...files.map((file) => button(file.name, `Merge with ${file.name}`, () => (close(), void link(file)), 'item')),
+      button('Upload as a new file', 'Put this database into Dropbox', () => (close(), void link(null)), 'item'),
+    ])
+  }
+  return [el('h2', {}, 'Store'), button('Sync with Dropbox…', 'Sync this database with Dropbox', () => void choose(), 'wide')]
+}
+
 /** Stop syncing and Disconnect, for a database synced with a cloud store. */
 function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   const store = current.syncedWith ?? 'the store'
@@ -624,7 +661,7 @@ function tab(which: Tab, s: Settings): Node[] {
         ...(database?.cloud ? [el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet')] : []),
         choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, minutes('Off')),
         button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary'),
-        ...(database?.cloud ? stopSyncing(database) : []),
+        ...(database ? (database.cloud ? stopSyncing(database) : syncWithStore()) : []),
         el('p', { className: 'muted' }, 'To use another database, lock this one and choose “Use another database…”: its file stays where it is.'),
       ]
     case 'about':
