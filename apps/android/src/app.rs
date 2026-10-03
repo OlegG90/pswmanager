@@ -213,6 +213,8 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
             }
             crate::visible::forget(&store)?;
             forget_key_file(&store)?;
+            // It is this database's key.
+            let _ = app.state::<Biometric<Wry>>().forget();
         }
         Ok(status_of(&store, &session))
     })
@@ -238,8 +240,7 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
         };
         let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice))?;
         let biometric = app.state::<Biometric<Wry>>();
-        let wanted = Settings::of(&store).biometric_unlock() && biometric.status().is_ok_and(|s| s.available && (!s.stored || password_due(&store)));
-        if wanted {
+        if seal_wanted(&store, &biometric) {
             let secret = Secret { password: password.map(str::to_string), key_file: key_file.as_deref().map(|k| B64.encode(k)) };
             let sealed = Zeroizing::new(serde_json::to_string(&secret).map_err(|e| e.to_string())?);
             if biometric.store(&sealed).is_ok() {
@@ -277,6 +278,13 @@ fn password_asked(store: &Store) {
 fn password_due(store: &Store) -> bool {
     let asked = store.read(|s| s.settings.get(PASSWORD_ASKED).and_then(serde_json::Value::as_u64)).unwrap_or(0);
     now().saturating_sub(asked) >= Settings::of(store).password_every().as_secs()
+}
+
+/// After an unlock with the master password: the key is sealed for biometric
+/// unlock when the setting is on, the phone can, and none is sealed or the
+/// password was due.
+fn seal_wanted(store: &Store, biometric: &Biometric<Wry>) -> bool {
+    Settings::of(store).biometric_unlock() && biometric.status().is_ok_and(|s| s.available && (!s.stored || password_due(store)))
 }
 
 /// Opens the database with this key and makes it the session's; the sync starts.
@@ -318,11 +326,15 @@ const CANCELLED: &str = "cancelled";
 #[tauri::command]
 async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, String> {
     off_main(move || {
+        let store = app.state::<Store>();
+        if !Settings::of(&store).biometric_unlock() || password_due(&store) {
+            return Err("Unlock with the master password".into());
+        }
         let biometric = app.state::<Biometric<Wry>>();
         let sealed = biometric.retrieve().map_err(|failure| match failure {
             Failure::Cancelled => CANCELLED.to_string(),
             Failure::Invalidated => "A new fingerprint or face was added: unlock with the master password once to use it again".into(),
-            Failure::None => "Unlock with the master password".into(),
+            Failure::NotStored => "Unlock with the master password".into(),
             Failure::Other(message) => message,
         })?;
         let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;

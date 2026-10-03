@@ -239,15 +239,18 @@ function unlockScreen() {
   const current = database!
   const error = errorLine()
   const password = el('input', { type: 'password', autocomplete: 'off', placeholder: 'Master password', className: 'field' })
-  // Biometric unlock, when its key is sealed: the fingerprint button, or Unlock with no password typed.
+  // Biometric unlock, when its key is sealed: the fingerprint button, or Unlock
+  // with no password typed, once (again, it unlocks with the key file alone).
+  let prompted = false
   const unlock = busyButton('Unlock', 'Unlock the database', async () => {
-    if (!password.value && !fingerprint.hidden) return withBiometric()
+    if (!password.value && !fingerprint.hidden && !prompted) return withBiometric()
     syncLine = 'Syncing…'
     const opened = await api.unlock(password.value)
     password.value = ''
     await unlockedWith(opened)
   }, error.show, 'primary')
   const withBiometric = async () => {
+    prompted = true
     try {
       syncLine = 'Syncing…'
       await unlockedWith(await api.unlockWithBiometric())

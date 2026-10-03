@@ -63,10 +63,12 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
   fun store(invoke: Invoke) {
     val args = invoke.parseArgs(StoreArgs::class.java)
     val cipher = try {
-      encrypting()
-    } catch (e: KeyPermanentlyInvalidatedException) {
-      forgetAll()
-      encrypting()
+      try {
+        encrypting()
+      } catch (e: KeyPermanentlyInvalidatedException) {
+        forgetKey()
+        encrypting()
+      }
     } catch (e: Exception) {
       invoke.reject(e.message ?: e.toString())
       return
@@ -90,7 +92,7 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
       val key = existingKey() ?: throw KeyPermanentlyInvalidatedException()
       Cipher.getInstance(CIPHER).apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, sealed, 0, IV_SIZE)) }
     } catch (e: KeyPermanentlyInvalidatedException) {
-      forgetAll()
+      forgetKey()
       return invoke.reject("biometric:invalidated")
     } catch (e: Exception) {
       return invoke.reject(e.message ?: e.toString())
@@ -104,7 +106,7 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun forget(invoke: Invoke) {
     try {
-      forgetAll()
+      forgetKey()
       invoke.resolve(JSObject())
     } catch (e: Exception) {
       invoke.reject(e.message ?: e.toString())
@@ -163,7 +165,7 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
     return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEY_STORE).apply { init(spec) }.generateKey()
   }
 
-  private fun forgetAll() {
+  private fun forgetKey() {
     prefs.edit().remove(SEALED).commit()
     keyStore().deleteEntry(ALIAS)
   }

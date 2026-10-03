@@ -33,7 +33,7 @@ pub enum Failure {
     /// A new fingerprint or face was enrolled: the sealed key is gone.
     Invalidated,
     /// Nothing is stored.
-    None,
+    NotStored,
     Other(String),
 }
 
@@ -82,7 +82,7 @@ fn failure(error: tauri::plugin::mobile::PluginInvokeError) -> Failure {
     } else if message.contains("biometric:invalidated") {
         Failure::Invalidated
     } else if message.contains("biometric:none") {
-        Failure::None
+        Failure::NotStored
     } else {
         Failure::Other(message)
     }

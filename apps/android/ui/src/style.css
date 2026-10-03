@@ -727,10 +727,6 @@ button.chip[aria-pressed="true"] {
   color: var(--color-error);
 }
 
-.setting[hidden] {
-  display: none;
-}
-
 /* The fingerprint button beside the master password. */
 button.fingerprint {
   margin-top: 16px;
