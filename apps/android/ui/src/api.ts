@@ -8,8 +8,8 @@ export interface Database {
   description: string
   /** Where it syncs with, for people. */
   syncedWith: string | null
-  /** It syncs with a cloud store (and so may have a visible copy). */
-  cloud: boolean
+  /** The cloud store it syncs with, if one (and so it may have a visible copy). */
+  cloud: Cloud | null
   /** The folder its visible copy is in, if one was chosen. */
   copyFolder: string | null
   /** The key file it is unlocked with, by name, if it has one. */
@@ -60,7 +60,10 @@ export interface Picked {
   name: string
 }
 
-/** A database in the app's Dropbox folder. */
+/** A cloud store the phone syncs with. */
+export type Cloud = 'dropbox' | 'onedrive'
+
+/** A database in the app's folder in a cloud store. */
 export interface CloudFile {
   id: string
   name: string
@@ -96,8 +99,8 @@ export const api = {
   forgetDatabase: () => invoke<Status>('forget_database'),
   /** Stops syncing with the cloud store (with `signOut`, *Disconnect*); the visible copy becomes the file. */
   stopSyncing: (signOut: boolean) => invoke<Status>('stop_syncing', { signOut }),
-  /** Syncs this database with `file` in Dropbox (merged), or uploads it there as a new file (null). */
-  syncWithDropbox: (file: CloudFile | null) => invoke<Status>('sync_with_dropbox', { file }),
+  /** Syncs this database with `file` in the store (merged), or uploads it there as a new file (null). */
+  syncWithCloud: (cloud: Cloud, file: CloudFile | null) => invoke<Status>('sync_with_cloud', { cloud, file }),
   /** With biometric unlock on and no sealed key (or the password due), the key is then sealed for it. */
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
   /** Rejects with `cancelled` when the user chose the master password. */
@@ -125,9 +128,10 @@ export const api = {
   stayUnlocked: () => invoke<void>('stay_unlocked'),
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),
-  signInToDropbox: () => invoke<void>('sign_in_to_dropbox'),
-  dropboxFiles: () => invoke<CloudFile[]>('dropbox_files'),
-  openDropboxFile: (file: CloudFile, folder: Picked) => invoke<{ status: Status; copyProblem: string | null }>('open_dropbox_file', { file, folder }),
+  signIn: (cloud: Cloud) => invoke<void>('sign_in', { cloud }),
+  cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),
+  openCloudFile: (cloud: Cloud, file: CloudFile, folder: Picked) =>
+    invoke<{ status: Status; copyProblem: string | null }>('open_cloud_file', { cloud, file, folder }),
   copyNameTaken: (folder: string, name: string) => invoke<boolean>('copy_name_taken', { folder, name }),
   pickFolder: () => invoke<Picked | null>('pick_folder'),
   setCopyFolder: (folder: Picked) => invoke<Status>('set_copy_folder', { folder }),

@@ -12,7 +12,7 @@ mod clipboard;
 #[cfg(mobile)]
 mod documents;
 #[cfg(mobile)]
-mod dropbox;
+mod cloud;
 #[cfg(mobile)]
 mod editing;
 #[cfg(mobile)]
