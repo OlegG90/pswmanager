@@ -87,7 +87,7 @@ on Windows (*Synchronisation with a remote store* in `spec.md`):
 
 The screens in the mockups `1a`–`1d`:
 
-1. **Choose your database:** *Sync with Dropbox* or *Open a local file*.
+1. **Choose your database:** *Sync with Dropbox*, *Sync with OneDrive* (stage A4) or *Open a local file*.
 2. **Dropbox:** sign in (see *Connecting a cloud account*), then the `.kdbx` files in the app folder
    `Apps/PswManager Sync` are listed with size and date; pick one. PswManager sees only its app folder, so a
    file to be shared with Keepass2Android and PswManager for Windows must be there (Keepass2Android, with
