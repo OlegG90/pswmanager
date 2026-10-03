@@ -3378,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "pswm-android"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "base64 0.23.1",
  "jni",
@@ -3416,7 +3416,7 @@ dependencies = [
 
 [[package]]
 name = "pswmanager"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "arboard",
  "base64 0.23.1",
