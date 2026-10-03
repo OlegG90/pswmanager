@@ -54,8 +54,9 @@ pub fn on_open_url(app: &AppHandle, url: &str) {
     if !url.starts_with(&format!("{SCHEME}://")) {
         return;
     }
+    let sign_in = app.state::<SignIn>();
     let taken = {
-        let mut waiting = app.state::<SignIn>().0.lock().unwrap();
+        let mut waiting = sign_in.0.lock().unwrap();
         match waiting.as_ref() {
             // Another store's address, or a stray link: the sign-in goes on waiting.
             Some((cloud, _)) if redirect(*cloud).is_ok_and(|r| !url.starts_with(&r)) => return,
