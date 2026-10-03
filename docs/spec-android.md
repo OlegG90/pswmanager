@@ -111,8 +111,9 @@ A local file skips steps 2–3.
     with the master password seals the key when none is sealed or the password was due; it asks for the
     fingerprint once.
   - When a key is sealed and the password is not due, the unlock screen shows a **fingerprint button**
-    beside the password field; it, or *Unlock* with no password typed, opens the prompt. The prompt never
-    opens by itself; *Use the master password* in it goes back to the field.
+    beside the password field; it, or *Unlock* with no password typed, opens the prompt. Coming back to the
+    app from another one, to the unlock screen, opens the prompt by itself; otherwise (the app started, Lock
+    pressed) it waits for the button. *Use the master password* in it goes back to the field.
 - The **master password is asked again every 14 days** (a setting: 1–90 days), after the Keystore key is
   invalidated, and when the database's key changed on another device (the stored key no longer opens it).
   Then the stored key is replaced.

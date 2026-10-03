@@ -34,6 +34,10 @@ let unlocked = false
 let leave = () => {}
 /** The screen shown's answer to a sync (the list's status line). */
 let onSynced = (_synced: Synced) => {}
+/** The screen shown's answer to coming back from another app (the unlock screen's prompt). */
+let onReturn = () => {}
+/** When the app last came back from another app (ms). */
+let returnedAt = 0
 
 /** What Back closes or returns to, innermost last (see SystemPlugin.kt). */
 let backs: (() => void)[] = []
@@ -50,6 +54,7 @@ function show(children: Node[], back?: () => void, className = '') {
   leave()
   leave = () => {}
   onSynced = () => {}
+  onReturn = () => {}
   document.querySelectorAll('.shade, .sheet').forEach((n) => n.remove())
   backs = back ? [back] : []
   screen.className = className
@@ -227,6 +232,9 @@ async function unlockedWith(opened: Listing) {
   if (last) applySync(last)
 }
 
+/** How soon after coming back the unlock screen still counts as come back to (ms). */
+const RETURN_PROMPT = 3000
+
 function unlockScreen() {
   const current = database!
   const error = errorLine()
@@ -279,7 +287,19 @@ function unlockScreen() {
     button('Use another database…', 'Forget this one (its file stays where it is)', forget, 'link'),
   ])
   password.focus()
-  void api.biometricReady().then((ready) => (fingerprint.hidden = !ready), () => {})
+  // Coming back from another app to this screen opens the prompt by itself
+  // (the lock may have happened while away, just before the screen was shown).
+  const prompt = (ready: boolean) => {
+    if (ready && fingerprint.isConnected && Date.now() - returnedAt < RETURN_PROMPT) {
+      // Shown before the app is fully back, Android would cancel it.
+      window.setTimeout(() => fingerprint.isConnected && void withBiometric(), 400)
+    }
+  }
+  void api.biometricReady().then((ready) => {
+    fingerprint.hidden = !ready
+    prompt(ready)
+    onReturn = () => prompt(!fingerprint.hidden)
+  }, () => {})
 }
 
 // ------------------------------------------------------------ the list
@@ -903,6 +923,8 @@ document.addEventListener('visibilitychange', () => {
     void api.syncIfPending()
     void api.lockLater()
   } else if (!document.hidden) {
+    returnedAt = Date.now()
+    onReturn()
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.
