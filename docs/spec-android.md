@@ -217,6 +217,25 @@ PC's where both have one (`crates/core/src/settings.rs`). The screen opens from 
   anyway.
 - Nothing secret is written to logs (`logcat`), the state file or crash reports.
 
+## Credential provider (stage A5)
+
+PswManager is a credential provider on Android 14+ (`docs/credential-provider-research.md`): turned on
+in *Settings → Passwords, passkeys & accounts* (and picked there, or as the *preferred service*, since
+Android offers Google first). Android asks it when an app or a site in a browser wants a passkey.
+
+- **The service** (`PswmCredentialService`) answers at once, from memory only. Locked, its one answer is
+  **Unlock PswManager**: nothing about entries is told.
+- **Unlock** (#161) is a small screen of its own, outside the app's window (Android often starts the
+  process for the service alone): the fingerprint, with the key sealed for biometric unlock, when the
+  setting allows it and the master password is not due; else the master password. The database is then
+  unlocked for the app too: the app and the provider share one session, and the app shows the list when
+  it is opened.
+- **Locking after an unlock there:** as *Lock when the app goes to the background* says, but never sooner
+  than a minute (a passkey is used right after), and not while the app is in front (its own rules apply
+  then). *Never* keeps it unlocked.
+- Signing in with a passkey (#162), making one (#163) and passwords through Credential Manager (#164)
+  come next.
+
 ## Synchronisation
 
 The sync decision, the merge and the conditional upload are those of `spec.md`, run by the same code.

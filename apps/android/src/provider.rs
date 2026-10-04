@@ -127,7 +127,7 @@ fn unlock(env: &mut JNIEnv, context: &JObject, state: &JString, password: &JStri
         let vault = Vault::open_with_key(&file, key)?;
         session().set(Some(vault));
         lock_later(Settings::of(store).lock_in_background());
-        Ok(())
+        Ok::<(), String>(())
     })??;
     if let Some(app) = APP.get() {
         crate::app::start_sync(app.clone());
