@@ -76,22 +76,19 @@ pub async fn import_from_app(app: AppHandle) -> Result<Option<Imported>, String>
         }
         let Some(json) = app.state::<Transfer<Wry>>().import()? else { return Ok(None) };
         let import = cxf::parse(&json)?;
-        drop(json);
+        drop(json); // wiped now rather than at the end
         let group = import.group_name_today();
         let (added, listing) = session
             .with_mut(|v| {
                 let added = v.import(&import, &group)?;
                 Ok((added, v.listing()))
             })
-            .map_err(|e| match session.is_unlocked() {
-                true => e,
-                false => "The database locked while the other app was open: unlock it and import again".to_string(),
-            })?;
+            .map_err(|e| if session.is_unlocked() { e } else { "The database locked while the other app was open: unlock it and import again".into() })?;
         if added > 0 {
             crate::icons::fetch(&app, &listing);
             crate::editing::upload_soon(&app);
         }
-        Ok(Some(Imported { exporter: import.exporter.clone(), group, added, skipped: import.skipped.clone(), listing }))
+        Ok(Some(Imported { exporter: import.exporter, group, added, skipped: import.skipped, listing }))
     })
     .await
 }

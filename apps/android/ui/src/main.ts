@@ -605,7 +605,7 @@ async function runImport() {
     if (imported.added) listScreen(imported.listing)
     importedSheet(imported)
   } catch (e) {
-    snack(String(e).replace(/^Error: /, ''))
+    snack(String(e))
   }
 }
 
