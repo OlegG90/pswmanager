@@ -169,21 +169,21 @@ function newDatabaseScreen() {
     unlockScreen()
     if (made.copyProblem) snack(`${made.copyProblem}. Choose the folder again in the sync sheet.`)
   }
-  const folder = async (): Promise<Picked | null> => api.pickFolder()
+  const fail = (e: string) => error.show(e.replace(/^Error: /, ''))
   const inCloud = (cloud: Cloud) =>
     busyButton(STORES[cloud].name, `Put it into ${STORES[cloud].folder} in ${STORES[cloud].name}`, async () => {
       ready()
       // Signed in (the store is asked for its files), then the copy's folder.
       await filesIn(cloud)
       snack('Choose the folder for the copy on this phone')
-      const picked = await folder()
+      const picked = await api.pickFolder()
       if (picked) await create({ kind: 'cloud', cloud, folder: picked })
-    }, (e) => error.show(e.replace(/^Error: /, '')), 'card')
+    }, fail, 'card')
   const onPhone = busyButton('On this phone', 'A local file in a folder you choose', async () => {
     ready()
-    const picked = await folder()
+    const picked = await api.pickFolder()
     if (picked) await create({ kind: 'folder', folder: picked })
-  }, (e) => error.show(e.replace(/^Error: /, '')), 'card')
+  }, fail, 'card')
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'New database')),
     name,

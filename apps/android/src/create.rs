@@ -15,7 +15,7 @@ use pswm_core::store::{Remote, Store};
 use pswm_core::sync;
 use pswm_core::vault::Vault;
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, Wry};
 use zeroize::Zeroizing;
 
@@ -59,7 +59,7 @@ pub async fn create_database(app: AppHandle, name: String, password: String, pla
 
 /// Puts the new database's `working` copy in `place` and makes it the
 /// database on the phone; why its visible copy could not be made, if it could not.
-fn put(app: &AppHandle, working: &PathBuf, file_name: &str, place: &Place) -> Result<Option<String>, String> {
+fn put(app: &AppHandle, working: &Path, file_name: &str, place: &Place) -> Result<Option<String>, String> {
     let bytes = std::fs::read(working).map_err(|e| format!("Cannot read the new database: {e}"))?;
     let hash = hash_hex(&bytes);
     let remote = match place {
@@ -82,14 +82,33 @@ fn put(app: &AppHandle, working: &PathBuf, file_name: &str, place: &Place) -> Re
         }
     };
     let store = app.state::<Store>();
-    store.update(|s| s.select(working.clone()).remote = Some(remote)).map_err(|e| format!("Cannot save the new database: {e}"))?;
+    // Should this fail, the file just made in the store or folder stays there
+    // (rare); making it again then asks for another name.
+    store.update(|s| s.select(working.to_path_buf()).remote = Some(remote)).map_err(|e| format!("Cannot save the new database: {e}"))?;
     Ok(match place {
         Place::Cloud { folder, .. } => crate::visible::place(app, &folder.uri, &folder.name, file_name).err(),
         Place::Folder { .. } => None,
     })
 }
 
-/// `name` as a file name: characters no file name may hold become `-`.
+/// `name` as a file name: characters no file name may hold become `-`, dots
+/// and spaces at either end go (no hidden file; some stores refuse a trailing
+/// dot), and it is cut to 100 characters.
 fn file_safe(name: &str) -> String {
-    name.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) || c.is_control() { '-' } else { c }).collect()
+    let safe: String = name.chars().map(|c| if r#"/\:*?"<>|"#.contains(c) || c.is_control() { '-' } else { c }).take(100).collect();
+    match safe.trim_matches(|c: char| c == '.' || c.is_whitespace()) {
+        "" => "Passwords".to_string(),
+        trimmed => trimmed.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_name_becomes_a_file_name() {
+        assert_eq!(super::file_safe("My: passwords?"), "My- passwords-");
+        assert_eq!(super::file_safe(" .hidden. "), "hidden");
+        assert_eq!(super::file_safe(".."), "Passwords");
+        assert_eq!(super::file_safe(&"x".repeat(300)).len(), 100);
+    }
 }
