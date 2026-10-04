@@ -46,6 +46,8 @@ class PasskeyActivity : AppCompatActivity() {
       override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
         thread {
           val answer = ProviderBridge.sign(id, option.requestJson, origin, option.clientDataHash.takeIf { origin != null }, app.packageName, certificate)
+          // TEMP (#162): the outcome only.
+          android.util.Log.i("PswmProvider", "sign: browser=${origin != null} hash=${option.clientDataHash?.size} failed=${answer.startsWith(ProviderBridge.FAILED)} " + (if (answer.startsWith(ProviderBridge.FAILED)) answer else try { org.json.JSONObject(answer).let { j -> "keys=" + j.keys().asSequence().toList() + " response=" + j.getJSONObject("response").keys().asSequence().toList() } } catch (e: Exception) { "unparsable" }))
           runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else signedIn(answer) }
         }
       }
