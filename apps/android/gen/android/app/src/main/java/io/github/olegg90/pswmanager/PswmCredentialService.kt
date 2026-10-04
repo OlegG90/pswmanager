@@ -51,7 +51,9 @@ class PswmCredentialService : CredentialProviderService() {
     cancellationSignal: CancellationSignal,
     callback: OutcomeReceiver<BeginGetCredentialResponse, GetCredentialException>,
   ) {
-    if (!ProviderBridge.isUnlocked()) {
+    val unlocked = ProviderBridge.isUnlocked()
+    android.util.Log.i("PswmProvider", "begin get: unlocked=$unlocked")
+    if (!unlocked) {
       val unlock = AuthenticationAction(title = "Unlock PswManager", pendingIntent = unlockIntent(this))
       callback.onResult(BeginGetCredentialResponse(authenticationActions = listOf(unlock)))
       return
