@@ -37,25 +37,35 @@ impl EntryChoice {
 
 /// Where a login is for: an Android app (its package), or a site (the host
 /// of the page a browser speaks for).
-pub enum LoginPlace<'a> {
-    App(&'a str),
-    Site(&'a str),
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoginPlace {
+    App(String),
+    Site(String),
 }
 
-impl LoginPlace<'_> {
+impl LoginPlace {
+    /// The site a browser speaks for (its page's `origin`), else the app (`package`).
+    pub fn of(origin: Option<&str>, package: &str) -> Result<LoginPlace, String> {
+        match origin {
+            Some(origin) => crate::webauthn::origin_host(origin).map(LoginPlace::Site).ok_or_else(|| "The browser's page is not a site".into()),
+            None => Ok(LoginPlace::App(package.to_string())),
+        }
+    }
+
     /// Whether the entry is for this place: an app named among its URLs
-    /// (`androidapp://<package>`, as Keepass2Android keeps it), or a site its
-    /// URL is on (the page on the entry's site, or the entry's site under the page's).
+    /// (`androidapp://<package>`, as Keepass2Android keeps it; packages are
+    /// case-sensitive), or a site whose host is the entry's (a `www.` aside).
+    /// Not a site's other hosts: a password goes to its own host only.
     fn matches(&self, entry: &EntryRef<'_>) -> bool {
         match self {
             LoginPlace::App(package) => {
                 let wanted = format!("androidapp://{package}");
-                entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim().eq_ignore_ascii_case(&wanted))
+                entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim() == wanted)
             }
-            LoginPlace::Site(host) => entry
-                .get(fields::URL)
-                .and_then(icons::host_of)
-                .is_some_and(|site| crate::webauthn::on_site(host, &site) || crate::webauthn::on_site(&site, host)),
+            LoginPlace::Site(host) => {
+                let bare = |h: &str| h.trim_start_matches("www.").to_ascii_lowercase();
+                entry.get(fields::URL).and_then(icons::host_of).is_some_and(|site| bare(&site) == bare(host))
+            }
         }
     }
 
@@ -495,11 +505,8 @@ impl Vault {
 
     /// The entries with a login for `place` (an app or a site), as Credential
     /// Manager offers them to the app asking.
-    pub fn logins_for(&self, place: &LoginPlace<'_>) -> Vec<EntryChoice> {
-        self.visible_entries()
-            .filter(|e| e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty()) && place.matches(e))
-            .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
-            .collect()
+    pub fn logins_for(&self, place: &LoginPlace) -> Vec<EntryChoice> {
+        self.places_entries(place, true)
     }
 
     /// Entry `id`'s user name and password, to hand to the app asking.
@@ -510,15 +517,26 @@ impl Vault {
     }
 
     /// The entries a login an app offers to save can update: those for `place`.
-    pub fn entries_for_login(&self, place: &LoginPlace<'_>) -> Vec<EntryChoice> {
-        self.visible_entries().filter(|e| place.matches(e)).map(|e| EntryChoice::of(&e, e.get(fields::USERNAME))).collect()
+    pub fn entries_for_login(&self, place: &LoginPlace) -> Vec<EntryChoice> {
+        self.places_entries(place, false)
+    }
+
+    /// The user's entries for `place`; only those with a password when `with_password`.
+    fn places_entries(&self, place: &LoginPlace, with_password: bool) -> Vec<EntryChoice> {
+        self.visible_entries()
+            .filter(|e| place.matches(e) && (!with_password || e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty())))
+            .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
+            .collect()
     }
 
     /// Keeps a login an app offers to save: the password (and the user name
     /// when the entry has none) of entry `id`, or a new entry titled `title`
     /// for `place`; the file is saved (the old version goes to history).
     /// Returns the entry's id.
-    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace<'_>, title: &str, username: &str, password: &str) -> Result<String, String> {
+    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace, title: &str, username: &str, password: &str) -> Result<String, String> {
+        if password.is_empty() {
+            return Err("There is no password to save".into());
+        }
         let (base, mut data) = match id {
             Some(id) => {
                 let data = self.edit_data(id).ok_or(NOT_FOUND)?;
@@ -1440,15 +1458,16 @@ pub mod tests {
     fn logins_are_offered_to_their_app_or_site_and_saved() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
-        let app = LoginPlace::App("com.example.mail");
-        let site = LoginPlace::Site("login.mail.example");
+        let app = LoginPlace::App("com.example.mail".into());
+        let site = LoginPlace::Site("www.mail.example".into());
         assert!(vault.logins_for(&app).is_empty());
 
         // A new login for the app, then offered to it (and not to others).
         let id = vault.save_login(None, &app, "Mail", "alice", "pw-1").unwrap();
         let offered = vault.logins_for(&app);
         assert_eq!((offered[0].id.as_str(), offered[0].username.as_str()), (id.as_str(), "alice"));
-        assert!(vault.logins_for(&LoginPlace::App("com.example.other")).is_empty());
+        assert!(vault.logins_for(&LoginPlace::App("com.example.other".into())).is_empty());
+        assert!(vault.logins_for(&LoginPlace::App("com.example.MAIL".into())).is_empty());
         let (user, password) = vault.login(&id).unwrap();
         assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-1"));
 
@@ -1458,9 +1477,13 @@ pub mod tests {
         let (user, password) = vault.login(&id).unwrap();
         assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-2"));
 
-        // A site's login is offered to a page on it.
-        let web = vault.save_login(None, &LoginPlace::Site("mail.example"), "Mail web", "bob", "pw-3").unwrap();
+        // A site's login is offered to its own host (a www. aside), not to the site's other hosts.
+        let web = vault.save_login(None, &LoginPlace::Site("mail.example".into()), "Mail web", "bob", "pw-3").unwrap();
         assert_eq!(vault.logins_for(&site).iter().map(|c| c.id.clone()).collect::<Vec<_>>(), [web]);
+        assert!(vault.logins_for(&LoginPlace::Site("evil.mail.example".into())).is_empty());
+        assert!(vault.save_login(None, &app, "Mail", "alice", "").is_err());
+        assert_eq!(LoginPlace::of(Some("https://www.mail.example"), "com.android.chrome").unwrap(), LoginPlace::Site("www.mail.example".into()));
+        assert_eq!(LoginPlace::of(None, "com.example.mail").unwrap(), app);
     }
 
     #[test]

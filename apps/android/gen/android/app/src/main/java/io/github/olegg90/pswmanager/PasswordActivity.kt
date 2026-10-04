@@ -26,8 +26,8 @@ class PasswordActivity : AppCompatActivity() {
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
     // Made again (the prompt is gone with the old one): Android hears it was cancelled.
     if (savedInstanceState != null) return cancel()
-    val id = intent.getStringExtra(EXTRA_ENTRY) ?: return fail("No login chosen")
-    verifyUser(this, "Use your password", intent.getStringExtra(EXTRA_TITLE) ?: "", {
+    val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return fail("No login chosen")
+    verifyUser(this, "Use your password", intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", {
       thread {
         val login = ProviderBridge.login(id)?.let { JSONObject(it) }
         runOnUiThread {
@@ -55,8 +55,4 @@ class PasswordActivity : AppCompatActivity() {
     finish()
   }
 
-  companion object {
-    const val EXTRA_ENTRY = "entry"
-    const val EXTRA_TITLE = "title"
-  }
 }

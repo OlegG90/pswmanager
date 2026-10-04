@@ -69,30 +69,33 @@ class CreatePasswordActivity : AppCompatActivity() {
       setPadding(pad, pad, pad, pad)
       addView(TextView(this@CreatePasswordActivity).apply { text = "Save the password for ${request.id}"; textSize = 22f })
       addView(TextView(this@CreatePasswordActivity).apply { text = "Asked by ${caller.label}." })
-      addView(Button(this@CreatePasswordActivity).apply { text = "New entry"; setOnClickListener { save(null) } })
+      addView(Button(this@CreatePasswordActivity).apply { text = "New entry"; setOnClickListener { save(null, "New entry") } })
       for (i in 0 until entries.length()) {
         val entry = entries.getJSONObject(i)
         val label = listOf(entry.optString("title"), entry.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ")
-        addView(Button(this@CreatePasswordActivity).apply { text = "Update $label"; setOnClickListener { save(entry.getString("id")) } })
+        addView(Button(this@CreatePasswordActivity).apply { text = "Update $label"; setOnClickListener { save(entry.getString("id"), label) } })
       }
       addView(Button(this@CreatePasswordActivity).apply { text = "Cancel"; setOnClickListener { cancel() } })
     }
     setContentView(ScrollView(this).apply { addView(list) })
   }
 
-  /** Saves into entry `id` (a new one, named after the app or site, when null). */
-  private fun save(id: String?) {
+  /** Saves into entry `id` (a new one, named after the app or site, when null), once the user is verified. */
+  private fun save(id: String?, entry: String) {
     if (busy) return
+    if (request.password.isEmpty()) return fail("There is no password to save")
     busy = true
     val title = caller.origin?.let { Uri.parse(it).host } ?: appName(caller.packageName)
-    thread {
-      val answer = ProviderBridge.saveLogin(id, caller.origin, caller.packageName, title, request.id, request.password)
-      if (answer.isEmpty()) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
-      runOnUiThread { if (answer.isEmpty()) saved() else fail(answer.removePrefix(ProviderBridge.FAILED)) }
-    }
+    verifyUser(this, "Save the password", entry, {
+      thread {
+        val answer = ProviderBridge.saveLogin(id, caller.origin, caller.packageName, title, request.id, request.password)
+        if (answer.isEmpty()) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
+        runOnUiThread { if (answer.isEmpty()) saved() else fail(answer.removePrefix(ProviderBridge.FAILED)) }
+      }
+    }, { busy = false; cancel() }, ::fail)
   }
 
-  /** The app's name as the phone shows it, else its package. */
+  /** The app's name as the phone shows it, else its package (Android may hide other apps). */
   private fun appName(packageName: String): String = try {
     packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
   } catch (e: Exception) {

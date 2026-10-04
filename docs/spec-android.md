@@ -256,7 +256,17 @@ Android offers Google first). Android asks it when an app or a site in a browser
   none is made and the site hears so. A browser's page must be on the site it asks for (or under it). An
   app is not checked against the site (no Digital Asset Links): a passkey it makes works only for that
   app, as the site checks the app's signing certificate.
-- Passwords through Credential Manager (#164) come next.
+- **Passwords through Credential Manager** (#164): apps that ask Credential Manager for a password
+  (`GetPasswordOption`) or offer one to save (`CreatePasswordRequest`) get PswManager too. This is not
+  Android's autofill (`AutofillService`), a stage of its own; most apps and every site in a browser
+  still fill through that. Who asks decides the entries: an **app** by its package, among an entry's URLs
+  as Keepass2Android keeps it (`androidapp://<package>` in URL or `KP2A_URL_n`); a **browser** on the
+  privileged list by its page's host, which must be the entry's (a `www.` aside; not the site's other
+  hosts). Picking a login asks for the fingerprint or the phone's screen lock, then the user name and
+  password go to the app. Saving shows who asks and where it goes: a **new entry** (named after the app,
+  or the site's host; URL `androidapp://<package>` or `https://<host>`), or **updating** one of its
+  entries: the password is replaced (the old version goes to history), the user name kept when the
+  entry has one. It is verified the same way, saved, and goes up with the next sync.
 
 ## Synchronisation
 

@@ -76,6 +76,10 @@ object ProviderBridge {
   external fun saveLogin(id: String?, origin: String?, packageName: String, title: String, username: String, password: String): String
 
   const val STALE = "stale:"
+
+  /** The entry (and its title) a picked passkey or login is for, in the activity's intent. */
+  const val EXTRA_ENTRY = "entry"
+  const val EXTRA_TITLE = "title"
   const val FAILED = "failed:"
 
   /** The app's state file, as Tauri keeps it (its data folder, `app_data_dir`; `STATE_FILE` in app.rs). */
@@ -153,9 +157,17 @@ class PswmCredentialService : CredentialProviderService() {
           )
         }
       }
-      val caller = request.callingAppInfo?.let { app -> runCatching { Caller.of(context, app) }.getOrNull() }
-      val logins = if (caller == null) emptyList() else request.beginGetCredentialOptions.filterIsInstance<BeginGetPasswordOption>().flatMap { option ->
-        val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName) ?: "[]")
+      val passwordOptions = request.beginGetCredentialOptions.filterIsInstance<BeginGetPasswordOption>()
+      val caller = request.callingAppInfo?.takeIf { passwordOptions.isNotEmpty() }?.let { app ->
+        try {
+          Caller.of(context, app)
+        } catch (e: Exception) {
+          android.util.Log.w("PswmProvider", "No logins offered: who asks is unknown (${e.javaClass.simpleName})")
+          null
+        }
+      }
+      val found = JSONArray(caller?.let { ProviderBridge.logins(it.origin, it.packageName) } ?: "[]")
+      val logins = passwordOptions.flatMap { option ->
         (0 until found.length()).map { i ->
           val login = found.getJSONObject(i)
           val title = login.optString("title")
@@ -175,8 +187,8 @@ class PswmCredentialService : CredentialProviderService() {
     private fun entryIntent(context: Context, activity: Class<*>, id: String, title: String): PendingIntent {
       val intent = Intent(context, activity)
         .setIdentifier(id)
-        .putExtra(PasskeyActivity.EXTRA_ENTRY, id)
-        .putExtra(PasskeyActivity.EXTRA_TITLE, title)
+        .putExtra(ProviderBridge.EXTRA_ENTRY, id)
+        .putExtra(ProviderBridge.EXTRA_TITLE, title)
       return PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
