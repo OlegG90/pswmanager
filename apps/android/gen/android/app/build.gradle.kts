@@ -94,6 +94,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.biometric:biometric:1.1.0")
+    // SPIKE (#151): Android's Credential Transfer.
+    implementation("androidx.credentials.providerevents:providerevents:1.0.0-beta01")
+    implementation("androidx.credentials.providerevents:providerevents-play-services:1.0.0-beta01")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
