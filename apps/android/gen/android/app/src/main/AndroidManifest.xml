@@ -37,6 +37,20 @@
                 android:name="android.credentials.provider"
                 android:resource="@xml/credential_provider" />
         </service>
+        <!-- TEMP (#164): adb shell am start -n io.github.olegg90.pswmanager/.CredTestActivity --es mode save|get -->
+        <activity
+            android:name=".CredTestActivity"
+            android:exported="true" />
+        <activity
+            android:name=".PasswordActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.pswm_android.Translucent" />
+        <activity
+            android:name=".CreatePasswordActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true" />
         <activity
             android:name=".CreatePasskeyActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
