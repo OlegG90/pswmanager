@@ -12,12 +12,13 @@ use keepass::Database;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// What an export holds, read and ready to add.
 pub struct Import {
     /// The app it came from, as it names itself.
     pub exporter: String,
+    /// The entries to add, in the export's order.
     pub entries: Vec<Imported>,
     /// What could not be brought over, and why.
     pub skipped: Vec<Skipped>,
@@ -25,15 +26,18 @@ pub struct Import {
 
 /// An entry to add, with the times the other app kept for it.
 pub struct Imported {
+    /// The entry, its group the collection it was in (below the import's group).
     pub data: EntryData,
     pub created: Option<NaiveDateTime>,
     pub modified: Option<NaiveDateTime>,
 }
 
+/// Something in the export that no entry holds.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Skipped {
     /// The item's title.
     pub title: String,
+    /// Why it was left out.
     pub why: String,
 }
 
@@ -44,15 +48,18 @@ impl Import {
     }
 }
 
-/// The attributes KeePassXC keeps a passkey in.
+/// The attributes KeePassXC keeps a passkey in: they all start with this, and
+/// no other field may.
+const PASSKEY_PREFIX: &str = "KPEX_PASSKEY_";
 const PASSKEY_USERNAME: &str = "KPEX_PASSKEY_USERNAME";
 const PASSKEY_CREDENTIAL_ID: &str = "KPEX_PASSKEY_CREDENTIAL_ID";
 const PASSKEY_PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
 const PASSKEY_RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
 const PASSKEY_USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
 
-/// Reads a CXF 1.x export. The JSON's secrets are wiped once read; the
-/// caller wipes `json` itself.
+/// Reads a CXF 1.x export. The strings of the parsed JSON are wiped once
+/// read (not the parser's own buffers, which cannot be reached); the caller
+/// wipes `json` itself.
 pub fn parse(json: &str) -> Result<Import, String> {
     let mut root: Value = serde_json::from_str(json).map_err(|e| format!("Not a Credential Exchange export: {e}"))?;
     let import = read_header(&root);
@@ -62,12 +69,14 @@ pub fn parse(json: &str) -> Result<Import, String> {
 
 /// Adds the entries under the group at `under` (made where missing), with the
 /// collections they were in as groups below it. Returns how many were added.
+/// All or nothing: on an error the caller drops the changed database
+/// ([crate::vault::Vault::import] works on a copy).
 pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSet<GroupId>) -> Result<usize, String> {
     for imported in &import.entries {
         let mut data = imported.data.clone();
         data.group = under.iter().chain(&imported.data.group).cloned().collect();
         let id = edit::apply(db, None, &data, hidden)?;
-        let mut entry = db.entry_mut(id).expect("just added");
+        let mut entry = db.entry_mut(id).ok_or("The new entry is gone")?;
         if let Some(created) = imported.created {
             entry.times.creation = Some(created);
         }
@@ -78,23 +87,21 @@ pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSe
     Ok(import.entries.len())
 }
 
+/// The export's header: its version, who made it, and every account's items.
 fn read_header(root: &Value) -> Result<Import, String> {
     let major = root.get("version").and_then(|v| v.get("major")).and_then(Value::as_u64);
     if major != Some(1) {
         return Err("This export is in a Credential Exchange version PswManager cannot read".into());
     }
-    let exporter = ["exporterDisplayName", "exporterRpId"]
-        .iter()
-        .find_map(|k| text(root, k).filter(|v| !v.trim().is_empty()))
-        .unwrap_or("another app")
-        .to_string();
+    let exporter = first_text(root, &["exporterDisplayName", "exporterRpId"]).unwrap_or("another app").to_string();
     let accounts = root.get("accounts").and_then(Value::as_array).ok_or("The export holds no accounts")?;
     let mut import = Import { exporter, entries: Vec::new(), skipped: Vec::new() };
+    // Several accounts (a family's, say) each get a group of their own.
+    let own_groups = accounts.len() > 1;
     for account in accounts {
-        // Several accounts (a family's, say) each get a group of their own.
-        let top: Vec<String> = match accounts.len() {
-            1 => Vec::new(),
-            _ => vec![["fullName", "username", "email"].iter().find_map(|k| text(account, k).filter(|v| !v.trim().is_empty())).unwrap_or("Account").to_string()],
+        let top: Vec<String> = match own_groups {
+            true => vec![first_text(account, &["fullName", "username", "email"]).unwrap_or("Account").to_string()],
+            false => Vec::new(),
         };
         let mut groups = HashMap::new();
         for collection in list(account, "collections") {
@@ -123,6 +130,8 @@ fn index_collection(collection: &Value, above: &[String], groups: &mut HashMap<S
     }
 }
 
+/// An item as an entry (and one more per further passkey), with what it
+/// held that no entry can noted in `import.skipped`.
 fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
     let title = text(item, "title").unwrap_or("").trim().to_string();
     let mut data = EntryData::default();
@@ -134,15 +143,12 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
         data.tags.push(FAVORITE.to_string());
     }
     let scope = item.get("scope");
-    let mut urls = scope
-        .into_iter()
-        .flat_map(|s| list(s, "urls"))
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        // Android apps as Keepass2Android keeps them.
-        .chain(scope.into_iter().flat_map(|s| list(s, "androidApps")).filter_map(|a| text(a, "bundleId")).map(|id| format!("androidapp://{id}")));
+    let mut urls = scope.into_iter().flat_map(|s| list(s, "urls")).filter_map(Value::as_str).map(str::to_string);
     data.url = urls.next().unwrap_or_default();
-    for (n, url) in urls.enumerate() {
+    // More addresses, and Android apps, as Keepass2Android keeps them (an
+    // app is never the entry's own URL, which is opened in a browser).
+    let apps = scope.into_iter().flat_map(|s| list(s, "androidApps")).filter_map(|a| text(a, "bundleId")).map(|id| format!("androidapp://{id}"));
+    for (n, url) in urls.chain(apps).enumerate() {
         fields.add(&format!("KP2A_URL_{}", n + 1), &url, false);
     }
 
@@ -156,8 +162,9 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
                 let username = editable(credential, "username").map_or("", |f| f.value);
                 let password = editable(credential, "password").map_or("", |f| f.value);
                 if has_login {
-                    fields.add("Username", username, false);
-                    fields.add("Password", password, true);
+                    // Numbered after the standard fields: `UserName (2)`, `Password (2)`.
+                    fields.add(keepass::db::fields::USERNAME, username, false);
+                    fields.add(keepass::db::fields::PASSWORD, password, true);
                 } else {
                     data.username = username.to_string();
                     data.password = password.to_string();
@@ -172,7 +179,7 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
                 }
                 Err(e) => skip(import, format!("A TOTP secret: {e}")),
             },
-            "passkey" => match passkey_fields(credential) {
+            "passkey" => match Passkey::read(credential) {
                 Ok(passkey) => passkeys.push(passkey),
                 Err(e) => skip(import, format!("A passkey: {e}")),
             },
@@ -193,10 +200,9 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
                 }
             }
             "generated-password" => fields.add("Generated password", text(credential, "password").unwrap_or(""), true),
-            "ssh-key" => match text(credential, "privateKey").map(|key| pem("PRIVATE KEY", key)) {
+            "ssh-key" => match text(credential, "privateKey").map(pem) {
                 Some(Ok(key)) => {
-                    fields.add("SSH private key", &key, true);
-                    fields.add("SSH key type", text(credential, "keyType").unwrap_or(""), false);
+                    fields.add("SSH private key", &key, true);                    fields.add("SSH key type", text(credential, "keyType").unwrap_or(""), false);
                     fields.add("SSH key comment", text(credential, "keyComment").unwrap_or(""), false);
                     other_fields(credential, kind, &["keyType", "privateKey", "keyComment"], &mut fields);
                 }
@@ -214,26 +220,26 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
 
     // KeePassXC keeps one passkey per entry: a second one gets an entry of its own.
     let mut extra = Vec::new();
-    for (n, passkey) in passkeys.into_iter().enumerate() {
-        let rp = passkey.iter().find(|f| f.name == PASSKEY_RELYING_PARTY).map(|f| f.value.clone()).unwrap_or_default();
-        let user = passkey.iter().find(|f| f.name == PASSKEY_USERNAME).map(|f| f.value.clone()).unwrap_or_default();
-        if n == 0 {
-            if data.url.is_empty() && !rp.is_empty() {
-                data.url = format!("https://{rp}");
-            }
-            if data.username.is_empty() {
-                data.username = user;
-            }
-            fields.0.extend(passkey);
-        } else {
-            let mut own = EntryData::default();
-            own.title = if data.title.is_empty() { rp.clone() } else { data.title.clone() };
-            own.group = data.group.clone();
-            own.username = user;
-            own.url = format!("https://{rp}");
-            own.fields = passkey;
-            extra.push(own);
+    let mut passkeys = passkeys.into_iter();
+    if let Some(first) = passkeys.next() {
+        if data.url.is_empty() {
+            data.url = first.site();
         }
+        if data.username.is_empty() {
+            data.username = first.username.clone();
+        }
+        // No other field takes a passkey's name (see [Fields::add]).
+        fields.0.extend(first.fields);
+    }
+    for passkey in passkeys {
+        let mut own = EntryData::default();
+        own.title = if data.title.is_empty() { passkey.rp.clone() } else { data.title.clone() };
+        own.group = data.group.clone();
+        own.tags = data.tags.clone();
+        own.username = passkey.username.clone();
+        own.url = passkey.site();
+        own.fields = passkey.fields;
+        extra.push(own);
     }
     data.fields = std::mem::take(&mut fields.0);
     if data.title.is_empty() {
@@ -302,11 +308,12 @@ fn totp_uri(credential: &Value, title: &str) -> Result<String, String> {
         None if issuer.is_empty() => "PswManager".to_string(),
         None => issuer.to_string(),
     };
+    let secret = Zeroizing::new(secret.replace([' ', '-', '='], "").to_ascii_uppercase());
     let mut uri = url::Url::parse("otpauth://totp/").expect("constant URL");
     uri.set_path(&label);
     {
         let mut query = uri.query_pairs_mut();
-        query.append_pair("secret", &secret.replace([' ', '-', '='], "").to_ascii_uppercase());
+        query.append_pair("secret", &secret);
         if !issuer.is_empty() {
             query.append_pair("issuer", issuer);
         }
@@ -315,55 +322,77 @@ fn totp_uri(credential: &Value, title: &str) -> Result<String, String> {
         query.append_pair("digits", &number("digits").unwrap_or(6).to_string());
         query.append_pair("algorithm", &text(credential, "algorithm").unwrap_or("sha1").to_ascii_uppercase());
     }
-    let uri = uri.to_string();
+    let uri = Zeroizing::new(uri.to_string());
     otp::Totp::parse(&uri)?;
-    Ok(uri)
+    Ok(uri.to_string())
 }
 
-/// A passkey as KeePassXC keeps it: the ids as unpadded base64url (as CXF
-/// has them), the PKCS#8 key as PEM.
-fn passkey_fields(credential: &Value) -> Result<Vec<FieldData>, String> {
-    let need = |key| text(credential, key).filter(|v| !v.is_empty()).ok_or_else(|| format!("its {key} is missing"));
-    let key = pem("PRIVATE KEY", need("key")?)?;
-    let field = |name: &str, value: &str, protected| FieldData { name: name.into(), value: value.trim_end_matches('=').into(), protected };
-    Ok(vec![
-        field(PASSKEY_RELYING_PARTY, need("rpId")?, false),
-        field(PASSKEY_USERNAME, text(credential, "username").unwrap_or(""), false),
-        field(PASSKEY_CREDENTIAL_ID, need("credentialId")?, true),
-        field(PASSKEY_USER_HANDLE, need("userHandle")?, true),
-        FieldData { name: PASSKEY_PRIVATE_KEY.into(), value: key, protected: true },
-    ])
+/// A passkey: its relying party and user name, and the attributes KeePassXC
+/// keeps it in.
+struct Passkey {
+    rp: String,
+    username: String,
+    fields: Vec<FieldData>,
 }
 
-/// base64url DER as PEM with `label`.
-fn pem(label: &str, base64url: &str) -> Result<String, String> {
-    let mut der = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(base64url.trim().trim_end_matches('='))
-        .map_err(|_| "the key is not valid base64url".to_string())?;
-    let mut body = base64::engine::general_purpose::STANDARD.encode(&der);
-    der.zeroize();
+impl Passkey {
+    /// A CXF passkey as KeePassXC keeps it: the ids as unpadded base64url (as
+    /// CXF has them), the PKCS#8 key as PEM.
+    fn read(credential: &Value) -> Result<Passkey, String> {
+        let need = |key| text(credential, key).filter(|v| !v.is_empty()).ok_or_else(|| format!("its {key} is missing"));
+        let (rp, credential_id, user_handle) = (need("rpId")?, need("credentialId")?, need("userHandle")?);
+        let username = text(credential, "username").unwrap_or("");
+        let key = pem(need("key")?)?;
+        let field = |name: &str, value: &str, protected| FieldData { name: name.into(), value: value.trim_end_matches('=').into(), protected };
+        Ok(Passkey {
+            rp: rp.to_string(),
+            username: username.to_string(),
+            fields: vec![
+                field(PASSKEY_RELYING_PARTY, rp, false),
+                field(PASSKEY_USERNAME, username, false),
+                field(PASSKEY_CREDENTIAL_ID, credential_id, true),
+                field(PASSKEY_USER_HANDLE, user_handle, true),
+                field(PASSKEY_PRIVATE_KEY, &key, true),
+            ],
+        })
+    }
+
+    /// The relying party's site.
+    fn site(&self) -> String {
+        format!("https://{}", self.rp)
+    }
+}
+
+/// A base64url PKCS#8 key (DER) as PEM.
+fn pem(base64url: &str) -> Result<Zeroizing<String>, String> {
+    let der = Zeroizing::new(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(base64url.trim().trim_end_matches('='))
+            .map_err(|_| "the key is not valid base64url".to_string())?,
+    );
+    let body = Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(&*der));
     let lines: Vec<&str> = body.as_bytes().chunks(64).map(|c| std::str::from_utf8(c).expect("base64 is ASCII")).collect();
-    let pem = format!("-----BEGIN {label}-----\n{}\n-----END {label}-----", lines.join("\n"));
-    body.zeroize();
-    Ok(pem)
+    Ok(Zeroizing::new(format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", lines.join("\n"))))
 }
 
-/// Additional fields, each name used once: a taken name, or one of the
-/// standard fields', gets a number (`Password (2)`).
+/// Additional fields, each name used once: a taken name, a standard field's,
+/// or one a passkey's attributes use, gets a number (`Password (2)`).
 #[derive(Default)]
 struct Fields(Vec<FieldData>);
 
 impl Fields {
+    /// Adds a field, unless `value` is empty.
     fn add(&mut self, name: &str, value: &str, protected: bool) {
         if value.is_empty() {
             return;
         }
         let base = match name.trim() {
-            "" => "Field",
-            name => name,
+            "" => "Field".to_string(),
+            name if name.starts_with(PASSKEY_PREFIX) => format!("Imported {name}"),
+            name => name.to_string(),
         };
         let taken = |name: &str| edit::STANDARD.contains(&name) || self.0.iter().any(|f| f.name == name);
-        let mut name = base.to_string();
+        let mut name = base.clone();
         for n in 2.. {
             if !taken(&name) {
                 break;
@@ -374,29 +403,40 @@ impl Fields {
     }
 }
 
-/// A CXF editable field's value.
+/// A CXF editable field: a value with a type and perhaps a label.
 struct Editable<'a> {
     value: &'a str,
+    /// The label the user gave it, if any.
     label: Option<&'a str>,
+    /// A hidden value (a password, a card number): stored protected.
     concealed: bool,
 }
 
+/// `value` as an editable field, if it is one.
 fn as_editable(value: &Value) -> Option<Editable<'_>> {
     Some(Editable {
         value: text(value, "value")?,
-        label: text(value, "label").filter(|l| !l.trim().is_empty()),
+        label: first_text(value, &["label"]),
         concealed: text(value, "fieldType") == Some("concealed-string"),
     })
 }
 
+/// The editable field `key` of a credential.
 fn editable<'a>(credential: &'a Value, key: &str) -> Option<Editable<'a>> {
     credential.get(key).and_then(as_editable)
 }
 
+/// The string member `key`.
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+/// The first of the string members `keys` that is not blank.
+fn first_text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|k| text(value, k).filter(|v| !v.trim().is_empty()))
+}
+
+/// The members of the array `key`; none when it is missing.
 fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
     value.get(key).and_then(Value::as_array).into_iter().flatten()
 }
@@ -454,7 +494,8 @@ mod tests {
                {"fieldType": "string", "value": "x"}]},
              {"type": "file", "id": "Zg", "name": "scan.pdf", "decryptedSize": 10, "integrityHash": "aA"}
            ]},
-          {"id": "aXRlbTI", "title": "", "credentials": [
+          {"id": "aXRlbTI", "title": "", "tags": ["keys"], "scope": {"androidApps": [{"bundleId": "com.example.site"}]}, "credentials": [
+             {"type": "custom-fields", "fields": [{"fieldType": "string", "value": "mine", "label": "KPEX_PASSKEY_USERNAME"}]},
              {"type": "passkey", "credentialId": "Y3JlZC0x", "rpId": "site.example", "username": "bob",
               "userDisplayName": "Bob", "userHandle": "dXNlcg", "key": "AAECAwQFBgcICQoLDA0ODw"},
              {"type": "passkey", "credentialId": "Y3JlZC0y", "rpId": "other.example", "username": "bob",
@@ -486,7 +527,7 @@ mod tests {
         assert_eq!(data.url, "https://mail.example.com");
         assert_eq!(field(data, "KP2A_URL_1").unwrap().value, "https://webmail.example.com");
         assert_eq!(field(data, "KP2A_URL_2").unwrap().value, "androidapp://com.example.mail");
-        assert_eq!(field(data, "Username").unwrap().value, "alice2");
+        assert_eq!(field(data, "UserName (2)").unwrap().value, "alice2");
         let second = field(data, "Password (2)").unwrap();
         assert!(second.protected && second.value == "pw-2");
         assert_eq!(data.otp, "otpauth://totp/Mail:alice?secret=JBSWY3DPEHPK3PXP&issuer=Mail&period=30&digits=6&algorithm=SHA1");
@@ -505,6 +546,11 @@ mod tests {
         assert_eq!(field(first, PASSKEY_CREDENTIAL_ID).unwrap().value, "Y3JlZC0x");
         assert_eq!(field(first, PASSKEY_USER_HANDLE).unwrap().value, "dXNlcg");
         assert_eq!(field(first, PASSKEY_RELYING_PARTY).unwrap().value, "site.example");
+        assert_eq!(field(first, PASSKEY_USERNAME).unwrap().value, "bob");
+        // A field of the same name as a passkey attribute does not clash with it.
+        assert_eq!(field(first, "Imported KPEX_PASSKEY_USERNAME").unwrap().value, "mine");
+        // An Android app is never the entry's URL.
+        assert_eq!(field(first, "KP2A_URL_1").unwrap().value, "androidapp://com.example.site");
         let key = field(first, PASSKEY_PRIVATE_KEY).unwrap();
         assert!(key.protected);
         assert_eq!(key.value, "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgcICQoLDA0ODw==\n-----END PRIVATE KEY-----");
@@ -512,6 +558,7 @@ mod tests {
         let second = &import.entries[2].data;
         assert_eq!((second.title.as_str(), second.url.as_str()), ("other.example", "https://other.example"));
         assert_eq!(field(second, PASSKEY_CREDENTIAL_ID).unwrap().value, "Y3JlZC0y");
+        assert_eq!(second.tags, ["keys"]);
     }
 
     #[test]
