@@ -39,7 +39,9 @@ completely is a goal for later stages.
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
 database on the phone), *Database settings* (name, history limits, key and
 encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates and Trash
-groups, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
+groups, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
+exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
+migration stays with `sic2kdbx.py`.
 
 ## The database on the phone
 
@@ -139,7 +141,20 @@ As in the mockups `1e`–`1j`.
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
-  *Settings* and *Lock* at the bottom.
+  *Import from another app…*, *Settings* and *Lock* at the bottom.
+- **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
+  Android's Credential Transfer lists the password managers on the phone that can export (Google Password
+  Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
+  credential provider for this. The app hands over **everything** (FIDO CXF JSON), straight to the Rust
+  side, never to the page, held in memory only and wiped after reading (the copies Android and the
+  bridge to Rust make on the way cannot be wiped; nothing is written to a file or logged). The core adds every item as a
+  **new entry** (nothing is changed, merged or replaced) in a group *Imported from <app> <date>*, shown
+  under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
+  `KPEX_PASSKEY_*`; a second passkey in one item gets an entry of its own), notes, and other kinds as
+  additional attributes (the mapping in `docs/cxp-research.md`). The database is saved and synced as after
+  any change, all or nothing. A sheet then says how many entries came in and lists what did not, with the
+  reason (files, whose content an export does not carry; passkey extensions such as PRF; anything
+  unreadable). Exporting to another app comes later, with the credential provider stage (#153).
 - **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
   attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). As in Keepass2Android, each line ends in **⋮**, a menu of its commands (*Copy*, *Show / hide*
@@ -296,7 +311,8 @@ background.
   Stop syncing, Disconnect and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
   screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
-  back; biometric unlock and its invalidation (stage A3).
+  back; biometric unlock and its invalidation (stage A3); importing from Google Password Manager (with
+  test entries) and the entries then on Windows.
 - **Compatibility gate** (as in `spec.md`), with the phone in it: a change made in PswManager on the phone
   reaches PswManager on Windows and Keepass2Android, and theirs reach the phone, without loss — through
   each supported store and for a local file.

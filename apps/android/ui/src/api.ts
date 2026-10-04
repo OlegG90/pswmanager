@@ -28,6 +28,24 @@ export interface Listing {
   database: { defaultUsername: string }
 }
 
+/** Something an import could not bring over. */
+export interface Skipped {
+  /** The item's title in the other app. */
+  title: string
+  why: string
+}
+
+/** What an import from another app brought. */
+export interface Imported {
+  exporter: string
+  /** The group the entries were put in. */
+  group: string
+  added: number
+  /** What could not be brought over, and why. */
+  skipped: Skipped[]
+  listing: Listing
+}
+
 export interface Saved {
   id: string
   listing: Listing
@@ -132,6 +150,8 @@ export const api = {
   /** Makes a new database and puts it in a store (with its visible copy in `folder`) or a folder. */
   createDatabase: (name: string, password: string, place: { kind: 'cloud'; cloud: Cloud; folder: Picked } | { kind: 'folder'; folder: Picked }) =>
     invoke<{ status: Status; copyProblem: string | null }>('create_database', { name, password, place }),
+  /** Imports from another password manager on this phone; null when the user went back. */
+  importFromApp: () => invoke<Imported | null>('import_from_app'),
   cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),
   openCloudFile: (cloud: Cloud, file: CloudFile, folder: Picked) =>
     invoke<{ status: Status; copyProblem: string | null }>('open_cloud_file', { cloud, file, folder }),

@@ -335,6 +335,15 @@ main.list-screen {
   border-radius: 12px 12px 0 0;
 }
 
+/* What an import could not bring over: it may be long, so it scrolls. */
+.sheet ul.skipped {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.9em;
+}
+
 #snackbar {
   position: fixed;
   left: 16px;

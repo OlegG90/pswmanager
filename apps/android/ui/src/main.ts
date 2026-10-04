@@ -8,7 +8,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -581,9 +581,44 @@ function drawer(listing: Listing, changed: () => void) {
     }),
     el('h2', {}, 'Tags'),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
+    button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'action'),
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
     button('Lock', 'Lock the database', () => void lock(), 'action'),
   )
+}
+
+/** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
+function importSheet() {
+  sheet((close) => [
+    el('b', {}, 'Import from another app'),
+    el('p', {}, 'Android lists the password managers on this phone that can hand over their passwords. Everything the one you choose hands over is added as new entries: nothing here is changed or replaced.'),
+    el('p', { className: 'muted' }, 'Passwords, passkeys, TOTP secrets and notes come over; attached files do not. The entries go to a group of their own, shown under All.'),
+    button('Choose the app', 'Choose the app to import from', () => (close(), void runImport()), 'primary'),
+    button('Cancel', 'Cancel', close, 'link'),
+  ])
+}
+
+async function runImport() {
+  try {
+    const imported = await api.importFromApp()
+    if (!imported) return
+    if (imported.added) listScreen(imported.listing)
+    importedSheet(imported)
+  } catch (e) {
+    snack(String(e))
+  }
+}
+
+/** What an import brought, and what it could not. */
+function importedSheet({ added, exporter, group, skipped }: Imported) {
+  sheet((close) => [
+    el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
+    el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
+    ...(skipped.length
+      ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
+      : []),
+    button('OK', 'OK', close, 'primary'),
+  ])
 }
 
 /** Shows the unlock screen after the database locked by itself (in the background). */
