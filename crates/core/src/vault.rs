@@ -402,9 +402,11 @@ impl Vault {
     /// works with: only those with a credential id in `allowed` when the
     /// request names some (WebAuthn's `allowCredentials`).
     pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<PasskeyChoice> {
+        // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
+        let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| credential_id_bytes(id)).collect();
         self.visible_entries()
-            .filter(|e| e.get(edit::passkey::RELYING_PARTY) == Some(rp_id))
-            .filter(|e| allowed.is_empty() || e.get(edit::passkey::CREDENTIAL_ID).is_some_and(|id| allowed.iter().any(|a| a == id.trim_end_matches('='))))
+            .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
+            .filter(|e| allowed.is_empty() || e.get(edit::passkey::CREDENTIAL_ID).and_then(credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
             .map(|e| PasskeyChoice {
                 id: e.id().uuid().to_string(),
                 title: e.get(fields::TITLE).unwrap_or_default().to_string(),
@@ -728,6 +730,16 @@ fn kind(entry: &EntryRef<'_>) -> Kind {
 /// True when the entry sits in `group` (if the database has one), at any depth.
 fn in_group(entry: &EntryRef<'_>, group: Option<Uuid>) -> bool {
     group.is_some_and(|g| is_in(entry, &HashSet::from([GroupId::from(g)])))
+}
+
+/// A credential id's bytes, from base64url or plain base64, padded or not.
+fn credential_id_bytes(id: &str) -> Option<Vec<u8>> {
+    let unified: String = id.trim().trim_end_matches('=').chars().map(|c| match c {
+        '+' => '-',
+        '/' => '_',
+        c => c,
+    }).collect();
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(unified).ok()
 }
 
 fn parse_id(id: &str) -> Result<EntryId, String> {

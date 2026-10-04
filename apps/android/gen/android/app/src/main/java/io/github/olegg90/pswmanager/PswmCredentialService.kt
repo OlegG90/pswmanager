@@ -106,6 +106,14 @@ class PswmCredentialService : CredentialProviderService() {
     fun passkeys(context: Context, request: BeginGetCredentialRequest): BeginGetCredentialResponse {
       val entries = request.beginGetCredentialOptions.filterIsInstance<BeginGetPublicKeyCredentialOption>().flatMap { option ->
         val found = JSONArray(ProviderBridge.passkeys(option.requestJson) ?: "[]")
+        // TEMP (#162): counts only.
+        try {
+          val req = org.json.JSONObject(option.requestJson)
+          val allow = req.optJSONArray("allowCredentials")?.length() ?: 0
+          req.remove("allowCredentials")
+          val any = JSONArray(ProviderBridge.passkeys(req.toString()) ?: "[]").length()
+          android.util.Log.i("PswmProvider", "rpId=${req.optString("rpId")} allow=$allow offered=${found.length()} forSite=$any")
+        } catch (e: Exception) { android.util.Log.i("PswmProvider", "log failed ${e.message}") }
         (0 until found.length()).map { i ->
           val passkey = found.getJSONObject(i)
           val title = passkey.optString("title")
