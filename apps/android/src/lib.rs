@@ -20,6 +20,8 @@ mod editing;
 #[cfg(mobile)]
 mod icons;
 #[cfg(mobile)]
+mod provider;
+#[cfg(mobile)]
 mod secrets;
 #[cfg(mobile)]
 mod system;

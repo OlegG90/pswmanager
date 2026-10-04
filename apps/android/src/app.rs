@@ -40,7 +40,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join(STATE_FILE)));
             crate::background::remember(app.handle());
-            app.manage(Session::default());
+            // Shared with the credential provider (provider.rs).
+            app.manage(crate::provider::session());
             app.manage(LastSync::default());
             app.manage(Syncing::default());
             app.manage(LockLater::default());
@@ -285,9 +286,16 @@ const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STA
 /// The database's key as biometric unlock keeps it (sealed in the Keystore):
 /// what the user typed and the key file's content, base64.
 #[derive(Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
-struct Secret {
-    password: Option<String>,
+pub(crate) struct Secret {
+    pub(crate) password: Option<String>,
     key_file: Option<String>,
+}
+
+impl Secret {
+    /// The key file's content, if the database has one.
+    pub(crate) fn key_file(&self) -> Result<Option<Zeroizing<Vec<u8>>>, base64::DecodeError> {
+        self.key_file.as_deref().map(|k| B64.decode(k).map(Zeroizing::new)).transpose()
+    }
 }
 
 /// Where the time the master password was last asked for is kept (seconds
@@ -298,7 +306,7 @@ fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-fn password_asked(store: &Store) {
+pub(crate) fn password_asked(store: &Store) {
     let _ = store.update(|s| drop(s.settings.insert(PASSWORD_ASKED.into(), now().into())));
 }
 
@@ -306,6 +314,12 @@ fn password_asked(store: &Store) {
 fn password_due(store: &Store) -> bool {
     let asked = store.read(|s| s.settings.get(PASSWORD_ASKED).and_then(serde_json::Value::as_u64)).unwrap_or(0);
     now().saturating_sub(asked) >= Settings::of(store).password_every().as_secs()
+}
+
+/// The setting allows the fingerprint and the master password is not due
+/// (the app's unlock screen and the credential provider's).
+pub(crate) fn biometric_allowed(store: &Store) -> bool {
+    Settings::of(store).biometric_unlock() && !password_due(store)
 }
 
 /// After an unlock with the master password: the key is sealed for biometric
@@ -317,19 +331,26 @@ fn seal_wanted(store: &Store, biometric: &Biometric<Wry>) -> bool {
 
 /// Opens the database with this key and makes it the session's; the sync starts.
 fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Result<Listing, String> {
-    let store = app.state::<Store>();
-    sync::ensure_working_copy(&store)?;
+    let (vault, listing) = open_vault(&app.state::<Store>(), password, key_file)?;
+    crate::icons::fetch(app, &listing);
+    app.state::<Session>().set(Some(vault));
+    crate::provider::unlocked_in_app();
+    start_sync(app.clone());
+    Ok(listing)
+}
+
+/// Opens the database on this phone with this key (the app's unlock and the
+/// credential provider's), its name and description kept for the unlock screen.
+pub(crate) fn open_vault(store: &Store, password: Option<&str>, key_file: Option<&[u8]>) -> Result<(Vault, Listing), String> {
+    sync::ensure_working_copy(store)?;
     let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     let mut key_file = key_file;
     let key = vault::key_reading(password, key_file.as_mut().map(|k| k as &mut dyn std::io::Read))?;
     let vault = Vault::open_with_key(&file, key)?;
     let listing = vault.listing();
-    crate::icons::fetch(app, &listing);
     // Only for the unlock screen next time: not worth failing the unlock over.
     let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
-    app.state::<Session>().set(Some(vault));
-    start_sync(app.clone());
-    Ok(listing)
+    Ok((vault, listing))
 }
 
 /// Whether the unlock screen shows the fingerprint button: the setting is
@@ -340,7 +361,7 @@ async fn biometric_ready(app: AppHandle) -> Result<bool, String> {
     off_main(move || {
         let store = app.state::<Store>();
         let status = app.state::<Biometric<Wry>>().status()?;
-        Ok(Settings::of(&store).biometric_unlock() && status.available && status.stored && !password_due(&store))
+        Ok(biometric_allowed(&store) && status.available && status.stored)
     })
     .await
 }
@@ -366,7 +387,7 @@ async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, String> {
             Failure::Other(message) => message,
         })?;
         let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;
-        let key_file = secret.key_file.as_deref().map(|k| B64.decode(k).map(Zeroizing::new)).transpose().map_err(|e| e.to_string())?;
+        let key_file = secret.key_file().map_err(|e| e.to_string())?;
         open(&app, secret.password.as_deref(), key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
             if e == pswm_core::dbfile::WRONG_KEY {
                 let _ = biometric.forget();
@@ -390,6 +411,12 @@ async fn forget_biometric(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn lock(app: AppHandle) {
     lock_now(&app);
+}
+
+/// Locks and tells the page (`locked`), which shows the unlock screen.
+pub(crate) fn lock_and_tell(app: &AppHandle) {
+    lock_now(app);
+    let _ = app.emit("locked", ());
 }
 
 fn lock_now(app: &AppHandle) {
@@ -427,19 +454,21 @@ struct LockLater(Latest);
 /// running on time.
 #[tauri::command]
 fn lock_later(app: AppHandle) {
+    crate::provider::app_in_front(false);
     let wait = app.state::<LockLater>().0.next();
     let Some(after) = Settings::of(&app.state()).lock_in_background() else { return };
     std::thread::spawn(move || {
         std::thread::sleep(after);
         if app.state::<LockLater>().0.is_latest(wait) && app.state::<Session>().is_unlocked() {
-            lock_now(&app);
-            let _ = app.emit("locked", ());
+            lock_and_tell(&app);
         }
     });
 }
 
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
+    crate::provider::app_in_front(true);
+    crate::provider::unlocked_in_app();
     later.0.next();
 }
 
@@ -477,7 +506,7 @@ fn set_setting(store: State<Store>, name: String, value: serde_json::Value) -> R
 /// the document the user picked, read at each unlock.
 const KEY_FILE: &str = "keyFile";
 
-fn key_file(store: &Store) -> Option<documents::Picked> {
+pub(crate) fn key_file(store: &Store) -> Option<documents::Picked> {
     store.read(|s| s.settings.get(KEY_FILE).cloned()).and_then(|v| serde_json::from_value(v).ok())
 }
 
