@@ -45,7 +45,7 @@ class TransferSpikeActivity : AppCompatActivity() {
       try {
         val response = ProviderEventsManager.create(this@TransferSpikeActivity).importCredentials(this@TransferSpikeActivity, request)
         val json = response.response.responseJson
-        say("Exporter: ${response.callingAppInfo.packageName}\nJSON length: ${json.length}\nShape:\n${(shape(JSONObject(json)) as JSONObject).toString(2)}")
+        say("Exporter: ${response.callingAppInfo.packageName}\nJSON length: ${json.length}\n${summary(JSONObject(json))}")
       } catch (e: ImportCredentialsException) {
         say("Failed: ${e.javaClass.simpleName}: ${e.message}")
       } catch (e: Exception) {
@@ -57,6 +57,59 @@ class TransferSpikeActivity : AppCompatActivity() {
   private fun say(text: String) {
     out.text = text
     text.lines().forEach { Log.i("PswmSpike", it) }
+  }
+
+  /** Counts and member names only: no values. */
+  private fun summary(root: JSONObject): String {
+    val lines = mutableListOf<String>()
+    lines += "header keys: ${root.keys().asSequence().toList()} version=${root.optJSONObject("version")} exporter=${root.optString("exporterRpId")} / ${root.optString("exporterDisplayName")}"
+    val accounts = root.optJSONArray("accounts") ?: JSONArray()
+    lines += "accounts: ${accounts.length()}"
+    val itemKeys = sortedSetOf<String>()
+    val scopeKeys = sortedSetOf<String>()
+    val appKeys = sortedSetOf<String>()
+    val types = sortedMapOf<String, Int>()
+    val members = sortedMapOf<String, MutableSet<String>>()
+    var items = 0
+    var collections = 0
+    var withTags = 0
+    var credentialCounts = sortedMapOf<Int, Int>()
+    for (a in 0 until accounts.length()) {
+      val account = accounts.getJSONObject(a)
+      lines += "account keys: ${account.keys().asSequence().toList()}"
+      collections += account.optJSONArray("collections")?.length() ?: 0
+      val list = account.optJSONArray("items") ?: JSONArray()
+      items += list.length()
+      for (i in 0 until list.length()) {
+        val item = list.getJSONObject(i)
+        itemKeys += item.keys().asSequence()
+        if ((item.optJSONArray("tags")?.length() ?: 0) > 0) withTags++
+        item.optJSONObject("scope")?.let { s ->
+          scopeKeys += s.keys().asSequence()
+          val apps = s.optJSONArray("androidApps") ?: JSONArray()
+          for (k in 0 until apps.length()) appKeys += apps.getJSONObject(k).keys().asSequence()
+        }
+        val creds = item.optJSONArray("credentials") ?: JSONArray()
+        credentialCounts[creds.length()] = (credentialCounts[creds.length()] ?: 0) + 1
+        for (c in 0 until creds.length()) {
+          val cred = creds.getJSONObject(c)
+          val type = cred.optString("type")
+          types[type] = (types[type] ?: 0) + 1
+          val set = members.getOrPut(type) { sortedSetOf() }
+          cred.keys().forEach { k ->
+            val v = cred.get(k)
+            set += if (v is JSONObject) "$k{${v.keys().asSequence().joinToString(",")}}" else "$k:${v.javaClass.simpleName}"
+          }
+        }
+      }
+    }
+    lines += "items: $items, collections: $collections, items with tags: $withTags"
+    lines += "credentials per item (count -> items): $credentialCounts"
+    lines += "item keys: $itemKeys"
+    lines += "scope keys: $scopeKeys; androidApp keys: $appKeys"
+    lines += "credential types: $types"
+    members.forEach { (type, set) -> lines += "  $type members: $set" }
+    return lines.joinToString("\n")
   }
 
   /** The JSON with every string but type names replaced by `<n chars>`. */
