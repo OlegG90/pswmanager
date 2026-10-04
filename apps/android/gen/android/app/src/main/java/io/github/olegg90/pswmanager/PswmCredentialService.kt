@@ -106,26 +106,6 @@ class PswmCredentialService : CredentialProviderService() {
     fun passkeys(context: Context, request: BeginGetCredentialRequest): BeginGetCredentialResponse {
       val entries = request.beginGetCredentialOptions.filterIsInstance<BeginGetPublicKeyCredentialOption>().flatMap { option ->
         val found = JSONArray(ProviderBridge.passkeys(option.requestJson) ?: "[]")
-        // TEMP (#162): counts only.
-        try {
-          val req = org.json.JSONObject(option.requestJson)
-          val allow = req.optJSONArray("allowCredentials")?.length() ?: 0
-          req.remove("allowCredentials")
-          val any = JSONArray(ProviderBridge.passkeys(req.toString()) ?: "[]").length()
-          android.util.Log.i("PswmProvider", "rpId=${req.optString("rpId")} allow=$allow offered=${found.length()} forSite=$any")
-          val dec = { t: String -> try { android.util.Base64.decode(t.replace('+', '-').replace('/', '_').trimEnd('='), android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP) } catch (e: Exception) { null } }
-          val allowIds = org.json.JSONObject(option.requestJson).optJSONArray("allowCredentials")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("id") } } ?: emptyList()
-          allowIds.forEach { android.util.Log.i("PswmProvider", "allow id: chars=${it.length} bytes=${dec(it)?.size}") }
-          val all = JSONArray(ProviderBridge.passkeys(req.toString()) ?: "[]")
-          (0 until all.length()).forEach { i ->
-            val c = all.getJSONObject(i).optString("credentialId")
-            val once = dec(c)
-            val twice = once?.let { b -> dec(String(b, Charsets.ISO_8859_1)) }
-            val eqTwice = twice != null && allowIds.any { a -> dec(a)?.contentEquals(twice) == true }
-            val eqOnce = once != null && allowIds.any { a -> dec(a)?.contentEquals(once) == true }
-            android.util.Log.i("PswmProvider", "stored id: chars=${c.length} bytes=${once?.size} twiceBytes=${twice?.size} matchOnce=$eqOnce matchTwice=$eqTwice asciiBody=${once?.all { it in 32..126 }}")
-          }
-        } catch (e: Exception) { android.util.Log.i("PswmProvider", "log failed ${e.message}") }
         (0 until found.length()).map { i ->
           val passkey = found.getJSONObject(i)
           val title = passkey.optString("title")

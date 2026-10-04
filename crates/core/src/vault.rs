@@ -23,8 +23,6 @@ pub struct PasskeyChoice {
     pub id: String,
     pub title: String,
     pub username: String,
-    /// TEMP (#162): the credential id, to compare encodings.
-    pub credential_id: String,
 }
 
 pub struct Vault {
@@ -413,7 +411,6 @@ impl Vault {
                 id: e.id().uuid().to_string(),
                 title: e.get(fields::TITLE).unwrap_or_default().to_string(),
                 username: e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME)).unwrap_or_default().to_string(),
-                credential_id: e.get(edit::passkey::CREDENTIAL_ID).unwrap_or_default().to_string(),
             })
             .collect()
     }
