@@ -824,13 +824,11 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
         kind: kind(e),
         otp: e.fields.contains_key(fields::OTP),
-        passkey: e.fields.keys().any(|name| name.starts_with(PASSKEY)),
+        passkey: e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)),
         expires: edit::expiry_of(&e.times),
     }
 }
 
-/// The attributes KeePassXC stores a passkey in start with this.
-const PASSKEY: &str = "KPEX_PASSKEY_";
 
 /// The key from a master password, a key file, or both.
 pub fn key(password: Option<&str>, key_file: Option<&Path>) -> Result<DatabaseKey, String> {

@@ -57,10 +57,10 @@ KDBX already holds almost everything CXF carries, partly by convention (KeePassX
 | `favorite` | the tag `Favorite` (the app's star) | |
 | `tags` | Tags | |
 | `scope.urls` | URL; more URLs as additional attributes (`KP2A_URL_1`, … as Keepass2Android reads them) | |
-| `scope.androidApps` | an additional attribute per app | No common KDBX convention for it |
-| `basic-auth` | UserName, Password | A second login in one item becomes additional attributes |
+| `scope.androidApps` | more `KP2A_URL_n` attributes as `androidapp://<package>`, as Keepass2Android reads them | Never the entry's own URL |
+| `basic-auth` | UserName, Password | A second login in one item becomes `UserName (2)`, `Password (2)` |
 | `totp` | `otp` (an `otpauth://` URI built from secret, period, digits, algorithm, issuer) | What the app reads already |
-| `passkey` | KeePassXC's `KPEX_PASSKEY_*` attributes: credential id, relying party, user name, user handle, private key | CXF's key is PKCS#8 DER (base64url); KeePassXC keeps PEM — a re-encoding. PRF / large-blob extensions only with KeePassXC's newer attributes |
+| `passkey` | KeePassXC's `KPEX_PASSKEY_*` attributes: credential id, relying party, user name, user handle, private key; a second passkey in one item gets an entry of its own (KeePassXC keeps one per entry) | CXF's key is PKCS#8 DER (base64url); KeePassXC keeps PEM — a re-encoding. PRF / large-blob extensions only with KeePassXC's newer attributes |
 | `note` | Notes | |
 | `custom-fields`, `api-key`, `wifi`, `credit-card`, `address`, identity documents, `person-name` | additional attributes, the field label as the name, concealed fields protected | Types (date, country, …) become plain text |
 | `ssh-key` | an attachment or attributes | KeePassXC's KeeAgent settings are not in CXF |

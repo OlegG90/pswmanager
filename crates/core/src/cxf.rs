@@ -3,7 +3,7 @@
 //! read into new entries (see `docs/cxp-research.md` for the mapping). Every
 //! item becomes a new entry; nothing in the database is changed or merged.
 
-use crate::edit::{self, EntryData, FieldData, FAVORITE};
+use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
@@ -48,14 +48,6 @@ impl Import {
     }
 }
 
-/// The attributes KeePassXC keeps a passkey in: they all start with this, and
-/// no other field may.
-const PASSKEY_PREFIX: &str = "KPEX_PASSKEY_";
-const PASSKEY_USERNAME: &str = "KPEX_PASSKEY_USERNAME";
-const PASSKEY_CREDENTIAL_ID: &str = "KPEX_PASSKEY_CREDENTIAL_ID";
-const PASSKEY_PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
-const PASSKEY_RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
-const PASSKEY_USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
 
 /// Reads a CXF 1.x export. The strings of the parsed JSON are wiped once
 /// read (not the parser's own buffers, which cannot be reached); the caller
@@ -97,11 +89,11 @@ fn read_header(root: &Value) -> Result<Import, String> {
     let accounts = root.get("accounts").and_then(Value::as_array).ok_or("The export holds no accounts")?;
     let mut import = Import { exporter, entries: Vec::new(), skipped: Vec::new() };
     // Several accounts (a family's, say) each get a group of their own.
-    let own_groups = accounts.len() > 1;
     for account in accounts {
-        let top: Vec<String> = match own_groups {
-            true => vec![first_text(account, &["fullName", "username", "email"]).unwrap_or("Account").to_string()],
-            false => Vec::new(),
+        let top: Vec<String> = if accounts.len() > 1 {
+            vec![first_text(account, &["fullName", "username", "email"]).unwrap_or("Account").to_string()]
+        } else {
+            Vec::new()
         };
         let mut groups = HashMap::new();
         for collection in list(account, "collections") {
@@ -137,22 +129,49 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
     let mut data = EntryData::default();
     data.title = title.clone();
     data.group = group;
-    let mut fields = Fields::default();
     data.tags = list(item, "tags").filter_map(Value::as_str).map(str::to_string).collect();
     if item.get("favorite").and_then(Value::as_bool) == Some(true) && !data.tags.iter().any(|t| t == FAVORITE) {
         data.tags.push(FAVORITE.to_string());
     }
+    let mut fields = Fields::default();
+    read_scope(item, &mut data, &mut fields);
+    let mut why = Vec::new();
+    let passkeys = read_credentials(item, &mut data, &mut fields, &mut why);
+    let extra = place_passkeys(passkeys, &mut data, &mut fields);
+    data.fields = fields.0;
+    if data.title.is_empty() {
+        data.title = crate::icons::host_of(&data.url).unwrap_or_else(|| "Untitled".into());
+    }
+
+    let created = time(item, "creationAt");
+    let modified = time(item, "modifiedAt");
+    let empty = data.username.is_empty() && data.password.is_empty() && data.otp.is_empty() && data.notes.is_empty() && data.fields.is_empty();
+    // An item with nothing but a title or an address is kept as a bookmark.
+    if !empty || extra.is_empty() && (!title.is_empty() || !data.url.is_empty()) {
+        import.entries.push(Imported { data, created, modified });
+    } else if extra.is_empty() {
+        why.push("An item with nothing PswManager can keep".into());
+    }
+    import.entries.extend(extra.into_iter().map(|data| Imported { data, created, modified }));
+    import.skipped.extend(why.into_iter().map(|why| Skipped { title: title.clone(), why }));
+}
+
+/// The item's addresses: the first is the entry's URL; more, and Android
+/// apps, go in fields as Keepass2Android keeps them (an app is never the
+/// entry's own URL, which is opened in a browser).
+fn read_scope(item: &Value, data: &mut EntryData, fields: &mut Fields) {
     let scope = item.get("scope");
     let mut urls = scope.into_iter().flat_map(|s| list(s, "urls")).filter_map(Value::as_str).map(str::to_string);
     data.url = urls.next().unwrap_or_default();
-    // More addresses, and Android apps, as Keepass2Android keeps them (an
-    // app is never the entry's own URL, which is opened in a browser).
     let apps = scope.into_iter().flat_map(|s| list(s, "androidApps")).filter_map(|a| text(a, "bundleId")).map(|id| format!("androidapp://{id}"));
     for (n, url) in urls.chain(apps).enumerate() {
         fields.add(&format!("KP2A_URL_{}", n + 1), &url, false);
     }
+}
 
-    let skip = |import: &mut Import, why: String| import.skipped.push(Skipped { title: title.clone(), why });
+/// The item's credentials into the entry; returns its passkeys, and notes in
+/// `why` what could not be kept.
+fn read_credentials(item: &Value, data: &mut EntryData, fields: &mut Fields, why: &mut Vec<String>) -> Vec<Passkey> {
     let (mut has_login, mut has_otp) = (false, false);
     let mut passkeys = Vec::new();
     for credential in list(item, "credentials") {
@@ -171,17 +190,17 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
                     has_login = true;
                 }
             }
-            "totp" => match totp_uri(credential, &title) {
+            "totp" => match totp_uri(credential, &data.title) {
                 Ok(uri) if has_otp => fields.add("TOTP", &uri, true),
                 Ok(uri) => {
                     data.otp = uri;
                     has_otp = true;
                 }
-                Err(e) => skip(import, format!("A TOTP secret: {e}")),
+                Err(e) => why.push(format!("A TOTP secret: {e}")),
             },
             "passkey" => match Passkey::read(credential) {
                 Ok(passkey) => passkeys.push(passkey),
-                Err(e) => skip(import, format!("A passkey: {e}")),
+                Err(e) => why.push(format!("A passkey: {e}")),
             },
             "note" => {
                 if let Some(note) = editable(credential, "content").map(|f| f.value).filter(|n| !n.is_empty()) {
@@ -191,8 +210,8 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
                     data.notes.push_str(note);
                 }
             }
-            "file" => skip(import, format!("The file {}: its content is not in the export", text(credential, "name").unwrap_or("?"))),
-            "item-reference" => skip(import, "A link to another item".into()),
+            "file" => why.push(format!("The file {}: its content is not in the export", text(credential, "name").unwrap_or("?"))),
+            "item-reference" => why.push("A link to another item".into()),
             "custom-fields" => {
                 let label = text(credential, "label").unwrap_or("Field");
                 for field in list(credential, "fields").filter_map(as_editable) {
@@ -202,24 +221,29 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
             "generated-password" => fields.add("Generated password", text(credential, "password").unwrap_or(""), true),
             "ssh-key" => match text(credential, "privateKey").map(pem) {
                 Some(Ok(key)) => {
-                    fields.add("SSH private key", &key, true);                    fields.add("SSH key type", text(credential, "keyType").unwrap_or(""), false);
+                    fields.add("SSH private key", &key, true);
+                    fields.add("SSH key type", text(credential, "keyType").unwrap_or(""), false);
                     fields.add("SSH key comment", text(credential, "keyComment").unwrap_or(""), false);
-                    other_fields(credential, kind, &["keyType", "privateKey", "keyComment"], &mut fields);
+                    other_fields(credential, kind, &["keyType", "privateKey", "keyComment"], fields);
                 }
-                _ => skip(import, "An SSH key that is not a valid key".into()),
+                _ => why.push("An SSH key that is not a valid key".into()),
             },
             // Cards, addresses, Wi-Fi, documents and anything newer: their
             // values as fields, named after the kind and the value.
             _ => {
-                if !other_fields(credential, kind, &[], &mut fields) {
-                    skip(import, format!("Something of a kind PswManager does not know ({kind})"));
+                if !other_fields(credential, kind, &[], fields) {
+                    why.push(format!("Something of a kind PswManager does not know ({kind})"));
                 }
             }
         }
     }
+    passkeys
+}
 
-    // KeePassXC keeps one passkey per entry: a second one gets an entry of its own.
-    let mut extra = Vec::new();
+/// The first passkey goes in the entry (its site and user name filling in
+/// what the item lacks); KeePassXC keeps one passkey per entry, so each
+/// further one is returned as an entry of its own.
+fn place_passkeys(passkeys: Vec<Passkey>, data: &mut EntryData, fields: &mut Fields) -> Vec<EntryData> {
     let mut passkeys = passkeys.into_iter();
     if let Some(first) = passkeys.next() {
         if data.url.is_empty() {
@@ -231,32 +255,18 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
         // No other field takes a passkey's name (see [Fields::add]).
         fields.0.extend(first.fields);
     }
-    for passkey in passkeys {
-        let mut own = EntryData::default();
-        own.title = if data.title.is_empty() { passkey.rp.clone() } else { data.title.clone() };
-        own.group = data.group.clone();
-        own.tags = data.tags.clone();
-        own.username = passkey.username.clone();
-        own.url = passkey.site();
-        own.fields = passkey.fields;
-        extra.push(own);
-    }
-    data.fields = std::mem::take(&mut fields.0);
-    if data.title.is_empty() {
-        data.title = url::Url::parse(&data.url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_else(|| "Untitled".into());
-    }
-
-    let created = time(item, "creationAt");
-    let modified = time(item, "modifiedAt");
-    let empty = data.username.is_empty() && data.password.is_empty() && data.otp.is_empty() && data.notes.is_empty() && data.fields.is_empty();
-    // An item with nothing but a title or an address is kept as a bookmark.
-    let bookmark = extra.is_empty() && (!title.is_empty() || !data.url.is_empty());
-    if !empty || bookmark {
-        import.entries.push(Imported { data, created, modified });
-    } else if extra.is_empty() {
-        skip(import, "An item with nothing PswManager can keep".into());
-    }
-    import.entries.extend(extra.into_iter().map(|data| Imported { data, created, modified }));
+    passkeys
+        .map(|passkey| {
+            let mut own = EntryData::default();
+            own.title = if data.title.is_empty() { passkey.rp.clone() } else { data.title.clone() };
+            own.group = data.group.clone();
+            own.tags = data.tags.clone();
+            own.username = passkey.username.clone();
+            own.url = passkey.site();
+            own.fields = passkey.fields;
+            own
+        })
+        .collect()
 }
 
 /// The fields of a credential besides `known` ones: each value as a field
@@ -348,11 +358,11 @@ impl Passkey {
             rp: rp.to_string(),
             username: username.to_string(),
             fields: vec![
-                field(PASSKEY_RELYING_PARTY, rp, false),
-                field(PASSKEY_USERNAME, username, false),
-                field(PASSKEY_CREDENTIAL_ID, credential_id, true),
-                field(PASSKEY_USER_HANDLE, user_handle, true),
-                field(PASSKEY_PRIVATE_KEY, &key, true),
+                field(passkey::RELYING_PARTY, rp, false),
+                field(passkey::USERNAME, username, false),
+                field(passkey::CREDENTIAL_ID, credential_id, true),
+                field(passkey::USER_HANDLE, user_handle, true),
+                field(passkey::PRIVATE_KEY, &key, true),
             ],
         })
     }
@@ -388,7 +398,7 @@ impl Fields {
         }
         let base = match name.trim() {
             "" => "Field".to_string(),
-            name if name.starts_with(PASSKEY_PREFIX) => format!("Imported {name}"),
+            name if name.starts_with(passkey::PREFIX) => format!("Imported {name}"),
             name => name.to_string(),
         };
         let taken = |name: &str| edit::STANDARD.contains(&name) || self.0.iter().any(|f| f.name == name);
@@ -543,21 +553,21 @@ mod tests {
         let import = parse(EXPORT).unwrap();
         let first = &import.entries[1].data;
         assert_eq!((first.title.as_str(), first.url.as_str(), first.username.as_str()), ("site.example", "https://site.example", "bob"));
-        assert_eq!(field(first, PASSKEY_CREDENTIAL_ID).unwrap().value, "Y3JlZC0x");
-        assert_eq!(field(first, PASSKEY_USER_HANDLE).unwrap().value, "dXNlcg");
-        assert_eq!(field(first, PASSKEY_RELYING_PARTY).unwrap().value, "site.example");
-        assert_eq!(field(first, PASSKEY_USERNAME).unwrap().value, "bob");
+        assert_eq!(field(first, passkey::CREDENTIAL_ID).unwrap().value, "Y3JlZC0x");
+        assert_eq!(field(first, passkey::USER_HANDLE).unwrap().value, "dXNlcg");
+        assert_eq!(field(first, passkey::RELYING_PARTY).unwrap().value, "site.example");
+        assert_eq!(field(first, passkey::USERNAME).unwrap().value, "bob");
         // A field of the same name as a passkey attribute does not clash with it.
         assert_eq!(field(first, "Imported KPEX_PASSKEY_USERNAME").unwrap().value, "mine");
         // An Android app is never the entry's URL.
         assert_eq!(field(first, "KP2A_URL_1").unwrap().value, "androidapp://com.example.site");
-        let key = field(first, PASSKEY_PRIVATE_KEY).unwrap();
+        let key = field(first, passkey::PRIVATE_KEY).unwrap();
         assert!(key.protected);
         assert_eq!(key.value, "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgcICQoLDA0ODw==\n-----END PRIVATE KEY-----");
         // The second passkey gets an entry of its own.
         let second = &import.entries[2].data;
         assert_eq!((second.title.as_str(), second.url.as_str()), ("other.example", "https://other.example"));
-        assert_eq!(field(second, PASSKEY_CREDENTIAL_ID).unwrap().value, "Y3JlZC0y");
+        assert_eq!(field(second, passkey::CREDENTIAL_ID).unwrap().value, "Y3JlZC0y");
         assert_eq!(second.tags, ["keys"]);
     }
 
