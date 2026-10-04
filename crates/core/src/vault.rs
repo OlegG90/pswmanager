@@ -444,6 +444,14 @@ impl Vault {
         Ok((id.uuid().to_string(), conflicts))
     }
 
+    /// Adds what another password manager exported as new entries under the
+    /// group `group` (see [crate::cxf]), and saves the file. Returns how many
+    /// were added.
+    pub fn import(&mut self, import: &crate::cxf::Import, group: &str) -> Result<usize, String> {
+        let under = [group.to_string()];
+        self.change(|db, hidden| crate::cxf::add(db, import, &under, hidden))
+    }
+
     /// Gives entries a tag or takes it off (the star is the tag Favorite), and
     /// saves the file.
     pub fn set_tag(&mut self, ids: &[String], tag: &str, on: bool) -> Result<(), String> {
@@ -1196,6 +1204,27 @@ pub mod tests {
         let mut expected = before;
         expected.config.version = vault.db.config.version.clone();
         assert_eq!(reopened.db, expected);
+    }
+
+    #[test]
+    fn an_import_is_saved_and_reads_back_with_its_passkey() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let before = vault.listing().entries.len();
+        let import = crate::cxf::parse(
+            r#"{"version": {"major": 1, "minor": 0}, "exporterRpId": "example.com", "accounts": [{"id": "YQ",
+              "username": "", "email": "", "collections": [], "items": [{"id": "MQ", "title": "Site", "credentials": [
+                {"type": "passkey", "credentialId": "Y3JlZA", "rpId": "site.example", "username": "bob",
+                 "userDisplayName": "Bob", "userHandle": "dXNlcg", "key": "AAECAwQF"}]}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(vault.import(&import, "Imported").unwrap(), 1);
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        let listing = reopened.listing();
+        assert_eq!(listing.entries.len(), before + 1);
+        let site = listing.entries.iter().find(|e| e.title == "Site").unwrap();
+        assert!(site.passkey);
+        assert_eq!(site.group, ["Imported"]);
     }
 
     #[test]

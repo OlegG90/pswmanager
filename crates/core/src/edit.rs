@@ -106,7 +106,7 @@ pub enum FileChange<C = u64> {
 pub type FileEdit = FileChange<Zeroizing<Vec<u8>>>;
 
 /// The fields the editor has its own inputs for.
-const STANDARD: [&str; 6] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES, fields::OTP];
+pub(crate) const STANDARD: [&str; 6] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES, fields::OTP];
 
 pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
     let text = |name: &str| entry.fields.get(name).map(|v| v.get().clone()).unwrap_or_default();
