@@ -86,8 +86,8 @@ pub async fn cloud_files(cloud: Cloud) -> Result<Vec<CloudFile>, String> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Opened {
-    status: Status,
-    copy_problem: Option<String>,
+    pub status: Status,
+    pub copy_problem: Option<String>,
 }
 
 /// Makes a database in `cloud` the one on this phone: its working copy is

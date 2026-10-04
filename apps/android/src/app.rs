@@ -95,6 +95,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             cloud::cloud_files,
             cloud::open_cloud_file,
             cloud::sync_with_cloud,
+            crate::create::create_database,
             crate::visible::copy_name_taken,
             crate::editing::edit_entry,
             crate::editing::save_entry,
