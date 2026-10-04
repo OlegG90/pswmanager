@@ -71,6 +71,8 @@ pub struct Made {
     /// The relying party and the user name, for choosing the entry.
     pub rp_id: String,
     pub user_name: String,
+    /// The site's name as it gives it (`rp.name`), for a new entry's title.
+    pub rp_name: String,
     pub response: String,
 }
 
@@ -88,6 +90,7 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
     let user = &options["user"];
     let user_handle = unpadded(string_at(user, "id").ok_or("The request has no user id")?).to_string();
     let user_name = string_at(user, "name").unwrap_or("").to_string();
+    let rp_name = string_at(&options["rp"], "name").unwrap_or(&rp_id).to_string();
     let algorithms = options["pubKeyCredParams"].as_array().map(Vec::as_slice).unwrap_or_default();
     if !algorithms.is_empty() && !algorithms.iter().any(|p| p["alg"].as_i64() == Some(ES256)) {
         return Err("The site wants a kind of key PswManager does not make (only ES256)".into());
@@ -131,6 +134,7 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
         fields,
         rp_id,
         user_name,
+        rp_name,
         response,
     })
 }
@@ -186,6 +190,11 @@ pub fn sign(options_json: &str, stored: &Stored<'_>, caller: &Caller) -> Result<
 /// (`excludeCredentials`): with one of them in the database, no new passkey.
 pub fn excluded_ids(options_json: &str) -> Vec<String> {
     parse(options_json).map(|options| credential_ids(&options["excludeCredentials"])).unwrap_or_default()
+}
+
+/// The site a creation request is for (`rp.id`).
+pub fn creation_rp_id(options_json: &str) -> Option<String> {
+    string_at(&parse(options_json).ok()?["rp"], "id").map(str::to_string)
 }
 
 /// What a sign-in request is for.

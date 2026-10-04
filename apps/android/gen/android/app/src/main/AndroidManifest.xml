@@ -38,6 +38,10 @@
                 android:resource="@xml/credential_provider" />
         </service>
         <activity
+            android:name=".CreatePasskeyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity
             android:name=".PasskeyActivity"
             android:exported="false"
             android:excludeFromRecents="true"

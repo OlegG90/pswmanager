@@ -5,10 +5,6 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
-import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
-import androidx.biometric.BiometricPrompt
-import androidx.core.content.ContextCompat
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
@@ -37,38 +33,17 @@ class PasskeyActivity : AppCompatActivity() {
     val option = request?.credentialOptions?.filterIsInstance<GetPublicKeyCredentialOption>()?.firstOrNull()
     val id = intent.getStringExtra(EXTRA_ENTRY)
     if (request == null || option == null || id == null) return fail("Nothing to sign in to")
-    val app = request.callingAppInfo
-    // A browser on the list speaks for the site; anyone else signs for itself.
-    val origin = try {
-      app.getOrigin(PswmCredentialService.allowlist(this))
+    val caller = try {
+      Caller.of(this, request.callingAppInfo)
     } catch (e: Exception) {
       return fail("Cannot tell who asks: ${e.message}")
     }
-    // The app's current signing certificate (the last after a rotation).
-    val signing = app.signingInfoCompat
-    val certificate = (if (signing.hasMultipleSigners) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
-    val callback = object : BiometricPrompt.AuthenticationCallback() {
-      override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-        thread {
-          val answer = ProviderBridge.sign(id, option.requestJson, origin, option.clientDataHash.takeIf { origin != null }, app.packageName, certificate)
-          runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else signedIn(answer) }
-        }
+    verifyUser(this, "Sign in with your passkey", intent.getStringExtra(EXTRA_TITLE) ?: "", {
+      thread {
+        val answer = ProviderBridge.sign(id, option.requestJson, caller.origin, option.clientDataHash.takeIf { caller.origin != null }, caller.packageName, caller.certificate)
+        runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else signedIn(answer) }
       }
-
-      override fun onAuthenticationError(code: Int, message: CharSequence) {
-        if (code == BiometricPrompt.ERROR_USER_CANCELED || code == BiometricPrompt.ERROR_NEGATIVE_BUTTON || code == BiometricPrompt.ERROR_CANCELED) {
-          cancel()
-        } else {
-          fail(message.toString())
-        }
-      }
-    }
-    val info = BiometricPrompt.PromptInfo.Builder()
-      .setTitle("Sign in with your passkey")
-      .setSubtitle(intent.getStringExtra(EXTRA_TITLE) ?: "")
-      .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)
-      .build()
-    BiometricPrompt(this, ContextCompat.getMainExecutor(this), callback).authenticate(info)
+    }, ::cancel, ::fail)
   }
 
   private fun signedIn(json: String) {
