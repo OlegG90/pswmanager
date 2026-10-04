@@ -96,6 +96,13 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
         return Err("The site wants a kind of key PswManager does not make (only ES256)".into());
     }
     let challenge = string_at(&options, "challenge").ok_or("The request has no challenge")?;
+    // A browser speaks for its page: the site must be the page's or above it.
+    if let Caller::Browser { origin, .. } = caller {
+        let host = url::Url::parse(origin).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default();
+        if !on_site(&host, &rp_id) {
+            return Err(format!("{origin} cannot make a passkey for {rp_id}"));
+        }
+    }
 
     let key = SigningKey::try_generate().map_err(|e| format!("No randomness: {e}"))?;
     let mut credential_id = [0u8; 32];
@@ -192,9 +199,20 @@ pub fn excluded_ids(options_json: &str) -> Vec<String> {
     parse(options_json).map(|options| credential_ids(&options["excludeCredentials"])).unwrap_or_default()
 }
 
-/// The site a creation request is for (`rp.id`).
-pub fn creation_rp_id(options_json: &str) -> Option<String> {
-    string_at(&parse(options_json).ok()?["rp"], "id").map(str::to_string)
+/// The site a creation request is for: its id (`rp.id`) and name (`rp.name`,
+/// else the id).
+pub fn creation_site(options_json: &str) -> Option<(String, String)> {
+    let options = parse(options_json).ok()?;
+    let id = string_at(&options["rp"], "id")?.to_string();
+    let name = string_at(&options["rp"], "name").unwrap_or(&id).to_string();
+    Some((id, name))
+}
+
+/// Whether `host` is the site `rp_id` or under it (WebAuthn's rule for an RP id).
+pub fn on_site(host: &str, rp_id: &str) -> bool {
+    host.len() >= rp_id.len()
+        && host[host.len() - rp_id.len()..].eq_ignore_ascii_case(rp_id)
+        && (host.len() == rp_id.len() || host.as_bytes()[host.len() - rp_id.len() - 1] == b'.')
 }
 
 /// What a sign-in request is for.
@@ -421,6 +439,20 @@ mod tests {
         assert_eq!(decode(&response, &["response", "authenticatorData"])[32], 0x05);
         let json: Value = serde_json::from_str(&response).unwrap();
         assert_eq!(json["id"], "aWQ");
+    }
+
+    #[test]
+    fn tells_a_site_and_its_hosts() {
+        assert!(on_site("example.com", "example.com"));
+        assert!(on_site("login.Example.com", "example.com"));
+        assert!(!on_site("badexample.com", "example.com"));
+        assert!(!on_site("com", "example.com"));
+        let browser = |origin: &str| Caller::Browser { origin: origin.into(), client_data_hash: vec![0; 32] };
+        assert!(make(CREATE, &browser("https://login.example.com")).is_ok());
+        assert!(make(CREATE, &browser("https://evil.test")).is_err());
+        assert_eq!(creation_site(CREATE), Some(("example.com".into(), "Example".into())));
+        assert_eq!(creation_site(r#"{"rp": {"id": "x.test"}}"#), Some(("x.test".into(), "x.test".into())));
+        assert_eq!(creation_site("{}"), None);
     }
 
     #[test]

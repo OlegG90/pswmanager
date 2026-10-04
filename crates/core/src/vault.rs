@@ -25,6 +25,16 @@ pub struct PasskeyChoice {
     pub username: String,
 }
 
+impl PasskeyChoice {
+    fn of(entry: &EntryRef<'_>, username: Option<&str>) -> PasskeyChoice {
+        PasskeyChoice {
+            id: entry.id().uuid().to_string(),
+            title: entry.get(fields::TITLE).unwrap_or_default().to_string(),
+            username: username.unwrap_or_default().to_string(),
+        }
+    }
+}
+
 pub struct Vault {
     db: Database,
     /// The file it came from; `None` only in tests that never save.
@@ -408,11 +418,7 @@ impl Vault {
         self.visible_entries()
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
             .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
-            .map(|e| PasskeyChoice {
-                id: e.id().uuid().to_string(),
-                title: e.get(fields::TITLE).unwrap_or_default().to_string(),
-                username: e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME)).unwrap_or_default().to_string(),
-            })
+            .map(|e| PasskeyChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
             .collect()
     }
 
@@ -420,20 +426,10 @@ impl Vault {
     /// user's entries whose URL is the site's (or under it) and that hold no
     /// passkey yet (KeePassXC keeps one per entry).
     pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<PasskeyChoice> {
-        let rp_id = rp_id.to_ascii_lowercase();
         self.visible_entries()
             .filter(|e| !e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)))
-            .filter(|e| {
-                e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| {
-                    let host = host.to_ascii_lowercase();
-                    host == rp_id || host.ends_with(&format!(".{rp_id}"))
-                })
-            })
-            .map(|e| PasskeyChoice {
-                id: e.id().uuid().to_string(),
-                title: e.get(fields::TITLE).unwrap_or_default().to_string(),
-                username: e.get(fields::USERNAME).unwrap_or_default().to_string(),
-            })
+            .filter(|e| e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| crate::webauthn::on_site(&host, rp_id)))
+            .map(|e| PasskeyChoice::of(&e, e.get(fields::USERNAME)))
             .collect()
     }
 
@@ -1341,7 +1337,6 @@ pub mod tests {
         let (shop, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
         let caller = crate::webauthn::Caller::App { origin: "android:apk-key-hash:x".into(), package: "com.example".into() };
         let request = r#"{"rp": {"id": "shop.example", "name": "Shop"}, "user": {"id": "dQ", "name": "bob"}, "challenge": "Yw"}"#;
-        assert_eq!(crate::webauthn::creation_rp_id(request).as_deref(), Some("shop.example"));
 
         // The site's entry is offered, until it has a passkey.
         let offered = vault.entries_for_new_passkey("shop.example");

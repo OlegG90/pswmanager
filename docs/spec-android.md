@@ -245,14 +245,17 @@ Android offers Google first). Android asks it when an app or a site in a browser
   speaks for the site: its origin and client data hash are used; any other app signs for itself, its
   origin being its signing certificate (the site checks it is its own app).
 - **Saving a new passkey** (#163): asked to make a passkey, the service always offers *PswManager*.
-  Picked, it unlocks first if need be (the unlock above), then asks where the passkey goes: a **new
+  Picked, it unlocks first if need be (the unlock above), then shows who asks (the site a browser speaks
+  for, or the app) and asks where the passkey goes: a **new
   entry** for the site (its name, the user name, `https://<site>`), or one of the site's entries (its URL
   on the site or under it) that has no passkey yet (KeePassXC keeps one per entry). The user is verified
   (the fingerprint or the phone's screen lock), the core makes the passkey (ES256, attestation "none")
   and keeps it as KeePassXC does (`KPEX_PASSKEY_*`, `FLAG_BE`/`FLAG_BS`, tag *Passkey*); the database is
   saved and goes up with the next sync (or in the background), so the passkey also works in KeePassXC
   on Windows. When the database already has one of the passkeys the site names (`excludeCredentials`),
-  none is made.
+  none is made and the site hears so. A browser's page must be on the site it asks for (or under it). An
+  app is not checked against the site (no Digital Asset Links): a passkey it makes works only for that
+  app, as the site checks the app's signing certificate.
 - Passwords through Credential Manager (#164) come next.
 
 ## Synchronisation

@@ -16,6 +16,12 @@ import androidx.fragment.app.FragmentActivity
  * certificate (the site checks it is its own app).
  */
 class Caller(val origin: String?, val packageName: String, val certificate: ByteArray?) {
+  /** The client data hash the request gives: a browser's only (an app's client data is made in Rust). */
+  fun clientDataHash(given: ByteArray?): ByteArray? = given.takeIf { origin != null }
+
+  /** Who asks, for the user: the site a browser speaks for, or the app. */
+  val label: String get() = origin ?: packageName
+
   companion object {
     /** Throws when the list of privileged browsers cannot be read: who asks is then unknown. */
     @RequiresApi(34)

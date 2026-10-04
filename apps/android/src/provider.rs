@@ -64,6 +64,11 @@ fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>
     env.convert_byte_array(value).map(Some).map_err(|e| e.to_string())
 }
 
+/// A Rust string for Java; null if it cannot be made.
+fn java_text(env: &mut JNIEnv, text: String) -> jstring {
+    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 /// The answer to a JNI call that should not fail: `false` on a panic.
 fn yes(answer: impl FnOnce() -> bool) -> jboolean {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(answer)) {
@@ -107,7 +112,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_unlock<'
         .unwrap_or_else(|_| Err("PswManager could not unlock: try in the app".into()));
     match result {
         Ok(()) => std::ptr::null_mut(),
-        Err(message) => env.new_string(message).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(message) => java_text(&mut env, message),
     }
 }
 
@@ -179,7 +184,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_passkeys
         serde_json::to_string(&offered).ok()
     }));
     match found {
-        Ok(Some(json)) => env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Ok(Some(json)) => java_text(&mut env, json),
         _ => std::ptr::null_mut(),
     }
 }
@@ -207,38 +212,39 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
     }))
     .unwrap_or_else(|_| Err("PswManager could not sign in".into()));
     let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    java_text(&mut env, text)
 }
 
 /// What `sign`'s answer starts with when it failed.
 const FAILED: &str = "failed:";
 
-/// The entries a new passkey for a creation request (WebAuthn's
-/// `requestJson`) can go into, as JSON (`[{id, title, username}]`); null
-/// while locked, or when the site has one of the passkeys it names
-/// (`excludeCredentials`): no second one then.
+/// Where a new passkey for a creation request (WebAuthn's `requestJson`) can
+/// go, as JSON: `{site, excluded, entries: [{id, title, username}], cloud}`;
+/// `excluded` when the database has one of the passkeys the site names
+/// (`excludeCredentials`: no second one then); `cloud` when the database
+/// syncs with a cloud store (the upload waits for a network). `FAILED` and why
+/// while locked or for a request without a site.
 #[no_mangle]
-pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_entriesForNewPasskey<'local>(
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPasskeyChoices<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
+    state: JString<'local>,
     request: JString<'local>,
 ) -> jstring {
-    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
-        let request = optional_text(&mut env, &request).ok()??;
-        let rp_id = webauthn::creation_rp_id(&request)?;
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
+        let (rp_id, site) = webauthn::creation_site(&request).ok_or("The request names no site")?;
         let excluded = webauthn::excluded_ids(&request);
-        let entries = session()
-            .read(|v| {
-                let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
-                (!has_one).then(|| v.entries_for_new_passkey(&rp_id))
-            })
-            .ok()??;
-        serde_json::to_string(&entries).ok()
-    }));
-    match found {
-        Ok(Some(json)) => env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
-        _ => std::ptr::null_mut(),
-    }
+        let (excluded, entries) = session().read(|v| {
+            let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
+            (has_one, v.entries_for_new_passkey(&rp_id))
+        })?;
+        let cloud = with_store(&mut env, &state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))?;
+        Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud }).to_string())
+    }))
+    .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
+    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+    java_text(&mut env, text)
 }
 
 /// Makes a passkey for a creation request, after the user was verified, and
@@ -269,7 +275,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePass
     }))
     .unwrap_or_else(|_| Err("PswManager could not make the passkey".into()));
     let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    java_text(&mut env, text)
 }
 
 /// Who asks: a browser trusted to speak for the site (its `origin` and

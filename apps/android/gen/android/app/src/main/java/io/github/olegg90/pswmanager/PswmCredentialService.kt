@@ -51,8 +51,11 @@ object ProviderBridge {
    */
   external fun sign(id: String, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
 
-  /** The entries a new passkey for a creation request can go into, as JSON; null while locked, or when the site has one already. */
-  external fun entriesForNewPasskey(request: String): String?
+  /**
+   * Where a new passkey for a creation request can go, as JSON (`{site,
+   * excluded, entries: [{id, title, username}], cloud}`), or [FAILED] and why.
+   */
+  external fun newPasskeyChoices(state: String, request: String): String
 
   /** Makes a passkey into entry `id` (a new one when null) and saves: the answer's JSON, or [FAILED] and why. */
   external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String

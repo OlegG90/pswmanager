@@ -19,7 +19,6 @@ import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.domerrors.InvalidStateError
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
 import androidx.credentials.provider.PendingIntentHandler
-import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
 
@@ -34,8 +33,13 @@ import kotlin.concurrent.thread
 class CreatePasskeyActivity : AppCompatActivity() {
   private lateinit var request: CreatePublicKeyCredentialRequest
   private lateinit var caller: Caller
+  /** The database syncs with a cloud store: the upload waits for a network. */
+  private var cloud = true
+  /** A passkey is being made: no second one meanwhile. */
+  private var busy = false
 
   private val unlock = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    if (!::request.isInitialized) return@registerForActivityResult
     if (result.resultCode == RESULT_OK && ProviderBridge.isUnlocked()) choose() else cancel()
   }
 
@@ -56,21 +60,22 @@ class CreatePasskeyActivity : AppCompatActivity() {
 
   /** Where the passkey goes: a new entry, or one of the site's own. */
   private fun choose() {
-    val found = ProviderBridge.entriesForNewPasskey(request.requestJson)
-      ?: return finishWith(CreatePublicKeyCredentialDomException(InvalidStateError(), "PswManager has a passkey for this site already"))
-    val entries = JSONArray(found)
-    val site = try {
-      JSONObject(request.requestJson).getJSONObject("rp").let { it.optString("name").ifEmpty { it.optString("id") } }
-    } catch (e: Exception) {
-      ""
+    val answer = ProviderBridge.newPasskeyChoices(ProviderBridge.state(this), request.requestJson)
+    if (answer.startsWith(ProviderBridge.FAILED)) return fail(answer.removePrefix(ProviderBridge.FAILED))
+    val choices = JSONObject(answer)
+    if (choices.getBoolean("excluded")) {
+      return finishWith(CreatePublicKeyCredentialDomException(InvalidStateError(), "PswManager has a passkey for this site already"))
     }
+    cloud = choices.getBoolean("cloud")
+    val site = choices.getString("site")
+    val entries = choices.getJSONArray("entries")
     val pad = (24 * resources.displayMetrics.density).toInt()
     val list = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_VERTICAL
       setPadding(pad, pad, pad, pad)
       addView(TextView(this@CreatePasskeyActivity).apply { text = "Save a passkey for $site"; textSize = 22f })
-      addView(TextView(this@CreatePasskeyActivity).apply { text = "In PswManager's database, as KeePassXC keeps passkeys." })
+      addView(TextView(this@CreatePasskeyActivity).apply { text = "Asked by ${caller.label}. Kept in PswManager's database, as KeePassXC keeps passkeys." })
       addView(Button(this@CreatePasskeyActivity).apply { text = "New entry"; setOnClickListener { make(null, site) } })
       for (i in 0 until entries.length()) {
         val entry = entries.getJSONObject(i)
@@ -82,15 +87,18 @@ class CreatePasskeyActivity : AppCompatActivity() {
     setContentView(ScrollView(this).apply { addView(list) })
   }
 
-  /** Makes the passkey into entry `id` (a new one when null), once the user is verified. */
-  private fun make(id: String?, where: String) {
-    verifyUser(this, "Save a passkey", where, {
+  /** Makes the passkey into entry `id` (a new one when null), once the user is verified; `entry` names it. */
+  private fun make(id: String?, entry: String) {
+    if (busy) return
+    busy = true
+    verifyUser(this, "Save a passkey", entry, {
       thread {
-        val answer = ProviderBridge.makePasskey(id, request.requestJson, caller.origin, request.clientDataHash.takeIf { caller.origin != null }, caller.packageName, caller.certificate)
-        if (!answer.startsWith(ProviderBridge.FAILED)) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), true)
+        val answer = ProviderBridge.makePasskey(id, request.requestJson, caller.origin, caller.clientDataHash(request.clientDataHash), caller.packageName, caller.certificate)
+        // Saved: it goes up even if the app is not running (WorkManager keeps one such upload).
+        if (!answer.startsWith(ProviderBridge.FAILED)) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
         runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else made(answer) }
       }
-    }, ::cancel, ::fail)
+    }, { busy = false; cancel() }, ::fail)
   }
 
   private fun made(json: String) {
