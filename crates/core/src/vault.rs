@@ -739,7 +739,7 @@ fn credential_id_bytes(id: &str) -> Option<Vec<u8>> {
         '/' => '_',
         c => c,
     }).collect();
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(unified).ok()
+    base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, unified).ok()
 }
 
 fn parse_id(id: &str) -> Result<EntryId, String> {
