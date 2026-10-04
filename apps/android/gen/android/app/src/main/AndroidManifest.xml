@@ -38,6 +38,11 @@
                 android:resource="@xml/credential_provider" />
         </service>
         <activity
+            android:name=".PasskeyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.pswm_android.Translucent" />
+        <activity
             android:name=".UnlockActivity"
             android:exported="false"
             android:excludeFromRecents="true"
