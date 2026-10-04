@@ -14,6 +14,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -32,12 +33,18 @@ class TransferPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun importCredentials(invoke: Invoke) {
     val request = ImportCredentialsRequest(credentialTypes = TYPES, knownExtensions = setOf(KnownExtensions.KNOWN_EXTENSION_SHARED))
-    (activity as AppCompatActivity).lifecycleScope.launch {
+    // Rust waits for the answer: every way out settles the invoke.
+    val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Importing needs the app's own window")
+    scope.launch {
       try {
         val response = ProviderEventsManager.create(activity).importCredentials(activity, request)
         invoke.resolve(JSObject().put("json", response.response.responseJson))
       } catch (e: ImportCredentialsCancellationException) {
         invoke.reject("transfer:cancelled")
+      } catch (e: CancellationException) {
+        // The window went away while the other app was open.
+        invoke.reject("transfer:cancelled")
+        throw e
       } catch (e: ImportCredentialsNoExportOptionException) {
         invoke.reject("transfer:none")
       } catch (e: Exception) {

@@ -55,9 +55,11 @@ pub struct Imported {
     pub exporter: String,
     /// The group the entries were put in.
     pub group: String,
+    /// How many entries were added.
     pub added: usize,
     /// What could not be brought over, and why.
     pub skipped: Vec<Skipped>,
+    /// The list with the new entries.
     pub listing: Listing,
 }
 
@@ -75,14 +77,16 @@ pub async fn import_from_app(app: AppHandle) -> Result<Option<Imported>, String>
         let Some(json) = app.state::<Transfer<Wry>>().import()? else { return Ok(None) };
         let import = cxf::parse(&json)?;
         drop(json);
-        if !session.is_unlocked() {
-            return Err("The database locked while the other app was open: unlock it and import again".into());
-        }
         let group = import.group_name_today();
-        let (added, listing) = session.with_mut(|v| {
-            let added = v.import(&import, &group)?;
-            Ok((added, v.listing()))
-        })?;
+        let (added, listing) = session
+            .with_mut(|v| {
+                let added = v.import(&import, &group)?;
+                Ok((added, v.listing()))
+            })
+            .map_err(|e| match session.is_unlocked() {
+                true => e,
+                false => "The database locked while the other app was open: unlock it and import again".to_string(),
+            })?;
         if added > 0 {
             crate::icons::fetch(&app, &listing);
             crate::editing::upload_soon(&app);

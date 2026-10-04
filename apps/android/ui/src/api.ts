@@ -28,6 +28,13 @@ export interface Listing {
   database: { defaultUsername: string }
 }
 
+/** Something an import could not bring over. */
+export interface Skipped {
+  /** The item's title in the other app. */
+  title: string
+  why: string
+}
+
 /** What an import from another app brought. */
 export interface Imported {
   exporter: string
@@ -35,7 +42,7 @@ export interface Imported {
   group: string
   added: number
   /** What could not be brought over, and why. */
-  skipped: { title: string; why: string }[]
+  skipped: Skipped[]
   listing: Listing
 }
 

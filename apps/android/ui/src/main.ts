@@ -602,7 +602,7 @@ async function runImport() {
   try {
     const imported = await api.importFromApp()
     if (!imported) return
-    listScreen(imported.listing)
+    if (imported.added) listScreen(imported.listing)
     importedSheet(imported)
   } catch (e) {
     snack(String(e).replace(/^Error: /, ''))

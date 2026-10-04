@@ -146,7 +146,8 @@ As in the mockups `1e`–`1j`.
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
   credential provider for this. The app hands over **everything** (FIDO CXF JSON), straight to the Rust
-  side, never to the page, held in memory only and wiped after reading. The core adds every item as a
+  side, never to the page, held in memory only and wiped after reading (the copies Android and the
+  bridge to Rust make on the way cannot be wiped; nothing is written to a file or logged). The core adds every item as a
   **new entry** (nothing is changed, merged or replaced) in a group *Imported from <app> <date>*, shown
   under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
   `KPEX_PASSKEY_*`; a second passkey in one item gets an entry of its own), notes, and other kinds as
