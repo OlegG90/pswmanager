@@ -1083,7 +1083,7 @@ pub mod tests {
         root.add_entry().edit(|e| {
             e.set_unprotected(fields::TITLE, "Shop");
             e.set_protected(fields::OTP, "otpauth://totp/Shop?secret=JBSWY3DP");
-            e.set_protected("KPEX_PASSKEY_PRIVATE_KEY_PEM", "key");
+            e.set_protected(edit::passkey::PRIVATE_KEY, "key");
             e.times.expires = Some(true);
             e.times.expiry = chrono::NaiveDate::from_ymd_opt(2030, 1, 2).unwrap().and_hms_opt(3, 4, 5);
         });

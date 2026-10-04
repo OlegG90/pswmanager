@@ -25,13 +25,31 @@ pub const FAVORITE: &str = "Favorite";
 
 /// The attributes KeePassXC keeps a passkey in: their names all start with
 /// [passkey::PREFIX].
-pub(crate) mod passkey {
+pub mod passkey {
     pub const PREFIX: &str = "KPEX_PASSKEY_";
     pub const USERNAME: &str = "KPEX_PASSKEY_USERNAME";
     pub const CREDENTIAL_ID: &str = "KPEX_PASSKEY_CREDENTIAL_ID";
     pub const PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
     pub const RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
     pub const USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
+    /// Backup eligible / backed up: `1` as KeePassXC writes them.
+    pub const FLAG_BE: &str = "KPEX_PASSKEY_FLAG_BE";
+    pub const FLAG_BS: &str = "KPEX_PASSKEY_FLAG_BS";
+    /// The tag KeePassXC gives an entry with a passkey.
+    pub const TAG: &str = "Passkey";
+
+    /// A passkey's attributes as KeePassXC keeps them: the ids as unpadded
+    /// base64url, the secrets protected.
+    pub fn fields(rp_id: &str, username: &str, credential_id: &str, user_handle: &str, private_key_pem: &str) -> Vec<super::FieldData> {
+        let field = |name: &str, value: &str, protected| super::FieldData { name: name.into(), value: value.into(), protected };
+        vec![
+            field(RELYING_PARTY, rp_id, false),
+            field(USERNAME, username, false),
+            field(CREDENTIAL_ID, credential_id.trim_end_matches('='), true),
+            field(USER_HANDLE, user_handle.trim_end_matches('='), true),
+            field(PRIVATE_KEY, private_key_pem, true),
+        ]
+    }
 }
 
 /// Everything the editor shows and sends back, secrets included: while an
