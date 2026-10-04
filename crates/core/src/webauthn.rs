@@ -6,6 +6,8 @@
 //!
 //! ES256 only (P-256 with SHA-256), attestation "none", the signature counter
 //! always 0 (as KeePassXC and other synced passkeys), and the backup flags on.
+//! The user is always verified (UV): the caller asks for the fingerprint or
+//! the master password before making or signing, whatever the site prefers.
 
 use crate::edit::{passkey, FieldData};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
@@ -35,19 +37,41 @@ pub enum Caller {
     /// An app: the origin is its signing certificate (`android:apk-key-hash:…`),
     /// and the client data is made here.
     App { origin: String, package: String },
-    /// A browser trusted to speak for a site: it made the client data itself
-    /// and gives its hash.
-    Browser { client_data_hash: Vec<u8> },
+    /// A browser trusted to speak for a site (`origin`): it made the client
+    /// data itself and gives its hash, which is what is signed.
+    Browser { origin: String, client_data_hash: Vec<u8> },
 }
 
-/// A passkey just made: its attributes for the entry, and the answer for the
-/// site or app (WebAuthn's `RegistrationResponseJSON`).
+impl Caller {
+    /// The client data for a request of `kind` (`webauthn.create` / `.get`).
+    /// A browser's own is what counts: this one only fills the field.
+    fn client_data(&self, kind: &str, challenge: &str) -> String {
+        match self {
+            Caller::App { origin, package } => {
+                json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false, "androidPackageName": package }).to_string()
+            }
+            Caller::Browser { origin, .. } => json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false }).to_string(),
+        }
+    }
+
+    /// The hash of the client data that is signed.
+    fn client_data_hash(&self, client_data: &str) -> Vec<u8> {
+        match self {
+            Caller::App { .. } => Sha256::digest(client_data.as_bytes()).to_vec(),
+            Caller::Browser { client_data_hash, .. } => client_data_hash.clone(),
+        }
+    }
+}
+
+/// A passkey just made: its attributes for the entry (which also gets the tag
+/// [passkey::TAG]), and the answer for the site or app (WebAuthn's
+/// `RegistrationResponseJSON`).
 pub struct Made {
     pub fields: Vec<FieldData>,
     /// The relying party and the user name, for choosing the entry.
     pub rp_id: String,
     pub user_name: String,
-    pub response: Zeroizing<String>,
+    pub response: String,
 }
 
 /// The `origin` of an Android app: the SHA-256 of its signing certificate.
@@ -56,18 +80,19 @@ pub fn app_origin(signing_certificate: &[u8]) -> String {
 }
 
 /// Makes a passkey from WebAuthn's creation options (`requestJson`), after the
-/// user was verified.
+/// user was verified. The options must name the site (`rp.id`), as Android's
+/// always do.
 pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
-    let options: Value = serde_json::from_str(options_json).map_err(|e| format!("Not a passkey request: {e}"))?;
-    let rp_id = text(&options["rp"], "id").ok_or("The request names no site (rp.id)")?.to_string();
+    let options = parse(options_json)?;
+    let rp_id = string_at(&options["rp"], "id").ok_or("The request names no site (rp.id)")?.to_string();
     let user = &options["user"];
-    let user_handle = text(user, "id").ok_or("The request has no user id")?.trim_end_matches('=').to_string();
-    let user_name = text(user, "name").unwrap_or("").to_string();
+    let user_handle = unpadded(string_at(user, "id").ok_or("The request has no user id")?).to_string();
+    let user_name = string_at(user, "name").unwrap_or("").to_string();
     let algorithms = options["pubKeyCredParams"].as_array().map(Vec::as_slice).unwrap_or_default();
     if !algorithms.is_empty() && !algorithms.iter().any(|p| p["alg"].as_i64() == Some(ES256)) {
         return Err("The site wants a kind of key PswManager does not make (only ES256)".into());
     }
-    let challenge = text(&options, "challenge").ok_or("The request has no challenge")?;
+    let challenge = string_at(&options, "challenge").ok_or("The request has no challenge")?;
 
     let key = SigningKey::try_generate().map_err(|e| format!("No randomness: {e}"))?;
     let mut credential_id = [0u8; 32];
@@ -82,26 +107,22 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
     auth_data.extend_from_slice(&credential_id);
     auth_data.extend_from_slice(&cose);
     let attestation = attestation_object(&auth_data);
-    let client_data = client_data_json("webauthn.create", challenge, caller);
+    let client_data = caller.client_data("webauthn.create", challenge);
 
     let pem = key.to_pkcs8_pem(LineEnding::LF).map_err(|e| format!("Cannot keep the key: {e}"))?;
     let spki = public.to_public_key_der().map_err(|e| format!("Cannot give the public key: {e}"))?;
     let id = B64URL.encode(credential_id);
-    let response = json!({
-        "id": id,
-        "rawId": id,
-        "type": "public-key",
-        "authenticatorAttachment": "platform",
-        "response": {
+    let response = credential_json(
+        &id,
+        json!({
             "clientDataJSON": B64URL.encode(client_data.as_bytes()),
             "attestationObject": B64URL.encode(&attestation),
             "authenticatorData": B64URL.encode(&auth_data),
             "transports": ["internal", "hybrid"],
             "publicKeyAlgorithm": ES256,
             "publicKey": B64URL.encode(spki.as_bytes()),
-        },
-        "clientExtensionResults": {},
-    });
+        }),
+    );
     let field = |name: &str, value: &str, protected| FieldData { name: name.into(), value: value.into(), protected };
     Ok(Made {
         fields: vec![
@@ -115,7 +136,7 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
         ],
         rp_id,
         user_name,
-        response: Zeroizing::new(response.to_string()),
+        response,
     })
 }
 
@@ -125,83 +146,105 @@ pub struct Stored<'a> {
     pub credential_id: &'a str,
     pub user_handle: &'a str,
     pub private_key_pem: &'a str,
-    /// The backup flags (KeePassXC's `FLAG_BE` / `FLAG_BS`); on when missing.
+    /// KeePassXC's `FLAG_BE` / `FLAG_BS` (the caller takes them as on when
+    /// missing, as KeePassXC does); backed up only counts when eligible.
     pub backup_eligible: bool,
     pub backed_up: bool,
 }
 
 /// Signs in with `stored` from WebAuthn's request options (`requestJson`),
 /// after the user was verified: WebAuthn's `AuthenticationResponseJSON`.
-pub fn sign(options_json: &str, stored: &Stored<'_>, caller: &Caller) -> Result<Zeroizing<String>, String> {
-    let options: Value = serde_json::from_str(options_json).map_err(|e| format!("Not a passkey request: {e}"))?;
-    if let Some(rp_id) = text(&options, "rpId") {
+pub fn sign(options_json: &str, stored: &Stored<'_>, caller: &Caller) -> Result<String, String> {
+    let options = parse(options_json)?;
+    if let Some(rp_id) = string_at(&options, "rpId") {
         if rp_id != stored.rp_id {
             return Err(format!("This passkey is for {}, not {rp_id}", stored.rp_id));
         }
     }
-    let challenge = text(&options, "challenge").ok_or("The request has no challenge")?;
+    let challenge = string_at(&options, "challenge").ok_or("The request has no challenge")?;
     let key = private_key(stored.private_key_pem)?;
 
     let mut flags = USER_PRESENT | USER_VERIFIED;
     if stored.backup_eligible {
         flags |= BACKUP_ELIGIBLE;
-    }
-    if stored.backed_up {
-        flags |= BACKED_UP;
+        if stored.backed_up {
+            flags |= BACKED_UP;
+        }
     }
     let auth_data = header(stored.rp_id, flags);
-    let client_data = client_data_json("webauthn.get", challenge, caller);
-    let hash = match caller {
-        Caller::Browser { client_data_hash } => client_data_hash.clone(),
-        Caller::App { .. } => Sha256::digest(client_data.as_bytes()).to_vec(),
-    };
-    let signature: Signature = key.sign(&[auth_data.as_slice(), &hash].concat());
-    let id = stored.credential_id.trim_end_matches('=');
-    let response = json!({
-        "id": id,
-        "rawId": id,
-        "type": "public-key",
-        "authenticatorAttachment": "platform",
-        "response": {
+    let client_data = caller.client_data("webauthn.get", challenge);
+    let signed = [auth_data.as_slice(), &caller.client_data_hash(&client_data)].concat();
+    let signature: Signature = key.sign(&signed);
+    Ok(credential_json(
+        unpadded(stored.credential_id),
+        json!({
             "clientDataJSON": B64URL.encode(client_data.as_bytes()),
             "authenticatorData": B64URL.encode(&auth_data),
             "signature": B64URL.encode(signature.to_der().as_bytes()),
-            "userHandle": stored.user_handle.trim_end_matches('='),
-        },
-        "clientExtensionResults": {},
-    });
-    Ok(Zeroizing::new(response.to_string()))
-}
-
-/// A PKCS#8 key in PEM, wrapped in lines or not (KeePassXC writes either).
-fn private_key(pem: &str) -> Result<SigningKey, String> {
-    let body: Zeroizing<String> = Zeroizing::new(
-        pem.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").chars().filter(|c| !c.is_whitespace()).collect(),
-    );
-    let der = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).map_err(|_| "The passkey's key cannot be read".to_string())?);
-    SigningKey::from_pkcs8_der(&der).map_err(|_| "The passkey's key cannot be read".to_string())
+            "userHandle": unpadded(stored.user_handle),
+        }),
+    ))
 }
 
 /// The credential ids a creation request says the user has already
 /// (`excludeCredentials`): with one of them in the database, no new passkey.
 pub fn excluded_ids(options_json: &str) -> Vec<String> {
-    let options: Value = serde_json::from_str(options_json).unwrap_or_default();
-    ids(&options["excludeCredentials"])
+    parse(options_json).map(|options| credential_ids(&options["excludeCredentials"])).unwrap_or_default()
 }
 
-/// The relying party a sign-in request is for, and the credential ids it
-/// accepts (`allowCredentials`; empty: any of the site's).
-pub fn sign_in_scope(options_json: &str) -> Option<(String, Vec<String>)> {
-    let options: Value = serde_json::from_str(options_json).ok()?;
-    Some((text(&options, "rpId")?.to_string(), ids(&options["allowCredentials"])))
+/// What a sign-in request is for.
+#[derive(Debug, PartialEq)]
+pub struct SignInScope {
+    pub rp_id: String,
+    /// The credential ids it accepts (`allowCredentials`); empty: any of the site's.
+    pub allowed: Vec<String>,
 }
 
-fn ids(list: &Value) -> Vec<String> {
-    list.as_array().into_iter().flatten().filter_map(|c| text(c, "id")).map(|id| id.trim_end_matches('=').to_string()).collect()
+/// What a sign-in request (`requestJson`) is for; `None` without a site.
+pub fn sign_in_scope(options_json: &str) -> Option<SignInScope> {
+    let options = parse(options_json).ok()?;
+    Some(SignInScope { rp_id: string_at(&options, "rpId")?.to_string(), allowed: credential_ids(&options["allowCredentials"]) })
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+/// A credential as WebAuthn's JSON gives it: `id`, its kind and `response`.
+fn credential_json(id: &str, response: Value) -> String {
+    json!({
+        "id": id,
+        "rawId": id,
+        "type": "public-key",
+        "authenticatorAttachment": "platform",
+        "response": response,
+        "clientExtensionResults": {},
+    })
+    .to_string()
+}
+
+/// A PKCS#8 key in PEM, wrapped in lines or not (KeePassXC writes either).
+fn private_key(pem: &str) -> Result<SigningKey, String> {
+    const UNREADABLE: &str = "The passkey's key cannot be read";
+    let inner = pem.trim().trim_start_matches("-----BEGIN PRIVATE KEY-----").trim_end_matches("-----END PRIVATE KEY-----");
+    let body: Zeroizing<String> = Zeroizing::new(inner.chars().filter(|c| !c.is_whitespace()).collect());
+    let der = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).map_err(|_| UNREADABLE.to_string())?);
+    SigningKey::from_pkcs8_der(&der).map_err(|_| UNREADABLE.to_string())
+}
+
+fn parse(options_json: &str) -> Result<Value, String> {
+    serde_json::from_str(options_json).map_err(|e| format!("Not a passkey request: {e}"))
+}
+
+/// The ids in a list of credential descriptors.
+fn credential_ids(list: &Value) -> Vec<String> {
+    list.as_array().into_iter().flatten().filter_map(|c| string_at(c, "id")).map(|id| unpadded(id).to_string()).collect()
+}
+
+/// The non-empty string member `key`.
+fn string_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
+}
+
+/// base64url without padding, as WebAuthn writes it.
+fn unpadded(base64url: &str) -> &str {
+    base64url.trim_end_matches('=')
 }
 
 /// The start of authenticator data: the RP id's hash, the flags, the counter (0).
@@ -212,17 +255,6 @@ fn header(rp_id: &str, flags: u8) -> Vec<u8> {
     data
 }
 
-/// The client data an app's request gets; a browser's own is used as it gave it.
-fn client_data_json(kind: &str, challenge: &str, caller: &Caller) -> String {
-    match caller {
-        Caller::App { origin, package } => {
-            json!({ "type": kind, "challenge": challenge, "origin": origin, "androidPackageName": package }).to_string()
-        }
-        // The browser puts in its own client data; this only fills the field.
-        Caller::Browser { .. } => json!({ "type": kind, "challenge": challenge }).to_string(),
-    }
-}
-
 /// The public key as COSE (EC2, ES256, P-256), in CTAP2's canonical CBOR.
 fn cose_key(x: &[u8], y: &[u8]) -> Vec<u8> {
     let mut out = vec![0xa5]; // a map of 5
@@ -230,26 +262,27 @@ fn cose_key(x: &[u8], y: &[u8]) -> Vec<u8> {
     out.extend([0x03, 0x26]); // alg: -7
     out.extend([0x20, 0x01]); // crv: P-256
     out.push(0x21); // x
-    bytes(&mut out, x);
+    cbor_bytes(&mut out, x);
     out.push(0x22); // y
-    bytes(&mut out, y);
+    cbor_bytes(&mut out, y);
     out
 }
 
 /// `{ "fmt": "none", "attStmt": {}, "authData": … }` in canonical CBOR.
 fn attestation_object(auth_data: &[u8]) -> Vec<u8> {
     let mut out = vec![0xa3];
-    text_cbor(&mut out, "fmt");
-    text_cbor(&mut out, "none");
-    text_cbor(&mut out, "attStmt");
+    cbor_text(&mut out, "fmt");
+    cbor_text(&mut out, "none");
+    cbor_text(&mut out, "attStmt");
     out.push(0xa0);
-    text_cbor(&mut out, "authData");
-    bytes(&mut out, auth_data);
+    cbor_text(&mut out, "authData");
+    cbor_bytes(&mut out, auth_data);
     out
 }
 
-/// A CBOR head: major type and length.
-fn head(out: &mut Vec<u8>, major: u8, len: usize) {
+/// A CBOR head: major type and length (up to 64 KiB, all this needs).
+fn cbor_head(out: &mut Vec<u8>, major: u8, len: usize) {
+    debug_assert!(len <= 0xffff);
     let major = major << 5;
     match len {
         0..=23 => out.push(major | len as u8),
@@ -261,13 +294,13 @@ fn head(out: &mut Vec<u8>, major: u8, len: usize) {
     }
 }
 
-fn bytes(out: &mut Vec<u8>, value: &[u8]) {
-    head(out, 2, value.len());
+fn cbor_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    cbor_head(out, 2, value.len());
     out.extend_from_slice(value);
 }
 
-fn text_cbor(out: &mut Vec<u8>, value: &str) {
-    head(out, 3, value.len());
+fn cbor_text(out: &mut Vec<u8>, value: &str) {
+    cbor_head(out, 3, value.len());
     out.extend_from_slice(value.as_bytes());
 }
 
@@ -306,7 +339,7 @@ mod tests {
         assert_eq!(field(&made, passkey::FLAG_BE), "1");
         assert!(field(&made, passkey::PRIVATE_KEY).starts_with("-----BEGIN PRIVATE KEY-----\n"));
         assert_eq!(B64URL.decode(field(&made, passkey::CREDENTIAL_ID)).unwrap().len(), 32);
-        assert!(made.fields.iter().filter(|f| f.protected).count() == 3);
+        assert_eq!(made.fields.iter().filter(|f| f.protected).count(), 3);
     }
 
     #[test]
@@ -358,7 +391,7 @@ mod tests {
 
         // A browser's own client data hash is what is signed.
         let hash = Sha256::digest(b"the browser's client data").to_vec();
-        let response = sign(request, &stored, &Caller::Browser { client_data_hash: hash.clone() }).unwrap();
+        let response = sign(request, &stored, &Caller::Browser { origin: "https://example.com".into(), client_data_hash: hash.clone() }).unwrap();
         let auth = decode(&response, &["response", "authenticatorData"]);
         let signature = Signature::from_der(&decode(&response, &["response", "signature"])).unwrap();
         assert!(public.verify(&[auth.as_slice(), &hash].concat(), &signature).is_ok());
@@ -370,9 +403,12 @@ mod tests {
         let key = SigningKey::generate();
         let der = key.to_pkcs8_der().unwrap();
         let pem = format!("-----BEGIN PRIVATE KEY-----{}-----END PRIVATE KEY-----", base64::engine::general_purpose::STANDARD.encode(der.as_bytes()));
-        let stored = Stored { rp_id: "example.com", credential_id: "aWQ", user_handle: "dQ", private_key_pem: &pem, backup_eligible: false, backed_up: false };
+        // Backed up without being eligible is no state: neither flag.
+        let stored = Stored { rp_id: "example.com", credential_id: "aWQ=", user_handle: "dQ", private_key_pem: &pem, backup_eligible: false, backed_up: true };
         let response = sign(r#"{"rpId": "example.com", "challenge": "Yw"}"#, &stored, &app()).unwrap();
         assert_eq!(decode(&response, &["response", "authenticatorData"])[32], 0x05);
+        let json: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(json["id"], "aWQ");
     }
 
     #[test]
@@ -396,7 +432,7 @@ mod tests {
     fn reads_what_a_request_allows() {
         assert_eq!(excluded_ids(CREATE), ["b2xkLWlk"]);
         let scope = sign_in_scope(r#"{"rpId": "example.com", "challenge": "Yw", "allowCredentials": [{"type": "public-key", "id": "aWQ="}]}"#);
-        assert_eq!(scope, Some(("example.com".to_string(), vec!["aWQ".to_string()])));
+        assert_eq!(scope, Some(SignInScope { rp_id: "example.com".into(), allowed: vec!["aWQ".into()] }));
         assert_eq!(app_origin(b"x"), format!("android:apk-key-hash:{}", B64URL.encode(Sha256::digest(b"x"))));
     }
 }

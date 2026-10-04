@@ -25,16 +25,18 @@ pub const FAVORITE: &str = "Favorite";
 
 /// The attributes KeePassXC keeps a passkey in: their names all start with
 /// [passkey::PREFIX].
-pub(crate) mod passkey {
+pub mod passkey {
     pub const PREFIX: &str = "KPEX_PASSKEY_";
     pub const USERNAME: &str = "KPEX_PASSKEY_USERNAME";
     pub const CREDENTIAL_ID: &str = "KPEX_PASSKEY_CREDENTIAL_ID";
     pub const PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
     pub const RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
     pub const USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
-    /// Backup eligible / backed up (`1`), as KeePassXC writes them; on when missing.
+    /// Backup eligible / backed up: `1` as KeePassXC writes them.
     pub const FLAG_BE: &str = "KPEX_PASSKEY_FLAG_BE";
     pub const FLAG_BS: &str = "KPEX_PASSKEY_FLAG_BS";
+    /// The tag KeePassXC gives an entry with a passkey.
+    pub const TAG: &str = "Passkey";
 }
 
 /// Everything the editor shows and sends back, secrets included: while an
