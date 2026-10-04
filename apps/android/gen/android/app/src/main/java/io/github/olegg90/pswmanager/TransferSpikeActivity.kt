@@ -45,7 +45,7 @@ class TransferSpikeActivity : AppCompatActivity() {
       try {
         val response = ProviderEventsManager.create(this@TransferSpikeActivity).importCredentials(this@TransferSpikeActivity, request)
         val json = response.response.responseJson
-        say("Exporter: ${response.callingAppInfo.packageName}\nJSON length: ${json.length}\nShape:\n${shape(JSONObject(json)).toString(2)}")
+        say("Exporter: ${response.callingAppInfo.packageName}\nJSON length: ${json.length}\nShape:\n${(shape(JSONObject(json)) as JSONObject).toString(2)}")
       } catch (e: ImportCredentialsException) {
         say("Failed: ${e.javaClass.simpleName}: ${e.message}")
       } catch (e: Exception) {
