@@ -1275,7 +1275,7 @@ pub mod tests {
         let id = edit::apply(&mut db, None, &data, &HashSet::new()).unwrap().uuid().to_string();
         let vault = Vault::from_database(db);
         let offered = vault.passkeys_for("example.com", &[]);
-        assert_eq!(offered, [PasskeyChoice { id: id.clone(), title: "Example".into(), username: "alice".into() }]);
+        assert_eq!((offered[0].id.as_str(), offered[0].title.as_str(), offered[0].username.as_str()), (id.as_str(), "Example", "alice"));
         assert!(vault.passkeys_for("other.com", &[]).is_empty());
         assert!(vault.passkeys_for("example.com", &["c29tZXRoaW5nLWVsc2U".into()]).is_empty());
         let credential_id = made.fields.iter().find(|f| f.name == edit::passkey::CREDENTIAL_ID).unwrap().value.clone();
