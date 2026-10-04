@@ -306,7 +306,7 @@ fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-fn password_asked(store: &Store) {
+pub(crate) fn password_asked(store: &Store) {
     let _ = store.update(|s| drop(s.settings.insert(PASSWORD_ASKED.into(), now().into())));
 }
 
@@ -325,19 +325,26 @@ fn seal_wanted(store: &Store, biometric: &Biometric<Wry>) -> bool {
 
 /// Opens the database with this key and makes it the session's; the sync starts.
 fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Result<Listing, String> {
-    let store = app.state::<Store>();
-    sync::ensure_working_copy(&store)?;
+    let (vault, listing) = open_vault(&app.state::<Store>(), password, key_file)?;
+    crate::icons::fetch(app, &listing);
+    app.state::<Session>().set(Some(vault));
+    crate::provider::unlocked_in_app();
+    start_sync(app.clone());
+    Ok(listing)
+}
+
+/// Opens the database on this phone with this key (the app's unlock and the
+/// credential provider's), its name and description kept for the unlock screen.
+pub(crate) fn open_vault(store: &Store, password: Option<&str>, key_file: Option<&[u8]>) -> Result<(Vault, Listing), String> {
+    sync::ensure_working_copy(store)?;
     let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     let mut key_file = key_file;
     let key = vault::key_reading(password, key_file.as_mut().map(|k| k as &mut dyn std::io::Read))?;
     let vault = Vault::open_with_key(&file, key)?;
     let listing = vault.listing();
-    crate::icons::fetch(app, &listing);
     // Only for the unlock screen next time: not worth failing the unlock over.
     let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
-    app.state::<Session>().set(Some(vault));
-    start_sync(app.clone());
-    Ok(listing)
+    Ok((vault, listing))
 }
 
 /// Whether the unlock screen shows the fingerprint button: the setting is
@@ -455,6 +462,7 @@ fn lock_later(app: AppHandle) {
 #[tauri::command]
 fn stay_unlocked(later: State<LockLater>) {
     crate::provider::app_in_front(true);
+    crate::provider::unlocked_in_app();
     later.0.next();
 }
 

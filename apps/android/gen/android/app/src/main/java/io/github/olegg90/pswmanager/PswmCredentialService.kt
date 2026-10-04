@@ -30,10 +30,15 @@ object ProviderBridge {
   /** The setting allows the fingerprint and the master password is not due. */
   external fun fingerprintAllowed(state: String): Boolean
 
-  /** Unlocks with the master password, or the sealed key (`sealed`); null, or why not. */
+  /**
+   * Unlocks with the master password, or the sealed key (`sealed`); null, or
+   * why not ([STALE] first when the sealed key no longer opens the database).
+   */
   external fun unlock(context: Context, state: String, password: String?, sealed: String?): String?
 
-  /** The app's state file, as Tauri keeps it (its data folder). */
+  const val STALE = "stale:"
+
+  /** The app's state file, as Tauri keeps it (its data folder, `app_data_dir`; `STATE_FILE` in app.rs). */
   fun state(context: Context): String = File(context.dataDir, "pswm.json").absolutePath
 }
 

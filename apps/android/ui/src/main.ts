@@ -117,6 +117,8 @@ async function start() {
   const status = await api.status()
   database = status.database
   unlocked = status.unlocked
+  // In front now: a lock the credential provider set waits no longer (provider.rs).
+  void api.stayUnlocked()
   if (!database) chooseScreen()
   else if (status.unlocked) listScreen(await api.listing())
   else unlockScreen()
@@ -1105,7 +1107,7 @@ document.addEventListener('visibilitychange', () => {
   } else if (!document.hidden) {
     returnedAt = Date.now()
     // Unlocked meanwhile for a passkey (the credential provider shares the session).
-    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : onReturn()))
+    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : onReturn()), onReturn)
     else onReturn()
     void api.stayUnlocked()
     lastTouch = Date.now()

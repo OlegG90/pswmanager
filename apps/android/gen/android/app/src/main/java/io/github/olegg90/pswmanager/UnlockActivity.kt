@@ -28,6 +28,8 @@ class UnlockActivity : AppCompatActivity() {
   private lateinit var password: EditText
   private lateinit var message: TextView
   private lateinit var unlockButton: Button
+  /** An unlock is running: no second one meanwhile. */
+  private var busy = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -63,6 +65,7 @@ class UnlockActivity : AppCompatActivity() {
     BiometricKey.available(this) && BiometricKey.isStored(this) && ProviderBridge.fingerprintAllowed(ProviderBridge.state(this))
 
   private fun askFingerprint() {
+    if (busy) return
     val cipher = try {
       BiometricKey.decrypting(this) ?: return
     } catch (e: BiometricKey.Invalidated) {
@@ -80,17 +83,29 @@ class UnlockActivity : AppCompatActivity() {
     }) { cancelled, text -> if (!cancelled) show(text) }
   }
 
-  /** Unlocks off the main thread; with the sealed key, or the typed password. */
+  /**
+   * Unlocks off the main thread; with the sealed key, or the typed password
+   * (a Kotlin string cannot be wiped; the field is cleared when this closes).
+   */
   private fun unlockWith(typed: String?, sealed: String?) {
+    if (busy) return
+    busy = true
     unlockButton.isEnabled = false
     show("Unlocking…")
     thread {
       val failure = ProviderBridge.unlock(applicationContext, ProviderBridge.state(this), typed, sealed)
+      if (failure?.startsWith(ProviderBridge.STALE) == true) BiometricKey.forget(applicationContext)
       runOnUiThread {
+        busy = false
         unlockButton.isEnabled = true
-        if (failure == null) done() else show(failure)
+        if (failure == null) done() else show(failure.removePrefix(ProviderBridge.STALE))
       }
     }
+  }
+
+  override fun onDestroy() {
+    password.text.clear()
+    super.onDestroy()
   }
 
   private fun show(text: String) {
@@ -99,7 +114,6 @@ class UnlockActivity : AppCompatActivity() {
 
   /** Unlocked: Android asks the provider again through this answer. */
   private fun done() {
-    password.text.clear()
     val result = Intent()
     PendingIntentHandler.setBeginGetCredentialResponse(result, BeginGetCredentialResponse())
     setResult(RESULT_OK, result)

@@ -8,6 +8,7 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import javax.crypto.Cipher
 
 @InvokeArg
 class StoreArgs {
@@ -75,7 +76,7 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun prompt(invoke: Invoke, title: String, cipher: javax.crypto.Cipher, done: (javax.crypto.Cipher) -> JSObject) {
+  private fun prompt(invoke: Invoke, title: String, cipher: Cipher, done: (Cipher) -> JSObject) {
     BiometricKey.prompt(activity as FragmentActivity, title, cipher, { ready ->
       try {
         invoke.resolve(done(ready))
