@@ -46,12 +46,12 @@ impl Caller {
     /// The client data for a request of `kind` (`webauthn.create` / `.get`).
     /// A browser's own is what counts: this one only fills the field.
     fn client_data(&self, kind: &str, challenge: &str) -> String {
-        match self {
-            Caller::App { origin, package } => {
-                json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false, "androidPackageName": package }).to_string()
-            }
-            Caller::Browser { origin, .. } => json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false }).to_string(),
+        let (Caller::App { origin, .. } | Caller::Browser { origin, .. }) = self;
+        let mut data = json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false });
+        if let Caller::App { package, .. } = self {
+            data["androidPackageName"] = json!(package);
         }
+        data.to_string()
     }
 
     /// The hash of the client data that is signed.
@@ -123,17 +123,12 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
             "publicKey": B64URL.encode(spki.as_bytes()),
         }),
     );
-    let field = |name: &str, value: &str, protected| FieldData { name: name.into(), value: value.into(), protected };
+    let mut fields = passkey::fields(&rp_id, &user_name, &id, &user_handle, &pem);
+    for flag in [passkey::FLAG_BE, passkey::FLAG_BS] {
+        fields.push(FieldData { name: flag.into(), value: "1".into(), protected: false });
+    }
     Ok(Made {
-        fields: vec![
-            field(passkey::RELYING_PARTY, &rp_id, false),
-            field(passkey::USERNAME, &user_name, false),
-            field(passkey::CREDENTIAL_ID, &id, true),
-            field(passkey::USER_HANDLE, &user_handle, true),
-            field(passkey::PRIVATE_KEY, &pem, true),
-            field(passkey::FLAG_BE, "1", false),
-            field(passkey::FLAG_BS, "1", false),
-        ],
+        fields,
         rp_id,
         user_name,
         response,

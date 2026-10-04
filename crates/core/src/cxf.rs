@@ -369,18 +369,7 @@ impl Passkey {
         let (rp, credential_id, user_handle) = (need("rpId")?, need("credentialId")?, need("userHandle")?);
         let username = text(credential, "username").unwrap_or("");
         let key = pem(need("key")?)?;
-        let field = |name: &str, value: &str, protected| FieldData { name: name.into(), value: value.trim_end_matches('=').into(), protected };
-        Ok(Passkey {
-            rp: rp.to_string(),
-            username: username.to_string(),
-            fields: vec![
-                field(passkey::RELYING_PARTY, rp, false),
-                field(passkey::USERNAME, username, false),
-                field(passkey::CREDENTIAL_ID, credential_id, true),
-                field(passkey::USER_HANDLE, user_handle, true),
-                field(passkey::PRIVATE_KEY, &key, true),
-            ],
-        })
+        Ok(Passkey { rp: rp.to_string(), username: username.to_string(), fields: passkey::fields(rp, username, credential_id, user_handle, &key) })
     }
 
     /// The relying party's site.
