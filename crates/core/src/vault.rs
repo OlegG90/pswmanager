@@ -15,22 +15,55 @@ use std::path::Path;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-/// A passkey an entry holds, as a site or app is offered it.
+/// An entry offered to a site or app: for its passkey, or its login.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PasskeyChoice {
+pub struct EntryChoice {
     /// The entry's id.
     pub id: String,
     pub title: String,
     pub username: String,
 }
 
-impl PasskeyChoice {
-    fn of(entry: &EntryRef<'_>, username: Option<&str>) -> PasskeyChoice {
-        PasskeyChoice {
+impl EntryChoice {
+    fn of(entry: &EntryRef<'_>, username: Option<&str>) -> EntryChoice {
+        EntryChoice {
             id: entry.id().uuid().to_string(),
             title: entry.get(fields::TITLE).unwrap_or_default().to_string(),
             username: username.unwrap_or_default().to_string(),
+        }
+    }
+}
+
+/// Where a login is for: an Android app (its package), or a site (the host
+/// of the page a browser speaks for).
+pub enum LoginPlace<'a> {
+    App(&'a str),
+    Site(&'a str),
+}
+
+impl LoginPlace<'_> {
+    /// Whether the entry is for this place: an app named among its URLs
+    /// (`androidapp://<package>`, as Keepass2Android keeps it), or a site its
+    /// URL is on (the page on the entry's site, or the entry's site under the page's).
+    fn matches(&self, entry: &EntryRef<'_>) -> bool {
+        match self {
+            LoginPlace::App(package) => {
+                let wanted = format!("androidapp://{package}");
+                entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim().eq_ignore_ascii_case(&wanted))
+            }
+            LoginPlace::Site(host) => entry
+                .get(fields::URL)
+                .and_then(icons::host_of)
+                .is_some_and(|site| crate::webauthn::on_site(host, &site) || crate::webauthn::on_site(&site, host)),
+        }
+    }
+
+    /// The URL a new entry for this place gets.
+    fn url(&self) -> String {
+        match self {
+            LoginPlace::App(package) => format!("androidapp://{package}"),
+            LoginPlace::Site(host) => format!("https://{host}"),
         }
     }
 }
@@ -411,25 +444,25 @@ impl Vault {
     /// The passkeys for the site or app `rp_id`, among the entries the user
     /// works with: only those with a credential id in `allowed` when the
     /// request names some (WebAuthn's `allowCredentials`).
-    pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<PasskeyChoice> {
+    pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<EntryChoice> {
         // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
         let restricted = !allowed.is_empty();
         let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| crate::webauthn::credential_id_bytes(id)).collect();
         self.visible_entries()
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
             .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
-            .map(|e| PasskeyChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
+            .map(|e| EntryChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
             .collect()
     }
 
     /// The entries a new passkey for the site `rp_id` can go into: the
     /// user's entries whose URL is the site's (or under it) and that hold no
     /// passkey yet (KeePassXC keeps one per entry).
-    pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<PasskeyChoice> {
+    pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<EntryChoice> {
         self.visible_entries()
             .filter(|e| !e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)))
             .filter(|e| e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| crate::webauthn::on_site(&host, rp_id)))
-            .map(|e| PasskeyChoice::of(&e, e.get(fields::USERNAME)))
+            .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
             .collect()
     }
 
@@ -457,6 +490,51 @@ impl Vault {
         if !data.tags.iter().any(|t| t == edit::passkey::TAG) {
             data.tags.push(edit::passkey::TAG.to_string());
         }
+        self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
+    }
+
+    /// The entries with a login for `place` (an app or a site), as Credential
+    /// Manager offers them to the app asking.
+    pub fn logins_for(&self, place: &LoginPlace<'_>) -> Vec<EntryChoice> {
+        self.visible_entries()
+            .filter(|e| e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty()) && place.matches(e))
+            .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
+            .collect()
+    }
+
+    /// Entry `id`'s user name and password, to hand to the app asking.
+    pub fn login(&self, id: &str) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
+        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry)?;
+        let text = |name: &str| Zeroizing::new(entry.get(name).unwrap_or_default().to_string());
+        Some((text(fields::USERNAME), text(fields::PASSWORD)))
+    }
+
+    /// The entries a login an app offers to save can update: those for `place`.
+    pub fn entries_for_login(&self, place: &LoginPlace<'_>) -> Vec<EntryChoice> {
+        self.visible_entries().filter(|e| place.matches(e)).map(|e| EntryChoice::of(&e, e.get(fields::USERNAME))).collect()
+    }
+
+    /// Keeps a login an app offers to save: the password (and the user name
+    /// when the entry has none) of entry `id`, or a new entry titled `title`
+    /// for `place`; the file is saved (the old version goes to history).
+    /// Returns the entry's id.
+    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace<'_>, title: &str, username: &str, password: &str) -> Result<String, String> {
+        let (base, mut data) = match id {
+            Some(id) => {
+                let data = self.edit_data(id).ok_or(NOT_FOUND)?;
+                (Some(data.clone()), data)
+            }
+            None => {
+                let mut data = EntryData::default();
+                data.title = title.to_string();
+                data.url = place.url();
+                (None, data)
+            }
+        };
+        if data.username.is_empty() {
+            data.username = username.to_string();
+        }
+        data.password = password.to_string();
         self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
     }
 
@@ -1356,6 +1434,33 @@ pub mod tests {
         assert_eq!((entry.title.as_str(), entry.url.as_str(), entry.username.as_str()), ("Shop", "https://shop.example", "bob"));
         let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
         assert_eq!(reopened.passkeys_for("shop.example", &[]).len(), 2);
+    }
+
+    #[test]
+    fn logins_are_offered_to_their_app_or_site_and_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let app = LoginPlace::App("com.example.mail");
+        let site = LoginPlace::Site("login.mail.example");
+        assert!(vault.logins_for(&app).is_empty());
+
+        // A new login for the app, then offered to it (and not to others).
+        let id = vault.save_login(None, &app, "Mail", "alice", "pw-1").unwrap();
+        let offered = vault.logins_for(&app);
+        assert_eq!((offered[0].id.as_str(), offered[0].username.as_str()), (id.as_str(), "alice"));
+        assert!(vault.logins_for(&LoginPlace::App("com.example.other")).is_empty());
+        let (user, password) = vault.login(&id).unwrap();
+        assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-1"));
+
+        // An app's changed password updates the entry; the user name stays.
+        assert_eq!(vault.entries_for_login(&app).len(), 1);
+        vault.save_login(Some(&id), &app, "", "someone", "pw-2").unwrap();
+        let (user, password) = vault.login(&id).unwrap();
+        assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-2"));
+
+        // A site's login is offered to a page on it.
+        let web = vault.save_login(None, &LoginPlace::Site("mail.example"), "Mail web", "bob", "pw-3").unwrap();
+        assert_eq!(vault.logins_for(&site).iter().map(|c| c.id.clone()).collect::<Vec<_>>(), [web]);
     }
 
     #[test]

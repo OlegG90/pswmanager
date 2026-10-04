@@ -98,7 +98,7 @@ pub fn make(options_json: &str, caller: &Caller) -> Result<Made, String> {
     let challenge = string_at(&options, "challenge").ok_or("The request has no challenge")?;
     // A browser speaks for its page: the site must be the page's or above it.
     if let Caller::Browser { origin, .. } = caller {
-        let host = url::Url::parse(origin).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default();
+        let host = origin_host(origin).unwrap_or_default();
         if !on_site(&host, &rp_id) {
             return Err(format!("{origin} cannot make a passkey for {rp_id}"));
         }
@@ -206,6 +206,11 @@ pub fn creation_site(options_json: &str) -> Option<(String, String)> {
     let id = string_at(&options["rp"], "id")?.to_string();
     let name = string_at(&options["rp"], "name").unwrap_or(&id).to_string();
     Some((id, name))
+}
+
+/// The host of a page's origin (`https://login.example.com` → `login.example.com`).
+pub fn origin_host(origin: &str) -> Option<String> {
+    url::Url::parse(origin).ok()?.host_str().map(str::to_string)
 }
 
 /// Whether `host` is the site `rp_id` or under it (WebAuthn's rule for an RP id).

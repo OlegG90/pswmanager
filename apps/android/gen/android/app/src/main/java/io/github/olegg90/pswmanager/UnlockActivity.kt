@@ -112,11 +112,11 @@ class UnlockActivity : AppCompatActivity() {
     message.text = text
   }
 
-  /** Unlocked: Android gets the passkeys the site asked for. */
+  /** Unlocked: Android gets what the site or app asked for. */
   private fun done() {
     val result = Intent()
     val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
-    val response = request?.let { PswmCredentialService.passkeys(this, it) } ?: BeginGetCredentialResponse()
+    val response = request?.let { PswmCredentialService.credentials(this, it) } ?: BeginGetCredentialResponse()
     PendingIntentHandler.setBeginGetCredentialResponse(result, response)
     setResult(RESULT_OK, result)
     finish()
