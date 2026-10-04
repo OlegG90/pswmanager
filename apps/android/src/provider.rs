@@ -207,7 +207,8 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
         let request = text(&mut env, &request)?.ok_or("No request")?;
         let caller = match (text(&mut env, &origin)?, bytes(&mut env, &client_data_hash)?) {
             (Some(origin), Some(client_data_hash)) => webauthn::Caller::Browser { origin, client_data_hash },
-            _ => {
+            (Some(_), None) => return Err("The browser did not give its client data".into()),
+            (None, _) => {
                 let package = text(&mut env, &package)?.ok_or("The app asking is unknown")?;
                 let certificate = bytes(&mut env, &certificate)?.ok_or("The app asking is unknown")?;
                 webauthn::Caller::App { origin: webauthn::app_origin(&certificate), package }

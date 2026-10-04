@@ -152,7 +152,8 @@ pub struct Stored<'a> {
 pub fn sign(options_json: &str, stored: &Stored<'_>, caller: &Caller) -> Result<String, String> {
     let options = parse(options_json)?;
     if let Some(rp_id) = string_at(&options, "rpId") {
-        if rp_id != stored.rp_id {
+        // Domains, so case-blind (as the passkeys are offered).
+        if !rp_id.eq_ignore_ascii_case(stored.rp_id) {
             return Err(format!("This passkey is for {}, not {rp_id}", stored.rp_id));
         }
     }

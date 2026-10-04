@@ -13,6 +13,7 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import kotlin.concurrent.thread
@@ -30,18 +31,22 @@ class PasskeyActivity : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-    if (savedInstanceState != null) return
+    // Made again (the prompt is gone with the old one): Android hears it was cancelled.
+    if (savedInstanceState != null) return cancel()
     val request = PendingIntentHandler.retrieveProviderGetCredentialRequest(intent)
     val option = request?.credentialOptions?.filterIsInstance<GetPublicKeyCredentialOption>()?.firstOrNull()
     val id = intent.getStringExtra(EXTRA_ENTRY)
     if (request == null || option == null || id == null) return fail("Nothing to sign in to")
     val app = request.callingAppInfo
+    // A browser on the list speaks for the site; anyone else signs for itself.
     val origin = try {
       app.getOrigin(PswmCredentialService.allowlist(this))
     } catch (e: Exception) {
-      null
+      return fail("Cannot tell who asks: ${e.message}")
     }
-    val certificate = app.signingInfoCompat.signingCertificateHistory.firstOrNull()?.toByteArray()
+    // The app's current signing certificate (the last after a rotation).
+    val signing = app.signingInfoCompat
+    val certificate = (if (signing.hasMultipleSigners) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
     val callback = object : BiometricPrompt.AuthenticationCallback() {
       override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
         thread {
@@ -51,7 +56,11 @@ class PasskeyActivity : AppCompatActivity() {
       }
 
       override fun onAuthenticationError(code: Int, message: CharSequence) {
-        cancel()
+        if (code == BiometricPrompt.ERROR_USER_CANCELED || code == BiometricPrompt.ERROR_NEGATIVE_BUTTON || code == BiometricPrompt.ERROR_CANCELED) {
+          cancel()
+        } else {
+          fail(message.toString())
+        }
       }
     }
     val info = BiometricPrompt.PromptInfo.Builder()
@@ -69,16 +78,13 @@ class PasskeyActivity : AppCompatActivity() {
     finish()
   }
 
-  private fun fail(why: String) {
-    val result = Intent()
-    PendingIntentHandler.setGetCredentialException(result, GetCredentialUnknownException(why))
-    setResult(RESULT_OK, result)
-    finish()
-  }
+  private fun fail(why: String) = finishWith(GetCredentialUnknownException(why))
 
-  private fun cancel() {
+  private fun cancel() = finishWith(GetCredentialCancellationException("Cancelled"))
+
+  private fun finishWith(exception: GetCredentialException) {
     val result = Intent()
-    PendingIntentHandler.setGetCredentialException(result, GetCredentialCancellationException("Cancelled"))
+    PendingIntentHandler.setGetCredentialException(result, exception)
     setResult(RESULT_OK, result)
     finish()
   }

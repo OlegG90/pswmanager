@@ -403,10 +403,11 @@ impl Vault {
     /// request names some (WebAuthn's `allowCredentials`).
     pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<PasskeyChoice> {
         // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
+        let restricted = !allowed.is_empty();
         let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| credential_id_bytes(id)).collect();
         self.visible_entries()
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
-            .filter(|e| allowed.is_empty() || e.get(edit::passkey::CREDENTIAL_ID).and_then(credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
+            .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
             .map(|e| PasskeyChoice {
                 id: e.id().uuid().to_string(),
                 title: e.get(fields::TITLE).unwrap_or_default().to_string(),
@@ -1277,6 +1278,9 @@ pub mod tests {
         let offered = vault.passkeys_for("example.com", &[]);
         assert_eq!((offered[0].id.as_str(), offered[0].title.as_str(), offered[0].username.as_str()), (id.as_str(), "Example", "alice"));
         assert!(vault.passkeys_for("other.com", &[]).is_empty());
+        assert_eq!(vault.passkeys_for("Example.COM", &[]).len(), 1);
+        // A site that names only ids nothing can read gets none, not all.
+        assert!(vault.passkeys_for("example.com", &["!!!".into()]).is_empty());
         assert!(vault.passkeys_for("example.com", &["c29tZXRoaW5nLWVsc2U".into()]).is_empty());
         let credential_id = made.fields.iter().find(|f| f.name == edit::passkey::CREDENTIAL_ID).unwrap().value.clone();
         assert_eq!(vault.passkeys_for("example.com", &[credential_id.clone()]).len(), 1);

@@ -121,15 +121,19 @@ class PswmCredentialService : CredentialProviderService() {
       return BeginGetCredentialResponse(credentialEntries = entries)
     }
 
-    /** Opens [PasskeyActivity] for entry `id`; each entry its own request code. */
+    /** Opens [PasskeyActivity] for entry `id`: the entry's id makes the intent its own (extras do not). */
     private fun signIntent(context: Context, id: String, title: String): PendingIntent {
       val intent = Intent(context, PasskeyActivity::class.java)
+        .setIdentifier(id)
         .putExtra(PasskeyActivity.EXTRA_ENTRY, id)
         .putExtra(PasskeyActivity.EXTRA_TITLE, title)
-      return PendingIntent.getActivity(context, id.hashCode(), intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+      return PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    /** Google's list of browsers trusted to speak for a site (kept with the app, updated with releases). */
-    fun allowlist(context: Context): String = context.resources.openRawResource(R.raw.privileged_allowlist).bufferedReader().use { it.readText() }
+    @Volatile private var allowlist: String? = null
+
+    /** Google's list of browsers trusted to speak for a site (kept with the app, updated with releases), read once. */
+    fun allowlist(context: Context): String =
+      allowlist ?: context.resources.openRawResource(R.raw.privileged_allowlist).bufferedReader().use { it.readText() }.also { allowlist = it }
   }
 }
