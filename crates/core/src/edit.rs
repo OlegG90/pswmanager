@@ -32,6 +32,9 @@ pub(crate) mod passkey {
     pub const PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
     pub const RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
     pub const USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
+    /// Backup eligible / backed up (`1`), as KeePassXC writes them; on when missing.
+    pub const FLAG_BE: &str = "KPEX_PASSKEY_FLAG_BE";
+    pub const FLAG_BS: &str = "KPEX_PASSKEY_FLAG_BS";
 }
 
 /// Everything the editor shows and sends back, secrets included: while an
