@@ -13,9 +13,11 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
+import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
+import androidx.credentials.provider.CreateEntry
 import androidx.credentials.provider.CredentialProviderService
 import androidx.credentials.provider.ProviderClearCredentialStateRequest
 import androidx.credentials.provider.PublicKeyCredentialEntry
@@ -49,6 +51,15 @@ object ProviderBridge {
    */
   external fun sign(id: String, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
 
+  /**
+   * Where a new passkey for a creation request can go, as JSON (`{site,
+   * excluded, entries: [{id, title, username}], cloud}`), or [FAILED] and why.
+   */
+  external fun newPasskeyChoices(state: String, request: String): String
+
+  /** Makes a passkey into entry `id` (a new one when null) and saves: the answer's JSON, or [FAILED] and why. */
+  external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
+
   const val STALE = "stale:"
   const val FAILED = "failed:"
 
@@ -62,7 +73,7 @@ object ProviderBridge {
  * memory only. While the database is locked the only answer is *Unlock
  * PswManager* ([UnlockActivity]); nothing about entries is told. Unlocked,
  * it offers the site's passkeys ([PasskeyActivity] signs in with the one
- * picked). Making passkeys comes in #163.
+ * picked); asked to make one, it offers to keep it ([CreatePasskeyActivity]).
  */
 @RequiresApi(34)
 class PswmCredentialService : CredentialProviderService() {
@@ -84,7 +95,13 @@ class PswmCredentialService : CredentialProviderService() {
     cancellationSignal: CancellationSignal,
     callback: OutcomeReceiver<BeginCreateCredentialResponse, CreateCredentialException>,
   ) {
-    callback.onError(CreateCredentialUnsupportedException("PswManager does not make passkeys yet"))
+    if (request !is BeginCreatePublicKeyCredentialRequest) {
+      return callback.onError(CreateCredentialUnsupportedException("PswManager keeps passkeys only"))
+    }
+    // Locked or not: the activity unlocks first when it must.
+    val intent = Intent(this, CreatePasskeyActivity::class.java)
+    val save = PendingIntent.getActivity(this, 3, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    callback.onResult(BeginCreateCredentialResponse(createEntries = listOf(CreateEntry(accountName = "PswManager", pendingIntent = save))))
   }
 
   override fun onClearCredentialStateRequest(

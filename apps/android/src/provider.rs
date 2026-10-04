@@ -64,6 +64,11 @@ fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>
     env.convert_byte_array(value).map(Some).map_err(|e| e.to_string())
 }
 
+/// A Rust string for Java; null if it cannot be made.
+fn java_text(env: &mut JNIEnv, text: String) -> jstring {
+    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 /// The answer to a JNI call that should not fail: `false` on a panic.
 fn yes(answer: impl FnOnce() -> bool) -> jboolean {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(answer)) {
@@ -107,7 +112,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_unlock<'
         .unwrap_or_else(|_| Err("PswManager could not unlock: try in the app".into()));
     match result {
         Ok(()) => std::ptr::null_mut(),
-        Err(message) => env.new_string(message).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(message) => java_text(&mut env, message),
     }
 }
 
@@ -179,7 +184,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_passkeys
         serde_json::to_string(&offered).ok()
     }));
     match found {
-        Ok(Some(json)) => env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Ok(Some(json)) => java_text(&mut env, json),
         _ => std::ptr::null_mut(),
     }
 }
@@ -202,24 +207,90 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
     let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
         let id = optional_text(&mut env, &id)?.ok_or("No passkey chosen")?;
         let request = optional_text(&mut env, &request)?.ok_or("No request")?;
-        let caller = match (optional_text(&mut env, &origin)?, optional_bytes(&mut env, &client_data_hash)?) {
-            (Some(origin), Some(client_data_hash)) => webauthn::Caller::Browser { origin, client_data_hash },
-            (Some(_), None) => return Err("The browser did not give its client data".into()),
-            (None, _) => {
-                let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
-                let certificate = optional_bytes(&mut env, &certificate)?.ok_or("The app asking is unknown")?;
-                webauthn::Caller::App { origin: webauthn::app_origin(&certificate), package }
-            }
-        };
+        let caller = caller(&mut env, &origin, &client_data_hash, &package, &certificate)?;
         session().read(|v| v.sign_with_passkey(&id, &request, &caller))?
     }))
     .unwrap_or_else(|_| Err("PswManager could not sign in".into()));
     let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    java_text(&mut env, text)
 }
 
 /// What `sign`'s answer starts with when it failed.
 const FAILED: &str = "failed:";
+
+/// Where a new passkey for a creation request (WebAuthn's `requestJson`) can
+/// go, as JSON: `{site, excluded, entries: [{id, title, username}], cloud}`;
+/// `excluded` when the database has one of the passkeys the site names
+/// (`excludeCredentials`: no second one then); `cloud` when the database
+/// syncs with a cloud store (the upload waits for a network). `FAILED` and why
+/// while locked or for a request without a site.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPasskeyChoices<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+    request: JString<'local>,
+) -> jstring {
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
+        let (rp_id, site) = webauthn::creation_site(&request).ok_or("The request names no site")?;
+        let excluded = webauthn::excluded_ids(&request);
+        let (excluded, entries) = session().read(|v| {
+            let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
+            (has_one, v.entries_for_new_passkey(&rp_id))
+        })?;
+        let cloud = with_store(&mut env, &state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))?;
+        Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud }).to_string())
+    }))
+    .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
+    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+    java_text(&mut env, text)
+}
+
+/// Makes a passkey for a creation request, after the user was verified, and
+/// keeps it in entry `id` (or a new entry for the site); the database is
+/// saved, and goes up with the next sync. The answer (WebAuthn's
+/// `RegistrationResponseJSON`), or `FAILED` and why. Who asks as for `sign`.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePasskey<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    request: JString<'local>,
+    origin: JString<'local>,
+    client_data_hash: JByteArray<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+) -> jstring {
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+        let id = optional_text(&mut env, &id)?;
+        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
+        let caller = caller(&mut env, &origin, &client_data_hash, &package, &certificate)?;
+        let made = webauthn::make(&request, &caller)?;
+        session().with_mut(|v| v.add_passkey(id.as_deref(), &made))?;
+        if let Some(app) = APP.get() {
+            crate::editing::upload_soon(app);
+        }
+        Ok(made.response)
+    }))
+    .unwrap_or_else(|_| Err("PswManager could not make the passkey".into()));
+    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+    java_text(&mut env, text)
+}
+
+/// Who asks: a browser trusted to speak for the site (its `origin` and
+/// `client_data_hash`), or an app (its package and signing certificate).
+fn caller(env: &mut JNIEnv, origin: &JString, client_data_hash: &JByteArray, package: &JString, certificate: &JByteArray) -> Result<webauthn::Caller, String> {
+    Ok(match (optional_text(env, origin)?, optional_bytes(env, client_data_hash)?) {
+        (Some(origin), Some(client_data_hash)) => webauthn::Caller::Browser { origin, client_data_hash },
+        (Some(_), None) => return Err("The browser did not give its client data".into()),
+        (None, _) => {
+            let package = optional_text(env, package)?.ok_or("The app asking is unknown")?;
+            let certificate = optional_bytes(env, certificate)?.ok_or("The app asking is unknown")?;
+            webauthn::Caller::App { origin: webauthn::app_origin(&certificate), package }
+        }
+    })
+}
 
 /// Runs `work` with the app's `Store` when the app runs, else with one on the
 /// state file (as the background upload does, with the same caveat: should

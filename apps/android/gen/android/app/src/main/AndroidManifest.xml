@@ -38,6 +38,11 @@
                 android:resource="@xml/credential_provider" />
         </service>
         <activity
+            android:name=".CreatePasskeyActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity
             android:name=".PasskeyActivity"
             android:exported="false"
             android:excludeFromRecents="true"

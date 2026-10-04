@@ -25,6 +25,16 @@ pub struct PasskeyChoice {
     pub username: String,
 }
 
+impl PasskeyChoice {
+    fn of(entry: &EntryRef<'_>, username: Option<&str>) -> PasskeyChoice {
+        PasskeyChoice {
+            id: entry.id().uuid().to_string(),
+            title: entry.get(fields::TITLE).unwrap_or_default().to_string(),
+            username: username.unwrap_or_default().to_string(),
+        }
+    }
+}
+
 pub struct Vault {
     db: Database,
     /// The file it came from; `None` only in tests that never save.
@@ -408,12 +418,46 @@ impl Vault {
         self.visible_entries()
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
             .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
-            .map(|e| PasskeyChoice {
-                id: e.id().uuid().to_string(),
-                title: e.get(fields::TITLE).unwrap_or_default().to_string(),
-                username: e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME)).unwrap_or_default().to_string(),
-            })
+            .map(|e| PasskeyChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
             .collect()
+    }
+
+    /// The entries a new passkey for the site `rp_id` can go into: the
+    /// user's entries whose URL is the site's (or under it) and that hold no
+    /// passkey yet (KeePassXC keeps one per entry).
+    pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<PasskeyChoice> {
+        self.visible_entries()
+            .filter(|e| !e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)))
+            .filter(|e| e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| crate::webauthn::on_site(&host, rp_id)))
+            .map(|e| PasskeyChoice::of(&e, e.get(fields::USERNAME)))
+            .collect()
+    }
+
+    /// Keeps a passkey just made (see [crate::webauthn::make]) in entry `id`,
+    /// or in a new entry for the site (its name, user name and address), and
+    /// saves the file. The entry gets KeePassXC's tag. Returns its id.
+    pub fn add_passkey(&mut self, id: Option<&str>, made: &crate::webauthn::Made) -> Result<String, String> {
+        let (base, mut data) = match id {
+            Some(id) => {
+                let data = self.edit_data(id).ok_or(NOT_FOUND)?;
+                if data.fields.iter().any(|f| f.name.starts_with(edit::passkey::PREFIX)) {
+                    return Err("This entry has a passkey already".into());
+                }
+                (Some(data.clone()), data)
+            }
+            None => {
+                let mut data = EntryData::default();
+                data.title = made.rp_name.clone();
+                data.username = made.user_name.clone();
+                data.url = format!("https://{}", made.rp_id);
+                (None, data)
+            }
+        };
+        data.fields.extend(made.fields.iter().cloned());
+        if !data.tags.iter().any(|t| t == edit::passkey::TAG) {
+            data.tags.push(edit::passkey::TAG.to_string());
+        }
+        self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
     }
 
     /// Signs in with the passkey of entry `id` (WebAuthn's request options,
@@ -1280,6 +1324,38 @@ pub mod tests {
         assert_eq!(json["id"], credential_id.as_str());
         assert_eq!(json["response"]["userHandle"], "dQ");
         assert!(vault.sign_with_passkey(&id, r#"{"rpId": "other.com", "challenge": "Yw"}"#, &caller).is_err());
+    }
+
+    #[test]
+    fn a_new_passkey_goes_into_the_sites_entry_or_a_new_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let mut data = EntryData::default();
+        data.title = "Shop".into();
+        data.username = "bob".into();
+        data.url = "https://www.shop.example/login".into();
+        let (shop, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        let caller = crate::webauthn::Caller::App { origin: "android:apk-key-hash:x".into(), package: "com.example".into() };
+        let request = r#"{"rp": {"id": "shop.example", "name": "Shop"}, "user": {"id": "dQ", "name": "bob"}, "challenge": "Yw"}"#;
+
+        // The site's entry is offered, until it has a passkey.
+        let offered = vault.entries_for_new_passkey("shop.example");
+        assert_eq!(offered.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [shop.as_str()]);
+        let made = crate::webauthn::make(request, &caller).unwrap();
+        assert_eq!(vault.add_passkey(Some(&shop), &made).unwrap(), shop);
+        assert!(vault.entries_for_new_passkey("shop.example").is_empty());
+        assert!(vault.add_passkey(Some(&shop), &made).is_err());
+        let detail = vault.edit_data(&shop).unwrap();
+        assert!(detail.tags.contains(&edit::passkey::TAG.to_string()));
+        assert_eq!(detail.username, "bob");
+
+        // A second one goes into a new entry for the site, and is offered when signing in.
+        let made = crate::webauthn::make(request, &caller).unwrap();
+        let new = vault.add_passkey(None, &made).unwrap();
+        let entry = vault.edit_data(&new).unwrap();
+        assert_eq!((entry.title.as_str(), entry.url.as_str(), entry.username.as_str()), ("Shop", "https://shop.example", "bob"));
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.passkeys_for("shop.example", &[]).len(), 2);
     }
 
     #[test]
