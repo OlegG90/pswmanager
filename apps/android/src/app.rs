@@ -311,9 +311,15 @@ pub(crate) fn password_asked(store: &Store) {
 }
 
 /// The master password is due again (biometric unlock is not offered).
-pub(crate) fn password_due(store: &Store) -> bool {
+fn password_due(store: &Store) -> bool {
     let asked = store.read(|s| s.settings.get(PASSWORD_ASKED).and_then(serde_json::Value::as_u64)).unwrap_or(0);
     now().saturating_sub(asked) >= Settings::of(store).password_every().as_secs()
+}
+
+/// The setting allows the fingerprint and the master password is not due
+/// (the app's unlock screen and the credential provider's).
+pub(crate) fn biometric_allowed(store: &Store) -> bool {
+    Settings::of(store).biometric_unlock() && !password_due(store)
 }
 
 /// After an unlock with the master password: the key is sealed for biometric
@@ -355,7 +361,7 @@ async fn biometric_ready(app: AppHandle) -> Result<bool, String> {
     off_main(move || {
         let store = app.state::<Store>();
         let status = app.state::<Biometric<Wry>>().status()?;
-        Ok(Settings::of(&store).biometric_unlock() && status.available && status.stored && !password_due(&store))
+        Ok(biometric_allowed(&store) && status.available && status.stored)
     })
     .await
 }

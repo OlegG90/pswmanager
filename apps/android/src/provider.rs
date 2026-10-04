@@ -69,7 +69,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_fingerpr
     _this: JObject<'local>,
     state: JString<'local>,
 ) -> jboolean {
-    yes(|| with_store(&mut env, &state, |store| Settings::of(store).biometric_unlock() && !crate::app::password_due(store)) == Ok(true))
+    yes(|| with_store(&mut env, &state, crate::app::biometric_allowed) == Ok(true))
 }
 
 /// Unlocks with the master password (`sealed` null), or with the key sealed
@@ -114,9 +114,9 @@ fn unlock(env: &mut JNIEnv, context: &JObject, state: &JString, password: &JStri
     let with_sealed_key = sealed.is_some();
     let (password, key_file) = match sealed {
         Some(sealed) => {
-            let secret: crate::app::Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;
+            let mut secret: crate::app::Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;
             let key_file = secret.key_file().map_err(|e| e.to_string())?;
-            (secret.password.clone().map(Zeroizing::new), key_file)
+            (secret.password.take().map(Zeroizing::new), key_file)
         }
         None => (password, None),
     };

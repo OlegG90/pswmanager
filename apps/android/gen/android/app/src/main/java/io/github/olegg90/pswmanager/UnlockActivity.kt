@@ -43,7 +43,7 @@ class UnlockActivity : AppCompatActivity() {
     }
     message = TextView(this)
     unlockButton = Button(this).apply { text = "Unlock"; setOnClickListener { unlockWith(password.text.toString(), null) } }
-    val fingerprint = Button(this).apply { text = "Use fingerprint"; setOnClickListener { askFingerprint() } }
+    val offered = fingerprintOffered()
     val cancel = Button(this).apply { text = "Cancel"; setOnClickListener { finish() } }
     setContentView(LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
@@ -54,11 +54,11 @@ class UnlockActivity : AppCompatActivity() {
       addView(password)
       addView(message)
       addView(unlockButton)
-      if (fingerprintOffered()) addView(fingerprint)
+      if (offered) addView(Button(this@UnlockActivity).apply { text = "Use fingerprint"; setOnClickListener { askFingerprint() } })
       addView(cancel)
     })
     if (ProviderBridge.isUnlocked()) return done()
-    if (savedInstanceState == null && fingerprintOffered()) askFingerprint()
+    if (savedInstanceState == null && offered) askFingerprint()
   }
 
   private fun fingerprintOffered(): Boolean =
