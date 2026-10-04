@@ -4,6 +4,7 @@
 //! what does (where secrets are kept, the browser for a sign-in) is handed in.
 
 pub mod backup;
+pub mod cxf;
 pub mod dbfile;
 pub mod documents;
 pub mod dropbox;

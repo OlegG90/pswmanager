@@ -23,6 +23,17 @@ pub const NOT_FOUND: &str = "That entry is no longer in the database";
 /// The star is this tag, as `sic2kdbx` writes SafeInCloud's; other clients see a tag.
 pub const FAVORITE: &str = "Favorite";
 
+/// The attributes KeePassXC keeps a passkey in: their names all start with
+/// [passkey::PREFIX].
+pub(crate) mod passkey {
+    pub const PREFIX: &str = "KPEX_PASSKEY_";
+    pub const USERNAME: &str = "KPEX_PASSKEY_USERNAME";
+    pub const CREDENTIAL_ID: &str = "KPEX_PASSKEY_CREDENTIAL_ID";
+    pub const PRIVATE_KEY: &str = "KPEX_PASSKEY_PRIVATE_KEY_PEM";
+    pub const RELYING_PARTY: &str = "KPEX_PASSKEY_RELYING_PARTY";
+    pub const USER_HANDLE: &str = "KPEX_PASSKEY_USER_HANDLE";
+}
+
 /// Everything the editor shows and sends back, secrets included: while an
 /// entry is being edited its values are in the window anyway.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -106,7 +117,7 @@ pub enum FileChange<C = u64> {
 pub type FileEdit = FileChange<Zeroizing<Vec<u8>>>;
 
 /// The fields the editor has its own inputs for.
-const STANDARD: [&str; 6] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES, fields::OTP];
+pub(crate) const STANDARD: [&str; 6] = [fields::TITLE, fields::USERNAME, fields::PASSWORD, fields::URL, fields::NOTES, fields::OTP];
 
 pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
     let text = |name: &str| entry.fields.get(name).map(|v| v.get().clone()).unwrap_or_default();
