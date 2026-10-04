@@ -37,10 +37,6 @@
                 android:name="android.credentials.provider"
                 android:resource="@xml/credential_provider" />
         </service>
-        <!-- TEMP (#164): a test app asking through Credential Manager (CredTestActivity). -->
-        <activity
-            android:name=".CredTestActivity"
-            android:exported="true" />
         <activity
             android:name=".PasswordActivity"
             android:exported="false"
