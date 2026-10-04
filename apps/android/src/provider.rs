@@ -15,6 +15,7 @@ use jni::JNIEnv;
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
+use pswm_core::vault::LoginPlace;
 use pswm_core::webauthn;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,8 +66,13 @@ fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>
 }
 
 /// A Rust string for Java; null if it cannot be made.
-fn java_text(env: &mut JNIEnv, text: String) -> jstring {
-    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+fn java_text(env: &mut JNIEnv, text: impl AsRef<str>) -> jstring {
+    env.new_string(text.as_ref()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// Whether the database syncs with a cloud store (an upload then waits for a network).
+fn syncs_with_cloud(env: &mut JNIEnv, state: &JString) -> Result<bool, String> {
+    with_store(env, state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))
 }
 
 /// The answer to a JNI call that should not fail: `false` on a panic.
@@ -239,7 +245,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPassk
             let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
             (has_one, v.entries_for_new_passkey(&rp_id))
         })?;
-        let cloud = with_store(&mut env, &state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))?;
+        let cloud = syncs_with_cloud(&mut env, &state)?;
         Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud }).to_string())
     }))
     .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
@@ -290,6 +296,112 @@ fn caller(env: &mut JNIEnv, origin: &JString, client_data_hash: &JByteArray, pac
             webauthn::Caller::App { origin: webauthn::app_origin(&certificate), package }
         }
     })
+}
+
+/// The logins for the app or site asking, as JSON (`[{id, title, username}]`);
+/// null while locked.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_logins<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+) -> jstring {
+    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
+        let origin = optional_text(&mut env, &origin).ok()?;
+        let package = optional_text(&mut env, &package).ok()??;
+        let place = LoginPlace::of(origin.as_deref(), &package).ok()?;
+        let offered = session().read(|v| v.logins_for(&place)).ok()?;
+        serde_json::to_string(&offered).ok()
+    }));
+    match found {
+        Ok(Some(json)) => java_text(&mut env, json),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Entry `id`'s login, as JSON (`{username, password}`), after the user was
+/// verified; null while locked or when the entry is gone.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+) -> jstring {
+    #[derive(serde::Serialize)]
+    struct Login<'a> {
+        username: &'a str,
+        password: &'a str,
+    }
+    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Zeroizing<String>> {
+        let id = optional_text(&mut env, &id).ok()??;
+        let (username, password) = session().with(|v| v.login(&id)).ok()?;
+        // One string, wiped once Java has its own copy.
+        serde_json::to_string(&Login { username: &username, password: &password }).ok().map(Zeroizing::new)
+    }));
+    match found {
+        Ok(Some(json)) => java_text(&mut env, json.as_str()),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// The entries a login an app offers to save can update, as JSON
+/// (`{entries: [{id, title, username}], cloud}`), or `FAILED` and why.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginChoices<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+) -> jstring {
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+        let origin = optional_text(&mut env, &origin)?;
+        let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
+        let place = LoginPlace::of(origin.as_deref(), &package)?;
+        let entries = session().read(|v| v.entries_for_login(&place))?;
+        let cloud = syncs_with_cloud(&mut env, &state)?;
+        Ok(serde_json::json!({ "entries": entries, "cloud": cloud }).to_string())
+    }))
+    .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
+    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+    java_text(&mut env, text)
+}
+
+/// Saves a login an app offers: into entry `id`, or a new entry titled
+/// `title`; the database goes up with the next sync. Empty when saved, else
+/// `FAILED` and why.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogin<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    title: JString<'local>,
+    username: JString<'local>,
+    password: JString<'local>,
+) -> jstring {
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+        let id = optional_text(&mut env, &id)?;
+        let origin = optional_text(&mut env, &origin)?;
+        let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
+        let title = optional_text(&mut env, &title)?.unwrap_or_default();
+        let username = Zeroizing::new(optional_text(&mut env, &username)?.unwrap_or_default());
+        let password = Zeroizing::new(optional_text(&mut env, &password)?.ok_or("No password")?);
+        let place = LoginPlace::of(origin.as_deref(), &package)?;
+        session().with_mut(|v| v.save_login(id.as_deref(), &place, &title, &username, &password))?;
+        if let Some(app) = APP.get() {
+            crate::editing::upload_soon(app);
+        }
+        Ok(())
+    }))
+    .unwrap_or_else(|_| Err("PswManager could not save the password".into()));
+    let text = match answer {
+        Ok(()) => String::new(),
+        Err(why) => format!("{FAILED}{why}"),
+    };
+    java_text(&mut env, text)
 }
 
 /// Runs `work` with the app's `Store` when the app runs, else with one on the

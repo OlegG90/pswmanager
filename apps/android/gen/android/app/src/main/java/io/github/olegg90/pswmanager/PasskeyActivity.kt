@@ -31,14 +31,14 @@ class PasskeyActivity : AppCompatActivity() {
     if (savedInstanceState != null) return cancel()
     val request = PendingIntentHandler.retrieveProviderGetCredentialRequest(intent)
     val option = request?.credentialOptions?.filterIsInstance<GetPublicKeyCredentialOption>()?.firstOrNull()
-    val id = intent.getStringExtra(EXTRA_ENTRY)
+    val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY)
     if (request == null || option == null || id == null) return fail("Nothing to sign in to")
     val caller = try {
       Caller.of(this, request.callingAppInfo)
     } catch (e: Exception) {
       return fail("Cannot tell who asks: ${e.message}")
     }
-    verifyUser(this, "Sign in with your passkey", intent.getStringExtra(EXTRA_TITLE) ?: "", {
+    verifyUser(this, "Sign in with your passkey", intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", {
       thread {
         val answer = ProviderBridge.sign(id, option.requestJson, caller.origin, caller.clientDataHash(option.clientDataHash), caller.packageName, caller.certificate)
         runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else signedIn(answer) }
@@ -64,8 +64,4 @@ class PasskeyActivity : AppCompatActivity() {
     finish()
   }
 
-  companion object {
-    const val EXTRA_ENTRY = "entry"
-    const val EXTRA_TITLE = "title"
-  }
 }

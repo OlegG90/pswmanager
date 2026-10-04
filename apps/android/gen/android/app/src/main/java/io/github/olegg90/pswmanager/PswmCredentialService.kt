@@ -13,12 +13,15 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
+import androidx.credentials.provider.BeginCreatePasswordCredentialRequest
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
+import androidx.credentials.provider.BeginGetPasswordOption
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.CreateEntry
 import androidx.credentials.provider.CredentialProviderService
+import androidx.credentials.provider.PasswordCredentialEntry
 import androidx.credentials.provider.ProviderClearCredentialStateRequest
 import androidx.credentials.provider.PublicKeyCredentialEntry
 import org.json.JSONArray
@@ -60,7 +63,23 @@ object ProviderBridge {
   /** Makes a passkey into entry `id` (a new one when null) and saves: the answer's JSON, or [FAILED] and why. */
   external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
 
+  /** The logins for the app (or the site a browser speaks for), as JSON (`[{id, title, username}]`); null while locked. */
+  external fun logins(origin: String?, packageName: String): String?
+
+  /** Entry `id`'s login as JSON (`{username, password}`); null while locked or when gone. */
+  external fun login(id: String): String?
+
+  /** The entries a login offered can update, as JSON (`{entries, cloud}`), or [FAILED] and why. */
+  external fun loginChoices(state: String, origin: String?, packageName: String): String
+
+  /** Saves a login into entry `id` (a new one titled `title` when null): empty, or [FAILED] and why. */
+  external fun saveLogin(id: String?, origin: String?, packageName: String, title: String, username: String, password: String): String
+
   const val STALE = "stale:"
+
+  /** The entry (and its title) a picked passkey or login is for, in the activity's intent. */
+  const val EXTRA_ENTRY = "entry"
+  const val EXTRA_TITLE = "title"
   const val FAILED = "failed:"
 
   /** The app's state file, as Tauri keeps it (its data folder, `app_data_dir`; `STATE_FILE` in app.rs). */
@@ -74,6 +93,8 @@ object ProviderBridge {
  * PswManager* ([UnlockActivity]); nothing about entries is told. Unlocked,
  * it offers the site's passkeys ([PasskeyActivity] signs in with the one
  * picked); asked to make one, it offers to keep it ([CreatePasskeyActivity]).
+ * Apps that use Credential Manager for passwords get their logins
+ * ([PasswordActivity]) and can save new ones ([CreatePasswordActivity]).
  */
 @RequiresApi(34)
 class PswmCredentialService : CredentialProviderService() {
@@ -87,7 +108,7 @@ class PswmCredentialService : CredentialProviderService() {
       callback.onResult(BeginGetCredentialResponse(authenticationActions = listOf(unlock)))
       return
     }
-    callback.onResult(passkeys(this, request))
+    callback.onResult(credentials(this, request))
   }
 
   override fun onBeginCreateCredentialRequest(
@@ -95,12 +116,13 @@ class PswmCredentialService : CredentialProviderService() {
     cancellationSignal: CancellationSignal,
     callback: OutcomeReceiver<BeginCreateCredentialResponse, CreateCredentialException>,
   ) {
-    if (request !is BeginCreatePublicKeyCredentialRequest) {
-      return callback.onError(CreateCredentialUnsupportedException("PswManager keeps passkeys only"))
-    }
     // Locked or not: the activity unlocks first when it must.
-    val intent = Intent(this, CreatePasskeyActivity::class.java)
-    val save = PendingIntent.getActivity(this, 3, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    val activity = when (request) {
+      is BeginCreatePublicKeyCredentialRequest -> CreatePasskeyActivity::class.java
+      is BeginCreatePasswordCredentialRequest -> CreatePasswordActivity::class.java
+      else -> return callback.onError(CreateCredentialUnsupportedException("PswManager keeps passkeys and passwords only"))
+    }
+    val save = PendingIntent.getActivity(this, 3, Intent(this, activity), PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     callback.onResult(BeginCreateCredentialResponse(createEntries = listOf(CreateEntry(accountName = "PswManager", pendingIntent = save))))
   }
 
@@ -119,9 +141,9 @@ class PswmCredentialService : CredentialProviderService() {
       return PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    /** The passkeys the database (unlocked) has for each passkey the request asks for. */
-    fun passkeys(context: Context, request: BeginGetCredentialRequest): BeginGetCredentialResponse {
-      val entries = request.beginGetCredentialOptions.filterIsInstance<BeginGetPublicKeyCredentialOption>().flatMap { option ->
+    /** What the database (unlocked) has for the request: the site's passkeys, the app's (or site's) logins. */
+    fun credentials(context: Context, request: BeginGetCredentialRequest): BeginGetCredentialResponse {
+      val passkeys = request.beginGetCredentialOptions.filterIsInstance<BeginGetPublicKeyCredentialOption>().flatMap { option ->
         val found = JSONArray(ProviderBridge.passkeys(option.requestJson) ?: "[]")
         (0 until found.length()).map { i ->
           val passkey = found.getJSONObject(i)
@@ -129,21 +151,44 @@ class PswmCredentialService : CredentialProviderService() {
           PublicKeyCredentialEntry(
             context = context,
             username = passkey.optString("username").ifEmpty { title },
-            pendingIntent = signIntent(context, passkey.getString("id"), title),
+            pendingIntent = entryIntent(context, PasskeyActivity::class.java, passkey.getString("id"), title),
             beginGetPublicKeyCredentialOption = option,
             displayName = title,
           )
         }
       }
-      return BeginGetCredentialResponse(credentialEntries = entries)
+      val passwordOptions = request.beginGetCredentialOptions.filterIsInstance<BeginGetPasswordOption>()
+      val caller = request.callingAppInfo?.takeIf { passwordOptions.isNotEmpty() }?.let { app ->
+        try {
+          Caller.of(context, app)
+        } catch (e: Exception) {
+          android.util.Log.w("PswmProvider", "No logins offered: who asks is unknown (${e.javaClass.simpleName})")
+          null
+        }
+      }
+      val found = JSONArray(caller?.let { ProviderBridge.logins(it.origin, it.packageName) } ?: "[]")
+      val logins = passwordOptions.flatMap { option ->
+        (0 until found.length()).map { i ->
+          val login = found.getJSONObject(i)
+          val title = login.optString("title")
+          PasswordCredentialEntry(
+            context = context,
+            username = login.optString("username").ifEmpty { title },
+            pendingIntent = entryIntent(context, PasswordActivity::class.java, login.getString("id"), title),
+            beginGetPasswordOption = option,
+            displayName = title,
+          )
+        }
+      }
+      return BeginGetCredentialResponse(credentialEntries = passkeys + logins)
     }
 
-    /** Opens [PasskeyActivity] for entry `id`: the entry's id makes the intent its own (extras do not). */
-    private fun signIntent(context: Context, id: String, title: String): PendingIntent {
-      val intent = Intent(context, PasskeyActivity::class.java)
+    /** Opens `activity` for entry `id`: the activity and the entry's id make the intent its own (extras do not). */
+    private fun entryIntent(context: Context, activity: Class<*>, id: String, title: String): PendingIntent {
+      val intent = Intent(context, activity)
         .setIdentifier(id)
-        .putExtra(PasskeyActivity.EXTRA_ENTRY, id)
-        .putExtra(PasskeyActivity.EXTRA_TITLE, title)
+        .putExtra(ProviderBridge.EXTRA_ENTRY, id)
+        .putExtra(ProviderBridge.EXTRA_TITLE, title)
       return PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
