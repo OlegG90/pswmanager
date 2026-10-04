@@ -35,6 +35,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(crate::secrets::init())
         .plugin(crate::biometric::init())
+        .plugin(crate::transfer::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             app.manage(Store::load(data.join(STATE_FILE)));
@@ -104,7 +105,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::generate_password,
             crate::editing::password_strength,
             crate::editing::pick_file_to_attach,
-            crate::editing::release_files
+            crate::editing::release_files,
+            crate::transfer::import_from_app
         ])
 }
 

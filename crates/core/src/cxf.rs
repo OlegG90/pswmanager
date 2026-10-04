@@ -46,6 +46,11 @@ impl Import {
     pub fn group_name(&self, day: NaiveDate) -> String {
         format!("Imported from {} {}", self.exporter, day.format("%Y-%m-%d"))
     }
+
+    /// [Import::group_name] for today, as this device's clock has it.
+    pub fn group_name_today(&self) -> String {
+        self.group_name(chrono::Local::now().date_naive())
+    }
 }
 
 
@@ -199,7 +204,18 @@ fn read_credentials(item: &Value, data: &mut EntryData, fields: &mut Fields, why
                 Err(e) => why.push(format!("A TOTP secret: {e}")),
             },
             "passkey" => match Passkey::read(credential) {
-                Ok(passkey) => passkeys.push(passkey),
+                Ok(passkey) => {
+                    // What KeePassXC has no attributes for (PRF and the blobs).
+                    let extensions: Vec<&str> = credential
+                        .get("fido2Extensions")
+                        .and_then(Value::as_object)
+                        .map(|e| e.keys().map(String::as_str).filter(|k| *k != "payments").collect())
+                        .unwrap_or_default();
+                    if !extensions.is_empty() {
+                        why.push(format!("The passkey's extensions ({}): not kept", extensions.join(", ")));
+                    }
+                    passkeys.push(passkey);
+                }
                 Err(e) => why.push(format!("A passkey: {e}")),
             },
             "note" => {
@@ -507,7 +523,8 @@ mod tests {
           {"id": "aXRlbTI", "title": "", "tags": ["keys"], "scope": {"androidApps": [{"bundleId": "com.example.site"}]}, "credentials": [
              {"type": "custom-fields", "fields": [{"fieldType": "string", "value": "mine", "label": "KPEX_PASSKEY_USERNAME"}]},
              {"type": "passkey", "credentialId": "Y3JlZC0x", "rpId": "site.example", "username": "bob",
-              "userDisplayName": "Bob", "userHandle": "dXNlcg", "key": "AAECAwQFBgcICQoLDA0ODw"},
+              "userDisplayName": "Bob", "userHandle": "dXNlcg", "key": "AAECAwQFBgcICQoLDA0ODw",
+              "fido2Extensions": {"payments": false, "hmacCredentials": {"algorithm": "hmac-sha256", "credWithUV": "AA", "credWithoutUV": "AA"}}},
              {"type": "passkey", "credentialId": "Y3JlZC0y", "rpId": "other.example", "username": "bob",
               "userDisplayName": "Bob", "userHandle": "dXNlcg", "key": "AAEC"}]},
           {"id": "aXRlbTM", "title": "Card", "credentials": [
@@ -568,6 +585,8 @@ mod tests {
         let second = &import.entries[2].data;
         assert_eq!((second.title.as_str(), second.url.as_str()), ("other.example", "https://other.example"));
         assert_eq!(field(second, passkey::CREDENTIAL_ID).unwrap().value, "Y3JlZC0y");
+        // PRF and the blobs have nowhere to go; a payments flag says nothing.
+        assert!(import.skipped.iter().any(|s| s.why == "The passkey's extensions (hmacCredentials): not kept"));
         assert_eq!(second.tags, ["keys"]);
     }
 

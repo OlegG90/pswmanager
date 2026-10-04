@@ -30,7 +30,7 @@ fn changed(app: &AppHandle) {
 
 /// Syncs `UPLOAD_DELAY` after the last change. Going to the background first
 /// sends it at once (`sync_if_pending`).
-fn upload_soon(app: &AppHandle) {
+pub(crate) fn upload_soon(app: &AppHandle) {
     changed(app);
     let wait = app.state::<UploadSoon>().0.next();
     let app = app.clone();

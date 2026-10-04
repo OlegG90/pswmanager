@@ -24,6 +24,8 @@ mod secrets;
 #[cfg(mobile)]
 mod system;
 #[cfg(mobile)]
+mod transfer;
+#[cfg(mobile)]
 mod visible;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

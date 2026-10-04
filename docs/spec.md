@@ -30,7 +30,8 @@ stays out.
 Browser autofill and browser extensions (Android's autofill is a later stage of the Android app), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
 at once (one is open at a time; switching locks the other), importing from other
-password managers inside the app (SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
+password managers in the Windows app (on Android it imports through the system's Credential Transfer,
+`spec-android.md`; SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
 an opened attachment, Windows Hello unlock, sharing, KDBX 3 writing.
 
 ## Databases
