@@ -3,4 +3,11 @@
     <style name="Theme.pswm_android" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
     </style>
+    <!-- Only the system's prompt shows (PasskeyActivity). -->
+    <style name="Theme.pswm_android.Translucent" parent="Theme.pswm_android">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

@@ -152,7 +152,8 @@ pub struct Stored<'a> {
 pub fn sign(options_json: &str, stored: &Stored<'_>, caller: &Caller) -> Result<String, String> {
     let options = parse(options_json)?;
     if let Some(rp_id) = string_at(&options, "rpId") {
-        if rp_id != stored.rp_id {
+        // Domains, so case-blind (as the passkeys are offered).
+        if !rp_id.eq_ignore_ascii_case(stored.rp_id) {
             return Err(format!("This passkey is for {}, not {rp_id}", stored.rp_id));
         }
     }
@@ -240,6 +241,13 @@ fn string_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 /// base64url without padding, as WebAuthn writes it.
 fn unpadded(base64url: &str) -> &str {
     base64url.trim_end_matches('=')
+}
+
+/// A credential id's bytes, from base64url or plain base64 (as some
+/// exporters write it), padded or not: ids compared this way match however
+/// they were written.
+pub fn credential_id_bytes(id: &str) -> Option<Vec<u8>> {
+    B64URL.decode(unpadded(id.trim()).replace('+', "-").replace('/', "_")).ok()
 }
 
 /// The start of authenticator data: the RP id's hash, the flags, the counter (0).

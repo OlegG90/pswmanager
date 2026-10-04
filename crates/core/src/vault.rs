@@ -15,6 +15,16 @@ use std::path::Path;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+/// A passkey an entry holds, as a site or app is offered it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeyChoice {
+    /// The entry's id.
+    pub id: String,
+    pub title: String,
+    pub username: String,
+}
+
 pub struct Vault {
     db: Database,
     /// The file it came from; `None` only in tests that never save.
@@ -386,6 +396,43 @@ impl Vault {
     /// The entry's URL as a web address, if it is one.
     pub fn web_url(&self, id: &str) -> Option<url::Url> {
         icons::web_url(&self.field(id, fields::URL)?)
+    }
+
+    /// The passkeys for the site or app `rp_id`, among the entries the user
+    /// works with: only those with a credential id in `allowed` when the
+    /// request names some (WebAuthn's `allowCredentials`).
+    pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<PasskeyChoice> {
+        // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
+        let restricted = !allowed.is_empty();
+        let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| crate::webauthn::credential_id_bytes(id)).collect();
+        self.visible_entries()
+            .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
+            .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
+            .map(|e| PasskeyChoice {
+                id: e.id().uuid().to_string(),
+                title: e.get(fields::TITLE).unwrap_or_default().to_string(),
+                username: e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME)).unwrap_or_default().to_string(),
+            })
+            .collect()
+    }
+
+    /// Signs in with the passkey of entry `id` (WebAuthn's request options,
+    /// `request_json`), after the user was verified: the answer for the site
+    /// or app (see [crate::webauthn::sign]).
+    pub fn sign_with_passkey(&self, id: &str, request_json: &str, caller: &crate::webauthn::Caller) -> Result<String, String> {
+        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
+        let need = |name: &str| entry.get(name).filter(|v| !v.is_empty()).ok_or_else(|| "This entry's passkey is incomplete".to_string());
+        // KeePassXC writes "1"; missing means on, as there.
+        let flag = |name: &str| entry.get(name).is_none_or(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+        let stored = crate::webauthn::Stored {
+            rp_id: need(edit::passkey::RELYING_PARTY)?,
+            credential_id: need(edit::passkey::CREDENTIAL_ID)?,
+            user_handle: need(edit::passkey::USER_HANDLE)?,
+            private_key_pem: need(edit::passkey::PRIVATE_KEY)?,
+            backup_eligible: flag(edit::passkey::FLAG_BE),
+            backed_up: flag(edit::passkey::FLAG_BS),
+        };
+        crate::webauthn::sign(request_json, &stored, caller)
     }
 
     /// An entry by id, to show or copy from: templates and the recycle bin's too.
@@ -1202,6 +1249,37 @@ pub mod tests {
         let mut expected = before;
         expected.config.version = vault.db.config.version.clone();
         assert_eq!(reopened.db, expected);
+    }
+
+    #[test]
+    fn offers_a_sites_passkeys_and_signs_in_with_one() {
+        let caller = crate::webauthn::Caller::App { origin: "android:apk-key-hash:x".into(), package: "com.example".into() };
+        let made = crate::webauthn::make(
+            r#"{"rp": {"id": "example.com"}, "user": {"id": "dQ", "name": "alice"}, "challenge": "Yw"}"#,
+            &caller,
+        )
+        .unwrap();
+        let mut db = sample();
+        let mut data = EntryData::default();
+        data.title = "Example".into();
+        data.fields = made.fields.clone();
+        let id = edit::apply(&mut db, None, &data, &HashSet::new()).unwrap().uuid().to_string();
+        let vault = Vault::from_database(db);
+        let offered = vault.passkeys_for("example.com", &[]);
+        assert_eq!((offered[0].id.as_str(), offered[0].title.as_str(), offered[0].username.as_str()), (id.as_str(), "Example", "alice"));
+        assert!(vault.passkeys_for("other.com", &[]).is_empty());
+        assert_eq!(vault.passkeys_for("Example.COM", &[]).len(), 1);
+        // A site that names only ids nothing can read gets none, not all.
+        assert!(vault.passkeys_for("example.com", &["!!!".into()]).is_empty());
+        assert!(vault.passkeys_for("example.com", &["c29tZXRoaW5nLWVsc2U".into()]).is_empty());
+        let credential_id = made.fields.iter().find(|f| f.name == edit::passkey::CREDENTIAL_ID).unwrap().value.clone();
+        assert_eq!(vault.passkeys_for("example.com", std::slice::from_ref(&credential_id)).len(), 1);
+
+        let response = vault.sign_with_passkey(&id, r#"{"rpId": "example.com", "challenge": "c2lnbg"}"#, &caller).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(json["id"], credential_id.as_str());
+        assert_eq!(json["response"]["userHandle"], "dQ");
+        assert!(vault.sign_with_passkey(&id, r#"{"rpId": "other.com", "challenge": "Yw"}"#, &caller).is_err());
     }
 
     #[test]

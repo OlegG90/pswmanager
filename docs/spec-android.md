@@ -236,8 +236,15 @@ Android offers Google first). Android asks it when an app or a site in a browser
   than a minute (a passkey is used right after), and not while the app is in front, or after it unlocked
   itself (its own rules apply then). *Never* keeps it unlocked. Without the app's window there is no
   screen-off or inactivity lock; they apply once the app is opened.
-- Signing in with a passkey (#162), making one (#163) and passwords through Credential Manager (#164)
-  come next.
+- **Signing in with a passkey** (#162): unlocked (or right after the unlock above), the service offers the
+  passkeys whose relying party is the site's (compared case-blind; only those the site allows, when it
+  names some), each with
+  its entry's title and user name. Picking one asks for the fingerprint or the phone's screen lock (the
+  system's prompt; the master password is asked only to unlock), then
+  the core signs (`webauthn::sign`). A browser on Google's list of privileged apps (kept with the app)
+  speaks for the site: its origin and client data hash are used; any other app signs for itself, its
+  origin being its signing certificate (the site checks it is its own app).
+- Making a passkey (#163) and passwords through Credential Manager (#164) come next.
 
 ## Synchronisation
 
