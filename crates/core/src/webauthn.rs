@@ -243,6 +243,13 @@ fn unpadded(base64url: &str) -> &str {
     base64url.trim_end_matches('=')
 }
 
+/// A credential id's bytes, from base64url or plain base64 (as some
+/// exporters write it), padded or not: ids compared this way match however
+/// they were written.
+pub fn credential_id_bytes(id: &str) -> Option<Vec<u8>> {
+    B64URL.decode(unpadded(id.trim()).replace('+', "-").replace('/', "_")).ok()
+}
+
 /// The start of authenticator data: the RP id's hash, the flags, the counter (0).
 fn header(rp_id: &str, flags: u8) -> Vec<u8> {
     let mut data = Sha256::digest(rp_id.as_bytes()).to_vec();

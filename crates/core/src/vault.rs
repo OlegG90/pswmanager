@@ -404,10 +404,10 @@ impl Vault {
     pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<PasskeyChoice> {
         // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
         let restricted = !allowed.is_empty();
-        let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| credential_id_bytes(id)).collect();
+        let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| crate::webauthn::credential_id_bytes(id)).collect();
         self.visible_entries()
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
-            .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
+            .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
             .map(|e| PasskeyChoice {
                 id: e.id().uuid().to_string(),
                 title: e.get(fields::TITLE).unwrap_or_default().to_string(),
@@ -731,16 +731,6 @@ fn kind(entry: &EntryRef<'_>) -> Kind {
 /// True when the entry sits in `group` (if the database has one), at any depth.
 fn in_group(entry: &EntryRef<'_>, group: Option<Uuid>) -> bool {
     group.is_some_and(|g| is_in(entry, &HashSet::from([GroupId::from(g)])))
-}
-
-/// A credential id's bytes, from base64url or plain base64, padded or not.
-fn credential_id_bytes(id: &str) -> Option<Vec<u8>> {
-    let unified: String = id.trim().trim_end_matches('=').chars().map(|c| match c {
-        '+' => '-',
-        '/' => '_',
-        c => c,
-    }).collect();
-    base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, unified).ok()
 }
 
 fn parse_id(id: &str) -> Result<EntryId, String> {
@@ -1283,7 +1273,7 @@ pub mod tests {
         assert!(vault.passkeys_for("example.com", &["!!!".into()]).is_empty());
         assert!(vault.passkeys_for("example.com", &["c29tZXRoaW5nLWVsc2U".into()]).is_empty());
         let credential_id = made.fields.iter().find(|f| f.name == edit::passkey::CREDENTIAL_ID).unwrap().value.clone();
-        assert_eq!(vault.passkeys_for("example.com", &[credential_id.clone()]).len(), 1);
+        assert_eq!(vault.passkeys_for("example.com", std::slice::from_ref(&credential_id)).len(), 1);
 
         let response = vault.sign_with_passkey(&id, r#"{"rpId": "example.com", "challenge": "c2lnbg"}"#, &caller).unwrap();
         let json: serde_json::Value = serde_json::from_str(&response).unwrap();

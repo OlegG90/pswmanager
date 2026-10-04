@@ -48,6 +48,22 @@ pub fn unlocked_in_app() {
     LOCK_LATER.next();
 }
 
+/// A Java string argument; `None` when null.
+fn optional_text(env: &mut JNIEnv, value: &JString) -> Result<Option<String>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(env.get_string(value).map_err(|e| e.to_string())?.into()))
+}
+
+/// A Java byte array argument; `None` when null.
+fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    env.convert_byte_array(value).map(Some).map_err(|e| e.to_string())
+}
+
 /// The answer to a JNI call that should not fail: `false` on a panic.
 fn yes(answer: impl FnOnce() -> bool) -> jboolean {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(answer)) {
@@ -103,15 +119,8 @@ fn unlock(env: &mut JNIEnv, context: &JObject, state: &JString, password: &JStri
         return Ok(()); // the app was unlocked meanwhile
     }
     Kotlin::install(env, context)?;
-    let text = |env: &mut JNIEnv, value: &JString| -> Result<Option<Zeroizing<String>>, String> {
-        if value.is_null() {
-            return Ok(None);
-        }
-        let value: String = env.get_string(value).map_err(|e| e.to_string())?.into();
-        Ok(Some(Zeroizing::new(value)))
-    };
-    let password = text(env, password)?;
-    let sealed = text(env, sealed)?;
+    let password = optional_text(env, password)?.map(Zeroizing::new);
+    let sealed = optional_text(env, sealed)?.map(Zeroizing::new);
     let with_sealed_key = sealed.is_some();
     let (password, key_file) = match sealed {
         Some(sealed) => {
@@ -191,36 +200,21 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
     certificate: JByteArray<'local>,
 ) -> jstring {
     let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-        let text = |env: &mut JNIEnv, value: &JString| -> Result<Option<String>, String> {
-            if value.is_null() {
-                return Ok(None);
-            }
-            Ok(Some(env.get_string(value).map_err(|e| e.to_string())?.into()))
-        };
-        let bytes = |env: &mut JNIEnv, value: &JByteArray| -> Result<Option<Vec<u8>>, String> {
-            if value.is_null() {
-                return Ok(None);
-            }
-            env.convert_byte_array(value).map(Some).map_err(|e| e.to_string())
-        };
-        let id = text(&mut env, &id)?.ok_or("No passkey chosen")?;
-        let request = text(&mut env, &request)?.ok_or("No request")?;
-        let caller = match (text(&mut env, &origin)?, bytes(&mut env, &client_data_hash)?) {
+        let id = optional_text(&mut env, &id)?.ok_or("No passkey chosen")?;
+        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
+        let caller = match (optional_text(&mut env, &origin)?, optional_bytes(&mut env, &client_data_hash)?) {
             (Some(origin), Some(client_data_hash)) => webauthn::Caller::Browser { origin, client_data_hash },
             (Some(_), None) => return Err("The browser did not give its client data".into()),
             (None, _) => {
-                let package = text(&mut env, &package)?.ok_or("The app asking is unknown")?;
-                let certificate = bytes(&mut env, &certificate)?.ok_or("The app asking is unknown")?;
+                let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
+                let certificate = optional_bytes(&mut env, &certificate)?.ok_or("The app asking is unknown")?;
                 webauthn::Caller::App { origin: webauthn::app_origin(&certificate), package }
             }
         };
         session().read(|v| v.sign_with_passkey(&id, &request, &caller))?
     }))
     .unwrap_or_else(|_| Err("PswManager could not sign in".into()));
-    let text = match answer {
-        Ok(json) => json,
-        Err(why) => format!("{FAILED}{why}"),
-    };
+    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
     env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
