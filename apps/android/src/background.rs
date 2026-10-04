@@ -25,7 +25,7 @@ use tauri::AppHandle;
 use zeroize::Zeroizing;
 
 /// The app, when it runs in this process.
-static APP: OnceLock<AppHandle> = OnceLock::new();
+pub(crate) static APP: OnceLock<AppHandle> = OnceLock::new();
 
 /// Called at the app's start.
 pub fn remember(app: &AppHandle) {
@@ -69,9 +69,9 @@ fn upload(env: &mut JNIEnv, context: &JObject, state: &JString) -> Result<bool, 
 }
 
 /// The Kotlin side, reached from any thread: the classes are found once, on
-/// the worker's thread, whose class loader knows them. Installed before the
+/// the worker's (or the credential provider's) thread, whose class loader knows them. Installed before the
 /// app's own plugins (the work started the process), these serve the app too.
-struct Kotlin {
+pub(crate) struct Kotlin {
     vm: JavaVM,
     context: GlobalRef,
     keystore: GlobalRef,
@@ -86,7 +86,7 @@ enum Arg<'a> {
 
 impl Kotlin {
     /// Installs the core's secrets and documents through JNI, once.
-    fn install(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
+    pub(crate) fn install(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
         static INSTALLED: OnceLock<()> = OnceLock::new();
         if INSTALLED.get().is_some() {
             return Ok(());

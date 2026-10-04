@@ -22,6 +22,11 @@ pub fn install(store: Box<dyn DocumentStore>) {
     let _ = STORE.set(store);
 }
 
+/// A document's content through the installed store; `None` when it is gone.
+pub fn read(uri: &str) -> Result<Option<Vec<u8>>, String> {
+    store().map_err(|e| e.message())?.read(uri)
+}
+
 fn store() -> Result<&'static dyn DocumentStore, RemoteError> {
     STORE.get().map(|s| s.as_ref()).ok_or_else(|| RemoteError::Failed("This device has no documents".into()))
 }

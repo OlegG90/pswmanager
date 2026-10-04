@@ -1104,7 +1104,9 @@ document.addEventListener('visibilitychange', () => {
     void api.lockLater()
   } else if (!document.hidden) {
     returnedAt = Date.now()
-    onReturn()
+    // Unlocked meanwhile for a passkey (the credential provider shares the session).
+    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : onReturn()))
+    else onReturn()
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.
