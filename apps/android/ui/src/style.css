@@ -692,6 +692,20 @@ button.chip[aria-pressed="true"] {
   grid-column: 1 / -1;
 }
 
+/* The editor's two-state icons (show / hide, protected): no frame, the
+   accent when on. */
+button.icon.state {
+  align-self: center;
+  border: 0;
+  background: none;
+  padding: 8px;
+  color: var(--color-neutral-700);
+}
+
+button.chip.icon.state[aria-pressed="true"] {
+  color: var(--color-accent);
+}
+
 .field-row textarea {
   min-width: 0;
   resize: none;

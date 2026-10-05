@@ -20,23 +20,38 @@ let generatorOptions: GeneratorOptions = {
 
 export const input = (value: string, props: object = {}) => el('input', { value, spellcheck: false, ...props })
 
-export function showHide(target: HTMLInputElement): HTMLButtonElement {
-  const toggle = button('Show', 'Show / hide', () => {
+/** A two-state button's picture, on or off (the phone draws them; Windows writes words). */
+export type StateIcon = (on: boolean) => Element
+
+/** Shows or hides `target`'s value; with `icon`, a picture of whether it is shown. */
+export function showHide(target: HTMLInputElement, icon?: StateIcon): HTMLButtonElement {
+  const toggle = button(icon ? '' : 'Show', 'Show / hide', () => {
     const hidden = target.type === 'password'
     target.type = hidden ? 'text' : 'password'
-    toggle.textContent = hidden ? 'Hide' : 'Show'
-  })
+    if (icon) toggle.replaceChildren(icon(hidden))
+    else toggle.textContent = hidden ? 'Hide' : 'Show'
+  }, icon ? 'icon state' : '')
+  if (icon) {
+    toggle.setAttribute('aria-label', 'Show / hide')
+    toggle.append(icon(false))
+  }
   return toggle
 }
 
-/** A button that stays pressed or not, like a check box. */
-export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void): HTMLButtonElement {
-  const chip = button(label, title, () => {
+/** A button that stays pressed or not, like a check box; with `icon`, a
+ *  picture of its state instead of the label (which it then reads out). */
+export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void, icon?: StateIcon): HTMLButtonElement {
+  const chip = button(icon ? '' : label, title, () => {
     const next = chip.getAttribute('aria-pressed') !== 'true'
     chip.setAttribute('aria-pressed', String(next))
+    if (icon) chip.replaceChildren(icon(next))
     onChange(next)
-  }, 'chip')
+  }, icon ? 'chip icon state' : 'chip')
   chip.setAttribute('aria-pressed', String(pressed))
+  if (icon) {
+    chip.setAttribute('aria-label', label)
+    chip.append(icon(pressed))
+  }
   return chip
 }
 
@@ -128,8 +143,9 @@ export function withStar(tags: string[], on: boolean, original: string[]): strin
 const originals = new WeakMap<HTMLElement, FieldData>()
 
 /** One additional field: name, value (a textarea keeps line breaks an <input>
- *  would drop; a protected value is masked by CSS), protected, remove. */
-export function fieldRow(field: FieldData = { name: '', value: '', protected: false }): HTMLDivElement {
+ *  would drop; a protected value is masked by CSS), protected (with
+ *  `protectedIcon`, a picture of it), remove. */
+export function fieldRow(field: FieldData = { name: '', value: '', protected: false }, protectedIcon?: StateIcon): HTMLDivElement {
   const name = input(field.name, { placeholder: 'Name', className: 'name' })
   const value = el('textarea', { value: field.value, rows: 1, spellcheck: false, className: 'value' })
   const fit = () => {
@@ -139,7 +155,7 @@ export function fieldRow(field: FieldData = { name: '', value: '', protected: fa
   value.addEventListener('input', fit)
   requestAnimationFrame(fit)
   const mask = (on: boolean) => value.classList.toggle('masked', on)
-  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask)
+  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask, protectedIcon)
   mask(field.protected)
   const row = el('div', { className: 'field-row' }, name, value, protect,
     button('✕', 'Remove field', () => row.remove(), 'ghost icon'))

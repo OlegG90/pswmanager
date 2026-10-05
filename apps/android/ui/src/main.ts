@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter, type StateIcon } from '../../../../src/editor-parts'
 import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
 import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
@@ -15,6 +15,9 @@ const snackbar = document.querySelector<HTMLElement>('#snackbar')!
 
 /** The groups the phone shows; Templates and Trash come later. */
 const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates' && g.group !== 'trash')
+/** The editor's two-state icons: the eye (shown, or crossed out once shown) and the padlock (protected, or open). */
+const SHOWN: StateIcon = (shown) => svgIcon(shown ? 'eyeOff' : 'eye')
+const PROTECTED: StateIcon = (on) => svgIcon(on ? 'padlock' : 'padlockOpen')
 /** The drawer's group icons, as in the mockups. */
 const GROUP_ICONS: Partial<Record<Group, IconName>> = { all: 'layers', favorites: 'star', expired: 'clock', '2fa': 'shieldCheck', passkey: 'keyRound' }
 
@@ -984,7 +987,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
   const expires = el('input', { type: 'date', value: data.expires ? dateOf(data.expires) : '', className: 'field' })
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
-  const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
+  const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f, PROTECTED)))
   const files = filesEditor(attachments, {
     pick: api.pickFileToAttach,
     release: api.releaseFiles,
@@ -1037,18 +1040,18 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       error,
       label('Title', title),
       label('User name', username),
-      label('Password', together(password, showHide(password), generator.open)),
+      label('Password', together(password, showHide(password, SHOWN), generator.open)),
       strength.element,
       generator.panel,
       label('URL', url),
-      label('TOTP secret', together(otp, showHide(otp))),
+      label('TOTP secret', together(otp, showHide(otp, SHOWN))),
       label('Tags', tags.element),
       star,
       label('Expires', together(expires, button('Never', 'Does not expire', () => (expires.value = ''), 'link'))),
       label('Notes', notes),
       el('h2', {}, 'Additional fields'),
       fieldList,
-      button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'link'),
+      button('+ Add field', 'Add a field', () => fieldList.append(fieldRow(undefined, PROTECTED)), 'link'),
       el('h2', {}, 'Files'),
       files.element,
       ...(id ? [el('p', { className: 'muted' }, 'Saving keeps the previous version in the history.')] : [])),

@@ -164,7 +164,7 @@ As in the mockups `1e`–`1j`.
   From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
-- **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
+- **Attachments:** listed with name and size; tapping one, or its **open** icon, hands the file to
   another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, renamed and
   removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
   Android's file picker and read once, without keeping access to it.
@@ -174,7 +174,7 @@ As in the mockups `1e`–`1j`.
 - **Theme:** light or dark, or as the system is set (the default).
 - **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
-  files (saved with the entry). A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  files (saved with the entry). Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
