@@ -1548,7 +1548,7 @@ button.icon.state svg {
   stroke-linejoin: round;
 }
 
-/* The entry's files in the editor: the name with what Save will do to it, the size, the menu. */
+/* The entry's files in the editor: the name with what Save will do to it, the size, rename and remove. */
 .files {
   display: flex;
   flex-direction: column;
