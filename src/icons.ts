@@ -38,7 +38,7 @@ export const SHARED_PATHS = {
 
 export type SharedIcon = keyof typeof SHARED_PATHS
 
-/** Each group's icon in the sidebar (the phone's drawer shows the first five). */
+/** Each group's icon in the sidebar (the phone's drawer shows all but Templates). */
 export const GROUP_ICONS: Record<Group, SharedIcon> = {
   all: 'layers',
   favorites: 'star',

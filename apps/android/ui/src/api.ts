@@ -169,6 +169,12 @@ export const api = {
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
   releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
   deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  /** Puts an entry from the recycle bin back where it was. */
+  restoreEntry: (id: string) => invoke<Listing>('restore_entry', { id }),
+  /** Removes an entry in the recycle bin for good. */
+  deleteForGood: (id: string) => invoke<Listing>('delete_for_good', { id }),
+  /** Removes everything in the recycle bin for good. */
+  emptyTrash: () => invoke<Listing>('empty_trash'),
   setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),

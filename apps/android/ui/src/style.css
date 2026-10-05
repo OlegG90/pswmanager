@@ -112,6 +112,23 @@ button.link {
   padding: 10px 0;
 }
 
+button.link.danger {
+  color: var(--color-error);
+}
+
+/* In the Trash group, above its entries. */
+button.empty-bin {
+  display: block;
+}
+
+.trash-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 16px;
+}
+
 button.icon {
   border: 0;
   font-size: 22px;
