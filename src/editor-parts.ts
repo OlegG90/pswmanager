@@ -4,6 +4,7 @@ import { button, el } from './dom'
 import type { MenuItem } from './menu'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
+import { protectedIcon, shownIcon } from './state-icons'
 
 export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
@@ -20,21 +21,18 @@ let generatorOptions: GeneratorOptions = {
 
 export const input = (value: string, props: object = {}) => el('input', { value, spellcheck: false, ...props })
 
-/** A two-state button's picture, on or off (the phone draws them; Windows writes words). */
+/** A two-state button's picture, on or off. */
 export type StateIcon = (on: boolean) => Element
 
-/** Shows or hides `target`'s value; with `icon`, a picture of whether it is shown. */
-export function showHide(target: HTMLInputElement, icon?: StateIcon): HTMLButtonElement {
-  const toggle = button(icon ? '' : 'Show', 'Show / hide', () => {
+/** Shows or hides `target`'s value: the eye, crossed out once it is shown. */
+export function showHide(target: HTMLInputElement): HTMLButtonElement {
+  const toggle = button('', 'Show / hide', () => {
     const hidden = target.type === 'password'
     target.type = hidden ? 'text' : 'password'
-    if (icon) toggle.replaceChildren(icon(hidden))
-    else toggle.textContent = hidden ? 'Hide' : 'Show'
-  }, icon ? 'icon state' : '')
-  if (icon) {
-    toggle.setAttribute('aria-label', 'Show / hide')
-    toggle.append(icon(false))
-  }
+    toggle.replaceChildren(shownIcon(hidden))
+  }, 'icon state')
+  toggle.setAttribute('aria-label', 'Show / hide')
+  toggle.append(shownIcon(false))
   return toggle
 }
 
@@ -143,9 +141,9 @@ export function withStar(tags: string[], on: boolean, original: string[]): strin
 const originals = new WeakMap<HTMLElement, FieldData>()
 
 /** One additional field: name, value (a textarea keeps line breaks an <input>
- *  would drop; a protected value is masked by CSS), protected (with
- *  `protectedIcon`, a picture of it), remove. */
-export function fieldRow(field: FieldData = { name: '', value: '', protected: false }, protectedIcon?: StateIcon): HTMLDivElement {
+ *  would drop; a protected value is masked by CSS), protected (a padlock,
+ *  closed when it is), remove. */
+export function fieldRow(field: FieldData = { name: '', value: '', protected: false }): HTMLDivElement {
   const name = input(field.name, { placeholder: 'Name', className: 'name' })
   const value = el('textarea', { value: field.value, rows: 1, spellcheck: false, className: 'value' })
   const fit = () => {

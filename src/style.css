@@ -1477,6 +1477,35 @@ input::-ms-reveal {
   padding: 3px 8px;
 }
 
+/* The editor's two-state icons (show / hide, protected): the eye and the
+   padlock, no frame, the accent when on. */
+button.icon.state {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  color: var(--color-neutral-700);
+  line-height: 0;
+}
+
+button.icon.state:hover {
+  color: var(--color-accent);
+}
+
+button.chip.icon.state[aria-pressed='true'] {
+  background: none;
+  color: var(--color-accent);
+}
+
+button.icon.state svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* The entry's files in the editor: the name with what Save will do to it, the size, the menu. */
 .files {
   display: flex;
