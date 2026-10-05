@@ -741,6 +741,21 @@ button.chip.icon.state[aria-pressed="true"] {
   color: var(--color-neutral-700);
 }
 
+.attachment-row button.icon.danger {
+  color: var(--color-error);
+}
+
+.files-editor > button.add-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.files-editor > button.add-file svg {
+  width: 18px;
+  height: 18px;
+}
+
 .attachment-row button.icon {
   color: var(--color-neutral-700);
 }

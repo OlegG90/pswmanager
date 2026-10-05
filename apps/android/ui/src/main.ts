@@ -851,7 +851,7 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [['Open', 'externalLink', () => open(a.name)]])))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [['Open', 'fileOutput', () => open(a.name)]])))
   }
   return [rows, stop]
 }
@@ -990,8 +990,6 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     pick: api.pickFileToAttach,
     release: api.releaseFiles,
     askName,
-    menu: (title, items) => iconButton('more', title, () =>
-      sheet((close) => [el('b', {}, title), ...items.map((item) => button(item.label, item.title, () => (close(), item.action()), item.danger ? 'item danger' : 'item'))])),
   }, (message) => showError(message))
   const strength = strengthMeter(password, api.passwordStrength)
   const generator = generatorPanel(api.generatePassword, (chosen) => {

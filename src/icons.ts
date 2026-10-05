@@ -1,7 +1,9 @@
 /** Icons both apps share: the sidebar's groups, an entry's commands (copy,
- *  show / hide, open) and the editor's two-state ones (the eye, the padlock).
+ *  show / hide, open), its files' (open, save, rename, remove, attach) and the
+ *  editor's two-state ones (the eye, the padlock).
  *  Lucide's (lucide.dev, ISC licence), as in the phone's mockups; strokes in
  *  the text's colour. */
+import { el } from './dom'
 import type { Group } from './search'
 
 export const SHARED_PATHS = {
@@ -23,6 +25,12 @@ export const SHARED_PATHS = {
   eyeOff:
     'M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575a1 1 0 0 1 0 .696a10.747 10.747 0 0 1-1.444 2.49M14.084 14.158a3 3 0 0 1-4.242-4.242M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 4.446-5.143M2 2l20 20',
   externalLink: 'M15 3h6v6M10 14L21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6',
+  // An entry's files.
+  fileOutput: 'M14 2v4a2 2 0 0 0 2 2h4M4 7V4a2 2 0 0 1 2-2M4.063 20.999a2 2 0 0 0 2 1L18 22a2 2 0 0 0 2-2V7l-5-5H6M5 11l-3 3M5 17l-3-3h10',
+  download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5l5-5M12 15V3',
+  pencil: 'M21.17 6.81a1 1 0 0 0-3.98-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4',
+  paperclip:
+    'M13.234 20.252L21 12.3M16 6l-8.414 8.586a2 2 0 0 0 0 2.828a2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656a4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486',
   // A field protected or not, in the editor.
   padlock: 'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 10 0v4',
   padlockOpen: 'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 9.9-1',
@@ -53,6 +61,14 @@ export function pathIcon(d: string): SVGSVGElement {
 }
 
 export const icon = (name: SharedIcon) => pathIcon(SHARED_PATHS[name])
+
+/** A command as an icon, with its title (the tooltip and what a screen reader says). */
+export function iconAction(name: SharedIcon, title: string, onClick: () => void, className = ''): HTMLButtonElement {
+  const b = el('button', { type: 'button', title, className: `icon action ${className}`.trim(), onclick: onClick })
+  b.setAttribute('aria-label', title)
+  b.append(icon(name))
+  return b
+}
 
 /** The eye: open while the value is hidden (to show it), crossed out once shown. */
 export const shownIcon = (shown: boolean) => icon(shown ? 'eyeOff' : 'eye')

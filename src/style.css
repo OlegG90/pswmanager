@@ -1511,6 +1511,27 @@ button.icon.state:hover {
   color: var(--color-accent);
 }
 
+button.icon.action.danger:hover {
+  color: var(--color-danger);
+}
+
+/* Add file…: the paperclip before the words. */
+button.add-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.add-file svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 button.chip.icon.state[aria-pressed='true'] {
   background: none;
   color: var(--color-accent);

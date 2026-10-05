@@ -636,15 +636,14 @@ async function restoreVersion() {
 /** An attached file: its name and size; the content is only ever saved to
  *  disk. Files are added, replaced, renamed and removed in the editor. */
 function fileRow(file: Attachment): HTMLDivElement {
-  const save = { label: 'Save…', title: 'Save to a file on this PC', action: () => saveAttachment(file.name) }
   return el(
     'div',
     { className: 'row file' },
     el('span', { className: 'value' }, file.name),
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
-      action('externalLink', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
-      menuButton(`More for ${file.name}`, [save])),
+      action('fileOutput', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
+      action('download', 'Save to a file on this PC', () => saveAttachment(file.name))),
   )
 }
 
