@@ -140,17 +140,20 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
   keyboard shortcuts (see *Keyboard shortcuts*).
-- Three columns: the **sidebar** (the fixed groups, then the tags), the **list** of entries the sidebar's
-  choice shows, and the selected **entry** (see *Groups and tags*). There is no filter menu.
+- Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
+  `#work`), the **list** of entries the sidebar's choice shows, and the selected **entry** (see *Groups and
+  tags*). There is no filter menu.
 - The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes, attached files (name and size) and when the entry was last changed
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
   **History** (see *Entry history*). Protected attributes are masked like the
-  password. **Open** next to a file opens it in the app Windows uses for its type; the **⋯** menu beside it
-  has **Save…** (writes it where the user chooses); files are added, renamed and removed in the editor
+  password. Each line ends in its commands as icons, as on the phone: **copy**, the **eye** to show a
+  secret (crossed out to hide it again) and **open** (the URL in the browser). Next to a file, **open**
+  opens it in the app Windows uses for its type and **save** writes it where the user chooses; files are
+  added (the paperclip), renamed (the pencil) and removed (the bin) in the editor
   (see *Editing*). A file's content goes between the database and the disk in the backend, never through
   the webview.
-- Clicking a value in the entry view copies it, as its Copy button does (clipboard clearing included); a
+- Clicking a value in the entry view copies it, as its copy icon does (clipboard clearing included); a
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
@@ -335,13 +338,13 @@ while the database is locked):
   spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
   unchanged. An edited entry stays in its KDBX group.
 - Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*, set to the start of the chosen day on this PC; a time another client set stays while the day is unchanged; none
-  by default), TOTP secret, additional attributes (add / rename / remove, protected or not). The group is
+  by default), TOTP secret, additional attributes (add / rename / remove, protected or not: the padlock, closed when protected; the eye shows a value). The group is
   not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
 - **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a
   file can be added (up to 20 MB — the whole database is synced on every change); each file's name is
-  shown as text, and its menu renames or removes it, so a file is never lost by editing its name. Other
+  shown as text, and its pencil renames it and its bin removes it, so a file is never lost by editing its name. Other
   content for a file is a removal and an addition: no *Replace*, which would hide that the old content goes.
   Each line says what Save will do to its file (*new*, *renamed from …*). Nothing changes until **Save**, which saves the files with the rest
   of the entry as one edit (one previous version in history); Cancel drops them. The entry view only

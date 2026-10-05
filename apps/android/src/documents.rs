@@ -107,6 +107,16 @@ impl<R: Runtime> Documents<R> {
         Ok(Some((answer.name, content)))
     }
 
+    /// Where to save a new file, picked with Android's save picker (`name`
+    /// suggested); `None` when they cancelled. No lasting access is kept.
+    pub fn pick_to_save(&self, name: &str) -> Result<Option<String>, String> {
+        #[derive(Serialize)]
+        struct Args<'a> {
+            name: &'a str,
+        }
+        Ok(self.call::<PickAnswer>("pickToSave", Args { name })?.uri)
+    }
+
     /// A folder the user picks; `None` when they cancelled.
     pub fn pick_folder(&self) -> Result<Option<Picked>, String> {
         self.pick("pickFolder")

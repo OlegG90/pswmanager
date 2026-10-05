@@ -1,9 +1,9 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
 import type { Attachment, EntryData, FieldData, FileChange, GeneratorOptions, StagedFile, Strength } from './api'
 import { button, el } from './dom'
-import type { MenuItem } from './menu'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
+import { iconAction, icon, protectedIcon, shownIcon } from './icons'
 
 export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
@@ -20,23 +20,35 @@ let generatorOptions: GeneratorOptions = {
 
 export const input = (value: string, props: object = {}) => el('input', { value, spellcheck: false, ...props })
 
+/** A two-state button's picture, on or off. */
+export type StateIcon = (on: boolean) => Element
+
+/** Shows or hides `target`'s value: the eye, crossed out once it is shown. */
 export function showHide(target: HTMLInputElement): HTMLButtonElement {
-  const toggle = button('Show', 'Show / hide', () => {
+  const toggle = button('', 'Show / hide', () => {
     const hidden = target.type === 'password'
     target.type = hidden ? 'text' : 'password'
-    toggle.textContent = hidden ? 'Hide' : 'Show'
-  })
+    toggle.replaceChildren(shownIcon(hidden))
+  }, 'icon state')
+  toggle.setAttribute('aria-label', 'Show / hide')
+  toggle.append(shownIcon(false))
   return toggle
 }
 
-/** A button that stays pressed or not, like a check box. */
-export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void): HTMLButtonElement {
-  const chip = button(label, title, () => {
+/** A button that stays pressed or not, like a check box; with `icon`, a
+ *  picture of its state instead of the label (which it then reads out). */
+export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void, picture?: StateIcon): HTMLButtonElement {
+  const chip = button(picture ? '' : label, title, () => {
     const next = chip.getAttribute('aria-pressed') !== 'true'
     chip.setAttribute('aria-pressed', String(next))
+    if (picture) chip.replaceChildren(picture(next))
     onChange(next)
-  }, 'chip')
+  }, picture ? 'chip icon state' : 'chip')
   chip.setAttribute('aria-pressed', String(pressed))
+  if (picture) {
+    chip.setAttribute('aria-label', label)
+    chip.append(picture(pressed))
+  }
   return chip
 }
 
@@ -128,7 +140,8 @@ export function withStar(tags: string[], on: boolean, original: string[]): strin
 const originals = new WeakMap<HTMLElement, FieldData>()
 
 /** One additional field: name, value (a textarea keeps line breaks an <input>
- *  would drop; a protected value is masked by CSS), protected, remove. */
+ *  would drop; a protected value is masked by CSS), protected (a padlock,
+ *  closed when it is), remove. */
 export function fieldRow(field: FieldData = { name: '', value: '', protected: false }): HTMLDivElement {
   const name = input(field.name, { placeholder: 'Name', className: 'name' })
   const value = el('textarea', { value: field.value, rows: 1, spellcheck: false, className: 'value' })
@@ -139,7 +152,7 @@ export function fieldRow(field: FieldData = { name: '', value: '', protected: fa
   value.addEventListener('input', fit)
   requestAnimationFrame(fit)
   const mask = (on: boolean) => value.classList.toggle('masked', on)
-  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask)
+  const protect = chip('Protected', 'Protected values are masked like the password', field.protected, mask, protectedIcon)
   mask(field.protected)
   const row = el('div', { className: 'field-row' }, name, value, protect,
     button('✕', 'Remove field', () => row.remove(), 'ghost icon'))
@@ -207,7 +220,6 @@ export interface FileUi {
   release: (files: number[]) => Promise<void>
   /** A new name for the file; null when cancelled. */
   askName: (current: string) => Promise<string | null>
-  menu: (title: string, items: MenuItem[]) => HTMLElement
 }
 
 /** One file in the files section: one the entry has (`original`), or one
@@ -226,7 +238,7 @@ function fileNote(f: FileState): string {
 
 /**
  * The entry's files in the editor, as SafeInCloud and Keepass2Android have
- * them: each file's menu renames or removes it, and new ones are added (other
+ * them: each file is renamed (the pencil) or removed (the bin), and new ones are added (other
  * content for a file: remove it and add the new one); each line says what
  * Save will do to its file. Nothing changes until
  * the entry is saved: `changes` are sent with it. `release` lets go of every
@@ -265,20 +277,19 @@ export function filesEditor(initial: Attachment[], ui: FileUi, onError: (message
       states.splice(states.indexOf(state), 1)
       line.remove()
     }
-    const items: MenuItem[] = [
-      { label: 'Rename…', title: 'Give the file another name', action: () => void rename() },
-      { label: 'Remove', title: 'Remove from the entry (its history keeps the file)', action: remove, danger: true },
-    ]
-    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), el('span', { className: 'size' }, formatSize(size)), ui.menu(`More for ${state.name}`, items))
+    const line = el('div', { className: 'attachment-row' }, el('span', { className: 'what' }, name, note), el('span', { className: 'size' }, formatSize(size)),
+      iconAction('pencil', `Rename ${state.name}`, () => void rename()),
+      iconAction('trash', `Remove ${state.name} from the entry (its history keeps the file)`, remove, 'danger'))
     draw()
     list.append(line)
   }
   for (const file of initial) row({ original: file.name, staged: null, name: file.name }, file.size)
-  const add = button('+ Add file…', 'Attach a file (up to 20 MB)', async () => {
+  const add = button('Add file…', 'Attach a file (up to 20 MB)', async () => {
     const picked = await pick()
     if (!picked) return
     row({ original: null, staged: picked, name: picked.name }, picked.size)
-  }, 'ghost add-field')
+  }, 'ghost add-field add-file')
+  add.prepend(icon('paperclip'))
 
   const changes = (): FileChange[] => {
     const kept = new Set(states.map((f) => f.original))

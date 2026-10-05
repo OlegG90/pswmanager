@@ -3,7 +3,6 @@ import { button, el } from './dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf } from './entry-text'
 import { ask, askText, beforeExtension } from './modal'
-import { menuButton } from './menu'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
 import { FAVORITE } from './search'
@@ -111,7 +110,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     pick: api.pickFileToAttach,
     release: api.releaseFiles,
     askName: (current) => askText('Rename the file to:', current, 'Rename', beforeExtension(current)),
-    menu: menuButton,
   }, (message) => showError(message))
 
   // Under the heading, and scrolled to: at the bottom of a long form the

@@ -685,6 +685,31 @@ input[type='range']:focus-visible {
   color: var(--color-accent-800);
 }
 
+/* The shared icons (src/icons.ts) are strokes in the text's colour. */
+.side-item svg,
+button.add-file svg,
+button.icon.action svg,
+button.icon.state svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The groups' icons. */
+.side-item svg {
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--color-neutral-700);
+}
+
+.side-item[aria-current='true'] svg {
+  color: inherit;
+}
+
 .side-item .name {
   flex: 1;
   min-width: 0;
@@ -1477,7 +1502,50 @@ input::-ms-reveal {
   padding: 3px 8px;
 }
 
-/* The entry's files in the editor: the name with what Save will do to it, the size, the menu. */
+/* An entry's commands (copy, show / hide, open) and the editor's two-state
+   icons (show / hide, protected): icons without a frame; the accent when on. */
+button.icon.action,
+button.icon.state {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  color: var(--color-neutral-700);
+  line-height: 0;
+}
+
+button.icon.action:hover,
+button.icon.state:hover {
+  color: var(--color-accent);
+}
+
+button.icon.action.danger:hover {
+  color: var(--color-danger);
+}
+
+/* Add file…: the paperclip before the words. */
+button.add-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.add-file svg {
+  width: 16px;
+  height: 16px;
+}
+
+button.chip.icon.state[aria-pressed='true'] {
+  background: none;
+  color: var(--color-accent);
+}
+
+button.icon.action svg,
+button.icon.state svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The entry's files in the editor: the name with what Save will do to it, the size, rename and remove. */
 .files {
   display: flex;
   flex-direction: column;

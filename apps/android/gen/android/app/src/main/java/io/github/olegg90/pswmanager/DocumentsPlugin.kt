@@ -37,6 +37,12 @@ class OpenArgs {
 }
 
 @InvokeArg
+class SaveArgs {
+  /** The name the save picker suggests. */
+  lateinit var name: String
+}
+
+@InvokeArg
 class ChildArgs {
   /** A folder the user picked ([DocumentsPlugin.pickFolder]). */
   lateinit var folder: String
@@ -114,6 +120,26 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     background(invoke) {
       JSObject().put("uri", uri.toString()).put("name", displayName(uri)).put("size", sizeOf(uri))
     }
+  }
+
+  /** A new file to save into (an attachment), named by the user in Android's save picker: no lasting access is kept. */
+  @Command
+  fun pickToSave(invoke: Invoke) {
+    val name = invoke.parseArgs(SaveArgs::class.java).name
+    val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(File(name).extension.lowercase()) ?: "application/octet-stream"
+    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+      .addCategory(Intent.CATEGORY_OPENABLE)
+      .setType(type)
+      .putExtra(Intent.EXTRA_TITLE, name)
+      .addFlags(readWrite)
+    startActivityForResult(invoke, intent, "pickedToSave")
+  }
+
+  /** The file made to save into; `uri` is null when the user cancelled. */
+  @ActivityCallback
+  fun pickedToSave(invoke: Invoke, result: ActivityResult) {
+    val uri = result.data?.data
+    invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
   }
 
   /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */

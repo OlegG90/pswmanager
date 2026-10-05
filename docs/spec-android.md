@@ -140,7 +140,8 @@ As in the mockups `1e`–`1j`.
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
-  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
+  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`; each with its icon, as in the
+  mockups: layers, star, clock, shield, key), then the tags (as `#work`, as on Windows) with their counts;
   *Import from another app…*, *Settings* and *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
@@ -157,13 +158,15 @@ As in the mockups `1e`–`1j`.
   unreadable). Exporting to another app comes later, with the credential provider stage (#153).
 - **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
   attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
-  (stage A2). As in Keepass2Android, each line ends in **⋮**, a menu of its commands (*Copy*, *Show / hide*
-  for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
+  (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
+  secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
+  app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
   From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
-- **Attachments:** listed with name and size; tapping one, or **Open** in its ⋮ menu, hands the file to
-  another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, renamed and
+- **Attachments:** listed with name and size; tapping one, or its **open** icon, hands the file to
+  another app (Android's chooser), see *Security behaviour*; its **save** icon writes it to a file the
+  user names with Android's save picker (no lasting access is kept). From stage A2 files are added, renamed and
   removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
   Android's file picker and read once, without keeping access to it.
 - **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
@@ -172,7 +175,7 @@ As in the mockups `1e`–`1j`.
 - **Theme:** light or dark, or as the system is set (the default).
 - **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
-  files (saved with the entry). A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  files (saved with the entry). Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
