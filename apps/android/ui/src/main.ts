@@ -5,7 +5,7 @@ import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode
 import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
@@ -15,7 +15,7 @@ const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
 
 /** The groups the phone shows; Templates and Trash come later. */
-const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates' && g.group !== 'trash')
+const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates')
 
 /** The database on this phone: what the screens say about it. */
 let database: Status['database'] = null
@@ -402,9 +402,15 @@ function listScreen(opened: Listing) {
   const searchField = el('input', { type: 'search', className: 'field search', value: query })
   const status = el('footer', { className: 'status' }, syncLine || 'Not synced yet')
   const list = el('ul', { className: 'entries' })
+  const emptyBin = button('Empty the recycle bin…', 'Delete everything in it for good', () => {
+    const n = search(listing.entries, '', TRASH).length
+    confirmSheet(`Delete ${count(n)} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
+      void api.emptyTrash().then((fresh) => (listScreen(fresh), snack('Deleted permanently')), (e) => snack(String(e))))
+  }, 'link danger empty-bin')
   const fill = () => {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
+    emptyBin.hidden = !sameFilter(filter, TRASH) || !search(listing.entries, '', TRASH).length
     const shown = search(listing.entries, query, filter)
     list.replaceChildren(...shown.map((entry) => row(entry, listing)))
     if (shown.length === 0) list.append(el('li', { className: 'muted empty' }, 'Nothing here.'))
@@ -414,7 +420,7 @@ function listScreen(opened: Listing) {
     fill()
   })
   status.addEventListener('click', syncSheet)
-  const scroll = el('div', { className: 'scroll' }, list)
+  const scroll = el('div', { className: 'scroll' }, emptyBin, list)
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
@@ -486,6 +492,8 @@ function applySync(synced: Synced) {
   lastSynced = Date.now()
   onSynced(synced)
 }
+
+const count = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
 
 function filterLabel(f: Filter) {
   return f.kind === 'tag' ? f.tag : PHONE_GROUPS.find((g) => g.group === f.group)!.label
@@ -877,6 +885,13 @@ async function entryScreen(id: string, listing: Listing) {
   if (entry.versions) rows.push(button(`History (${entry.versions})`, 'Older versions of this entry', () => void historyScreen(entry, listing), 'link'))
   const toList = () => listScreen(listing)
   const back = iconButton('back', 'Back to the list', toList)
+  if (entry.kind === 'trash') {
+    rows.push(trashButtons(entry))
+    show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry))), ...rows], toList)
+    leave = stop
+    showAgainOnSync(id)
+    return
+  }
   const starred = entry.tags.includes(FAVORITE)
   const star = iconButton('star', starred ? 'Not favorite' : 'Favorite', () =>
     void api.setFavorite(id, !starred).then((fresh) => entryScreen(id, fresh), (e) => snack(String(e))), starred ? 'icon starred' : 'icon')
@@ -888,6 +903,17 @@ async function entryScreen(id: string, listing: Listing) {
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), star, edit, more), ...rows], toList)
   leave = stop
   showAgainOnSync(id)
+}
+
+/** An entry in the recycle bin is not edited: it is restored or deleted for good. */
+function trashButtons(entry: EntryDetail): HTMLElement {
+  const done = (message: string) => (fresh: Listing) => (listScreen(fresh), snack(message))
+  const restore = button('Restore', 'Put it back where it was', () =>
+    void api.restoreEntry(entry.id).then(done('Restored'), (e) => snack(String(e))), 'primary')
+  const remove = button('Delete permanently…', 'Delete it for good, on every device', () =>
+    confirmSheet(`Delete “${titleOf(entry)}” permanently? This cannot be undone: other devices delete it too when they sync.`, 'Delete permanently', () =>
+      void api.deleteForGood(entry.id).then(done('Deleted permanently'), (e) => snack(String(e)))), 'link danger')
+  return el('div', { className: 'trash-actions' }, restore, remove)
 }
 
 // ------------------------------------------------------------ history

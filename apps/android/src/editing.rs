@@ -104,6 +104,39 @@ pub fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Resu
     Ok(listing)
 }
 
+/// Puts an entry from the recycle bin back where it was.
+#[tauri::command(async)]
+pub fn restore_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.restore(&[id])?;
+        Ok(v.listing())
+    })?;
+    upload_soon(&app);
+    Ok(listing)
+}
+
+/// Removes an entry in the recycle bin for good.
+#[tauri::command(async)]
+pub fn delete_for_good(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.delete_for_good(&[id])?;
+        Ok(v.listing())
+    })?;
+    upload_soon(&app);
+    Ok(listing)
+}
+
+/// Removes everything in the recycle bin for good.
+#[tauri::command(async)]
+pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.empty_bin()?;
+        Ok(v.listing())
+    })?;
+    upload_soon(&app);
+    Ok(listing)
+}
+
 /// Stars the entry or takes the star off (the tag Favorite); like a tag, it
 /// goes up with the next sync.
 #[tauri::command(async)]

@@ -12,8 +12,8 @@ Rust crate shared by both apps (see *Technology*), so they cannot drift apart.
 
 The look is in [`design/android/`](design/android/) (mockups from Claude Design). This spec describes
 behaviour, the mockups describe the look; where they disagree, this spec wins. The mockups also show
-things that come in later stages (the *Database* and *Backup* settings tabs, Templates and Trash, a
-database switch); see *Stages*.
+things that come in later stages (the *Database* and *Backup* settings tabs, Templates, a database
+switch); see *Stages*.
 
 ## Product
 
@@ -38,8 +38,8 @@ completely is a goal for later stages.
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
 database on the phone), *Database settings* (name, history limits, key and
-encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates and Trash
-groups, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
+encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates
+group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
 exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
 migration stays with `sic2kdbx.py`.
 
@@ -140,8 +140,8 @@ As in the mockups `1e`–`1j`.
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
-  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`; each with its icon, as in the
-  mockups: layers, star, clock, shield, key), then the tags (as `#work`, as on Windows) with their counts;
+  *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
+  mockups: layers, star, clock, shield, key, bin), then the tags (as `#work`, as on Windows) with their counts;
   *Import from another app…*, *Settings* and *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
@@ -179,6 +179,11 @@ As in the mockups `1e`–`1j`.
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
+- **Trash** (#171): the entries in the database's recycle bin. One opens read only, as any entry, with
+  **Restore** (back to its group) and **Delete permanently…** (after a confirmation) instead of the star,
+  the pencil and ⋮. Above the list, **Empty the recycle bin…** asks first, naming how many entries go. Each
+  is saved and synced as any change, and acts as on Windows (`spec.md` *Groups and tags*, *Trash*): Restore puts
+  it back in the group it was deleted from, and a deletion for good stands in a merge.
 - **History** (stage A2): the list of older versions with what changed, and a version shown read only, its
   values copied as in the entry view. No restoring.
 
@@ -403,5 +408,5 @@ Each stage is a GitHub issue and lands in one or more PRs.
   history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
-- **Later:** autofill; several databases and creating one; database settings; backup; Templates and Trash;
+- **Later:** autofill; several databases and creating one; database settings; backup; Templates;
   managing tags; restoring a history version; password health.
