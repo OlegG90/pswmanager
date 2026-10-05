@@ -685,6 +685,24 @@ input[type='range']:focus-visible {
   color: var(--color-accent-800);
 }
 
+/* The groups' icons. */
+.side-item svg {
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--color-neutral-700);
+}
+
+.side-item[aria-current='true'] svg {
+  color: inherit;
+}
+
 .side-item .name {
   flex: 1;
   min-width: 0;
@@ -1477,8 +1495,9 @@ input::-ms-reveal {
   padding: 3px 8px;
 }
 
-/* The editor's two-state icons (show / hide, protected): the eye and the
-   padlock, no frame, the accent when on. */
+/* An entry's commands (copy, show / hide, open) and the editor's two-state
+   icons (show / hide, protected): icons without a frame; the accent when on. */
+button.icon.action,
 button.icon.state {
   border: 0;
   background: none;
@@ -1487,6 +1506,7 @@ button.icon.state {
   line-height: 0;
 }
 
+button.icon.action:hover,
 button.icon.state:hover {
   color: var(--color-accent);
 }
@@ -1496,6 +1516,7 @@ button.chip.icon.state[aria-pressed='true'] {
   color: var(--color-accent);
 }
 
+button.icon.action svg,
 button.icon.state svg {
   width: 18px;
   height: 18px;

@@ -4,7 +4,7 @@ import { button, el } from './dom'
 import type { MenuItem } from './menu'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
-import { protectedIcon, shownIcon } from './state-icons'
+import { protectedIcon, shownIcon } from './icons'
 
 export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']

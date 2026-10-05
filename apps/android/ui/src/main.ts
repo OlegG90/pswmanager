@@ -5,7 +5,8 @@ import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode
 import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter, type Group } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { GROUP_ICONS } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
 import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
@@ -15,8 +16,6 @@ const snackbar = document.querySelector<HTMLElement>('#snackbar')!
 
 /** The groups the phone shows; Templates and Trash come later. */
 const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates' && g.group !== 'trash')
-/** The drawer's group icons, as in the mockups. */
-const GROUP_ICONS: Partial<Record<Group, IconName>> = { all: 'layers', favorites: 'star', expired: 'clock', '2fa': 'shieldCheck', passkey: 'keyRound' }
 
 /** The database on this phone: what the screens say about it. */
 let database: Status['database'] = null
@@ -799,7 +798,9 @@ function line(label: string, value: Node | string, copy: (() => Promise<number>)
   const shown = el('span', {}, el('small', {}, label), typeof value === 'string' ? el('span', {}, value) : value)
   const actions: Action[] = [...(copy ? [['Copy', 'copy', () => void copied(copy())] as Action] : []), ...more]
   if (actions.length) shown.addEventListener('click', actions[0][2])
-  const buttons = [...extra, ...actions.map(([name, icon, run]) => iconButton(icon, `${label}: ${name}`, run, 'icon line-action'))]
+  // Copy, then Show / hide, then the others (Open), as on Windows.
+  const buttons: HTMLElement[] = actions.map(([name, icon, run]) => iconButton(icon, `${label}: ${name}`, run, 'icon line-action'))
+  buttons.splice(copy ? 1 : 0, 0, ...extra)
   return el('div', { className: 'line' }, shown, ...buttons)
 }
 
