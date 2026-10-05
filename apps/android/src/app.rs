@@ -80,6 +80,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             copy_totp,
             open_url,
             open_attachment,
+            save_attachment,
             settings,
             set_setting,
             screen_off,
@@ -553,6 +554,20 @@ async fn open_attachment(app: AppHandle, id: String, name: String, version: Opti
     let data = app.state::<Session>().with(|v| v.attachment(&id, version, &name))?;
     let path = opened::write(&open_folder(&app)?, &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
     off_main(move || app.state::<Documents<Wry>>().open_file(&path)).await
+}
+
+/// Saves an attachment (of an older version with `version`) to a file the user
+/// picks with Android's save picker; false when they cancelled.
+#[tauri::command]
+async fn save_attachment(app: AppHandle, id: String, name: String, version: Option<usize>) -> Result<bool, String> {
+    let data = app.state::<Session>().with(|v| v.attachment(&id, version, &name))?;
+    off_main(move || {
+        let documents = app.state::<Documents<Wry>>();
+        let Some(uri) = documents.pick_to_save(&name)? else { return Ok(false) };
+        documents.write(&uri, &data).map_err(|e| format!("Cannot save {name}: {e}"))?;
+        Ok(true)
+    })
+    .await
 }
 
 #[tauri::command]

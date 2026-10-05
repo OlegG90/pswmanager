@@ -317,6 +317,16 @@ main.list-screen {
   color: var(--color-neutral-700);
 }
 
+/* A tag reads as one: #work, as on Windows. */
+.drawer button.tag span {
+  gap: 1px;
+}
+
+.drawer button.tag span::before {
+  content: '#';
+  color: var(--color-neutral-500);
+}
+
 .drawer button {
   display: flex;
   justify-content: space-between;

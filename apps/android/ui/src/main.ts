@@ -572,7 +572,8 @@ function drawer(listing: Listing, changed: () => void) {
       changed()
     }
     const name = el('span', {}, ...(icon ? [svgIcon(icon)] : []), label)
-    return el('button', { type: 'button', className: sameFilter(f, filter) ? 'chosen' : '', onclick: choose }, name, el('small', {}, String(count)))
+    const className = [f.kind === 'tag' ? 'tag' : '', sameFilter(f, filter) ? 'chosen' : ''].filter(Boolean).join(' ')
+    return el('button', { type: 'button', className, onclick: choose }, name, el('small', {}, String(count)))
   }
   const entries = listing.entries
   panel.append(
@@ -851,7 +852,11 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [['Open', 'fileOutput', () => open(a.name)]])))
+    const save = (name: string) => void api.saveAttachment(id, name, version).then((saved) => saved && snack(`${name} saved`)).catch((e) => snack(String(e)))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [
+      ['Open', 'fileOutput', () => open(a.name)],
+      ['Save to a file', 'download', () => save(a.name)],
+    ])))
   }
   return [rows, stop]
 }

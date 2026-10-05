@@ -141,7 +141,7 @@ As in the mockups `1e`–`1j`.
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`; each with its icon, as in the
-  mockups: layers, star, clock, shield, key), then the tags with their counts;
+  mockups: layers, star, clock, shield, key), then the tags (as `#work`, as on Windows) with their counts;
   *Import from another app…*, *Settings* and *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
@@ -165,7 +165,8 @@ As in the mockups `1e`–`1j`.
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
 - **Attachments:** listed with name and size; tapping one, or its **open** icon, hands the file to
-  another app (Android's chooser), see *Security behaviour*. From stage A2 files are added, renamed and
+  another app (Android's chooser), see *Security behaviour*; its **save** icon writes it to a file the
+  user names with Android's save picker (no lasting access is kept). From stage A2 files are added, renamed and
   removed in the editor, as on Windows (`spec.md` *Editing*); a file to attach is picked with
   Android's file picker and read once, without keeping access to it.
 - **Entry icons:** as in `spec.md` (custom icon → standard icon → site icon → key); site icons are
