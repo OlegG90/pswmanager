@@ -6,7 +6,7 @@ import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type Database
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
-import { GROUP_ICONS, icon, shownIcon, type SharedIcon } from './icons'
+import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -414,14 +414,6 @@ function move(step: number) {
 
 // ---------------------------------------------------------------- detail
 
-/** A command of a row: an icon with its title (the tooltip and what a screen reader says). */
-function action(picture: SVGSVGElement | SharedIcon, title: string, onClick: () => void): HTMLButtonElement {
-  const b = button('', title, onClick, 'icon action')
-  b.setAttribute('aria-label', title)
-  b.append(typeof picture === 'string' ? icon(picture) : picture)
-  return b
-}
-
 /** A field's row. Clicking its value does what its Copy icon does;
  *  `copyKey` is the Copy shortcut, for the icon's tooltip. */
 function row(
@@ -435,7 +427,7 @@ function row(
     { className: 'row' },
     el('span', { className: 'label' }, label),
     copyOnClick(el('span', { className: `value ${valueClass}` }, value), copyValue),
-    el('span', { className: 'actions' }, action('copy', copyKey ? `Copy (${copyKey})` : 'Copy', copyValue), ...actions),
+    el('span', { className: 'actions' }, iconAction('copy', copyKey ? `Copy (${copyKey})` : 'Copy', copyValue), ...actions),
   )
 }
 
@@ -456,7 +448,7 @@ function copyOnClick<T extends HTMLElement>(value: T, copyValue: () => void): T 
 function secretRow(label: string, field: string, keys?: { reveal: string; copy: string }): HTMLDivElement {
   const value = revealed.get(field)
   const hint = (key?: string) => (key ? ` (${key})` : '')
-  const reveal = action(shownIcon(value !== undefined), `${value === undefined ? 'Show' : 'Hide'}${hint(keys?.reveal)}`, () => toggleReveal(field))
+  const reveal = iconAction(shownIcon(value !== undefined), `${value === undefined ? 'Show' : 'Hide'}${hint(keys?.reveal)}`, () => toggleReveal(field))
   return row(label, value ?? '••••••••', () => copy(field, label), { actions: [reveal], copyKey: keys?.copy, valueClass: 'secret' })
 }
 
@@ -501,7 +493,7 @@ function renderDetail() {
   if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
     // The entry's own address: not offered for an older version.
-    const actions = entry.host && !version ? [action('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
+    const actions = entry.host && !version ? [iconAction('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
     rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   // An older version's TOTP secret is shown as a secret, not as codes.
@@ -642,8 +634,8 @@ function fileRow(file: Attachment): HTMLDivElement {
     el('span', { className: 'value' }, file.name),
     el('span', { className: 'size' }, formatSize(file.size)),
     el('span', { className: 'actions' },
-      action('fileOutput', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
-      action('download', 'Save to a file on this PC', () => saveAttachment(file.name))),
+      iconAction('fileOutput', 'Open in its app; changes made there are not saved', () => openAttachment(file.name)),
+      iconAction('download', 'Save to a file on this PC', () => saveAttachment(file.name))),
   )
 }
 
@@ -814,7 +806,7 @@ function stopTotp(timer = totpTimer) {
 function totpRow(id: string): HTMLDivElement {
   const value = copyOnClick(el('span', { className: 'value secret totp' }, '…'), copyTotp)
   const div = el('div', { className: 'row' }, el('span', { className: 'label' }, 'TOTP'), value,
-    el('span', { className: 'actions' }, action('copy', 'Copy (Ctrl+T)', copyTotp)))
+    el('span', { className: 'actions' }, iconAction('copy', 'Copy (Ctrl+T)', copyTotp)))
   let remaining = 0
   const show = (code: string) => value.replaceChildren(code, el('span', { className: 'countdown' }, `${remaining} s`))
   let code = ''

@@ -37,17 +37,17 @@ export function showHide(target: HTMLInputElement): HTMLButtonElement {
 
 /** A button that stays pressed or not, like a check box; with `icon`, a
  *  picture of its state instead of the label (which it then reads out). */
-export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void, icon?: StateIcon): HTMLButtonElement {
-  const chip = button(icon ? '' : label, title, () => {
+export function chip(label: string, title: string, pressed: boolean, onChange: (pressed: boolean) => void, picture?: StateIcon): HTMLButtonElement {
+  const chip = button(picture ? '' : label, title, () => {
     const next = chip.getAttribute('aria-pressed') !== 'true'
     chip.setAttribute('aria-pressed', String(next))
-    if (icon) chip.replaceChildren(icon(next))
+    if (picture) chip.replaceChildren(picture(next))
     onChange(next)
-  }, icon ? 'chip icon state' : 'chip')
+  }, picture ? 'chip icon state' : 'chip')
   chip.setAttribute('aria-pressed', String(pressed))
-  if (icon) {
+  if (picture) {
     chip.setAttribute('aria-label', label)
-    chip.append(icon(pressed))
+    chip.append(picture(pressed))
   }
   return chip
 }

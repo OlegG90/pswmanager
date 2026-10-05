@@ -685,17 +685,24 @@ input[type='range']:focus-visible {
   color: var(--color-accent-800);
 }
 
+/* The shared icons (src/icons.ts) are strokes in the text's colour. */
+.side-item svg,
+button.add-file svg,
+button.icon.action svg,
+button.icon.state svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* The groups' icons. */
 .side-item svg {
   align-self: center;
   width: 16px;
   height: 16px;
   flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
   color: var(--color-neutral-700);
 }
 
@@ -1525,11 +1532,6 @@ button.add-file {
 button.add-file svg {
   width: 16px;
   height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 button.chip.icon.state[aria-pressed='true'] {
@@ -1541,11 +1543,6 @@ button.icon.action svg,
 button.icon.state svg {
   width: 18px;
   height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 /* The entry's files in the editor: the name with what Save will do to it, the size, rename and remove. */

@@ -6,7 +6,7 @@ import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
-import { GROUP_ICONS } from '../../../../src/icons'
+import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
 import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
@@ -572,8 +572,10 @@ function drawer(listing: Listing, changed: () => void) {
       changed()
     }
     const name = el('span', {}, ...(icon ? [svgIcon(icon)] : []), label)
-    const className = [f.kind === 'tag' ? 'tag' : '', sameFilter(f, filter) ? 'chosen' : ''].filter(Boolean).join(' ')
-    return el('button', { type: 'button', className, onclick: choose }, name, el('small', {}, String(count)))
+    const b = el('button', { type: 'button', onclick: choose }, name, el('small', {}, String(count)))
+    b.classList.toggle('tag', f.kind === 'tag')
+    b.classList.toggle('chosen', sameFilter(f, filter))
+    return b
   }
   const entries = listing.entries
   panel.append(
@@ -815,9 +817,9 @@ function secretLine(id: string, label: string, field: string, version: number | 
     shown = !shown
     value.textContent = shown ? await api.reveal(id, field, version) : mask
     value.classList.toggle('masked', !shown)
-    eye.replaceChildren(svgIcon(shown ? 'eyeOff' : 'eye'))
-    eye.setAttribute('aria-label', `${label}: ${shown ? 'hide' : 'show'}`)
+    eye.replaceChildren(shownIcon(shown))
     eye.title = `${label}: ${shown ? 'hide' : 'show'}`
+    eye.setAttribute('aria-label', eye.title)
   }
   return line(label, value, () => api.copyField(id, field, version), [], [eye])
 }

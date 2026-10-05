@@ -62,11 +62,11 @@ export function pathIcon(d: string): SVGSVGElement {
 
 export const icon = (name: SharedIcon) => pathIcon(SHARED_PATHS[name])
 
-/** A command as an icon, with its title (the tooltip and what a screen reader says). */
-export function iconAction(name: SharedIcon, title: string, onClick: () => void, className = ''): HTMLButtonElement {
+/** A command as an icon (by name, or drawn already), with its title (the tooltip and what a screen reader says). */
+export function iconAction(picture: SharedIcon | SVGSVGElement, title: string, onClick: () => void, className = ''): HTMLButtonElement {
   const b = el('button', { type: 'button', title, className: `icon action ${className}`.trim(), onclick: onClick })
   b.setAttribute('aria-label', title)
-  b.append(icon(name))
+  b.append(typeof picture === 'string' ? icon(picture) : picture)
   return b
 }
 
