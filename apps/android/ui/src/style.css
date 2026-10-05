@@ -250,10 +250,14 @@ main.list-screen {
   white-space: pre-wrap;
 }
 
-.line button.more {
-  font-size: 20px;
-  padding: 4px 8px;
+/* An entry line's commands (copy, show / hide, open): icons, close together. */
+.line button.line-action {
+  padding: 8px;
   color: var(--color-neutral-700);
+}
+
+.line button.line-action + button.line-action {
+  margin-left: -10px;
 }
 
 .sheet button.item {
@@ -299,7 +303,18 @@ main.list-screen {
 }
 
 .drawer button span {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   padding-left: 6px;
+}
+
+/* The groups' icons. */
+.drawer button span svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--color-neutral-700);
 }
 
 .drawer button {

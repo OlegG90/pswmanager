@@ -140,7 +140,8 @@ As in the mockups `1e`–`1j`.
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
-  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`), then the tags with their counts;
+  *Favorites*, *Expired*, *2FA*, *Passkey* (as defined in `spec.md`; each with its icon, as in the
+  mockups: layers, star, clock, shield, key), then the tags with their counts;
   *Import from another app…*, *Settings* and *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
@@ -157,8 +158,9 @@ As in the mockups `1e`–`1j`.
   unreadable). Exporting to another app comes later, with the credential provider stage (#153).
 - **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
   attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
-  (stage A2). As in Keepass2Android, each line ends in **⋮**, a menu of its commands (*Copy*, *Show / hide*
-  for a secret, *Open in the browser* for the URL); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
+  (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
+  secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
+  app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
   From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
   editor) and **⋮** with *Delete*.
 - **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.

@@ -5,7 +5,7 @@ import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode
 import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, type Filter, type Group } from '../../../../src/search'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
 import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
@@ -15,6 +15,8 @@ const snackbar = document.querySelector<HTMLElement>('#snackbar')!
 
 /** The groups the phone shows; Templates and Trash come later. */
 const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates' && g.group !== 'trash')
+/** The drawer's group icons, as in the mockups. */
+const GROUP_ICONS: Partial<Record<Group, IconName>> = { all: 'layers', favorites: 'star', expired: 'clock', '2fa': 'shieldCheck', passkey: 'keyRound' }
 
 /** The database on this phone: what the screens say about it. */
 let database: Status['database'] = null
@@ -564,13 +566,14 @@ function syncSheet() {
 function drawer(listing: Listing, changed: () => void) {
   const panel = el('nav', { className: 'drawer' })
   const close = overlay(el('div', { className: 'shade' }, panel))
-  const item = (f: Filter, label: string, count: number) => {
+  const item = (f: Filter, label: string, count: number, icon?: IconName) => {
     const choose = () => {
       filter = f
       close()
       changed()
     }
-    return el('button', { type: 'button', className: sameFilter(f, filter) ? 'chosen' : '', onclick: choose }, el('span', {}, label), el('small', {}, String(count)))
+    const name = el('span', {}, ...(icon ? [svgIcon(icon)] : []), label)
+    return el('button', { type: 'button', className: sameFilter(f, filter) ? 'chosen' : '', onclick: choose }, name, el('small', {}, String(count)))
   }
   const entries = listing.entries
   panel.append(
@@ -579,7 +582,7 @@ function drawer(listing: Listing, changed: () => void) {
     el('h2', {}, 'Groups'),
     ...PHONE_GROUPS.map(({ group, label }) => {
       const f: Filter = { kind: 'group', group }
-      return item(f, label, search(entries, '', f).length)
+      return item(f, label, search(entries, '', f).length, GROUP_ICONS[group])
     }),
     el('h2', {}, 'Tags'),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
@@ -786,31 +789,35 @@ function tab(which: Tab, s: Settings): Node[] {
 
 // ------------------------------------------------------------ an entry
 
-/** A command in a line's menu. */
-type Action = [label: string, run: () => void]
+/** A command at the end of a line: what it does (for screen readers) and its icon. */
+type Action = [label: string, icon: IconName, run: () => void]
 
-/** A labelled value with ⋮ at the end for its commands; tapping the value
- *  runs the first of them (copies it, or opens a file). */
-function line(label: string, value: Node | string, copy: (() => Promise<number>) | null, ...more: Action[]) {
+/** A labelled value with its commands as icons at the end (Copy first);
+ *  tapping the value runs the first of them (copies it, or opens a file).
+ *  `extra` are buttons made by the caller (Show / hide). */
+function line(label: string, value: Node | string, copy: (() => Promise<number>) | null, more: Action[] = [], extra: HTMLElement[] = []) {
   const shown = el('span', {}, el('small', {}, label), typeof value === 'string' ? el('span', {}, value) : value)
-  const actions: Action[] = [...(copy ? [['Copy', () => void copied(copy())] as Action] : []), ...more]
-  if (actions.length) shown.addEventListener('click', actions[0][1])
-  const menu = button('⋮', `${label}: more`, () =>
-    sheet((close) => [el('b', {}, label), ...actions.map(([name, run]) => button(name, name, () => (close(), run()), 'item'))]), 'icon more')
-  return el('div', { className: 'line' }, shown, ...(actions.length ? [menu] : []))
+  const actions: Action[] = [...(copy ? [['Copy', 'copy', () => void copied(copy())] as Action] : []), ...more]
+  if (actions.length) shown.addEventListener('click', actions[0][2])
+  const buttons = [...extra, ...actions.map(([name, icon, run]) => iconButton(icon, `${label}: ${name}`, run, 'icon line-action'))]
+  return el('div', { className: 'line' }, shown, ...buttons)
 }
 
-/** A secret's line (of an older version with `version`): masked, with Show / Hide in its menu. */
+/** A secret's line (of an older version with `version`): masked, with an eye to show or hide it. */
 function secretLine(id: string, label: string, field: string, version: number | null = null) {
   const mask = '••••••••••••'
   const value = el('span', { className: 'masked' }, mask)
   let shown = false
+  const eye = iconButton('eye', `${label}: show`, () => void toggle(), 'icon line-action')
   const toggle = async () => {
     shown = !shown
     value.textContent = shown ? await api.reveal(id, field, version) : mask
     value.classList.toggle('masked', !shown)
+    eye.replaceChildren(svgIcon(shown ? 'eyeOff' : 'eye'))
+    eye.setAttribute('aria-label', `${label}: ${shown ? 'hide' : 'show'}`)
+    eye.title = `${label}: ${shown ? 'hide' : 'show'}`
   }
-  return line(label, value, () => api.copyField(id, field, version), ['Show / hide', () => void toggle()])
+  return line(label, value, () => api.copyField(id, field, version), [], [eye])
 }
 
 /** The lines of an entry, or of its older version `version`: values are
@@ -832,8 +839,8 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
     rows.push(secretLine(id, 'TOTP', OTP, version))
   }
   if (entry.url) {
-    const open: Action[] = version === null ? [['Open in the browser', () => void api.openUrl(id).catch((e) => snack(String(e)))]] : []
-    rows.push(line('URL', entry.url, copy(URL_FIELD), ...open))
+    const open: Action[] = version === null ? [['Open in the browser', 'externalLink', () => void api.openUrl(id).catch((e) => snack(String(e)))]] : []
+    rows.push(line('URL', entry.url, copy(URL_FIELD), open))
   }
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     const label = labelOf(field.name)
@@ -843,7 +850,7 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
-    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, ['Open', () => open(a.name)])))
+    rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [['Open', 'externalLink', () => open(a.name)]])))
   }
   return [rows, stop]
 }
