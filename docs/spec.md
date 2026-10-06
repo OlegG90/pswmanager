@@ -143,7 +143,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
   `#work`), the **list** of entries the sidebar's choice shows, and the selected **entry** (see *Groups and
   tags*). There is no filter menu.
-- The entry view shows title, user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
+- The entry view shows title, tags as yellow chips (the Favorite star stays separate), user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes, attached files (name and size) and when the entry was last changed
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
   **History** (see *Entry history*). Protected attributes are masked like the
@@ -162,8 +162,9 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 ### Groups and tags
 
 The sidebar has two parts. **Groups** are fixed: an entry is in one because of what it is or what was done
-to it, never by picking the group. **Tags** are the user's own way to sort entries; every tag of the
-entries in use (not templates, not the trash) is listed under the groups, with its number of entries.
+to it, never by picking the group. **Tags** are the user's own way to sort entries. First is **Untagged**,
+which shows entries without user tags (the `Favorite` star does not count); then every tag of entries in use
+(not templates or the trash), with its number of entries.
 
 | Group | Shows |
 |---|---|

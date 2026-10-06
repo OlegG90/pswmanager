@@ -117,7 +117,7 @@ button.link.danger {
 }
 
 /* In the Trash group, above its entries. */
-button.empty-bin {
+button.empty-bin:not([hidden]) {
   display: block;
 }
 
@@ -260,6 +260,21 @@ main.list-screen {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.line .entry-tags {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.entry-tags .tag-chip {
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-accent-100);
   overflow-wrap: anywhere;
 }
 
