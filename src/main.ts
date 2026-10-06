@@ -219,9 +219,9 @@ function fillSidebar() {
   const tags = tagCounts(listing.entries)
   const chosen = filter
   if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
-  const item = (choice: Filter, label: string, count?: number, picture?: SharedIcon, isTag = false) => {
+  const item = (choice: Filter, label: string, count?: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label))
-    if (isTag) b.classList.add('tag')
+    if (choice.kind === 'tag') b.classList.add('tag')
     if (count !== undefined) b.append(el('span', { className: 'count' }, String(count)))
     if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', () => showFilter(choice))
@@ -231,7 +231,7 @@ function fillSidebar() {
   tagsList.replaceChildren(
     item(UNTAGGED, 'Untagged', search(listing.entries, '', UNTAGGED).length),
     ...tags.map(([tag, count]) => {
-      const li = item({ kind: 'tag', tag }, tag, count, undefined, true)
+      const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
         { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag) },
         { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag), danger: true },
