@@ -1678,17 +1678,15 @@ dialog.modal .buttons {
   background: var(--color-field);
 }
 
-.modal .suggestions button {
+.modal .suggestions .suggestion {
   display: block;
   width: 100%;
   padding: 6px 10px;
-  border: 0;
-  border-radius: 0;
-  text-align: left;
+  cursor: pointer;
 }
 
-.modal .suggestions button:hover,
-.modal .suggestions button:focus-visible {
+.modal .suggestions .suggestion:hover,
+.modal .suggestions .suggestion[aria-selected='true'] {
   background: var(--color-accent-100);
 }
 
