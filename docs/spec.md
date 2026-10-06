@@ -153,6 +153,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   added (the paperclip), renamed (the pencil) and removed (the bin) in the editor
   (see *Editing*). A file's content goes between the database and the disk in the backend, never through
   the webview.
+  In each value row, the field name sits above its value, as on Android.
 - Clicking a value in the entry view copies it, as its copy icon does (clipboard clearing included); a
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
