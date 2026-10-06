@@ -141,8 +141,9 @@ As in the mockups `1e`–`1j`.
   down to sync.
 - **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
-  mockups: layers, star, clock, shield, key, bin), then the tags (as `#work`, as on Windows) with their counts;
-  *Import from another app…*, *Settings* and *Lock* at the bottom.
+  mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
+  does not count) and the tags (as `#work`) with their counts; *Import from another app…*, *Settings* and
+  *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
@@ -156,8 +157,7 @@ As in the mockups `1e`–`1j`.
   any change, all or nothing. A sheet then says how many entries came in and lists what did not, with the
   reason (files, whose content an export does not carry; passkey extensions such as PRF; anything
   unreadable). Exporting to another app comes later, with the credential provider stage (#153).
-- **Entry view:** title, user name, password (masked), TOTP with its countdown, URL, notes, additional
-  attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
+- **Entry view:** title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
   secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
   app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.

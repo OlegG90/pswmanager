@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry } from './api'
-import { expiry, search, tagCounts, type Filter } from './search'
+import { expiry, search, tagCounts, UNTAGGED, type Filter } from './search'
 
 const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   id: title,
@@ -57,6 +57,19 @@ describe('search', () => {
   it('narrows to a tag among the entries in use', () => {
     expect(titles(search(entries, '', { kind: 'tag', tag: 'work' }))).toEqual(['Mail', 'Bank'])
     expect(titles(search(entries, 'bank', { kind: 'tag', tag: 'work' }))).toEqual(['Bank'])
+  })
+
+  it('shows entries without user tags, excluding templates and trash', () => {
+    const more = [
+      entry('Starred only', { tags: ['Favorite'] }),
+      entry('Named tag', { tags: ['Untagged'] }),
+      entry('Untagged template', { kind: 'template' }),
+      entry('Untagged trash', { kind: 'trash' }),
+    ]
+    const listed = [...entries, ...more]
+    expect(titles(search(listed, '', UNTAGGED, NOW))).toEqual(['Router', 'Starred only'])
+    expect(titles(search(listed, '', { kind: 'tag', tag: 'Untagged' }, NOW))).toEqual(['Named tag'])
+
   })
 
   it('counts the tags in use, without the star', () => {

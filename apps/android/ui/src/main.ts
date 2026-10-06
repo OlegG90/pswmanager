@@ -5,7 +5,7 @@ import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode
 import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, type Filter } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
@@ -498,7 +498,9 @@ const entriesCount = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
 const toListSaying = (message: string) => (fresh: Listing) => (listScreen(fresh), snack(message))
 
 function filterLabel(f: Filter) {
-  return f.kind === 'tag' ? f.tag : PHONE_GROUPS.find((g) => g.group === f.group)!.label
+  if (f.kind === 'tag') return f.tag
+  if (f.kind === 'untagged') return 'Untagged'
+  return PHONE_GROUPS.find((g) => g.group === f.group)!.label
 }
 
 function row(entry: Entry, listing: Listing): HTMLLIElement {
@@ -597,6 +599,7 @@ function drawer(listing: Listing, changed: () => void) {
       return item(f, label, search(entries, '', f).length, GROUP_ICONS[group])
     }),
     el('h2', {}, 'Tags'),
+    item(UNTAGGED, 'Untagged', search(entries, '', UNTAGGED).length),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'action'),
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
@@ -842,6 +845,8 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   const id = entry.id
   const copy = (field: string) => () => api.copyField(id, field, version)
   const rows: Node[] = []
+  const tags = entry.tags.filter((tag) => tag !== FAVORITE)
+  if (tags.length) rows.push(line('Tags', el('span', { className: 'entry-tags' }, ...tags.map((tag) => el('span', { className: 'tag-chip' }, tag))), null))
   let stop = () => {}
   if (entry.username) rows.push(line('User name', entry.username, copy(USERNAME)))
   if (entry.hasPassword) rows.push(secretLine(id, 'Password', PASSWORD, version))

@@ -3,11 +3,12 @@ import type { Entry } from './api'
 /** The sidebar's fixed groups: an entry is in one because of what it is. */
 export type Group = 'all' | 'favorites' | 'expired' | '2fa' | 'passkey' | 'templates' | 'trash'
 
-export type Filter = { kind: 'group'; group: Group } | { kind: 'tag'; tag: string }
+export type Filter = { kind: 'group'; group: Group } | { kind: 'tag'; tag: string } | { kind: 'untagged' }
 
 export const ALL: Filter = { kind: 'group', group: 'all' }
 export const TRASH: Filter = { kind: 'group', group: 'trash' }
 export const TEMPLATES: Filter = { kind: 'group', group: 'templates' }
+export const UNTAGGED: Filter = { kind: 'untagged' }
 
 export const GROUPS: { group: Group; label: string }[] = [
   { group: 'all', label: 'All' },
@@ -35,6 +36,7 @@ export function expiry(entry: Entry, now: number): 'expired' | 'soon' | null {
 
 function inFilter(entry: Entry, filter: Filter, now: number): boolean {
   if (filter.kind === 'tag') return entry.kind === 'entry' && entry.tags.includes(filter.tag)
+  if (filter.kind === 'untagged') return entry.kind === 'entry' && entry.tags.every((tag) => tag === FAVORITE)
   switch (filter.group) {
     case 'templates':
       return entry.kind === 'template'
@@ -78,7 +80,8 @@ export function tagCounts(entries: Entry[]): [string, number][] {
   return [...counts].sort(([a], [b]) => a.localeCompare(b))
 }
 
-/** True when both choose the same group or tag. */
 export function sameFilter(a: Filter, b: Filter): boolean {
-  return a.kind === 'group' ? b.kind === 'group' && a.group === b.group : b.kind === 'tag' && a.tag === b.tag
+  if (a.kind === 'group') return b.kind === 'group' && a.group === b.group
+  if (a.kind === 'tag') return b.kind === 'tag' && a.tag === b.tag
+  return b.kind === 'untagged'
 }

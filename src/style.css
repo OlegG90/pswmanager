@@ -638,13 +638,13 @@ input[type='range']:focus-visible {
 }
 
 /* A tag reads as one: #work, not a group called work. */
-#tags .side-item .name::before {
+#tags .side-item.tag .name::before {
   content: '#';
   margin-right: 1px;
   color: var(--color-neutral-500);
 }
 
-#tags .side-item[aria-current='true'] .name::before {
+#tags .side-item.tag[aria-current='true'] .name::before {
   color: inherit;
 }
 
@@ -949,6 +949,24 @@ button.icon.state svg {
   font-size: 12px;
   line-height: var(--small-line);
   color: var(--color-neutral-700);
+}
+
+#detail .detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#detail .tag-chip {
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--color-accent-200);
+  border-radius: 999px;
+  background: var(--color-accent-100);
+  color: var(--color-accent-700);
+  font-size: 12px;
+  line-height: var(--small-line);
+  overflow-wrap: anywhere;
 }
 
 #detail .expiry.expired {

@@ -10,7 +10,7 @@ import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './ico
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, type Filter } from './search'
+import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
 import { renderSettings } from './settings'
 import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
@@ -221,6 +221,7 @@ function fillSidebar() {
   if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
   const item = (choice: Filter, label: string, count?: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label))
+    if (choice.kind === 'tag') b.classList.add('tag')
     if (count !== undefined) b.append(el('span', { className: 'count' }, String(count)))
     if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', () => showFilter(choice))
@@ -228,6 +229,7 @@ function fillSidebar() {
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => item({ kind: 'group', group }, label, undefined, GROUP_ICONS[group])))
   tagsList.replaceChildren(
+    item(UNTAGGED, 'Untagged', search(listing.entries, '', UNTAGGED).length),
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
@@ -237,7 +239,6 @@ function fillSidebar() {
       return li
     }),
   )
-  $('tags-heading').hidden = tags.length === 0
 }
 
 function showFilter(choice: Filter) {
@@ -466,10 +467,10 @@ function renderDetail() {
   const version = view.kind === 'version' ? view : null
   // An older version is shown like the entry, read only.
   const entry = version ? version.at : shown
-  const tags = entry.tags.filter((t) => t !== FAVORITE).join(', ')
-  const meta = [PLACES[entry.kind], tags].filter(Boolean).join(' · ')
+  const tags = entry.tags.filter((t) => t !== FAVORITE)
   const heading = el('div', { className: 'heading' }, el('h2', {}, titleOf(entry)))
-  if (meta) heading.append(el('span', { className: 'meta' }, meta))
+  if (PLACES[entry.kind]) heading.append(el('span', { className: 'meta' }, PLACES[entry.kind]))
+  if (tags.length) heading.append(el('div', { className: 'detail-tags' }, ...tags.map((tag) => el('span', { className: 'tag-chip' }, tag))))
   if (entry.expires) {
     const state = expiry(entry, Date.now())
     const text = `${state === 'expired' ? 'Expired' : 'Expires'} ${formatDate(entry.expires)}`
