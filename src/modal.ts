@@ -76,10 +76,8 @@ export function askText(
       const selectSuggestion = (suggestion: string) => {
         input.value = suggestion
         list.hidden = true
+        list.replaceChildren()
         activeIndex = -1
-        for (const option of list.querySelectorAll('[role="option"]')) {
-          option.setAttribute('aria-selected', 'false')
-        }
         input.setAttribute('aria-expanded', 'false')
         input.removeAttribute('aria-activedescendant')
         input.focus()
@@ -92,8 +90,10 @@ export function askText(
           options[i].setAttribute('aria-selected', String(i === index))
         }
         const active = options[index]
-        if (active) input.setAttribute('aria-activedescendant', active.id)
-        else input.removeAttribute('aria-activedescendant')
+        if (active) {
+          input.setAttribute('aria-activedescendant', active.id)
+          active.scrollIntoView({ block: 'nearest' })
+        } else input.removeAttribute('aria-activedescendant')
       }
       const showSuggestions = () => {
         const query = input.value.trim().toLocaleLowerCase()
