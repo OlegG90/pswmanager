@@ -470,7 +470,6 @@ function renderDetail() {
   const tags = entry.tags.filter((t) => t !== FAVORITE)
   const heading = el('div', { className: 'heading' }, el('h2', {}, titleOf(entry)))
   if (PLACES[entry.kind]) heading.append(el('span', { className: 'meta' }, PLACES[entry.kind]))
-  if (tags.length) heading.append(el('div', { className: 'detail-tags' }, ...tags.map((tag) => el('span', { className: 'tag-chip' }, tag))))
   if (entry.expires) {
     const state = expiry(entry, Date.now())
     const text = `${state === 'expired' ? 'Expired' : 'Expires'} ${formatDate(entry.expires)}`
@@ -488,6 +487,7 @@ function renderDetail() {
   const header = el('header', { className: 'entry' }, iconImage(entry), heading)
   if (!version && editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
+  if (tags.length) rows.push(el('div', { className: 'row' }, el('span', { className: 'label' }, 'Tags'), el('span', { className: 'value detail-tags' }, ...tags.map((tag) => el('span', { className: 'tag-chip' }, tag))), el('span', { className: 'actions' })))
   if (entry.username) {
     rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
