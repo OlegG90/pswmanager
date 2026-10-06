@@ -1665,6 +1665,33 @@ dialog.modal .buttons {
   margin-bottom: 16px;
 }
 
+.modal input.text.with-suggestions {
+  margin-bottom: 4px;
+}
+
+.modal .suggestions {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-field);
+}
+
+.modal .suggestions button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+
+.modal .suggestions button:hover,
+.modal .suggestions button:focus-visible {
+  background: var(--color-accent-100);
+}
+
 dialog.modal.form {
   width: min(520px, 92vw);
 }

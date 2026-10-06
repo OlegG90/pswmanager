@@ -63,12 +63,47 @@ export function askText(
   suggestions: string[] = [],
 ): Promise<string | null> {
   return dialog<string | null>(message, null, (answer) => {
-    const input = el('input', { value, spellcheck: false, className: 'text' })
-    const list = el('datalist', { id: 'ask-suggestions' }, ...suggestions.map((s) => new Option(s)))
-    input.setAttribute('list', list.id)
+    const input = el('input', { value, spellcheck: false, className: `text${suggestions.length ? ' with-suggestions' : ''}` })
+    const list = suggestions.length ? el('div', { id: 'ask-suggestions', className: 'suggestions', hidden: true }) : null
+    if (list) {
+      input.setAttribute('aria-autocomplete', 'list')
+      input.setAttribute('aria-controls', list.id)
+      input.setAttribute('aria-expanded', 'false')
+      const showSuggestions = () => {
+        const query = input.value.trim().toLocaleLowerCase()
+        const matches = query ? suggestions.filter((s) => s.toLocaleLowerCase().includes(query)) : []
+        list.replaceChildren(
+          ...matches.map((suggestion) =>
+            button(suggestion, `Use ${suggestion}`, () => {
+              input.value = suggestion
+              list.hidden = true
+              input.setAttribute('aria-expanded', 'false')
+              input.focus()
+              input.setSelectionRange(suggestion.length, suggestion.length)
+            }, 'suggestion')),
+        )
+        list.hidden = matches.length === 0
+        input.setAttribute('aria-expanded', String(matches.length > 0))
+      }
+      input.addEventListener('input', showSuggestions)
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowDown' || list.hidden) return
+        e.preventDefault()
+        list.querySelector<HTMLButtonElement>('button')?.focus()
+      })
+      list.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+        const items = [...list.querySelectorAll<HTMLButtonElement>('button')]
+        const next = items.indexOf(document.activeElement as HTMLButtonElement) + (e.key === 'ArrowDown' ? 1 : -1)
+        e.preventDefault()
+        if (next < 0) input.focus()
+        else items[next]?.focus()
+      })
+      showSuggestions()
+    }
     const confirm = button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')
     enterPresses(confirm, input)
     requestAnimationFrame(() => input.setSelectionRange(0, selected))
-    return { body: [input, list], buttons: [confirm], focus: input }
+    return { body: [input, ...(list ? [list] : [])], buttons: [confirm], focus: input }
   })
 }
