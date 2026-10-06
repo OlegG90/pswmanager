@@ -54,7 +54,7 @@ export { beforeExtension } from './entry-text'
 
 /** Asks for a line of text, starting from `value` with `selected` of it
  *  selected, offering `suggestions` as it is typed; resolves to the text, or
- *  `null` for Cancel. Enter confirms. */
+ *  `null` for Cancel. Enter confirms the text or selects the active suggestion. */
 export function askText(
   message: string,
   value: string,
@@ -63,12 +63,73 @@ export function askText(
   suggestions: string[] = [],
 ): Promise<string | null> {
   return dialog<string | null>(message, null, (answer) => {
-    const input = el('input', { value, spellcheck: false, className: 'text' })
-    const list = el('datalist', { id: 'ask-suggestions' }, ...suggestions.map((s) => new Option(s)))
-    input.setAttribute('list', list.id)
+    const input = el('input', { value, spellcheck: false, className: `text${suggestions.length ? ' with-suggestions' : ''}` })
+    const list = suggestions.length ? el('div', { id: 'ask-suggestions', className: 'suggestions', hidden: true }) : null
+    if (list) {
+      list.setAttribute('role', 'listbox')
+      input.setAttribute('role', 'combobox')
+      input.setAttribute('aria-autocomplete', 'list')
+      input.setAttribute('aria-haspopup', 'listbox')
+      input.setAttribute('aria-controls', list.id)
+      input.setAttribute('aria-expanded', 'false')
+      let activeIndex = -1
+      const selectSuggestion = (suggestion: string) => {
+        input.value = suggestion
+        list.hidden = true
+        list.replaceChildren()
+        activeIndex = -1
+        input.setAttribute('aria-expanded', 'false')
+        input.removeAttribute('aria-activedescendant')
+        input.focus()
+        input.setSelectionRange(suggestion.length, suggestion.length)
+      }
+      const setActive = (index: number) => {
+        const options = [...list.querySelectorAll<HTMLElement>('[role="option"]')]
+        activeIndex = index
+        for (let i = 0; i < options.length; i++) {
+          options[i].setAttribute('aria-selected', String(i === index))
+        }
+        const active = options[index]
+        if (active) {
+          input.setAttribute('aria-activedescendant', active.id)
+          active.scrollIntoView({ block: 'nearest' })
+        } else input.removeAttribute('aria-activedescendant')
+      }
+      const showSuggestions = () => {
+        const query = input.value.trim().toLocaleLowerCase()
+        const matches = query ? suggestions.filter((s) => s.toLocaleLowerCase().includes(query)) : []
+        list.replaceChildren(...matches.map((suggestion, i) => {
+          const option = el('div', { id: `ask-suggestion-${i}`, className: 'suggestion', onclick: () => selectSuggestion(suggestion) }, suggestion)
+          option.setAttribute('role', 'option')
+          option.setAttribute('aria-selected', 'false')
+          return option
+        }))
+        list.hidden = matches.length === 0
+        input.setAttribute('aria-expanded', String(matches.length > 0))
+        setActive(-1)
+      }
+      input.addEventListener('input', showSuggestions)
+      input.addEventListener('keydown', (e) => {
+        const optionCount = list.querySelectorAll('[role="option"]').length
+        if (e.key === 'ArrowDown' && optionCount) {
+          e.preventDefault()
+          setActive(Math.min(activeIndex + 1, optionCount - 1))
+        } else if (e.key === 'ArrowUp' && activeIndex >= 0) {
+          e.preventDefault()
+          setActive(activeIndex - 1)
+        } else if (e.key === 'Enter' && activeIndex >= 0) {
+          const option = list.querySelectorAll<HTMLElement>('[role="option"]')[activeIndex]
+          if (!option) return
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          selectSuggestion(option.textContent ?? '')
+        }
+      })
+      showSuggestions()
+    }
     const confirm = button(confirmLabel, confirmLabel, () => answer(input.value), 'primary')
     enterPresses(confirm, input)
     requestAnimationFrame(() => input.setSelectionRange(0, selected))
-    return { body: [input, list], buttons: [confirm], focus: input }
+    return { body: [input, ...(list ? [list] : [])], buttons: [confirm], focus: input }
   })
 }
