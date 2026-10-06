@@ -1021,6 +1021,7 @@ button.star[aria-pressed='true'] {
 
 .row .label {
   color: var(--color-neutral-700);
+  overflow-wrap: anywhere;
 }
 
 .row .value {
