@@ -54,7 +54,7 @@ export { beforeExtension } from './entry-text'
 
 /** Asks for a line of text, starting from `value` with `selected` of it
  *  selected, offering `suggestions` as it is typed; resolves to the text, or
- *  `null` for Cancel. Enter confirms. */
+ *  `null` for Cancel. Enter confirms the text or selects the active suggestion. */
 export function askText(
   message: string,
   value: string,
