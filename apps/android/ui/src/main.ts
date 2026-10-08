@@ -851,12 +851,14 @@ function slide(shade: HTMLElement, panel: HTMLElement, sign: -1 | 1, close: () =
 /** The settings' toolbar, coming in from the right with a swipe; once in, the
  *  settings screen takes its place. */
 function settingsPeek(back: () => void): Sliding {
-  // Only the look of the settings' toolbar: the screen itself has the buttons.
-  const panel = el('div', { className: 'peek' }, el('header', { className: 'bar' }, el('span', { className: 'icon' }, svgIcon('back')), el('h1', {}, 'Settings')))
+  // The screen itself, drawn now; once in, the same parts become the screen.
+  // Before the settings were ever read, only its toolbar's look.
+  const parts = settings ? settingsParts(settings, back) : null
+  const panel = el('main', { className: 'peek' }, ...(parts?.nodes ?? [el('header', { className: 'bar' }, el('span', { className: 'icon' }, svgIcon('back')), el('h1', {}, 'Settings'))]))
   const shade = el('div', { className: 'shade' }, panel)
   const close = overlay(shade)
   const sliding = slide(shade, panel, 1, close)
-  return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back))) }
+  return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back, parts ?? undefined))) }
 }
 
 /** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
@@ -1004,20 +1006,41 @@ function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   ]
 }
 
-async function settingsScreen(back: () => void) {
-  settingsBack = back
-  applySettings(await api.settings())
+/** The settings screen's parts, drawn from the settings as last read: the
+ *  screen shows them, and so does a swipe bringing it in (whole, not empty). */
+interface SettingsParts {
+  nodes: Node[]
+  body: HTMLElement
+  fill: () => void
+}
+
+function settingsParts(s: Settings, back: () => void): SettingsParts {
   const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['sync', 'Sync'], ['about', 'About']]
   const body = el('div', { className: 'settings' })
   const fill = () => {
     bar.querySelectorAll('button').forEach((b, i) => b.classList.toggle('chosen', tabs[i][0] === settingsTab))
-    body.replaceChildren(...tab(settingsTab, settings!))
+    body.replaceChildren(...tab(settingsTab, settings ?? s))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
-  show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], back)
-  // A swipe to the right takes the settings away, back where they came from.
-  swipes(body, swipesOn, { right: () => leaving(screen, back) })
   fill()
+  return { nodes: [el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], body, fill }
+}
+
+/** The settings screen; `drawn` when a swipe brought its parts in already. */
+async function settingsScreen(back: () => void, drawn?: SettingsParts) {
+  settingsBack = back
+  if (!settings) applySettings(await api.settings())
+  const parts = drawn ?? settingsParts(settings!, back)
+  show(parts.nodes, back)
+  // A swipe to the right takes the settings away, back where they came from.
+  swipes(parts.body, swipesOn, { right: () => leaving(screen, back) })
+  // As they are now (another device or the tray may have changed one).
+  // Redrawn only when one did, so a choice being made is not disturbed.
+  const shown = JSON.stringify(settings)
+  void api.settings().then((fresh) => {
+    applySettings(fresh)
+    if (JSON.stringify(fresh) !== shown) parts.fill()
+  }, () => {})
 }
 
 function tab(which: Tab, s: Settings): Node[] {
