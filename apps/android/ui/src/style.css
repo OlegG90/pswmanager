@@ -336,6 +336,14 @@ main.list-screen {
   transition: none;
 }
 
+/* Sideways moves are the app's swipes, never a scroll that would take the
+   touch away from them. */
+.list-screen .scroll,
+.shade,
+.settings {
+  touch-action: pan-y;
+}
+
 /* The settings' toolbar coming in from the right before the screen opens. */
 .peek {
   position: absolute;

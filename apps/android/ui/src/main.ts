@@ -51,7 +51,11 @@ let backs: (() => void)[] = []
 }
 
 /** Shows a screen; `back` is where Back returns from it (none: Back leaves the app). */
+/** Counts the screens shown, to tell whether another came meanwhile. */
+let screenShown = 0
+
 function show(children: Node[], back?: () => void, className = '') {
+  screenShown++
   leave()
   leave = () => {}
   onSynced = () => {}
@@ -474,7 +478,6 @@ function listScreen(opened: Listing) {
   status.addEventListener('click', syncSheet)
   const scroll = el('div', { className: 'scroll' }, emptyBin, list)
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
-  // Not while entries are chosen: the bar has the list then.
   // Not while entries are chosen (the bar has the list then), nor when turned off.
   swipes(scroll, () => !chosen.size && swipesOn(), {
     right: () => drawer(listing, fill, true),
@@ -543,10 +546,13 @@ function swipes(target: HTMLElement, allowed: () => boolean, to: { right?: () =>
   let panel: Sliding | null = null
   let dx = 0
   target.addEventListener('touchstart', (e) => {
+    // Another finger mid-swipe: the panel goes back, and that is the end of it.
+    panel?.release(false)
+    panel = null
+    dx = 0
     const { clientX: x, clientY: y } = e.touches[0]
     const inside = x > EDGE && x < window.innerWidth - EDGE
     from = e.touches.length === 1 && inside && allowed() ? { x, y, at: e.timeStamp } : null
-    panel = null
   }, { passive: true })
   target.addEventListener('touchmove', (e) => {
     if (!from) return
@@ -741,7 +747,7 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
     button('Lock', 'Lock the database', () => void lock(), 'action'),
   )
-  const sliding = slide(shade, panel, 'left', close)
+  const sliding = slide(shade, panel, -1, close)
   if (!dragged) sliding.release(true)
   // A swipe back to the left takes it away with the finger.
   swipes(shade, swipesOn, { left: () => closing(sliding) })
@@ -765,6 +771,21 @@ const closing = (sliding: Sliding & { back: (dx: number) => void }): Sliding => 
   release: (away) => sliding.release(!away),
 })
 
+/** Runs `done` once `node`'s own transform transition ends, or soon anyway
+ *  (none may come: the app went to the background, or nothing moved). */
+function afterSlide(node: HTMLElement, done: () => void) {
+  let finished = false
+  const finish = () => {
+    if (finished) return
+    finished = true
+    node.removeEventListener('transitionend', ended)
+    done()
+  }
+  const ended = (e: TransitionEvent) => e.target === node && finish()
+  node.addEventListener('transitionend', ended)
+  setTimeout(finish, 400)
+}
+
 /** The screen shown, taken away to the right by a swipe; let go far enough, `away` runs. */
 function leaving(node: HTMLElement, away: () => void): Sliding {
   let moved = 0
@@ -776,24 +797,27 @@ function leaving(node: HTMLElement, away: () => void): Sliding {
       place(`translateX(${moved}px)`)
     },
     release: (go) => {
-      // The next screen first, then the node back in place: no flash of the old one.
+      const before = screenShown
+      // The next screen first, then the node back in place: no flash of the
+      // old one. Not when Back already left this screen meanwhile.
       const done = () => {
-        if (go) away()
+        if (go && screenShown === before) away()
         node.style.transition = ''
         place('')
       }
       if (!go && moved === 0) return done()
       node.style.transition = 'transform 200ms ease-out'
       requestAnimationFrame(() => {
-        node.addEventListener('transitionend', done, { once: true })
+        afterSlide(node, done)
         place(go ? 'translateX(100%)' : 'translateX(0)')
       })
     },
   }
 }
 
-function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', close: () => void): Sliding & { back: (dx: number) => void } {
-  const sign = from === 'left' ? -1 : 1
+/** A panel coming in over `shade` from its side (`sign` -1: the left, 1: the
+ *  right); `close` takes it away when it is let go short of open. */
+function slide(shade: HTMLElement, panel: HTMLElement, sign: -1 | 1, close: () => void): Sliding & { back: (dx: number) => void } {
   let shown = 0
   const show = (part: number) => {
     shown = part
@@ -815,11 +839,11 @@ function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', c
       const done = () => (open ? opened?.() : close())
       // Already there: no transition to wait for.
       if (shown === (open ? 1 : 0)) return done()
-      // The next frame, so the transition starts from where the finger left it.
-      requestAnimationFrame(() => {
-        panel.addEventListener('transitionend', done, { once: true })
-        show(open ? 1 : 0)
-      })
+      // Laid out where the finger left it (or off screen, just added), so the
+      // transition starts from there.
+      void panel.offsetWidth
+      afterSlide(panel, done)
+      show(open ? 1 : 0)
     },
   }
 }
@@ -827,10 +851,11 @@ function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', c
 /** The settings' toolbar, coming in from the right with a swipe; once in, the
  *  settings screen takes its place. */
 function settingsPeek(back: () => void): Sliding {
-  const panel = el('div', { className: 'peek' }, el('header', { className: 'bar' }, iconButton('back', 'Back', () => {}), el('h1', {}, 'Settings')))
+  // Only the look of the settings' toolbar: the screen itself has the buttons.
+  const panel = el('div', { className: 'peek' }, el('header', { className: 'bar' }, el('span', { className: 'icon' }, svgIcon('back')), el('h1', {}, 'Settings')))
   const shade = el('div', { className: 'shade' }, panel)
   const close = overlay(shade)
-  const sliding = slide(shade, panel, 'right', close)
+  const sliding = slide(shade, panel, 1, close)
   return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back))) }
 }
 
