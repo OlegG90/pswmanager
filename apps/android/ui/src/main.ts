@@ -10,7 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, 
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -28,6 +28,8 @@ let syncLine = ''
 let signInAgain = false
 /** Why the visible copy was not written at the last sync, if it was not. */
 let copyProblem: string | null = null
+/** The remote file is on a key another device changed it to. */
+let otherKey = false
 /** When the last sync ended (ms), for syncing again on coming back. */
 let lastSynced = 0
 /** The database is unlocked: syncs run on their own. */
@@ -484,9 +486,13 @@ function listScreen(opened: Listing) {
     right: () => drawer(listing, fill, true),
     left: () => settingsPeek(() => listScreen(listing)),
   })
+  // Another device changed the key: here until it is entered (as Windows' Enter key…).
+  const newKey = iconButton('keyRound', 'Enter the new key', () => void otherKeyScreen())
+  newKey.hidden = !otherKey
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
+    newKey,
     iconButton('sync', 'Sync now', () => {
       status.textContent = 'Syncing…'
       void api.syncNow()
@@ -518,8 +524,23 @@ function listScreen(opened: Listing) {
   onSynced = (synced) => {
     status.textContent = synced.text
     status.classList.toggle('problem', synced.problem)
+    newKey.hidden = !synced.otherKey
     if (synced.changed) void api.listing().then((fresh) => ((listing = fresh), fill()))
+    askForKey()
   }
+  askForKey()
+}
+
+/** Whether the new-key screen opened for the key change the last sync found. */
+let keyAsked = false
+
+/** Opens the new-key screen by itself once, when a sync finds that another
+ *  device changed the key (as Windows' dialog does); after *Not now*, the
+ *  toolbar's key and the sync sheet still offer it. */
+function askForKey() {
+  if (!otherKey || keyAsked || !unlocked) return
+  keyAsked = true
+  void otherKeyScreen()
 }
 
 /** Picks the folder for the visible copy and writes it there. */
@@ -599,6 +620,8 @@ function applySync(synced: Synced) {
   syncLine = synced.text
   signInAgain = synced.signIn
   copyProblem = synced.copyProblem
+  otherKey = synced.otherKey
+  if (!otherKey) keyAsked = false
   lastSynced = Date.now()
   onSynced(synced)
 }
@@ -708,6 +731,7 @@ function syncSheet() {
         ]
       : []),
     ...(signInAgain && database?.cloud ? [signInButton(database.cloud, close)] : []),
+    ...(otherKey ? [button('Enter the new key…', 'The master password and / or key file another device changed it to', () => (close(), void otherKeyScreen()), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()
@@ -912,6 +936,9 @@ async function lock() {
 function afterLock() {
   unlocked = false
   query = ''
+  // The next unlock's sync says again whether another device changed the key.
+  otherKey = false
+  keyAsked = false
   unlockScreen()
 }
 
@@ -1052,8 +1079,113 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
     el('h2', {}, 'Encryption'),
     el('p', {}, describeEncryption(now.encryption)),
     button('Change…', 'Change the cipher and key derivation', () => encryptionScreen(now.encryption), 'wide'),
-    el('p', { className: 'muted' }, 'The master password and key file are changed on Windows or in Keepass2Android for now.'),
+    el('h2', {}, 'Master password and key file'),
+    el('p', {}, database?.keyFile ? `Key file: ${database.keyFile}` : 'No key file'),
+    button('Change…', 'Change the master password and / or key file', () => void changeKeyScreen(), 'wide'),
   ]
+}
+
+/** The key file a key is to have: the one the database has, another one
+ *  picked with Android's picker, or none. */
+function keyFileChooser(fail: (message: string) => void, offerNew = false) {
+  // As the phone keeps it now (the status read when the screen opened).
+  const now = database?.keyFile ?? null
+  let chosen: NewKeyFile = { kind: 'keep' }
+  const name = () => (chosen.kind === 'keep' ? now : chosen.kind === 'picked' ? chosen.name : null)
+  const shown = el('p', {})
+  const none = button('Remove the key file', 'Only the master password opens it then', () => ((chosen = { kind: 'none' }), refresh()), 'wide')
+  const refresh = () => {
+    shown.textContent = name() ? `Key file: ${name()}` : 'No key file'
+    none.hidden = !name()
+  }
+  const take = (pick: () => Promise<Picked | null>) => async () => {
+    const picked = await pick()
+    if (picked) chosen = { kind: 'picked', ...picked }
+    refresh()
+  }
+  const pick = busyButton('Choose a key file…', 'A key file picked with Android’s picker', take(api.pickNewKeyFile), fail, 'wide')
+  refresh()
+  // As Windows' New…: a key file the app makes, kept apart from the database.
+  const make = busyButton('New key file…', 'Make a new key file where you choose; keep it apart from the database', take(api.createKeyFile), fail, 'wide')
+  return { nodes: [shown, pick, ...(offerNew ? [make] : []), none], value: () => chosen, name }
+}
+
+/** The key another device changed the database to (#193): the remote file is
+ *  synced with it; once it opens, the phone unlocks with it. As on Windows. */
+async function otherKeyScreen() {
+  // Which key file the phone uses, as it is now.
+  database = (await api.status()).database
+  const error = errorLine()
+  const password = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'The new master password', className: 'field' })
+  error.hideOnInput(password)
+  const keyFile = keyFileChooser((e) => error.show(e))
+  const notNow = () => {
+    password.value = ''
+    void api.listing().then(listScreen)
+  }
+  const use = busyButton('Use this key', 'Sync with the remote file using this key', async () => {
+    const status = await api.enterOtherKey(password.value, keyFile.value())
+    password.value = ''
+    database = status.database
+    otherKey = false
+    snack('The new key is in use')
+    listScreen(await api.listing())
+  }, (e) => error.show(e.replace(/^Error: /, '')), 'primary')
+  enterPresses(use, password)
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back', notNow), el('h1', {}, 'New key')),
+    el('p', {}, 'Another device changed the master password or key file. Enter the new one to sync again. Until then this phone works with its own copy, and its changes do not go up.'),
+    password,
+    el('h2', {}, 'Key file'),
+    ...keyFile.nodes,
+    error.line,
+    use,
+    button('Not now', 'Keep working with this phone’s copy; the key can be entered later', notNow, 'link'),
+  ], notNow)
+  password.focus()
+}
+
+/** A new master password and / or key file, once the current master password
+ *  proves right (#193); as on Windows (`spec.md` *Database settings*). */
+async function changeKeyScreen() {
+  // Which key file the phone uses, as it is now: the chooser's No key file
+  // shows only when there is one to give up.
+  database = (await api.status()).database
+  const error = errorLine()
+  const back = () => void settingsScreen(settingsBack)
+  const current = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Current master password', className: 'field' })
+  const password = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'New master password', className: 'field' })
+  const again = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'The new master password again', className: 'field' })
+  const strength = strengthMeter(password, api.passwordStrength)
+  for (const field of [current, password, again]) error.hideOnInput(field)
+  const keyFile = keyFileChooser((e) => error.show(e), true)
+  const clear = () => (current.value = password.value = again.value = '')
+  const change = busyButton('Change', 'Save the database with the new key', async () => {
+    if (!password.value && !keyFile.name()) throw new Error('Give a master password, a key file, or both')
+    if (password.value !== again.value) throw new Error('The two passwords differ')
+    const keyFileOnly = password.value ? '' : ' The database will then have no master password: only the key file opens it.'
+    confirmSheet('Other devices, Keepass2Android too, will need the new key. The old one still opens the store\'s version history. ' +
+      `Unlock with fingerprint is set up again at the next unlock with the password.${keyFileOnly}`, 'Change key', () =>
+      void api.changeMasterKey(current.value, password.value, keyFile.value()).then((status) => {
+        clear()
+        database = status.database
+        back()
+        snack('The key is changed')
+      }, (e) => error.show(String(e))))
+  }, (e) => error.show(e.replace(/^Error: /, '')), 'primary')
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back', () => (clear(), back())), el('h1', {}, 'Master password')),
+    current,
+    password,
+    again,
+    strength.element,
+    el('p', { className: 'muted' }, 'Leave the new password empty for a key file alone.'),
+    el('h2', {}, 'Key file'),
+    ...keyFile.nodes,
+    error.line,
+    change,
+  ], () => (clear(), back()))
+  current.focus()
 }
 
 /** Another cipher and / or key derivation, with a Test that times an unlock on this phone. */

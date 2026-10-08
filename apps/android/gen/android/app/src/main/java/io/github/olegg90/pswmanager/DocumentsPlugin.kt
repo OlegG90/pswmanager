@@ -142,6 +142,19 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
   }
 
+  /** A new document named by the user in Android's save picker, its access kept
+   *  (a new key file, read at each unlock). */
+  @Command
+  fun pickToCreate(invoke: Invoke) {
+    val name = invoke.parseArgs(SaveArgs::class.java).name
+    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+      .addCategory(Intent.CATEGORY_OPENABLE)
+      .setType("application/octet-stream")
+      .putExtra(Intent.EXTRA_TITLE, name)
+      .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    startActivityForResult(invoke, intent, "picked")
+  }
+
   /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */
   @Command
   fun child(invoke: Invoke) = background(invoke) {

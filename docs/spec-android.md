@@ -36,8 +36,7 @@ completely is a goal for later stages.
 ### Out of scope for now
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
-database on the phone), changing the master password or key file (done on Windows or in Keepass2Android
-for now), backup, the Templates
+database on the phone), backup, the Templates
 group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
 exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
 migration stays with `sic2kdbx.py`.
@@ -207,7 +206,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
-| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The master password and key file are not changed here yet |
+| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength) and / or a key file picked with Android's picker, or a **new key file** the app makes where the user chooses (as Windows' *New…*), or none; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
@@ -421,5 +420,5 @@ Each stage is a GitHub issue and lands in one or more PRs.
   history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
-- **Later:** autofill; several databases and creating one; changing the master password and key file; backup; Templates;
+- **Later:** autofill; several databases and creating one; backup; Templates;
   managing tags; restoring a history version; password health.

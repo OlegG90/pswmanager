@@ -109,6 +109,10 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::database::set_history_limits,
             crate::database::encryption_unlock_time,
             crate::database::set_encryption,
+            crate::database::pick_new_key_file,
+            crate::database::change_master_key,
+            crate::database::enter_other_key,
+            crate::database::create_key_file,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,
@@ -156,6 +160,9 @@ struct Synced {
     sign_in: bool,
     /// The visible copy could not be written, and why.
     copy_problem: Option<String>,
+    /// The remote file opens with a key this phone does not know: another
+    /// device changed it, and the page offers to enter it.
+    other_key: bool,
 }
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
@@ -526,12 +533,17 @@ async fn pick_key_file(app: AppHandle) -> Result<Status, String> {
     off_main(move || {
         let store = app.state::<Store>();
         if let Some(picked) = app.state::<Documents<Wry>>().pick_file()? {
-            let value = serde_json::to_value(&picked).map_err(|e| e.to_string())?;
-            store.update(|s| drop(s.settings.insert(KEY_FILE.into(), value))).map_err(|e| format!("Cannot save the key file: {e}"))?;
+            remember_key_file(&store, &picked)?;
         }
         Ok(status_of(&store, &app.state::<Session>()))
     })
     .await
+}
+
+/// The database is unlocked with `picked` from now on.
+pub(crate) fn remember_key_file(store: &Store, picked: &documents::Picked) -> Result<(), String> {
+    let value = serde_json::to_value(picked).map_err(|e| e.to_string())?;
+    store.update(|s| drop(s.settings.insert(KEY_FILE.into(), value))).map_err(|e| format!("Cannot save the key file: {e}"))
 }
 
 /// The database is unlocked without a key file from now on.
@@ -541,7 +553,7 @@ fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status
     Ok(status_of(&store, &session))
 }
 
-fn forget_key_file(store: &Store) -> Result<(), String> {
+pub(crate) fn forget_key_file(store: &Store) -> Result<(), String> {
     store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))
 }
 
@@ -648,6 +660,25 @@ pub fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, 
     result
 }
 
+/// Syncs now, waiting for it: before a change the remote file must be in step
+/// with (a new key: after it, the remote file, still on the old key, opens no
+/// more). Refused while a sync runs, and when it does not settle.
+pub(crate) fn sync_first(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Store>().read(|s| s.remote().is_none()) {
+        return Ok(());
+    }
+    let settled = while_not_syncing(app, || Ok(sync_once(app, &app.state::<Session>())))?;
+    let last = app.state::<LastSync>().0.lock().unwrap().clone();
+    match last {
+        Some(last) if last.other_key => Err(OTHER_KEY.into()),
+        _ if settled => Ok(()),
+        last => Err(format!("The database could not sync first ({})", last.map(|s| s.text).unwrap_or_default())),
+    }
+}
+
+/// [sync_first]'s answer when the remote file is on a key this phone does not know.
+pub(crate) const OTHER_KEY: &str = "The remote file has another master password or key file";
+
 /// Syncs in the background and tells the page (`synced`) what happened.
 pub fn start_sync(app: AppHandle) {
     if !app.state::<Syncing>().begin() {
@@ -673,9 +704,10 @@ fn sync_once(app: &AppHandle, session: &Session) -> bool {
     let (text, problem) = sync::describe(&store, &result);
     let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
     let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
+    let other_key = matches!(result, Err(sync::SyncError::OtherKey));
     let copy_problem = crate::visible::refresh(app);
     let problem = problem || copy_problem.is_some();
-    let synced = Synced { text, problem, changed, sign_in, copy_problem };
+    let synced = Synced { text, problem, changed, sign_in, copy_problem, other_key };
     *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
     // A page that is not listening reads it with `last_sync`.
     let _ = app.emit("synced", synced);

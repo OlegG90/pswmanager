@@ -7,7 +7,9 @@ use crate::edit::{self, EntryData, Taking, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
-use keepass::{Database, DatabaseKey};
+use keepass::Database;
+/// A database's key, as [key] and [key_reading] make it.
+pub use keepass::DatabaseKey;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
@@ -331,14 +333,19 @@ impl Vault {
     /// a change on the file as it is now; the time of the change is kept in the
     /// file (KeePass's `MasterKeyChanged`).
     pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let file = self.file()?;
-        if !file.has_key(&key(current.0, current.1)?) {
+        let current = key(current.0, current.1)?;
+        let new = if password.is_none() && key_file.is_none() { None } else { Some(key(password, key_file)?) };
+        self.change_key_to(&current, new)
+    }
+
+    /// [Vault::change_key] with the keys made already (a key file read from a
+    /// document, say); `new` is none when it would have neither a master
+    /// password nor a key file.
+    pub fn change_key_to(&mut self, current: &DatabaseKey, new: Option<DatabaseKey>) -> Result<(), String> {
+        if !self.file()?.has_key(current) {
             return Err("The current master password is not right".into());
         }
-        if password.is_none() && key_file.is_none() {
-            return Err("A database needs a master password, a key file, or both".into());
-        }
-        let new = key(password, key_file)?;
+        let new = new.ok_or("A database needs a master password, a key file, or both")?;
         self.save_change(Some(&new), |db, _| {
             db.meta.master_key_changed = Some(keepass::db::Times::now());
             Ok(())
@@ -1045,15 +1052,21 @@ pub fn key_reading(password: Option<&str>, key_file: Option<&mut dyn std::io::Re
 /// random bytes in KeePass's XML key file, version 2.0, which KeePassXC and
 /// Keepass2Android read too.
 pub fn create_key_file(path: &Path) -> Result<(), String> {
-    let mut data = Zeroizing::new([0u8; 32]);
-    getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
-    let xml = key_file_xml(&data);
+    let xml = new_key_file()?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|e| format!("Cannot make {}: {e}", path.display()))?;
     std::io::Write::write_all(&mut file, xml.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", path.display()))
+}
+
+/// A new key file's content, as [create_key_file] writes it (for a file the
+/// app reaches otherwise, such as an Android document).
+pub fn new_key_file() -> Result<Zeroizing<String>, String> {
+    let mut data = Zeroizing::new([0u8; 32]);
+    getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
+    Ok(key_file_xml(&data))
 }
 
 /// KeePass's XML key file, version 2.0: the key in hex, in groups of four

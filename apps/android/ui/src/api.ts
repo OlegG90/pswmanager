@@ -70,6 +70,8 @@ export interface Synced {
   signIn: boolean
   /** The visible copy could not be written, and why. */
   copyProblem: string | null
+  /** The remote file opens with a key this phone does not know (another device changed it). */
+  otherKey: boolean
 }
 
 /** A folder or file the user picked. */
@@ -112,6 +114,9 @@ export interface Settings {
   passwordEveryDays: number
   version: string
 }
+
+/** The key file a database is to have after a key change. */
+export type NewKeyFile = { kind: 'keep' } | { kind: 'none' } | { kind: 'picked'; uri: string; name: string }
 
 export const api = {
   status: () => invoke<Status>('status'),
@@ -179,6 +184,14 @@ export const api = {
   /** Milliseconds an unlock takes on this phone with this encryption. */
   encryptionUnlockTime: (encryption: Encryption) => invoke<number>('encryption_unlock_time', { encryption }),
   setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
+  /** A key file for a key change; null when cancelled. */
+  pickNewKeyFile: () => invoke<Picked | null>('pick_new_key_file'),
+  /** Makes a new key file where the user chooses; null when cancelled. */
+  createKeyFile: () => invoke<Picked | null>('create_key_file'),
+  /** After `current` proves right: an empty `password` means none. */
+  changeMasterKey: (current: string, password: string, keyFile: NewKeyFile) => invoke<Status>('change_master_key', { current, password, keyFile }),
+  /** The key another device changed the database to; the remote file is synced with it. */
+  enterOtherKey: (password: string, keyFile: NewKeyFile) => invoke<Status>('enter_other_key', { password, keyFile }),
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts an entry from the recycle bin back where it was. */

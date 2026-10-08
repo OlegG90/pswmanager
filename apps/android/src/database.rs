@@ -1,15 +1,22 @@
 //! The settings kept in the database file itself (#193), as on Windows
 //! (`docs/spec.md`, *Database settings*): its name, description and default
-//! user name, the history limits and the encryption. Each change is saved to
-//! the working copy and goes up like an edit.
+//! user name, the history limits, the encryption, and the master password and
+//! key file. Each change is saved to the working copy and goes up like an edit
+//! (a new key at once).
 
+use crate::app::{self, off_main, Status};
+use crate::biometric::Biometric;
+use crate::documents::{Documents, Picked};
 use crate::editing::upload_soon;
+use pswm_core::documents::DocumentStore;
 use pswm_core::edit;
 use pswm_core::encryption;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
-use pswm_core::vault::{DatabaseSettings, Vault};
-use tauri::{AppHandle, Manager, State};
+use pswm_core::vault::{self, DatabaseSettings, Vault};
+use serde::Deserialize;
+use tauri::{AppHandle, Manager, State, Wry};
+use zeroize::Zeroizing;
 
 /// The settings kept in the open database's file.
 #[tauri::command(async)]
@@ -61,4 +68,128 @@ pub fn encryption_unlock_time(encryption: encryption::Encryption) -> Result<u64,
 #[tauri::command(async)]
 pub fn set_encryption(app: AppHandle, session: State<Session>, encryption: encryption::Encryption) -> Result<DatabaseSettings, String> {
     saved(&app, &session, |v| v.set_encryption(&encryption))
+}
+
+/// The key file the database is to have after a key change.
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum NewKeyFile {
+    /// The one it has now, if any.
+    Keep,
+    None,
+    /// One picked for it ([pick_new_key_file]).
+    Picked { uri: String, name: String },
+}
+
+impl NewKeyFile {
+    /// The key file it means, `now` being the one the database has.
+    fn chosen(self, now: Option<Picked>) -> Option<Picked> {
+        match self {
+            NewKeyFile::Keep => now,
+            NewKeyFile::None => None,
+            NewKeyFile::Picked { uri, name } => Some(Picked { uri, name }),
+        }
+    }
+}
+
+/// A key file for the database, picked with Android's picker (its access is
+/// kept); `None` when cancelled. It is used once the key is changed to it.
+#[tauri::command]
+pub async fn pick_new_key_file(app: AppHandle) -> Result<Option<Picked>, String> {
+    off_main(move || app.state::<Documents<Wry>>().pick_file()).await
+}
+
+/// Gives the open database a new master password and / or key file, after
+/// the current master password (with the key file it has now) proved right.
+/// An empty password means none. A synced database syncs first and goes up
+/// at once after. The phone unlocks with the new key file from then on, and
+/// the key sealed for fingerprint unlock (the old one) goes: it is sealed
+/// again at the next unlock with the password.
+#[tauri::command]
+pub async fn change_master_key(app: AppHandle, current: String, password: String, key_file: NewKeyFile) -> Result<Status, String> {
+    let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
+    off_main(move || {
+        let store = app.state::<Store>();
+        let read = |picked: &Picked| read_key_file(&app, picked);
+        let now = app::key_file(&store);
+        let now_content = now.as_ref().map(read).transpose()?;
+        let current = key(&current, now_content.as_ref())?;
+        let next = key_file.chosen(now);
+        let next_content = next.as_ref().map(read).transpose()?;
+        let new = if password.is_empty() && next.is_none() { None } else { Some(key(&password, next_content.as_ref())?) };
+        app::sync_first(&app).map_err(|e| format!("{e}; the key is unchanged"))?;
+        let session = app.state::<Session>();
+        session.with_mut(|v| v.change_key_to(&current, new))?;
+        take_key(&app, next.as_ref()).map_err(|e| format!("The key is changed, but {e}"))?;
+        app::start_sync(app.clone());
+        Ok(app::status_of(&store, &session))
+    })
+    .await
+}
+
+/// The database is on a new key: the phone unlocks with its key file (none:
+/// the master password alone) from now on, and the key sealed for
+/// fingerprint unlock (the old one) goes; it is sealed again at the next
+/// unlock with the password.
+fn take_key(app: &AppHandle, key_file: Option<&Picked>) -> Result<(), String> {
+    let store = app.state::<Store>();
+    match key_file {
+        Some(picked) => app::remember_key_file(&store, picked),
+        None => app::forget_key_file(&store),
+    }
+    .map_err(|e| format!("the key file could not be kept ({e})"))?;
+    let _ = app.state::<Biometric<Wry>>().forget();
+    Ok(())
+}
+
+/// Makes a new key file where the user chooses with Android's save picker
+/// (its access kept), for a key change; `None` when cancelled.
+#[tauri::command]
+pub async fn create_key_file(app: AppHandle) -> Result<Option<Picked>, String> {
+    off_main(move || {
+        let documents = app.state::<Documents<Wry>>();
+        let Some(picked) = documents.pick_to_create("PswManager.keyx")? else { return Ok(None) };
+        documents.write(&picked.uri, vault::new_key_file()?.as_bytes())?;
+        Ok(Some(picked))
+    })
+    .await
+}
+
+/// A key file's content, read once.
+fn read_key_file(app: &AppHandle, picked: &Picked) -> Result<Zeroizing<Vec<u8>>, String> {
+    let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
+    content.map(Zeroizing::new).ok_or(format!("Cannot read the key file {}: it is gone", picked.name))
+}
+
+/// The key a typed password (empty: none) and a key file's content make.
+fn key(password: &str, file: Option<&Zeroizing<Vec<u8>>>) -> Result<vault::DatabaseKey, String> {
+    let mut file = file.map(|f| f.as_slice());
+    vault::key_reading(Some(password).filter(|p| !p.is_empty()), file.as_mut().map(|f| f as &mut dyn std::io::Read))
+}
+
+/// The key another device changed the database to, given here: the remote
+/// file is synced with it (it is kept to try only while it opens something).
+/// Once the database is on it, the phone unlocks with that key file, and the
+/// key sealed for fingerprint unlock (the old one) goes.
+#[tauri::command]
+pub async fn enter_other_key(app: AppHandle, password: String, key_file: NewKeyFile) -> Result<Status, String> {
+    let password = Zeroizing::new(password);
+    off_main(move || {
+        let store = app.state::<Store>();
+        let next = key_file.chosen(app::key_file(&store));
+        let content = next.as_ref().map(|p| read_key_file(&app, p)).transpose()?;
+        let given = key(&password, content.as_ref())?;
+        let session = app.state::<Session>();
+        session.with_mut(|v| v.remember_key(given.clone()))?;
+        if let Err(e) = app::sync_first(&app) {
+            // A key that opened nothing is not kept.
+            session.with_mut(|v| v.forget_key(&given))?;
+            return Err(if e == app::OTHER_KEY { "This master password or key file does not open it either".into() } else { e });
+        }
+        if session.read(|v| v.uses_key(&given))?? {
+            take_key(&app, next.as_ref()).map_err(|e| format!("The new key is in use, but {e}"))?;
+        }
+        Ok(app::status_of(&store, &session))
+    })
+    .await
 }
