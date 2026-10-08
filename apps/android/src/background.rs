@@ -155,7 +155,9 @@ impl Kotlin {
                     read(env, value)
                 })
             })
-            .map_err(|e: jni::errors::Error| format!("{method} failed: {e}"))
+            // As before: the Java exception's own text is not passed on (a
+            // keystore's could say more than the user needs).
+            .map_err(|_: jni::errors::Error| format!("{method} failed"))
     }
 }
 
