@@ -885,12 +885,13 @@ impl Setting {
 }
 
 /// Sets a database setting (trimmed) and when it changed; the value it
-/// already has changes nothing.
+/// already has changes nothing. An empty one is none: the file reads an empty
+/// element back as none, and a save that does not read back the same is refused.
 pub fn set_setting(db: &mut Database, setting: Setting, value: &str) {
     let (field, changed) = setting.in_meta(&mut db.meta);
     let value = value.trim();
     if field.as_deref().unwrap_or_default() != value {
-        *field = Some(value.to_string());
+        *field = (!value.is_empty()).then(|| value.to_string());
         *changed = Some(Times::now());
     }
 }
@@ -1789,6 +1790,9 @@ mod tests {
         let before = db.clone();
         set_setting(&mut db, Setting::Name, "Home");
         assert_eq!(db, before);
+        // Emptied: none, as the file reads it back.
+        set_setting(&mut db, Setting::Name, " ");
+        assert_eq!(db.meta.database_name, None);
     }
 
     /// An entry edited `versions` times, each old version holding `notes`.
