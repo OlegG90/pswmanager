@@ -1966,6 +1966,16 @@ pub mod tests {
     }
 
     #[test]
+    fn a_setting_can_be_emptied() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        vault.set_setting(edit::Setting::Description, "Test").unwrap();
+        vault.set_setting(edit::Setting::Description, "").unwrap();
+        assert_eq!(Vault::open(&path, Some("test"), None).unwrap().settings().description, "");
+    }
+
+    #[test]
     fn nothing_is_saved_while_the_file_cannot_be_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sic2kdbx.kdbx");
