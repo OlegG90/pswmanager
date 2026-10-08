@@ -6,10 +6,32 @@ use base64::Engine;
 use pswm_core::documents::{self, DocumentStore};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{Manager, Runtime};
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+
+/// A file or folder the app reaches by its path (browsed with All files access,
+/// #207): `file://` and the path as it is, not encoded. Everything else is a
+/// document of the Storage Access Framework.
+pub fn local(uri: &str) -> Option<&Path> {
+    uri.strip_prefix("file://").map(Path::new)
+}
+
+/// [local]'s URI for `path`.
+pub fn path_uri(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+/// A file read by its path failed: said so when All files access is off.
+fn path_error(path: &Path, e: std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::PermissionDenied {
+        format!("All files access is off: turn it on again for PswManager to reach {}", path.display())
+    } else {
+        format!("Cannot reach {}: {e}", path.display())
+    }
+}
 
 /// The plugin, kept in the app's state and installed as the core's document store.
 pub struct Documents<R: Runtime>(PluginHandle<R>);
@@ -133,6 +155,10 @@ impl<R: Runtime> Documents<R> {
 
     /// The names of the files in a picked folder.
     pub fn files(&self, folder: &str) -> Result<Vec<String>, String> {
+        if let Some(dir) = local(folder) {
+            let entries = std::fs::read_dir(dir).map_err(|e| path_error(dir, e))?;
+            return Ok(entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_file())).map(|e| e.file_name().to_string_lossy().into_owned()).collect());
+        }
         #[derive(Serialize)]
         struct Args<'a> {
             folder: &'a str,
@@ -151,23 +177,44 @@ impl<R: Runtime> Documents<R> {
 
     /// The document named `name` in a picked folder, made when it is not there.
     pub fn child(&self, folder: &str, name: &str) -> Result<String, String> {
+        if let Some(dir) = local(folder) {
+            let path = dir.join(name);
+            if !path.exists() {
+                std::fs::File::create(&path).map_err(|e| path_error(&path, e))?;
+            }
+            return Ok(path_uri(&path));
+        }
         let answer: ChildAnswer = self.call("child", ChildArgs { folder, name, create: true })?;
         answer.uri.ok_or_else(|| format!("Cannot make {name} in the folder"))
     }
 
     /// The document named `name` in a picked folder, if it is there.
     pub fn find(&self, folder: &str, name: &str) -> Result<Option<String>, String> {
+        if let Some(dir) = local(folder) {
+            let path = dir.join(name);
+            return Ok(path.exists().then(|| path_uri(&path)));
+        }
         Ok(self.call::<ChildAnswer>("child", ChildArgs { folder, name, create: false })?.uri)
     }
 }
 
 impl<R: Runtime> DocumentStore for Documents<R> {
     fn read(&self, uri: &str) -> Result<Option<Vec<u8>>, String> {
+        if let Some(path) = local(uri) {
+            return match std::fs::read(path) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(path_error(path, e)),
+            };
+        }
         let content: Content = self.call("read", UriArgs { uri })?;
         content.data.map(|data| B64.decode(data).map_err(|e| e.to_string())).transpose()
     }
 
     fn write(&self, uri: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(path) = local(uri) {
+            return std::fs::write(path, bytes).map_err(|e| path_error(path, e));
+        }
         self.call::<serde_json::Value>("write", WriteArgs { uri, data: B64.encode(bytes) }).map(|_| ())
     }
 }

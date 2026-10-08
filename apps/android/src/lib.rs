@@ -20,7 +20,7 @@ mod database;
 #[cfg(mobile)]
 mod editing;
 #[cfg(mobile)]
-mod key_file;
+mod phone_files;
 #[cfg(mobile)]
 mod icons;
 #[cfg(mobile)]

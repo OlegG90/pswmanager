@@ -180,6 +180,13 @@ export const api = {
   /** A folder of the phone's storage (null: its top), with All files access on. */
   browse: (path: string | null) => invoke<{ path: string; up: string | null; folders: string[]; files: string[] }>('browse', { path }),
   keyFileAt: (folder: string, name: string) => invoke<Picked>('key_file_at', { folder, name }),
+  /** A browsed file, staged to attach. */
+  attachFileAt: (folder: string, name: string) => invoke<StagedFile>('attach_file_at', { folder, name }),
+  /** Saves an attachment as `fileName` in a browsed folder, never over a file there. */
+  saveAttachmentAt: (id: string, name: string, version: number | null, folder: string, fileName: string) =>
+    invoke<void>('save_attachment_at', { id, name, version, folder, fileName }),
+  /** A browsed folder, kept as a picked one is. */
+  folderAt: (path: string) => invoke<Picked>('folder_at', { path }),
   /** The database `name` in a browsed folder, synced with it there by its path. */
   openDatabaseAt: (folder: string, name: string) => invoke<Status>('open_database_at', { folder, name }),
   createKeyFileAt: (folder: string, name: string) => invoke<Picked>('create_key_file_at', { folder, name }),

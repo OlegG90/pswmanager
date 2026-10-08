@@ -34,6 +34,7 @@ object DocumentIo {
 
   @JvmStatic
   fun write(context: Context, uri: String, bytes: ByteArray) {
+    pathOf(uri)?.let { return it.writeBytes(bytes) }
     // "wt": truncate, so a shorter file leaves nothing of the longer one behind.
     context.contentResolver.openOutputStream(Uri.parse(uri), "wt")?.use { it.write(bytes); it.flush() }
       ?: throw Exception("Cannot write the file")

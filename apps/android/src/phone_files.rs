@@ -1,12 +1,15 @@
-//! Key files chosen or made through a folder (#207). Android's pickers hide
-//! some folders (for any app; one named Data is refused): so the user picks a
-//! folder with Android's folder picker and the app lists its files, or, with
-//! All files access turned on, browses the phone's files here. The key file
-//! stays where it is; what is kept is the document (or, browsed, the file's
-//! path as a `file://` URI), read at each unlock.
+//! Files and folders on the phone (#207). Android's pickers hide some folders
+//! from every app (one named Data is refused). So, with All files access
+//! turned on, the phone's folders are browsed here, for every file the app
+//! opens or writes: a key file (chosen, or made), a database, a folder for a
+//! new database or the visible copy, a file to attach, an attachment saved.
+//! What is kept is then the path, as a `file://` URI ([crate::documents::local]),
+//! which the document layer reads and writes as it does a picked document.
+//! Without the access, Android's pickers are used as before; a key file can
+//! also be chosen in a folder picked with Android's folder picker.
 
 use crate::app::{self, off_main, Status};
-use crate::documents::{Documents, Picked};
+use crate::documents::{path_uri, Documents, Picked};
 use pswm_core::documents::DocumentStore;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
@@ -123,11 +126,6 @@ fn file_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-/// A file the app reads by its path: `file://` and the path as it is (not
-/// encoded; `DocumentIo` reads it so).
-fn path_uri(path: &Path) -> String {
-    format!("file://{}", path.display())
-}
 
 /// The folders and files in `path` (none: the storage's top), with All files
 /// access on; hidden ones (a leading dot) are left out.
@@ -197,6 +195,48 @@ pub async fn create_key_file_at(folder: String, name: String) -> Result<Picked, 
         }
         vault::create_key_file(&path)?;
         Ok(Picked { uri: path_uri(&path), name })
+    })
+    .await
+}
+
+/// The file `name` in a browsed folder, staged to attach (up to 20 MB).
+#[tauri::command]
+pub async fn attach_file_at(app: AppHandle, folder: String, name: String) -> Result<pswm_core::staged::StagedFile, String> {
+    off_main(move || {
+        let name = file_name(&name)?;
+        let path = within_storage(Some(&folder))?.join(&name);
+        let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read {name}: {e}"))?.len();
+        pswm_core::edit::check_size(size)?;
+        let content = std::fs::read(&path).map_err(|e| format!("Cannot read {name}: {e}"))?;
+        app.state::<Session>().staged().add(name, zeroize::Zeroizing::new(content))
+    })
+    .await
+}
+
+/// Saves an attachment (of an older version with `version`) as `file_name` in
+/// a browsed folder, never over a file already there.
+#[tauri::command]
+pub async fn save_attachment_at(app: AppHandle, id: String, name: String, version: Option<usize>, folder: String, file_name: String) -> Result<(), String> {
+    let data = app.state::<Session>().with(|v| v.attachment(&id, version, &name))?;
+    off_main(move || {
+        let file_name = self::file_name(&file_name)?;
+        let path = within_storage(Some(&folder))?.join(&file_name);
+        if path.exists() {
+            return Err(format!("{file_name} is already there: choose another name"));
+        }
+        std::fs::write(&path, &*data).map_err(|e| format!("Cannot save {file_name}: {e}"))
+    })
+    .await
+}
+
+/// A browsed folder, as the folders Android's folder picker gives are kept
+/// (for a new database, the visible copy).
+#[tauri::command]
+pub async fn folder_at(path: String) -> Result<Picked, String> {
+    off_main(move || {
+        let folder = within_storage(Some(&path))?;
+        let name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Phone".into());
+        Ok(Picked { uri: path_uri(&folder), name })
     })
     .await
 }

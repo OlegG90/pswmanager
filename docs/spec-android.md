@@ -67,6 +67,18 @@ as a **visible file** the user can see and back up:
 - A file of the same name already in the folder at first run is kept as `<name>.kdbx.bak` before it is
   replaced, and the screen says so first.
 
+### Files and folders on the phone
+
+Android's pickers (files and folders) refuse some folders for every app — one named *Data*, say, whose
+files they hide and which they will not let be used. So, as an option, the user can turn on **All files
+access** for PswManager (Android's own setting, offered from the app the first time something is to be
+chosen; never needed otherwise). With it on, every place the app opens or writes something on the phone
+browses the phone's folders in the app instead: a key file (chosen or made), a database to open, the folder
+for a new database or for the visible copy, a file to attach, an attachment saved. What was chosen is then
+kept by its path and read and written as a picked document is. Without it, Android's pickers work as
+before. This is possible because the APK this project builds is not on Google Play, whose policy keeps
+that permission from password managers.
+
 ### A local file
 
 **Open a local file** picks an existing `.kdbx` anywhere Android's file picker reaches (the phone, an SD
