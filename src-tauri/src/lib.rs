@@ -646,7 +646,8 @@ fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password
     let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
     let (database, key_file, synced) = (current.file, current.key_file, current.remote.is_some());
     let password = (!password.is_empty()).then_some(password.as_str());
-    let vault = Vault::open(&database, password, key_file.as_deref())?;
+    // Another device may have moved a synced database to a new key meanwhile (#203).
+    let vault = Vault::open_current(&store, &database, vault::key(password, key_file.as_deref())?)?;
     let listing = vault.listing();
     fetch_icons(&app, &listing);
     show_database(&app, &listing.database);

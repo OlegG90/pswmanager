@@ -230,6 +230,20 @@ impl Vault {
         Self::open_with_key(path, key(password, key_file)?)
     }
 
+    /// [Vault::open_with_key] for the current database in `store`: when its
+    /// copy here does not open with `key` and it is synced, the key is tried
+    /// on the remote file, which another device may have moved to a new key
+    /// while this one was locked (#203; [crate::sync::take_remote_with_key]).
+    pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+        match Self::open_with_key(path, key.clone()) {
+            Err(e) if e == crate::dbfile::WRONG_KEY => match crate::sync::take_remote_with_key(store, path, &key)? {
+                crate::sync::RemoteKey::Taken => Self::open_with_key(path, key),
+                crate::sync::RemoteKey::NotThere => Err(e),
+            },
+            opened => opened,
+        }
+    }
+
     /// [Vault::open] with the key already made ([key_reading]).
     pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, String> {
         let (db, file) = DbFile::open(path, key)?;
