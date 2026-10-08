@@ -317,12 +317,19 @@ pub enum RemoteKey {
 /// locked. When it does and nothing here waits to go up, the remote file
 /// becomes the working copy, so unlocking can go on with `key`. A change
 /// waiting here is read only with the old key, so then it says to unlock
-/// with that first; and when the remote file cannot be reached, it says so.
-pub fn take_remote_with_key(store: &Store, key: &keepass::DatabaseKey) -> Result<RemoteKey, String> {
-    let Some((working, state)) = synced(store) else { return Ok(RemoteKey::NotThere) };
-    let (bytes, revision) = state.location.open().download().map_err(|e| {
-        format!("{}; the remote file, which another device may have moved to a new key, could not be reached ({})", crate::dbfile::WRONG_KEY, e.message())
-    })?;
+/// with that first. A remote file that cannot be reached, or has not changed
+/// since the last sync (so no new key either), is not there for it: the key
+/// stays a wrong one, so a mistyped password costs no download.
+pub fn take_remote_with_key(store: &Store, working: &Path, key: &keepass::DatabaseKey) -> Result<RemoteKey, String> {
+    let Some((current, state)) = synced(store) else { return Ok(RemoteKey::NotThere) };
+    if current != working {
+        return Ok(RemoteKey::NotThere);
+    }
+    let remote = state.location.open();
+    if remote.revision().ok() == Some(state.revision.clone()) {
+        return Ok(RemoteKey::NotThere);
+    }
+    let Ok((bytes, revision)) = remote.download() else { return Ok(RemoteKey::NotThere) };
     if keepass::Database::parse(&bytes, key.clone()).is_err() {
         return Ok(RemoteKey::NotThere);
     }

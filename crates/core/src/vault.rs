@@ -236,7 +236,7 @@ impl Vault {
     /// while this one was locked (#203; [crate::sync::take_remote_with_key]).
     pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, String> {
         match Self::open_with_key(path, key.clone()) {
-            Err(e) if e == crate::dbfile::WRONG_KEY => match crate::sync::take_remote_with_key(store, &key)? {
+            Err(e) if e == crate::dbfile::WRONG_KEY => match crate::sync::take_remote_with_key(store, path, &key)? {
                 crate::sync::RemoteKey::Taken => Self::open_with_key(path, key),
                 crate::sync::RemoteKey::NotThere => Err(e),
             },
