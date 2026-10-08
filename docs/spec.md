@@ -126,7 +126,12 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   silently. A working copy another program replaced with a file that no longer opens asks for its key the
   same way. It is asked in a dialog once per unlock (*Not now* leaves an *Enter key…* button beside the
   sync status); a key given is kept in memory only, and when the database takes it, the list takes its key
-  file. A copy on an older key (it came back from before the change) is never taken byte for byte: it is
+  file. **Locked meanwhile** (#203): when the key another device moved a synced database to does not
+  open the copy here, unlocking tries it on the remote file. When that opens and nothing here waits to go
+  up, the remote file becomes the working copy (the old one kept as `.bak`) and the database unlocks with
+  the new key; a change here not sent yet opens only with the old key, so the app says to unlock with that
+  first (the new key is then asked for, as above); an unreachable remote file is said too. A wrong key
+  stays a wrong key. On the phone, the same. A copy on an older key (it came back from before the change) is never taken byte for byte: it is
   merged like an older file coming back, takes this device's key time and the encryption that goes with the
   key, and is written again with this device's key (a remote one kept as `.remote.bak` first).
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,

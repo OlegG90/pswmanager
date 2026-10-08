@@ -301,6 +301,47 @@ pub fn keep_as_local(store: &Store, working: &Path) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+/// What [take_remote_with_key] found.
+#[derive(Debug, PartialEq)]
+pub enum RemoteKey {
+    /// The remote file opens with the key and is now the working copy (the
+    /// one it replaced kept as `.bak`).
+    Taken,
+    /// The database is not synced, or its remote file does not open with the
+    /// key either.
+    NotThere,
+}
+
+/// After this device's copy did not open with `key` (#203): whether the
+/// remote file does — another device changed the key while this one was
+/// locked. When it does and nothing here waits to go up, the remote file
+/// becomes the working copy, so unlocking can go on with `key`. A change
+/// waiting here is read only with the old key, so then it says to unlock
+/// with that first; and when the remote file cannot be reached, it says so.
+pub fn take_remote_with_key(store: &Store, key: &keepass::DatabaseKey) -> Result<RemoteKey, String> {
+    let Some((working, state)) = synced(store) else { return Ok(RemoteKey::NotThere) };
+    let (bytes, revision) = state.location.open().download().map_err(|e| {
+        format!("{}; the remote file, which another device may have moved to a new key, could not be reached ({})", crate::dbfile::WRONG_KEY, e.message())
+    })?;
+    if keepass::Database::parse(&bytes, key.clone()).is_err() {
+        return Ok(RemoteKey::NotThere);
+    }
+    if store.read(|s| s.current().is_some_and(is_pending)) {
+        return Err("This key opens the remote file, but this device has changes not sent yet, which only the old master password or key file opens: unlock with that first, and the new key is asked for then".into());
+    }
+    fs::copy(&working, sibling(&working, BAK)).map_err(|e| format!("Cannot keep this device's copy: {e}"))?;
+    store::write_atomically(&working, &bytes).map_err(|e| format!("Cannot write the working copy: {e}"))?;
+    update(store, &working, |r| {
+        r.revision = Some(revision);
+        r.synced = Some(hash_hex(&bytes));
+    })
+    .map_err(|e| match e {
+        SyncError::Failed(message) => message,
+        other => format!("{other:?}"),
+    })?;
+    Ok(RemoteKey::Taken)
+}
+
 /// Downloads the working copy again when it is missing (deleted, or a new PC
 /// with a copied state file), so unlocking has a file to open.
 pub fn ensure_working_copy(store: &Store) -> Result<(), String> {
@@ -766,5 +807,36 @@ mod tests {
         fs::remove_file(&working).unwrap();
         ensure_working_copy(&s.store).unwrap();
         assert_eq!(fs::read(working).unwrap(), fs::read(&s.remote.path).unwrap());
+    }
+
+    #[test]
+    fn a_new_key_from_another_device_unlocks_a_locked_one() {
+        let s = setup();
+        s.session.set(None); // locked here
+        let new = || DatabaseKey::new().with_password("new");
+        s.elsewhere_keyed(key(), new(), |_| {});
+        let working = s.store.read(|st| st.current.clone()).unwrap();
+        // This copy is still on the old key; the remote file opens with the new one.
+        assert!(Vault::open_with_key(&working, new()).is_err());
+        let vault = Vault::open_current(&s.store, &working, new()).unwrap();
+        assert!(vault.uses_key(&new()).unwrap());
+        assert!(crate::dbfile::sibling(&working, crate::dbfile::BAK).exists(), "the copy it replaced is kept");
+        assert!(!has_pending(&s.store), "in step with the remote file");
+        // A wrong one stays wrong.
+        assert_eq!(Vault::open_current(&s.store, &working, DatabaseKey::new().with_password("other")).err().unwrap(), crate::dbfile::WRONG_KEY);
+    }
+
+    #[test]
+    fn a_new_key_waits_while_changes_here_are_not_sent() {
+        let s = setup();
+        s.edit_here("Mail", "changed here"); // saved here, not sent yet
+        s.session.set(None);
+        let new = || DatabaseKey::new().with_password("new");
+        s.elsewhere_keyed(key(), new(), |_| {});
+        let working = s.store.read(|st| st.current.clone()).unwrap();
+        let refused = Vault::open_current(&s.store, &working, new()).err().unwrap();
+        assert!(refused.contains("unlock with that first"), "{refused}");
+        // The old key still opens this copy, with its change.
+        assert!(Vault::open_current(&s.store, &working, key()).is_ok());
     }
 }

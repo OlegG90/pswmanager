@@ -373,7 +373,8 @@ pub(crate) fn open_vault(store: &Store, password: Option<&str>, key_file: Option
     let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     let mut key_file = key_file;
     let key = vault::key_reading(password, key_file.as_mut().map(|k| k as &mut dyn std::io::Read))?;
-    let vault = Vault::open_with_key(&file, key)?;
+    // Another device may have moved a synced database to a new key meanwhile (#203).
+    let vault = Vault::open_current(store, &file, key)?;
     let listing = vault.listing();
     // Only for the unlock screen next time: not worth failing the unlock over.
     let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&listing.database.name, &listing.database.description)));
