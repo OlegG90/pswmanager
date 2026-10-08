@@ -138,7 +138,14 @@ As in the mockups `1e`–`1j`.
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
-- **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
+- **Swipes on the list** (#194): a swipe to the right brings the drawer in from the left, a swipe to the
+  left the settings in from the right, in step with the finger; let go past a third of the way (or
+  flicked) it opens, otherwise it goes back. The other way takes it away again: a swipe to the left closes
+  the drawer, a swipe to the right on the settings goes back to the list, in step with the finger too. Only a clearly sideways swipe counts (scrolling and
+  pull-to-sync stay as they are), none while entries are chosen, and one that starts at the screen's edge
+  stays Android's Back gesture. *Swipes on the list* in *Settings → Appearance* turns them off (on by
+  default). The drawer slides in from ☰ too.
+- **Drawer** (☰ or a swipe to the right on the list): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
   mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
   does not count) and the tags (as `#work`) with their counts; *Import from another app…*, *Settings* and
@@ -199,7 +206,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 | Tab | Settings |
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
-| Appearance | theme; download site icons |
+| Appearance | theme; download site icons; swipes on the list (#194) |
 | Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The master password and key file are not changed here yet |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
