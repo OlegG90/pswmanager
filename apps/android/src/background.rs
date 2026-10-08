@@ -60,7 +60,7 @@ pub(crate) fn native<'local, T>(env: &mut EnvUnowned<'local>, fallback: T, work:
 
 /// A Java string as Rust's.
 pub(crate) fn text(env: &Env, value: &JString) -> Result<String, String> {
-    Ok(env.get_string(value).map_err(|e| e.to_string())?.to_string())
+    value.try_to_string(env).map_err(|e| e.to_string())
 }
 
 /// Whether the upload is settled ([sync::settled]): WorkManager tries again
@@ -176,7 +176,7 @@ impl SecretStore for Secrets {
                     return Ok(None);
                 }
                 let value = env.cast_local::<JString>(value)?;
-                Ok(Some(Zeroizing::new(env.get_string(&value)?.to_string())))
+                Ok(Some(Zeroizing::new(value.try_to_string(env)?)))
             })
             .ok()
             .flatten()
