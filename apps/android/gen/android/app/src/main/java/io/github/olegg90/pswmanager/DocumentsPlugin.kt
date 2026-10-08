@@ -85,9 +85,11 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   fun pickFile(invoke: Invoke) {
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
       .addCategory(Intent.CATEGORY_OPENABLE)
-      // A .kdbx has no MIME type Android knows.
+      // A .kdbx or a key file has no MIME type Android knows.
       .setType("*/*")
-      .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentsFolder)
+      // No starting place: pointed at Documents, some phones open the
+      // "Documents" category (files by type), where neither is listed. The
+      // picker starts where it was last instead, as the save picker does.
       .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     startActivityForResult(invoke, intent, "picked")
   }
