@@ -117,15 +117,17 @@ impl<R: Runtime> Documents<R> {
         Ok(self.call::<PickAnswer>("pickToSave", Args { name })?.uri)
     }
 
-    /// A new document the user names with Android's save picker (`name`
-    /// suggested), its access kept; `None` when they cancelled.
-    pub fn pick_to_create(&self, name: &str) -> Result<Option<Picked>, String> {
+    /// The names of the files in a picked folder.
+    pub fn files(&self, folder: &str) -> Result<Vec<String>, String> {
         #[derive(Serialize)]
         struct Args<'a> {
-            name: &'a str,
+            folder: &'a str,
         }
-        let answer: PickAnswer = self.call("pickToCreate", Args { name })?;
-        Ok(answer.uri.map(|uri| Picked { uri, name: answer.name }))
+        #[derive(Deserialize)]
+        struct Names {
+            names: Vec<String>,
+        }
+        Ok(self.call::<Names>("files", Args { folder })?.names)
     }
 
     /// A folder the user picks; `None` when they cancelled.

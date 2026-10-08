@@ -168,7 +168,13 @@ export const api = {
   pickFolder: () => invoke<Picked | null>('pick_folder'),
   setCopyFolder: (folder: Picked) => invoke<Status>('set_copy_folder', { folder }),
   syncIfPending: () => invoke<void>('sync_if_pending'),
-  pickKeyFile: () => invoke<Status>('pick_key_file'),
+  /** The database is unlocked with this key file from now on. */
+  useKeyFile: (keyFile: Picked) => invoke<Status>('use_key_file', { keyFile }),
+  /** A folder for a key file (Android's folder picker) and its files; null when cancelled (#207). */
+  pickKeyFolder: () => invoke<{ folder: Picked; files: string[] } | null>('pick_key_folder'),
+  keyFileIn: (folder: string, name: string) => invoke<Picked>('key_file_in', { folder, name }),
+  /** Makes a new key file in a picked folder, never over a file already there. */
+  createKeyFileIn: (folder: string, name: string) => invoke<Picked>('create_key_file_in', { folder, name }),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
@@ -184,10 +190,6 @@ export const api = {
   /** Milliseconds an unlock takes on this phone with this encryption. */
   encryptionUnlockTime: (encryption: Encryption) => invoke<number>('encryption_unlock_time', { encryption }),
   setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
-  /** A key file for a key change; null when cancelled. */
-  pickNewKeyFile: () => invoke<Picked | null>('pick_new_key_file'),
-  /** Makes a new key file where the user chooses; null when cancelled. */
-  createKeyFile: () => invoke<Picked | null>('create_key_file'),
   /** After `current` proves right: an empty `password` means none. */
   changeMasterKey: (current: string, password: string, keyFile: NewKeyFile) => invoke<Status>('change_master_key', { current, password, keyFile }),
   /** The key another device changed the database to; the remote file is synced with it. */

@@ -14,6 +14,7 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
@@ -40,6 +41,12 @@ class OpenArgs {
 class SaveArgs {
   /** The name the save picker suggests. */
   lateinit var name: String
+}
+
+@InvokeArg
+class FolderArgs {
+  /** A folder the user picked ([DocumentsPlugin.pickFolder]). */
+  lateinit var folder: String
 }
 
 @InvokeArg
@@ -142,17 +149,19 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
   }
 
-  /** A new document named by the user in Android's save picker, its access kept
-   *  (a new key file, read at each unlock). */
+  /** The names of the files (not folders) in a picked folder. */
   @Command
-  fun pickToCreate(invoke: Invoke) {
-    val name = invoke.parseArgs(SaveArgs::class.java).name
-    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-      .addCategory(Intent.CATEGORY_OPENABLE)
-      .setType("application/octet-stream")
-      .putExtra(Intent.EXTRA_TITLE, name)
-      .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-    startActivityForResult(invoke, intent, "picked")
+  fun files(invoke: Invoke) = background(invoke) {
+    val folder = Uri.parse(invoke.parseArgs(FolderArgs::class.java).folder)
+    val children = DocumentsContract.buildChildDocumentsUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
+    val columns = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+    val names = JSArray()
+    resolver.query(children, columns, null, null, null)?.use { cursor ->
+      while (cursor.moveToNext()) {
+        if (cursor.getString(1) != DocumentsContract.Document.MIME_TYPE_DIR) names.put(cursor.getString(0))
+      }
+    }
+    JSObject().put("names", names)
   }
 
   /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */

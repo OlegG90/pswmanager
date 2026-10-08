@@ -364,7 +364,8 @@ function unlockScreen() {
   }
   const keyLine = current.keyFile
     ? el('p', { className: 'muted' }, `Key file: ${current.keyFile} `, button('Remove', 'Unlock without a key file', () => void api.clearKeyFile().then(showAgain, error.show), 'link'))
-    : button('Use a key file…', 'For a database set up with one: a .keyx or .key file kept apart from it', () => void api.pickKeyFile().then(showAgain, error.show), 'link')
+    : button('Use a key file…', 'For a database set up with one: a .keyx or .key file kept apart from it', () =>
+      keyFileFromFolder((picked) => void api.useKeyFile(picked).then(showAgain, error.show), error.show), 'link')
   show([
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
@@ -1085,8 +1086,44 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
   ]
 }
 
+/** A key file chosen through a folder (#207): Android's file picker lists
+ *  nothing in some folders, its folder picker offers them. The folder is
+ *  picked, then one of its files here. */
+function keyFileFromFolder(picked: (keyFile: Picked) => void, fail: (message: string) => void) {
+  void api.pickKeyFolder().then((found) => {
+    if (!found) return
+    sheet((close) => [
+      el('b', {}, `Key file in ${found.folder.name}`),
+      ...(found.files.length
+        ? found.files.map((name) => button(name, `Use ${name}`, () => {
+          close()
+          void api.keyFileIn(found.folder.uri, name).then(picked, (e) => fail(String(e)))
+        }, 'item'))
+        : [el('p', { className: 'muted' }, 'There are no files in this folder.')]),
+      button('Cancel', 'Cancel', close, 'link'),
+    ])
+  }, (e) => fail(String(e)))
+}
+
+/** A new key file made in a folder the user picks, as [keyFileFromFolder]
+ *  chooses one: its name offered, never over a file already there. */
+function newKeyFileInFolder(made: (keyFile: Picked) => void, fail: (message: string) => void) {
+  void api.pickKeyFolder().then((found) => {
+    if (!found) return
+    sheet((close) => {
+      const name = input('PswManager.keyx', { className: 'field', ariaLabel: 'Name' })
+      const create = button('Make it', 'Make the key file in this folder', () => {
+        close()
+        void api.createKeyFileIn(found.folder.uri, name.value).then(made, (e) => fail(String(e)))
+      }, 'primary')
+      enterPresses(create, name)
+      return [el('b', {}, `New key file in ${found.folder.name}`), name, create, button('Cancel', 'Cancel', close, 'link')]
+    })
+  }, (e) => fail(String(e)))
+}
+
 /** The key file a key is to have: the one the database has, another one
- *  picked with Android's picker, or none. */
+ *  chosen or made in a folder, or none. */
 function keyFileChooser(fail: (message: string) => void, offerNew = false) {
   // As the phone keeps it now (the status read when the screen opened).
   const now = database?.keyFile ?? null
@@ -1098,15 +1135,14 @@ function keyFileChooser(fail: (message: string) => void, offerNew = false) {
     shown.textContent = name() ? `Key file: ${name()}` : 'No key file'
     none.hidden = !name()
   }
-  const take = (pick: () => Promise<Picked | null>) => async () => {
-    const picked = await pick()
-    if (picked) chosen = { kind: 'picked', ...picked }
+  const take = (picked: Picked) => {
+    chosen = { kind: 'picked', ...picked }
     refresh()
   }
-  const pick = busyButton('Choose a key file…', 'A key file picked with Android’s picker', take(api.pickNewKeyFile), fail, 'wide')
+  const pick = button('Choose a key file…', 'A folder, then the key file in it', () => keyFileFromFolder(take, fail), 'wide')
   refresh()
   // As Windows' New…: a key file the app makes, kept apart from the database.
-  const make = busyButton('New key file…', 'Make a new key file where you choose; keep it apart from the database', take(api.createKeyFile), fail, 'wide')
+  const make = button('New key file…', 'A folder, then a new key file made in it; keep it apart from the database', () => newKeyFileInFolder(take, fail), 'wide')
   return { nodes: [shown, pick, ...(offerNew ? [make] : []), none], value: () => chosen, name }
 }
 
