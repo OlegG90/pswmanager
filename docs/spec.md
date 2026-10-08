@@ -213,8 +213,10 @@ KeePassXC and Keepass2Android keep too, so their changes show here as well), up 
 (`HistoryMaxItems`, 10 when the database does not say, and `HistoryMaxSize`; see *Database settings*).
 Tags are the exception (#181): adding, removing or renaming a tag, the Favorite star included, changes
 the entry without a new version, whether in the editor, for several entries or from the sidebar; the
-entry is still the newer one for a merge. An edit that changes anything else keeps the previous version
-as usual, its tags included.
+entry is still the newer one for a merge, and a merge files no version that differs only in its tags. An
+edit that changes anything else keeps the previous version as usual, its tags included. So when another
+device edits the same entry later, the newer edit wins whole: a tag change made here before it is not
+kept, not even in history.
 
 - **History (N)** in the entry view lists the older versions, newest first: when each was saved and what
   changed from it to the next newer version — the names of the fields (title, user name, password, URL,
