@@ -117,6 +117,20 @@ impl<R: Runtime> Documents<R> {
         Ok(self.call::<PickAnswer>("pickToSave", Args { name })?.uri)
     }
 
+    /// Whether the app may read any file on the phone's storage (All files access).
+    pub fn all_files_access(&self) -> Result<bool, String> {
+        #[derive(Deserialize)]
+        struct Granted {
+            granted: bool,
+        }
+        Ok(self.call::<Granted>("allFilesAccess", ())?.granted)
+    }
+
+    /// Opens Android's page that turns All files access on for this app.
+    pub fn ask_all_files_access(&self) -> Result<(), String> {
+        self.call::<serde_json::Value>("askAllFilesAccess", ()).map(|_| ())
+    }
+
     /// The names of the files in a picked folder.
     pub fn files(&self, folder: &str) -> Result<Vec<String>, String> {
         #[derive(Serialize)]

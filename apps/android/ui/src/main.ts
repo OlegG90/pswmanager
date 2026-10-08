@@ -365,7 +365,7 @@ function unlockScreen() {
   const keyLine = current.keyFile
     ? el('p', { className: 'muted' }, `Key file: ${current.keyFile} `, button('Remove', 'Unlock without a key file', () => void api.clearKeyFile().then(showAgain, error.show), 'link'))
     : button('Use a key file…', 'For a database set up with one: a .keyx or .key file kept apart from it', () =>
-      keyFileFromFolder((picked) => void api.useKeyFile(picked).then(showAgain, error.show), error.show), 'link')
+      chooseKeyFile(false, (picked) => void api.useKeyFile(picked).then(showAgain, error.show), error.show), 'link')
   show([
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
@@ -1086,6 +1086,49 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
   ]
 }
 
+/** A key file to choose (`make`: a new one to make): browsed here when All
+ *  files access is on; otherwise through Android's folder picker, or the
+ *  user turns the access on (#207). */
+function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
+  void api.allFilesAccess().then((granted) => {
+    if (granted) return browseForKeyFile(make, done, fail)
+    sheet((close) => [
+      el('b', {}, make ? 'Where the new key file goes' : 'Where the key file is'),
+      el('p', { className: 'muted' }, 'Android’s folder picker refuses some folders (one named Data, say). To reach those, turn on access to all files for PswManager, then choose again: it reads only the key file you choose.'),
+      button('Android’s folder picker', 'Choose the folder with Android’s picker', () => {
+        close()
+        if (make) newKeyFileInFolder(done, fail)
+        else keyFileFromFolder(done, fail)
+      }, 'item'),
+      button('Allow access to all files…', 'Android’s setting for PswManager; come back and choose again', () => (close(), void api.askAllFilesAccess().catch((e) => fail(String(e)))), 'item'),
+    ])
+  }, (e) => fail(String(e)))
+}
+
+/** The phone's files, folder by folder, in a sheet (All files access on):
+ *  a key file is picked, or (`make`) a new one is made in the folder shown. */
+function browseForKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
+  sheet((close) => {
+    const where = el('b', {})
+    const items = el('div', { className: 'browser' })
+    const name = input('PswManager.keyx', { className: 'field', ariaLabel: 'Name' })
+    const finish = (made: Promise<Picked>) => void made.then((picked) => (close(), done(picked)), (e) => fail(String(e)))
+    let shown = ''
+    const create = button('Make it here', 'Make the key file in this folder', () => finish(api.createKeyFileAt(shown, name.value)), 'primary')
+    const open = (path: string | null) => void api.browse(path).then((folder) => {
+      shown = folder.path
+      where.textContent = folder.path.replace(/^\/storage\/emulated\/0/, 'Phone')
+      items.replaceChildren(
+        ...(folder.up ? [button('↑ Up', 'The folder above', () => open(folder.up), 'item')] : []),
+        ...folder.folders.map((f) => button(`${f}/`, `Open ${f}`, () => open(`${folder.path}/${f}`), 'item')),
+        ...(make ? [] : folder.files.map((f) => button(f, `Use ${f}`, () => finish(api.keyFileAt(folder.path, f)), 'item'))),
+      )
+    }, (e) => fail(String(e)))
+    open(null)
+    return [where, items, ...(make ? [name, create] : []), button('Cancel', 'Cancel', close, 'link')]
+  })
+}
+
 /** A key file chosen through a folder (#207): Android's file picker lists
  *  nothing in some folders, its folder picker offers them. The folder is
  *  picked, then one of its files here. */
@@ -1139,10 +1182,10 @@ function keyFileChooser(fail: (message: string) => void, offerNew = false) {
     chosen = { kind: 'picked', ...picked }
     refresh()
   }
-  const pick = button('Choose a key file…', 'A folder, then the key file in it', () => keyFileFromFolder(take, fail), 'wide')
+  const pick = button('Choose a key file…', 'A folder, then the key file in it', () => chooseKeyFile(false, take, fail), 'wide')
   refresh()
   // As Windows' New…: a key file the app makes, kept apart from the database.
-  const make = button('New key file…', 'A folder, then a new key file made in it; keep it apart from the database', () => newKeyFileInFolder(take, fail), 'wide')
+  const make = button('New key file…', 'A folder, then a new key file made in it; keep it apart from the database', () => chooseKeyFile(true, take, fail), 'wide')
   return { nodes: [shown, pick, ...(offerNew ? [make] : []), none], value: () => chosen, name }
 }
 

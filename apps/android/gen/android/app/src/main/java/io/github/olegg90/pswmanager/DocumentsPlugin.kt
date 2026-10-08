@@ -3,6 +3,8 @@ package io.github.olegg90.pswmanager
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.Settings
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -147,6 +149,23 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   fun pickedToSave(invoke: Invoke, result: ActivityResult) {
     val uri = result.data?.data
     invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
+  }
+
+  /** Whether the app may read any file on the phone's storage (All files access). */
+  @Command
+  fun allFilesAccess(invoke: Invoke) {
+    invoke.resolve(JSObject().put("granted", Environment.isExternalStorageManager()))
+  }
+
+  /** Android's page that turns All files access on for this app. */
+  @Command
+  fun askAllFilesAccess(invoke: Invoke) {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${activity.packageName}")))
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject("Cannot open the setting: ${e.message}")
+    }
   }
 
   /** The names of the files (not folders) in a picked folder. */

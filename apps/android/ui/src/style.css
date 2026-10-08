@@ -418,6 +418,14 @@ main.list-screen {
   color: var(--color-accent);
 }
 
+/* Browsing the phone's files for a key file: the folder's items scroll. */
+.sheet .browser {
+  display: flex;
+  flex-direction: column;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
 .sheet .panel {
   position: absolute;
   inset: auto 0 0 0;
