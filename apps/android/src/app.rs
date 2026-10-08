@@ -111,6 +111,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::database::set_encryption,
             crate::database::pick_new_key_file,
             crate::database::change_master_key,
+            crate::database::enter_other_key,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,
@@ -158,6 +159,9 @@ struct Synced {
     sign_in: bool,
     /// The visible copy could not be written, and why.
     copy_problem: Option<String>,
+    /// The remote file opens with a key this phone does not know: another
+    /// device changed it, and the page offers to enter it.
+    other_key: bool,
 }
 
 /// Work that waits: the plugins wait for Android's main thread (so they are
@@ -662,12 +666,17 @@ pub(crate) fn sync_first(app: &AppHandle) -> Result<(), String> {
     if app.state::<Store>().read(|s| s.remote().is_none()) {
         return Ok(());
     }
-    if while_not_syncing(app, || Ok(sync_once(app, &app.state::<Session>())))? {
-        return Ok(());
+    let settled = while_not_syncing(app, || Ok(sync_once(app, &app.state::<Session>())))?;
+    let last = app.state::<LastSync>().0.lock().unwrap().clone();
+    match last {
+        Some(last) if last.other_key => Err(OTHER_KEY.into()),
+        _ if settled => Ok(()),
+        last => Err(format!("The database could not sync first ({})", last.map(|s| s.text).unwrap_or_default())),
     }
-    let last = app.state::<LastSync>().0.lock().unwrap().as_ref().map(|s| s.text.clone()).unwrap_or_default();
-    Err(format!("The database could not sync first ({last}); the key is unchanged"))
 }
+
+/// [sync_first]'s answer when the remote file is on a key this phone does not know.
+pub(crate) const OTHER_KEY: &str = "The remote file has another master password or key file";
 
 /// Syncs in the background and tells the page (`synced`) what happened.
 pub fn start_sync(app: AppHandle) {
@@ -694,9 +703,10 @@ fn sync_once(app: &AppHandle, session: &Session) -> bool {
     let (text, problem) = sync::describe(&store, &result);
     let changed = matches!(&result, Ok(sync::Outcome::Downloaded(c) | sync::Outcome::Merged(c)) if !c.is_empty());
     let sign_in = matches!(result, Err(sync::SyncError::SignIn(_)));
+    let other_key = matches!(result, Err(sync::SyncError::OtherKey));
     let copy_problem = crate::visible::refresh(app);
     let problem = problem || copy_problem.is_some();
-    let synced = Synced { text, problem, changed, sign_in, copy_problem };
+    let synced = Synced { text, problem, changed, sign_in, copy_problem, other_key };
     *app.state::<LastSync>().0.lock().unwrap() = Some(synced.clone());
     // A page that is not listening reads it with `last_sync`.
     let _ = app.emit("synced", synced);

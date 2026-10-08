@@ -81,6 +81,17 @@ pub enum NewKeyFile {
     Picked { uri: String, name: String },
 }
 
+impl NewKeyFile {
+    /// The key file it means, `now` being the one the database has.
+    fn chosen(self, now: Option<Picked>) -> Option<Picked> {
+        match self {
+            NewKeyFile::Keep => now,
+            NewKeyFile::None => None,
+            NewKeyFile::Picked { uri, name } => Some(Picked { uri, name }),
+        }
+    }
+}
+
 /// A key file for the database, picked with Android's picker (its access is
 /// kept); `None` when cancelled. It is used once the key is changed to it.
 #[tauri::command]
@@ -99,26 +110,14 @@ pub async fn change_master_key(app: AppHandle, current: String, password: String
     let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
     off_main(move || {
         let store = app.state::<Store>();
-        let documents = app.state::<Documents<Wry>>();
-        let read = |picked: &Picked| -> Result<Zeroizing<Vec<u8>>, String> {
-            let content = documents.read(&picked.uri)?;
-            content.map(Zeroizing::new).ok_or(format!("Cannot read the key file {}: it is gone", picked.name))
-        };
-        let key = |password: &str, file: Option<&Zeroizing<Vec<u8>>>| {
-            let mut file = file.map(|f| f.as_slice());
-            vault::key_reading(Some(password).filter(|p| !p.is_empty()), file.as_mut().map(|f| f as &mut dyn std::io::Read))
-        };
+        let read = |picked: &Picked| read_key_file(&app, picked);
         let now = app::key_file(&store);
         let now_content = now.as_ref().map(read).transpose()?;
         let current = key(&current, now_content.as_ref())?;
-        let next = match key_file {
-            NewKeyFile::Keep => now,
-            NewKeyFile::None => None,
-            NewKeyFile::Picked { uri, name } => Some(Picked { uri, name }),
-        };
+        let next = key_file.chosen(now);
         let next_content = next.as_ref().map(read).transpose()?;
         let new = if password.is_empty() && next.is_none() { None } else { Some(key(&password, next_content.as_ref())?) };
-        app::sync_first(&app)?;
+        app::sync_first(&app).map_err(|e| format!("{e}; the key is unchanged"))?;
         let session = app.state::<Session>();
         session.with_mut(|v| v.change_key_to(&current, new))?;
         match &next {
@@ -127,6 +126,49 @@ pub async fn change_master_key(app: AppHandle, current: String, password: String
         }
         let _ = app.state::<Biometric<Wry>>().forget();
         app::start_sync(app.clone());
+        Ok(app::status_of(&store, &session))
+    })
+    .await
+}
+
+/// A key file's content, read once.
+fn read_key_file(app: &AppHandle, picked: &Picked) -> Result<Zeroizing<Vec<u8>>, String> {
+    let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
+    content.map(Zeroizing::new).ok_or(format!("Cannot read the key file {}: it is gone", picked.name))
+}
+
+/// The key a typed password (empty: none) and a key file's content make.
+fn key(password: &str, file: Option<&Zeroizing<Vec<u8>>>) -> Result<vault::DatabaseKey, String> {
+    let mut file = file.map(|f| f.as_slice());
+    vault::key_reading(Some(password).filter(|p| !p.is_empty()), file.as_mut().map(|f| f as &mut dyn std::io::Read))
+}
+
+/// The key another device changed the database to, given here: the remote
+/// file is synced with it (it is kept to try only while it opens something).
+/// Once the database is on it, the phone unlocks with that key file, and the
+/// key sealed for fingerprint unlock (the old one) goes.
+#[tauri::command]
+pub async fn enter_other_key(app: AppHandle, password: String, key_file: NewKeyFile) -> Result<Status, String> {
+    let password = Zeroizing::new(password);
+    off_main(move || {
+        let store = app.state::<Store>();
+        let next = key_file.chosen(app::key_file(&store));
+        let content = next.as_ref().map(|p| read_key_file(&app, p)).transpose()?;
+        let given = key(&password, content.as_ref())?;
+        let session = app.state::<Session>();
+        session.with_mut(|v| v.remember_key(given.clone()))?;
+        if let Err(e) = app::sync_first(&app) {
+            // A key that opened nothing is not kept.
+            session.with_mut(|v| v.forget_key(&given))?;
+            return Err(if e == app::OTHER_KEY { "This master password or key file does not open it either".into() } else { e });
+        }
+        if session.read(|v| v.uses_key(&given))?? {
+            match &next {
+                Some(picked) => app::remember_key_file(&store, picked)?,
+                None => app::forget_key_file(&store)?,
+            }
+            let _ = app.state::<Biometric<Wry>>().forget();
+        }
         Ok(app::status_of(&store, &session))
     })
     .await

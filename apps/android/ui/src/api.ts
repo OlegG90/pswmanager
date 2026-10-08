@@ -70,6 +70,8 @@ export interface Synced {
   signIn: boolean
   /** The visible copy could not be written, and why. */
   copyProblem: string | null
+  /** The remote file opens with a key this phone does not know (another device changed it). */
+  otherKey: boolean
 }
 
 /** A folder or file the user picked. */
@@ -186,6 +188,8 @@ export const api = {
   pickNewKeyFile: () => invoke<Picked | null>('pick_new_key_file'),
   /** After `current` proves right: an empty `password` means none. */
   changeMasterKey: (current: string, password: string, keyFile: NewKeyFile) => invoke<Status>('change_master_key', { current, password, keyFile }),
+  /** The key another device changed the database to; the remote file is synced with it. */
+  enterOtherKey: (password: string, keyFile: NewKeyFile) => invoke<Status>('enter_other_key', { password, keyFile }),
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts an entry from the recycle bin back where it was. */

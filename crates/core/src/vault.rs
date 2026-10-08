@@ -7,7 +7,9 @@ use crate::edit::{self, EntryData, Taking, NOT_FOUND};
 use crate::sync::Outcome;
 use crate::{encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
-use keepass::{Database, DatabaseKey};
+use keepass::Database;
+/// A database's key, as [key] and [key_reading] make it.
+pub use keepass::DatabaseKey;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
