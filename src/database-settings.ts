@@ -21,6 +21,9 @@ export function withValue(choices: Choice[], value: number, label: (value: numbe
 export const versionsGoing = (going: number) =>
   `${going === 1 ? '1 older version' : `${going} older versions`} will be removed from the entries' history, in this file and in its synced copies.`
 
+/** Asked before saving an encryption `heavy` says a phone may struggle with. */
+export const HEAVY_QUESTION = 'A phone may be slow to unlock the database with this, or run out of memory. Change anyway?'
+
 const MB = 2 ** 20
 /** Above this, or an unlock slower than SLOW_MS, a phone may struggle. */
 const PHONE_MEMORY = 256 * MB

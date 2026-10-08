@@ -37,7 +37,7 @@ completely is a goal for later stages.
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
 database on the phone), changing the master password or key file (done on Windows or in Keepass2Android
-until #193's second part), backup, the Templates
+for now), backup, the Templates
 group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
 exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
 migration stays with `sic2kdbx.py`.
@@ -414,5 +414,5 @@ Each stage is a GitHub issue and lands in one or more PRs.
   history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
-- **Later:** autofill; several databases and creating one; database settings; backup; Templates;
+- **Later:** autofill; several databases and creating one; changing the master password and key file; backup; Templates;
   managing tags; restoring a history version; password health.

@@ -1,5 +1,5 @@
 import { api, type DatabaseSettings, type Encryption } from './api'
-import { encryptionForm } from './database-settings'
+import { encryptionForm, HEAVY_QUESTION } from './database-settings'
 import { busyButton, errorLine } from './dom'
 import { ask, dialog } from './modal'
 
@@ -19,7 +19,7 @@ export function changeEncryption(now: Encryption): Promise<DatabaseSettings | nu
     const save = busyButton('Change', 'Save the database with this encryption', async () => {
       const ms = form.unchanged() ? 0 : await form.measure()
       if (ms === null) return
-      if (form.heavy(ms) && !(await ask('A phone may be slow to unlock the database with this, or run out of memory. Change anyway?', 'Change'))) {
+      if (form.heavy(ms) && !(await ask(HEAVY_QUESTION, 'Change'))) {
         return
       }
       answer(await api.setEncryption(form.wanted()))

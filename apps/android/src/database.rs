@@ -17,16 +17,23 @@ pub fn database_settings(session: State<Session>) -> Result<DatabaseSettings, St
     session.read(Vault::settings)
 }
 
+/// Makes `change` to the open database, which saves it; it goes up like an
+/// edit. The settings as saved.
+fn saved(app: &AppHandle, session: &Session, change: impl FnOnce(&mut Vault) -> Result<(), String>) -> Result<DatabaseSettings, String> {
+    let settings = session.with_mut(|v| {
+        change(v)?;
+        Ok(v.settings())
+    })?;
+    upload_soon(app);
+    Ok(settings)
+}
+
 /// Changes a setting kept in the open database's file; the unlock screen
 /// shows the new name and description from now on.
 #[tauri::command(async)]
 pub fn set_database_setting(app: AppHandle, session: State<Session>, setting: edit::Setting, value: String) -> Result<DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_setting(setting, &value)?;
-        Ok(v.settings())
-    })?;
+    let settings = saved(&app, &session, |v| v.set_setting(setting, &value))?;
     let _ = app.state::<Store>().update_if(|s| s.current_mut().is_some_and(|k| k.remember(&settings.name, &settings.description)));
-    upload_soon(&app);
     Ok(settings)
 }
 
@@ -40,12 +47,7 @@ pub fn history_limits_preview(session: State<Session>, max_items: isize, max_siz
 /// Sets the history limits (-1: none); every entry's history is trimmed to them.
 #[tauri::command(async)]
 pub fn set_history_limits(app: AppHandle, session: State<Session>, max_items: isize, max_size: isize) -> Result<DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_history_limits(max_items, max_size)?;
-        Ok(v.settings())
-    })?;
-    upload_soon(&app);
-    Ok(settings)
+    saved(&app, &session, |v| v.set_history_limits(max_items, max_size))
 }
 
 /// How long unlocking takes on this phone with this encryption, in
@@ -58,10 +60,5 @@ pub fn encryption_unlock_time(encryption: encryption::Encryption) -> Result<u64,
 /// Gives the open database another cipher and / or key derivation.
 #[tauri::command(async)]
 pub fn set_encryption(app: AppHandle, session: State<Session>, encryption: encryption::Encryption) -> Result<DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_encryption(&encryption)?;
-        Ok(v.settings())
-    })?;
-    upload_soon(&app);
-    Ok(settings)
+    saved(&app, &session, |v| v.set_encryption(&encryption))
 }
