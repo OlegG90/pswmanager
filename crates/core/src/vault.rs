@@ -331,14 +331,19 @@ impl Vault {
     /// a change on the file as it is now; the time of the change is kept in the
     /// file (KeePass's `MasterKeyChanged`).
     pub fn change_key(&mut self, current: (Option<&str>, Option<&Path>), password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
-        let file = self.file()?;
-        if !file.has_key(&key(current.0, current.1)?) {
+        let current = key(current.0, current.1)?;
+        let new = if password.is_none() && key_file.is_none() { None } else { Some(key(password, key_file)?) };
+        self.change_key_to(&current, new)
+    }
+
+    /// [Vault::change_key] with the keys made already (a key file read from a
+    /// document, say); `new` is none when it would have neither a master
+    /// password nor a key file.
+    pub fn change_key_to(&mut self, current: &DatabaseKey, new: Option<DatabaseKey>) -> Result<(), String> {
+        if !self.file()?.has_key(current) {
             return Err("The current master password is not right".into());
         }
-        if password.is_none() && key_file.is_none() {
-            return Err("A database needs a master password, a key file, or both".into());
-        }
-        let new = key(password, key_file)?;
+        let new = new.ok_or("A database needs a master password, a key file, or both")?;
         self.save_change(Some(&new), |db, _| {
             db.meta.master_key_changed = Some(keepass::db::Times::now());
             Ok(())

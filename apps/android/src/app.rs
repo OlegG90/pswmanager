@@ -109,6 +109,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::database::set_history_limits,
             crate::database::encryption_unlock_time,
             crate::database::set_encryption,
+            crate::database::pick_new_key_file,
+            crate::database::change_master_key,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,
@@ -526,12 +528,17 @@ async fn pick_key_file(app: AppHandle) -> Result<Status, String> {
     off_main(move || {
         let store = app.state::<Store>();
         if let Some(picked) = app.state::<Documents<Wry>>().pick_file()? {
-            let value = serde_json::to_value(&picked).map_err(|e| e.to_string())?;
-            store.update(|s| drop(s.settings.insert(KEY_FILE.into(), value))).map_err(|e| format!("Cannot save the key file: {e}"))?;
+            remember_key_file(&store, &picked)?;
         }
         Ok(status_of(&store, &app.state::<Session>()))
     })
     .await
+}
+
+/// The database is unlocked with `picked` from now on.
+pub(crate) fn remember_key_file(store: &Store, picked: &documents::Picked) -> Result<(), String> {
+    let value = serde_json::to_value(picked).map_err(|e| e.to_string())?;
+    store.update(|s| drop(s.settings.insert(KEY_FILE.into(), value))).map_err(|e| format!("Cannot save the key file: {e}"))
 }
 
 /// The database is unlocked without a key file from now on.
@@ -541,7 +548,7 @@ fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status
     Ok(status_of(&store, &session))
 }
 
-fn forget_key_file(store: &Store) -> Result<(), String> {
+pub(crate) fn forget_key_file(store: &Store) -> Result<(), String> {
     store.update(|s| drop(s.settings.remove(KEY_FILE))).map_err(|e| format!("Cannot save the change: {e}"))
 }
 
@@ -646,6 +653,20 @@ pub fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, 
         start_sync(app.clone());
     }
     result
+}
+
+/// Syncs now, waiting for it: before a change the remote file must be in step
+/// with (a new key: after it, the remote file, still on the old key, opens no
+/// more). Refused while a sync runs, and when it does not settle.
+pub(crate) fn sync_first(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Store>().read(|s| s.remote().is_none()) {
+        return Ok(());
+    }
+    if while_not_syncing(app, || Ok(sync_once(app, &app.state::<Session>())))? {
+        return Ok(());
+    }
+    let last = app.state::<LastSync>().0.lock().unwrap().as_ref().map(|s| s.text.clone()).unwrap_or_default();
+    Err(format!("The database could not sync first ({last}); the key is unchanged"))
 }
 
 /// Syncs in the background and tells the page (`synced`) what happened.

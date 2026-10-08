@@ -10,7 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, 
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { svgIcon, type IconName } from './icons'
-import { api, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -1052,8 +1052,67 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
     el('h2', {}, 'Encryption'),
     el('p', {}, describeEncryption(now.encryption)),
     button('Change…', 'Change the cipher and key derivation', () => encryptionScreen(now.encryption), 'wide'),
-    el('p', { className: 'muted' }, 'The master password and key file are changed on Windows or in Keepass2Android for now.'),
+    el('h2', {}, 'Master password and key file'),
+    el('p', {}, database?.keyFile ? `Key file: ${database.keyFile}` : 'No key file'),
+    button('Change…', 'Change the master password and / or key file', changeKeyScreen, 'wide'),
   ]
+}
+
+/** A new master password and / or key file, once the current master password
+ *  proves right (#193); as on Windows (`spec.md` *Database settings*). */
+function changeKeyScreen() {
+  const error = errorLine()
+  const back = () => void settingsScreen(settingsBack)
+  const current = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Current master password', className: 'field' })
+  const password = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'New master password', className: 'field' })
+  const again = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'The new master password again', className: 'field' })
+  const strength = strengthMeter(password, api.passwordStrength)
+  for (const field of [current, password, again]) error.hideOnInput(field)
+  const now = database?.keyFile ?? null
+  let keyFile: NewKeyFile = { kind: 'keep' }
+  const keyName = () => (keyFile.kind === 'keep' ? now : keyFile.kind === 'picked' ? keyFile.name : null)
+  const shown = el('p', {})
+  const none = button('No key file', 'Only the master password opens it', () => ((keyFile = { kind: 'none' }), showKey()), 'link')
+  const showKey = () => {
+    const name = keyName()
+    shown.textContent = name ? `Key file: ${name}` : 'No key file'
+    none.hidden = !name
+  }
+  const pick = busyButton('Choose a key file…', 'A key file picked with Android’s picker', async () => {
+    const picked = await api.pickNewKeyFile()
+    if (picked) keyFile = { kind: 'picked', ...picked }
+    showKey()
+  }, (e) => error.show(e), 'wide')
+  showKey()
+  const clear = () => (current.value = password.value = again.value = '')
+  const change = busyButton('Change', 'Save the database with the new key', async () => {
+    if (!password.value && !keyName()) throw new Error('Give a master password, a key file, or both')
+    if (password.value !== again.value) throw new Error('The two passwords differ')
+    const keyFileOnly = password.value ? '' : ' The database will then have no master password: only the key file opens it.'
+    confirmSheet('Other devices, Keepass2Android too, will need the new key. The old one still opens the store\'s version history. ' +
+      `Unlock with fingerprint is set up again at the next unlock with the password.${keyFileOnly}`, 'Change key', () =>
+      void api.changeMasterKey(current.value, password.value, keyFile).then((status) => {
+        clear()
+        database = status.database
+        back()
+        snack('The key is changed')
+      }, (e) => error.show(String(e))))
+  }, (e) => error.show(e.replace(/^Error: /, '')), 'primary')
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back', () => (clear(), back())), el('h1', {}, 'Master password')),
+    current,
+    password,
+    again,
+    strength.element,
+    el('p', { className: 'muted' }, 'Leave the new password empty for a key file alone.'),
+    el('h2', {}, 'Key file'),
+    shown,
+    pick,
+    none,
+    error.line,
+    change,
+  ], () => (clear(), back()))
+  current.focus()
 }
 
 /** Another cipher and / or key derivation, with a Test that times an unlock on this phone. */
