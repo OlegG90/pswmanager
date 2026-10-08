@@ -141,7 +141,8 @@ As in the mockups `1e`–`1j`.
   down to sync.
 - **Swipes on the list** (#194): a swipe to the right brings the drawer in from the left, a swipe to the
   left the settings in from the right, in step with the finger; let go past a third of the way (or
-  flicked) it opens, otherwise it goes back. Only a clearly sideways swipe counts (scrolling and
+  flicked) it opens, otherwise it goes back. The other way takes it away again: a swipe to the left closes
+  the drawer, a swipe to the right on the settings goes back to the list, in step with the finger too. Only a clearly sideways swipe counts (scrolling and
   pull-to-sync stay as they are), none while entries are chosen, and one that starts at the screen's edge
   stays Android's Back gesture. *Swipes on the list* in *Settings → Appearance* turns them off (on by
   default). The drawer slides in from ☰ too.

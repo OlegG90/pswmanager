@@ -476,7 +476,7 @@ function listScreen(opened: Listing) {
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
   // Not while entries are chosen: the bar has the list then.
   // Not while entries are chosen (the bar has the list then), nor when turned off.
-  swipes(scroll, () => !chosen.size && settings?.swipes !== false, {
+  swipes(scroll, () => !chosen.size && swipesOn(), {
     right: () => drawer(listing, fill, true),
     left: () => settingsPeek(() => listScreen(listing)),
   })
@@ -536,7 +536,7 @@ async function chooseCopyFolder() {
  *  is clearly sideways, so the list's scrolling and pull-to-sync are not taken
  *  for one; one that starts at the screen's edge is left to Android's Back
  *  gesture. `allowed` says whether swipes are on now. */
-function swipes(target: HTMLElement, allowed: () => boolean, to: { right: () => Sliding; left: () => Sliding }) {
+function swipes(target: HTMLElement, allowed: () => boolean, to: { right?: () => Sliding; left?: () => Sliding }) {
   const EDGE = 32
   const START = 12
   let from: { x: number; y: number; at: number } | null = null
@@ -554,7 +554,11 @@ function swipes(target: HTMLElement, allowed: () => boolean, to: { right: () => 
     const dy = e.touches[0].clientY - from.y
     if (!panel) {
       if (Math.abs(dy) > START && Math.abs(dy) >= Math.abs(dx)) from = null // a scroll
-      else if (Math.abs(dx) > START && Math.abs(dx) > 2 * Math.abs(dy)) panel = dx > 0 ? to.right() : to.left()
+      else if (Math.abs(dx) > START && Math.abs(dx) > 2 * Math.abs(dy)) {
+        const open = dx > 0 ? to.right : to.left
+        if (open) panel = open()
+        else from = null // nothing that way
+      }
       if (!panel) return
     }
     e.preventDefault()
@@ -739,6 +743,8 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
   )
   const sliding = slide(shade, panel, 'left', close)
   if (!dragged) sliding.release(true)
+  // A swipe back to the left takes it away with the finger.
+  swipes(shade, swipesOn, { left: () => closing(sliding) })
   return sliding
 }
 
@@ -750,7 +756,43 @@ interface Sliding {
   release: (open: boolean, opened?: () => void) => void
 }
 
-function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', close: () => void): Sliding {
+/** Swipes are on unless the setting turned them off. */
+const swipesOn = () => settings?.swipes !== false
+
+/** `sliding`, open, taken away by a swipe the other way: let go far enough, it closes. */
+const closing = (sliding: Sliding & { back: (dx: number) => void }): Sliding => ({
+  follow: sliding.back,
+  release: (away) => sliding.release(!away),
+})
+
+/** The screen shown, taken away to the right by a swipe; let go far enough, `away` runs. */
+function leaving(node: HTMLElement, away: () => void): Sliding {
+  let moved = 0
+  const place = (x: string) => (node.style.transform = x)
+  return {
+    follow: (dx) => {
+      node.style.transition = 'none'
+      moved = Math.max(0, dx)
+      place(`translateX(${moved}px)`)
+    },
+    release: (go) => {
+      // The next screen first, then the node back in place: no flash of the old one.
+      const done = () => {
+        if (go) away()
+        node.style.transition = ''
+        place('')
+      }
+      if (!go && moved === 0) return done()
+      node.style.transition = 'transform 200ms ease-out'
+      requestAnimationFrame(() => {
+        node.addEventListener('transitionend', done, { once: true })
+        place(go ? 'translateX(100%)' : 'translateX(0)')
+      })
+    },
+  }
+}
+
+function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', close: () => void): Sliding & { back: (dx: number) => void } {
   const sign = from === 'left' ? -1 : 1
   let shown = 0
   const show = (part: number) => {
@@ -758,10 +800,16 @@ function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', c
     panel.style.transform = `translateX(${sign * (1 - part) * 100}%)`
     shade.style.backgroundColor = `rgb(0 0 0 / ${Math.round(40 * part)}%)`
   }
+  const part = (dx: number) => Math.min(1, Math.max(0, (-sign * dx) / panel.offsetWidth))
   shade.classList.add('following')
   show(0)
   return {
-    follow: (dx) => show(Math.min(1, Math.max(0, (-sign * dx) / panel.offsetWidth))),
+    follow: (dx) => show(part(dx)),
+    // Open, moved back towards its side.
+    back: (dx) => {
+      shade.classList.add('following')
+      show(1 - part(-dx))
+    },
     release: (open, opened) => {
       shade.classList.remove('following')
       const done = () => (open ? opened?.() : close())
@@ -942,6 +990,8 @@ async function settingsScreen(back: () => void) {
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
   show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], back)
+  // A swipe to the right takes the settings away, back where they came from.
+  swipes(body, swipesOn, { right: () => leaving(screen, back) })
   fill()
 }
 
