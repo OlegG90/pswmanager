@@ -319,6 +319,39 @@ main.list-screen {
   background: rgb(0 0 0 / 40%);
 }
 
+/* Panels that slide in (src/main.ts slide()): in step with a swipe while
+   `following`, otherwise eased in and out. */
+.shade {
+  transition: background-color 200ms ease-out;
+}
+
+.shade > .drawer,
+.shade > .peek {
+  transition: transform 200ms ease-out;
+}
+
+.shade.following,
+.shade.following > .drawer,
+.shade.following > .peek {
+  transition: none;
+}
+
+/* Sideways moves are the app's swipes, never a scroll that would take the
+   touch away from them. */
+.list-screen .scroll,
+.shade,
+.settings {
+  touch-action: pan-y;
+}
+
+/* The settings' toolbar coming in from the right before the screen opens. */
+.peek {
+  position: absolute;
+  inset: 0;
+  padding: max(16px, env(safe-area-inset-top)) 16px 0;
+  background: var(--color-bg);
+}
+
 .drawer {
   position: absolute;
   inset: 0 auto 0 0;

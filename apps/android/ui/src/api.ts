@@ -106,6 +106,8 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark'
   /** Unlock with a fingerprint or face (offered on the unlock screen). */
   biometricUnlock: boolean
+  /** Sideways swipes on the list open the drawer and the settings. */
+  swipes: boolean
   /** Days between asking for the master password when biometric unlock is on. */
   passwordEveryDays: number
   version: string
