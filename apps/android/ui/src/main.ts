@@ -136,12 +136,16 @@ async function start() {
 
 function chooseScreen() {
   const error = errorLine()
-  const local = busyButton('Open a local file', 'A .kdbx on this phone or an SD card', async () => {
-    const status = await api.openLocalFile()
+  const opened = (status: Status | null) => {
     if (!status) return
     database = status.database
     unlockScreen()
-  }, error.show, 'card')
+  }
+  // Android's file picker, or the phone's folders browsed here (#207).
+  const local = button('Open a local file', 'A .kdbx on this phone or an SD card', () => withAllFiles('Where the database is',
+    () => browsePhone({ first: (n) => /\.kdbx$/i.test(n), pick: api.openDatabaseAt, done: opened, fail: error.show }),
+    () => void api.openLocalFile().then(opened, (e) => error.show(String(e))),
+    error.show), 'card')
   show([
     el('p', { className: 'muted' }, 'First run'),
     el('h1', {}, 'Choose your database'),
@@ -1086,46 +1090,67 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
   ]
 }
 
-/** A key file to choose (`make`: a new one to make): browsed here when All
- *  files access is on; otherwise through Android's folder picker, or the
- *  user turns the access on (#207). */
-function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
+/** What is reached on the phone without All files access: Android's
+ *  pickers, which refuse some folders (one named Data, say) for every app.
+ *  When the access is off, a sheet offers `picker` or turning it on; when on,
+ *  `browse` runs (#207). */
+function withAllFiles(what: string, browse: () => void, picker: () => void, fail: (message: string) => void) {
   void api.allFilesAccess().then((granted) => {
-    if (granted) return browseForKeyFile(make, done, fail)
+    if (granted) return browse()
     sheet((close) => [
-      el('b', {}, make ? 'Where the new key file goes' : 'Where the key file is'),
-      el('p', { className: 'muted' }, 'Android’s folder picker refuses some folders (one named Data, say). To reach those, turn on access to all files for PswManager, then choose again: it reads only the key file you choose.'),
-      button('Android’s folder picker', 'Choose the folder with Android’s picker', () => {
-        close()
-        if (make) newKeyFileInFolder(done, fail)
-        else keyFileFromFolder(done, fail)
-      }, 'item'),
+      el('b', {}, what),
+      el('p', { className: 'muted' }, 'Android’s pickers refuse some folders (one named Data, say). To reach those, turn on access to all files for PswManager, then choose again: it opens only the file you choose.'),
+      button('Android’s picker', 'Choose with Android’s picker', () => (close(), picker()), 'item'),
       button('Allow access to all files…', 'Android’s setting for PswManager; come back and choose again', () => (close(), void api.askAllFilesAccess().catch((e) => fail(String(e)))), 'item'),
     ])
   }, (e) => fail(String(e)))
 }
 
-/** The phone's files, folder by folder, in a sheet (All files access on):
- *  a key file is picked, or (`make`) a new one is made in the folder shown. */
-function browseForKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
+/** A key file to choose (`make`: a new one to make) (#207). */
+function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
+  withAllFiles(make ? 'Where the new key file goes' : 'Where the key file is',
+    () => browsePhone({
+      first: isKeyFileName,
+      ...(make ? { make: api.createKeyFileAt, makeName: 'PswManager.keyx' } : { pick: api.keyFileAt }),
+      done,
+      fail,
+    }),
+    () => (make ? newKeyFileInFolder(done, fail) : keyFileFromFolder(done, fail)),
+    fail)
+}
+
+const isKeyFileName = (name: string) => /\.keyx?$/i.test(name)
+
+/** The phone's files, folder by folder, in a sheet (All files access on).
+ *  Files `first` likes come first; `pick` takes the one tapped, or (`make`)
+ *  a name and a button make one in the folder shown. */
+function browsePhone<T>(how: {
+  first: (name: string) => boolean
+  pick?: (folder: string, name: string) => Promise<T>
+  make?: (folder: string, name: string) => Promise<T>
+  makeName?: string
+  done: (made: T) => void
+  fail: (message: string) => void
+}) {
   sheet((close) => {
     const where = el('b', {})
     const items = el('div', { className: 'browser' })
-    const name = input('PswManager.keyx', { className: 'field', ariaLabel: 'Name' })
-    const finish = (made: Promise<Picked>) => void made.then((picked) => (close(), done(picked)), (e) => fail(String(e)))
+    const name = input(how.makeName ?? '', { className: 'field', ariaLabel: 'Name' })
+    const finish = (made: Promise<T>) => void made.then((it) => (close(), how.done(it)), (e) => how.fail(String(e)))
     let shown = ''
-    const create = button('Make it here', 'Make the key file in this folder', () => finish(api.createKeyFileAt(shown, name.value)), 'primary')
+    const create = button('Make it here', 'Make it in this folder', () => how.make && finish(how.make(shown, name.value)), 'primary')
     const open = (path: string | null) => void api.browse(path).then((folder) => {
       shown = folder.path
       where.textContent = folder.path.replace(/^\/storage\/emulated\/0/, 'Phone')
+      const files = [...folder.files].sort((a, b) => Number(how.first(b)) - Number(how.first(a)))
       items.replaceChildren(
         ...(folder.up ? [button('↑ Up', 'The folder above', () => open(folder.up), 'item')] : []),
         ...folder.folders.map((f) => button(`${f}/`, `Open ${f}`, () => open(`${folder.path}/${f}`), 'item')),
-        ...(make ? [] : folder.files.map((f) => button(f, `Use ${f}`, () => finish(api.keyFileAt(folder.path, f)), 'item'))),
+        ...(how.pick ? files.map((f) => button(f, `Use ${f}`, () => finish(how.pick!(folder.path, f)), 'item')) : []),
       )
-    }, (e) => fail(String(e)))
+    }, (e) => how.fail(String(e)))
     open(null)
-    return [where, items, ...(make ? [name, create] : []), button('Cancel', 'Cancel', close, 'link')]
+    return [where, items, ...(how.make ? [name, create] : []), button('Cancel', 'Cancel', close, 'link')]
   })
 }
 

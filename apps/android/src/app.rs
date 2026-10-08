@@ -119,6 +119,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::key_file::browse,
             crate::key_file::key_file_at,
             crate::key_file::create_key_file_at,
+            crate::key_file::open_database_at,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,

@@ -72,7 +72,10 @@ as a **visible file** the user can see and back up:
 **Open a local file** picks an existing `.kdbx` anywhere Android's file picker reaches (the phone, an SD
 card, a folder another program syncs), with a persisted permission for that one file. That document is the
 database's **remote file**, synced with the working copy by the same rules as a cloud store or a LAN folder
-on Windows (*Synchronisation with a remote store* in `spec.md`):
+on Windows (*Synchronisation with a remote store* in `spec.md`). Android's pickers refuse some folders for
+every app (one named *Data*, say): with **All files access** turned on for PswManager (asked for only then,
+as for a key file), the phone's folders are browsed in the app instead, and the file chosen is synced by its
+path, as a LAN folder's file is on Windows:
 
 - Its revision is the hash of its content (Android's modification times and sizes cannot always tell an
   edit), so a change made elsewhere — Keepass2Android, Syncthing, another app — is seen at the next sync.

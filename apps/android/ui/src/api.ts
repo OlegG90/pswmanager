@@ -180,6 +180,8 @@ export const api = {
   /** A folder of the phone's storage (null: its top), with All files access on. */
   browse: (path: string | null) => invoke<{ path: string; up: string | null; folders: string[]; files: string[] }>('browse', { path }),
   keyFileAt: (folder: string, name: string) => invoke<Picked>('key_file_at', { folder, name }),
+  /** The database `name` in a browsed folder, synced with it there by its path. */
+  openDatabaseAt: (folder: string, name: string) => invoke<Status>('open_database_at', { folder, name }),
   createKeyFileAt: (folder: string, name: string) => invoke<Picked>('create_key_file_at', { folder, name }),
   /** Makes a new key file in a picked folder, never over a file already there. */
   createKeyFileIn: (folder: string, name: string) => invoke<Picked>('create_key_file_in', { folder, name }),

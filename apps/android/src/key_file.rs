@@ -170,6 +170,21 @@ pub async fn key_file_at(folder: String, name: String) -> Result<Picked, String>
     .await
 }
 
+/// The database `name` in a browsed folder becomes the database on this
+/// phone, synced with that file by its path (as a folder on Windows is).
+#[tauri::command]
+pub async fn open_database_at(app: AppHandle, folder: String, name: String) -> Result<Status, String> {
+    off_main(move || {
+        let name = file_name(&name)?;
+        let path = within_storage(Some(&folder))?.join(&name);
+        if !path.is_file() {
+            return Err(format!("{name} is not in the folder any more"));
+        }
+        app::adopt(&app, pswm_core::remote::Location::Folder { path })
+    })
+    .await
+}
+
 /// Makes a new key file named `name` in a browsed folder, never over a file
 /// already there.
 #[tauri::command]
