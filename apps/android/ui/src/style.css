@@ -60,8 +60,9 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The foot stays clear of Android's navigation bar. */
 main {
-  padding: max(16px, env(safe-area-inset-top)) 16px 32px;
+  padding: max(16px, env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
 }
 
 h1 {
