@@ -139,7 +139,10 @@ As in the mockups `1e`–`1j`.
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync.
-- **Drawer** (☰ or a swipe from the left edge): the database's name and sync, the groups *All*,
+- **Swipes on the list** (#194): a swipe to the right opens the drawer, a swipe to the left the settings.
+  Only a mostly sideways swipe counts (scrolling and pull-to-sync stay as they are), none while entries are
+  chosen, and one that starts at the screen's edge stays Android's Back gesture.
+- **Drawer** (☰ or a swipe to the right on the list): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
   mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
   does not count) and the tags (as `#work`) with their counts; *Import from another app…*, *Settings* and

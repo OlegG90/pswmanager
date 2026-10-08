@@ -474,6 +474,15 @@ function listScreen(opened: Listing) {
   status.addEventListener('click', syncSheet)
   const scroll = el('div', { className: 'scroll' }, emptyBin, list)
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
+  // Not while entries are chosen: the bar has the list then.
+  swipes(scroll, {
+    right: () => {
+      if (!chosen.size) drawer(listing, fill)
+    },
+    left: () => {
+      if (!chosen.size) void settingsScreen(() => listScreen(listing))
+    },
+  })
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
@@ -522,6 +531,28 @@ async function chooseCopyFolder() {
   } catch (e) {
     snack(String(e))
   }
+}
+
+/** A swipe across `target` (#194): mostly sideways and long enough, so the
+ *  list's scrolling and pull-to-sync are not taken for one. One that starts
+ *  at the screen's edge is left to Android's Back gesture. */
+function swipes(target: HTMLElement, to: { right: () => void; left: () => void }) {
+  const EDGE = 32
+  const LENGTH = 80
+  let from: { x: number; y: number } | null = null
+  target.addEventListener('touchstart', (e) => {
+    const { clientX: x, clientY: y } = e.touches[0]
+    from = e.touches.length === 1 && x > EDGE && x < window.innerWidth - EDGE ? { x, y } : null
+  }, { passive: true })
+  target.addEventListener('touchend', (e) => {
+    if (!from) return
+    const dx = e.changedTouches[0].clientX - from.x
+    const dy = e.changedTouches[0].clientY - from.y
+    from = null
+    if (Math.abs(dx) < LENGTH || Math.abs(dx) < 2 * Math.abs(dy)) return
+    if (dx > 0) to.right()
+    else to.left()
+  })
 }
 
 /** Pulling the list down from its top syncs. */
