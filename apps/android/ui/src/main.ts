@@ -486,9 +486,13 @@ function listScreen(opened: Listing) {
     right: () => drawer(listing, fill, true),
     left: () => settingsPeek(() => listScreen(listing)),
   })
+  // Another device changed the key: here until it is entered (as Windows' Enter key…).
+  const newKey = iconButton('keyRound', 'Enter the new key', otherKeyScreen)
+  newKey.hidden = !otherKey
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
+    newKey,
     iconButton('sync', 'Sync now', () => {
       status.textContent = 'Syncing…'
       void api.syncNow()
@@ -520,8 +524,23 @@ function listScreen(opened: Listing) {
   onSynced = (synced) => {
     status.textContent = synced.text
     status.classList.toggle('problem', synced.problem)
+    newKey.hidden = !synced.otherKey
     if (synced.changed) void api.listing().then((fresh) => ((listing = fresh), fill()))
+    askForKey()
   }
+  askForKey()
+}
+
+/** Whether the new-key screen opened for the key change the last sync found. */
+let keyAsked = false
+
+/** Opens the new-key screen by itself once, when a sync finds that another
+ *  device changed the key (as Windows' dialog does); after *Not now*, the
+ *  toolbar's key and the sync sheet still offer it. */
+function askForKey() {
+  if (!otherKey || keyAsked || !unlocked) return
+  keyAsked = true
+  otherKeyScreen()
 }
 
 /** Picks the folder for the visible copy and writes it there. */
@@ -602,6 +621,7 @@ function applySync(synced: Synced) {
   signInAgain = synced.signIn
   copyProblem = synced.copyProblem
   otherKey = synced.otherKey
+  if (!otherKey) keyAsked = false
   lastSynced = Date.now()
   onSynced(synced)
 }
@@ -1101,12 +1121,13 @@ function otherKeyScreen() {
   enterPresses(use, password)
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', () => void api.listing().then(listScreen)), el('h1', {}, 'New key')),
-    el('p', {}, 'Another device changed the master password or key file. Enter the new one to sync again; until then this phone keeps working with its own copy.'),
+    el('p', {}, 'Another device changed the master password or key file. Enter the new one to sync again. Until then this phone works with its own copy, and its changes do not go up.'),
     password,
     el('h2', {}, 'Key file'),
     ...keyFile.nodes,
     error.line,
     use,
+    button('Not now', 'Keep working with this phone’s copy; the key can be entered later', () => void api.listing().then(listScreen), 'link'),
   ], () => void api.listing().then(listScreen))
   password.focus()
 }
