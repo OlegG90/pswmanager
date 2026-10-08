@@ -93,11 +93,11 @@ pub fn release_files(session: State<Session>, files: Vec<u64>) {
     session.staged().release(files);
 }
 
-/// Moves the entry to the recycle bin.
+/// Moves entries to the recycle bin.
 #[tauri::command(async)]
-pub fn delete_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
+pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
     let listing = session.with_mut(|v| {
-        v.delete_entries(&[id])?;
+        v.delete_entries(&ids)?;
         Ok(v.listing())
     })?;
     upload_soon(&app);
@@ -137,12 +137,12 @@ pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, S
     Ok(listing)
 }
 
-/// Stars the entry or takes the star off (the tag Favorite); like a tag, it
+/// Gives entries a tag or takes it off (the star is the tag Favorite); a tag
 /// goes up with the next sync.
 #[tauri::command(async)]
-pub fn set_favorite(app: AppHandle, session: State<Session>, id: String, on: bool) -> Result<Listing, String> {
+pub fn set_tag(app: AppHandle, session: State<Session>, ids: Vec<String>, tag: String, on: bool) -> Result<Listing, String> {
     let listing = session.with_mut(|v| {
-        v.set_tag(&[id], edit::FAVORITE, on)?;
+        v.set_tag(&ids, &tag, on)?;
         Ok(v.listing())
     })?;
     changed(&app);

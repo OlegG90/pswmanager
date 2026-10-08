@@ -168,14 +168,16 @@ export const api = {
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData, files: FileChange[]) => invoke<Saved>('save_entry', { id, base, data, files }),
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
   releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
-  deleteEntry: (id: string) => invoke<Listing>('delete_entry', { id }),
+  /** Moves entries to the recycle bin. */
+  deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts an entry from the recycle bin back where it was. */
   restoreEntry: (id: string) => invoke<Listing>('restore_entry', { id }),
   /** Removes an entry in the recycle bin for good. */
   deleteForGood: (id: string) => invoke<Listing>('delete_for_good', { id }),
   /** Removes everything in the recycle bin for good. */
   emptyTrash: () => invoke<Listing>('empty_trash'),
-  setFavorite: (id: string, on: boolean) => invoke<Listing>('set_favorite', { id, on }),
+  /** Gives entries a tag or takes it off (the star is the tag Favorite). */
+  setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
 }

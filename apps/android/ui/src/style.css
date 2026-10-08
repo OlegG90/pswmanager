@@ -163,6 +163,10 @@ button.card {
   gap: 8px;
 }
 
+.bar[hidden] {
+  display: none;
+}
+
 .bar .field {
   margin: 0;
 }
@@ -472,6 +476,26 @@ button.fab[hidden] {
 /* Room for the two floating buttons above the last entry. */
 .list-screen .entries {
   padding-bottom: calc(2 * 56px + 40px);
+}
+
+/* Entries chosen with a long press. */
+.entries li.selected {
+  margin: 0 -16px;
+  padding-left: 16px;
+  padding-right: 16px;
+  background: var(--color-accent-100);
+}
+
+.tag-offers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+button.tag-offer {
+  border-radius: 16px;
+  padding: 4px 12px;
 }
 
 .tabs {
