@@ -1093,7 +1093,7 @@ function keyFileChooser(fail: (message: string) => void, offerNew = false) {
   let chosen: NewKeyFile = { kind: 'keep' }
   const name = () => (chosen.kind === 'keep' ? now : chosen.kind === 'picked' ? chosen.name : null)
   const shown = el('p', {})
-  const none = button('No key file', 'Only the master password', () => ((chosen = { kind: 'none' }), refresh()), 'link')
+  const none = button('Remove the key file', 'Only the master password opens it then', () => ((chosen = { kind: 'none' }), refresh()), 'wide')
   const refresh = () => {
     shown.textContent = name() ? `Key file: ${name()}` : 'No key file'
     none.hidden = !name()
