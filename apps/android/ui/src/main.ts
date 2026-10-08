@@ -406,13 +406,64 @@ function listScreen(opened: Listing) {
   const emptyBin = button('Empty the recycle bin…', 'Delete everything in it for good', () =>
     confirmSheet(`Delete ${entriesCount(inBin())} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
       void api.emptyTrash().then(toListSaying('Deleted permanently'), (e) => snack(String(e)))), 'link danger empty-bin')
+  // Several entries chosen with a long press (not in the trash): a bar of
+  // what can be done to them all replaces the toolbar until it is closed.
+  const chosen = new Set<string>()
+  const chosenTitle = el('h1', {})
+  const copyChosen = iconButton('copy', 'Copy from it', () => quickCopy(listing.entries.find((e) => chosen.has(e.id))!))
+  const selecting = el('header', { className: 'bar', hidden: true },
+    iconButton('close', 'Clear the selection', () => select(null)),
+    chosenTitle,
+    copyChosen,
+    iconButton('tag', 'Add or remove a tag', () => tagSheet([...chosen], listing, changedSeveral)),
+    iconButton('trash', 'Move to the recycle bin', () =>
+      confirmSheet(`Move ${entriesCount(chosen.size)} to the recycle bin?`, 'Delete', () =>
+        void api.deleteEntries([...chosen]).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))))
+  const clearSelection = () => select(null)
+  /** Chooses `id` or lets it go (null: clears the selection). */
+  const select = (id: string | null) => {
+    if (id === null) chosen.clear()
+    else if (!chosen.delete(id)) chosen.add(id)
+    marked()
+  }
+  /** The bar and the rows as the selection is. */
+  const marked = () => {
+    const on = chosen.size > 0
+    chosenTitle.textContent = `${chosen.size} selected`
+    copyChosen.hidden = chosen.size !== 1
+    selecting.hidden = !on
+    toolbar.hidden = searching.hidden = on
+    findButton.hidden = on || searching.isConnected
+    add.hidden = on
+    backs = backs.filter((b) => b !== clearSelection)
+    if (on) backs.push(clearSelection)
+    for (const item of list.querySelectorAll<HTMLElement>('li[data-id]')) {
+      const picked = chosen.has(item.dataset.id!)
+      item.classList.toggle('selected', picked)
+      item.setAttribute('aria-selected', String(picked))
+    }
+  }
+  const changedSeveral = (fresh: Listing, message: string) => {
+    listing = fresh
+    select(null)
+    fill()
+    snack(message)
+  }
+  const pick = (entry: Entry) => {
+    if (chosen.size) select(entry.id)
+    else void entryScreen(entry.id, listing)
+  }
+  const press = (entry: Entry) => (sameFilter(filter, TRASH) ? quickCopy(entry) : select(entry.id))
   const fill = () => {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
     emptyBin.hidden = !sameFilter(filter, TRASH) || !inBin()
     const shown = search(listing.entries, query, filter)
-    list.replaceChildren(...shown.map((entry) => row(entry, listing)))
+    // What is no longer shown is no longer chosen.
+    for (const id of [...chosen]) if (!shown.some((e) => e.id === id)) chosen.delete(id)
+    list.replaceChildren(...shown.map((entry) => row(entry, listing, pick, press)))
     if (shown.length === 0) list.append(el('li', { className: 'muted empty' }, 'Nothing here.'))
+    marked()
   }
   searchField.addEventListener('input', () => {
     query = searchField.value
@@ -446,7 +497,7 @@ function listScreen(opened: Listing) {
     searchField.focus()
   }, 'fab')
   const add = iconButton('plus', 'New entry', () => void editorScreen(null, listing, () => listScreen(listing)), 'fab')
-  show([query ? searching : toolbar, scroll, el('div', { className: 'fabs' }, findButton, add), status], undefined, 'list-screen')
+  show([selecting, query ? searching : toolbar, scroll, el('div', { className: 'fabs' }, findButton, add), status], undefined, 'list-screen')
   if (query) {
     findButton.hidden = true
     backs.push(closeSearch)
@@ -503,14 +554,43 @@ function filterLabel(f: Filter) {
   return PHONE_GROUPS.find((g) => g.group === f.group)!.label
 }
 
-function row(entry: Entry, listing: Listing): HTMLLIElement {
+/** An entry in the list: a tap does `tap`, a long press `press`. */
+function row(entry: Entry, listing: Listing, tap: (entry: Entry) => void, press: (entry: Entry) => void): HTMLLIElement {
   const item = el('li', { tabIndex: 0 }, icon(entry, listing), el('span', {}, el('b', {}, titleOf(entry)), el('small', {}, entry.username)))
-  item.addEventListener('click', () => void entryScreen(entry.id, listing))
+  item.dataset.id = entry.id
+  item.addEventListener('click', () => tap(entry))
   item.addEventListener('contextmenu', (e) => {
     e.preventDefault()
-    quickCopy(entry)
+    press(entry)
   })
   return item
+}
+
+/** Adds a tag to entries or takes one off: the tag typed or picked among the
+ *  database's (to add) or theirs (to take off). */
+function tagSheet(ids: string[], listing: Listing, done: (fresh: Listing, message: string) => void) {
+  const theirs = [...new Set(listing.entries.filter((e) => ids.includes(e.id)).flatMap((e) => e.tags))].filter((t) => t !== FAVORITE).sort((a, b) => a.localeCompare(b))
+  const known = tagCounts(listing.entries).map(([tag]) => tag)
+  const change = (tag: string, on: boolean, close: () => void) => {
+    close()
+    void api.setTag(ids, tag, on).then((fresh) => done(fresh, `${on ? 'Tagged' : 'Untagged'} ${entriesCount(ids.length)}: #${tag.trim()}`), (e) => snack(String(e)))
+  }
+  sheet((close) => {
+    const name = input('', { className: 'field', ariaLabel: 'Tag', placeholder: 'Tag to add' })
+    const offered = el('div', { className: 'tag-offers' })
+    const offer = () =>
+      offered.replaceChildren(...known.filter((t) => t.toLowerCase().includes(name.value.trim().toLowerCase())).slice(0, 12)
+        .map((t) => button(`#${t}`, `Add the tag ${t}`, () => change(t, true, close), 'tag-offer')))
+    name.addEventListener('input', offer)
+    offer()
+    const addTyped = button('Add', 'Add the tag typed', () => name.value.trim() && change(name.value, true, close), 'primary')
+    enterPresses(addTyped, name)
+    return [
+      el('b', {}, `Tag ${entriesCount(ids.length)}`),
+      name, offered, addTyped,
+      ...(theirs.length ? [el('b', {}, 'Take off'), ...theirs.map((t) => button(`#${t}`, `Take the tag ${t} off`, () => change(t, false, close), 'item danger'))] : []),
+    ]
+  })
 }
 
 /** Site icons by host; one that arrives replaces the key in the images waiting for it. */
@@ -905,11 +985,11 @@ function entryCommands(entry: EntryDetail, listing: Listing): HTMLElement[] {
   const id = entry.id
   const starred = entry.tags.includes(FAVORITE)
   const star = iconButton('star', starred ? 'Not favorite' : 'Favorite', () =>
-    void api.setFavorite(id, !starred).then((fresh) => entryScreen(id, fresh), (e) => snack(String(e))), starred ? 'icon starred' : 'icon')
+    void api.setTag([id], FAVORITE, !starred).then((fresh) => entryScreen(id, fresh), (e) => snack(String(e))), starred ? 'icon starred' : 'icon')
   const edit = iconButton('pencil', 'Edit', () => void editorScreen(id, listing, () => void entryScreen(id, listing)))
   const remove = () =>
     confirmSheet(`Move “${titleOf(entry)}” to the recycle bin?`, 'Delete', () =>
-      void api.deleteEntry(id).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))
+      void api.deleteEntries([id]).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))
   const more = iconButton('more', 'More', () => sheet((close) => [el('b', {}, titleOf(entry)), button('Delete', 'Move to the recycle bin', () => (close(), remove()), 'item')]))
   return [star, edit, more]
 }

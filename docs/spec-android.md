@@ -163,7 +163,12 @@ As in the mockups `1e`–`1j`.
   app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
   From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
   editor) and **⋮** with *Delete*.
-- **Long press** on an entry in the list: a menu with *Copy user name*, *Copy password*, *Copy TOTP code*.
+- **Several entries** (#175): a **long press** on an entry chooses it, and taps then choose or let go
+  of more (as in Gmail); a bar in place of the toolbar says how many, with **copy** (one chosen: *Copy
+  user name*, *Copy password*, *Copy TOTP code*), **tag** (a sheet: a tag typed or picked among the
+  database's is added to them all, or one of theirs taken off; tags keep no history version and go up with
+  the next sync) and the **bin** (after a confirmation, all of them to the recycle bin). ✕ or Back clears
+  the choice. In the Trash group a long press is the copy menu, as there is nothing to do to several.
 - **Attachments:** listed with name and size; tapping one, or its **open** icon, hands the file to
   another app (Android's chooser), see *Security behaviour*; its **save** icon writes it to a file the
   user names with Android's save picker (no lasting access is kept). From stage A2 files are added, renamed and
