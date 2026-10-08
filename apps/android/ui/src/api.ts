@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
 
 export type { Entry, EntryData, EntryDetail, Version, VersionDetail }
 
@@ -170,6 +170,15 @@ export const api = {
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData, files: FileChange[]) => invoke<Saved>('save_entry', { id, base, data, files }),
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
   releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
+  /** The settings kept in the open database's file (#193). */
+  databaseSettings: () => invoke<DatabaseSettings>('database_settings'),
+  setDatabaseSetting: (setting: DatabaseSetting, value: string) => invoke<DatabaseSettings>('set_database_setting', { setting, value }),
+  /** How many old versions these history limits would remove. */
+  historyLimitsPreview: (maxItems: number, maxSize: number) => invoke<number>('history_limits_preview', { maxItems, maxSize }),
+  setHistoryLimits: (maxItems: number, maxSize: number) => invoke<DatabaseSettings>('set_history_limits', { maxItems, maxSize }),
+  /** Milliseconds an unlock takes on this phone with this encryption. */
+  encryptionUnlockTime: (encryption: Encryption) => invoke<number>('encryption_unlock_time', { encryption }),
+  setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** Puts an entry from the recycle bin back where it was. */

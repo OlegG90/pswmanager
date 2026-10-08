@@ -540,6 +540,34 @@ button.tag-offer {
   border-bottom: 1px solid var(--color-neutral-300);
 }
 
+/* Arrows over the tabs' ends where more tabs are hidden that way. */
+.tabs-box {
+  position: relative;
+}
+
+button.tabs-more {
+  position: absolute;
+  top: 8px;
+  bottom: 1px;
+  padding: 0 6px;
+  background: var(--color-bg);
+  color: var(--color-accent);
+}
+
+button.tabs-more[hidden] {
+  display: none;
+}
+
+button.tabs-more.left {
+  left: -16px;
+  box-shadow: 8px 0 8px var(--color-bg);
+}
+
+button.tabs-more.right {
+  right: -16px;
+  box-shadow: -8px 0 8px var(--color-bg);
+}
+
 .tabs button.tab {
   border: 0;
   border-bottom: 2px solid transparent;
@@ -566,6 +594,35 @@ button.tag-offer {
 .setting > span {
   display: flex;
   flex-direction: column;
+}
+
+/* The encryption form (src/database-settings.ts): each label above its control. */
+.encryption label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.encryption select,
+.encryption input {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.encryption .file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .setting select.field {
