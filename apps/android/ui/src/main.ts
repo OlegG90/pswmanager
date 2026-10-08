@@ -475,13 +475,10 @@ function listScreen(opened: Listing) {
   const scroll = el('div', { className: 'scroll' }, emptyBin, list)
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
   // Not while entries are chosen: the bar has the list then.
-  swipes(scroll, {
-    right: () => {
-      if (!chosen.size) drawer(listing, fill)
-    },
-    left: () => {
-      if (!chosen.size) void settingsScreen(() => listScreen(listing))
-    },
+  // Not while entries are chosen (the bar has the list then), nor when turned off.
+  swipes(scroll, () => !chosen.size && settings?.swipes !== false, {
+    right: () => drawer(listing, fill, true),
+    left: () => settingsPeek(() => listScreen(listing)),
   })
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
@@ -533,26 +530,45 @@ async function chooseCopyFolder() {
   }
 }
 
-/** A swipe across `target` (#194): mostly sideways and long enough, so the
- *  list's scrolling and pull-to-sync are not taken for one. One that starts
- *  at the screen's edge is left to Android's Back gesture. */
-function swipes(target: HTMLElement, to: { right: () => void; left: () => void }) {
+/** Sideways swipes across `target` (#194) bring a panel in with the finger:
+ *  to the right `right`'s, to the left `left`'s. Let go past a third of the
+ *  way (or flicked), it opens; otherwise it goes back. A swipe counts once it
+ *  is clearly sideways, so the list's scrolling and pull-to-sync are not taken
+ *  for one; one that starts at the screen's edge is left to Android's Back
+ *  gesture. `allowed` says whether swipes are on now. */
+function swipes(target: HTMLElement, allowed: () => boolean, to: { right: () => Sliding; left: () => Sliding }) {
   const EDGE = 32
-  const LENGTH = 80
-  let from: { x: number; y: number } | null = null
+  const START = 12
+  let from: { x: number; y: number; at: number } | null = null
+  let panel: Sliding | null = null
+  let dx = 0
   target.addEventListener('touchstart', (e) => {
     const { clientX: x, clientY: y } = e.touches[0]
-    from = e.touches.length === 1 && x > EDGE && x < window.innerWidth - EDGE ? { x, y } : null
+    const inside = x > EDGE && x < window.innerWidth - EDGE
+    from = e.touches.length === 1 && inside && allowed() ? { x, y, at: e.timeStamp } : null
+    panel = null
   }, { passive: true })
-  target.addEventListener('touchend', (e) => {
+  target.addEventListener('touchmove', (e) => {
     if (!from) return
-    const dx = e.changedTouches[0].clientX - from.x
-    const dy = e.changedTouches[0].clientY - from.y
+    dx = e.touches[0].clientX - from.x
+    const dy = e.touches[0].clientY - from.y
+    if (!panel) {
+      if (Math.abs(dy) > START && Math.abs(dy) >= Math.abs(dx)) from = null // a scroll
+      else if (Math.abs(dx) > START && Math.abs(dx) > 2 * Math.abs(dy)) panel = dx > 0 ? to.right() : to.left()
+      if (!panel) return
+    }
+    e.preventDefault()
+    panel.follow(dx)
+  }, { passive: false })
+  const end = (e: TouchEvent) => {
+    if (!from || !panel) return
+    const speed = Math.abs(dx) / Math.max(1, e.timeStamp - from.at)
+    panel.release(e.type === 'touchend' && (Math.abs(dx) > window.innerWidth / 3 || speed > 0.6))
     from = null
-    if (Math.abs(dx) < LENGTH || Math.abs(dx) < 2 * Math.abs(dy)) return
-    if (dx > 0) to.right()
-    else to.left()
-  })
+    panel = null
+  }
+  target.addEventListener('touchend', end)
+  target.addEventListener('touchcancel', end)
 }
 
 /** Pulling the list down from its top syncs. */
@@ -688,9 +704,11 @@ function syncSheet() {
   ])
 }
 
-function drawer(listing: Listing, changed: () => void) {
+/** The drawer; it slides in, unless a swipe brings it in step with the finger (`dragged`). */
+function drawer(listing: Listing, changed: () => void, dragged = false): Sliding {
   const panel = el('nav', { className: 'drawer' })
-  const close = overlay(el('div', { className: 'shade' }, panel))
+  const shade = el('div', { className: 'shade' }, panel)
+  const close = overlay(shade)
   const item = (f: Filter, label: string, count: number, icon?: IconName) => {
     const choose = () => {
       filter = f
@@ -719,6 +737,53 @@ function drawer(listing: Listing, changed: () => void) {
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
     button('Lock', 'Lock the database', () => void lock(), 'action'),
   )
+  const sliding = slide(shade, panel, 'left', close)
+  if (!dragged) sliding.release(true)
+  return sliding
+}
+
+/** A panel coming in from a side over a shade: in step with a finger
+ *  (`follow`, by how far it has moved), then let go (`release`), open or
+ *  back out (`close` then). */
+interface Sliding {
+  follow: (dx: number) => void
+  release: (open: boolean, opened?: () => void) => void
+}
+
+function slide(shade: HTMLElement, panel: HTMLElement, from: 'left' | 'right', close: () => void): Sliding {
+  const sign = from === 'left' ? -1 : 1
+  let shown = 0
+  const show = (part: number) => {
+    shown = part
+    panel.style.transform = `translateX(${sign * (1 - part) * 100}%)`
+    shade.style.backgroundColor = `rgb(0 0 0 / ${Math.round(40 * part)}%)`
+  }
+  shade.classList.add('following')
+  show(0)
+  return {
+    follow: (dx) => show(Math.min(1, Math.max(0, (-sign * dx) / panel.offsetWidth))),
+    release: (open, opened) => {
+      shade.classList.remove('following')
+      const done = () => (open ? opened?.() : close())
+      // Already there: no transition to wait for.
+      if (shown === (open ? 1 : 0)) return done()
+      // The next frame, so the transition starts from where the finger left it.
+      requestAnimationFrame(() => {
+        panel.addEventListener('transitionend', done, { once: true })
+        show(open ? 1 : 0)
+      })
+    },
+  }
+}
+
+/** The settings' toolbar, coming in from the right with a swipe; once in, the
+ *  settings screen takes its place. */
+function settingsPeek(back: () => void): Sliding {
+  const panel = el('div', { className: 'peek' }, el('header', { className: 'bar' }, iconButton('back', 'Back', () => {}), el('h1', {}, 'Settings')))
+  const shade = el('div', { className: 'shade' }, panel)
+  const close = overlay(shade)
+  const sliding = slide(shade, panel, 'right', close)
+  return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back))) }
 }
 
 /** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
@@ -898,6 +963,7 @@ function tab(which: Tab, s: Settings): Node[] {
       return [
         choice('Theme', 'Light or dark, or as the phone is set', 'theme', s.theme, [['system', 'As the phone'], ['light', 'Light'], ['dark', 'Dark']]),
         toggle('Download site icons', 'From each site itself, never through a third party', 'downloadIcons', s.downloadIcons),
+        toggle('Swipes on the list', 'To the right: groups and tags; to the left: settings', 'swipes', s.swipes),
       ]
     case 'sync':
       return [
