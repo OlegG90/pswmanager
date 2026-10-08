@@ -77,7 +77,7 @@ pub enum NewKeyFile {
     /// The one it has now, if any.
     Keep,
     None,
-    /// One picked for it ([pick_new_key_file]).
+    /// One picked or made for it (`crate::key_file`).
     Picked { uri: String, name: String },
 }
 
@@ -90,13 +90,6 @@ impl NewKeyFile {
             NewKeyFile::Picked { uri, name } => Some(Picked { uri, name }),
         }
     }
-}
-
-/// A key file for the database, picked with Android's picker (its access is
-/// kept); `None` when cancelled. It is used once the key is changed to it.
-#[tauri::command]
-pub async fn pick_new_key_file(app: AppHandle) -> Result<Option<Picked>, String> {
-    off_main(move || app.state::<Documents<Wry>>().pick_file()).await
 }
 
 /// Gives the open database a new master password and / or key file, after
@@ -140,19 +133,6 @@ fn take_key(app: &AppHandle, key_file: Option<&Picked>) -> Result<(), String> {
     .map_err(|e| format!("the key file could not be kept ({e})"))?;
     let _ = app.state::<Biometric<Wry>>().forget();
     Ok(())
-}
-
-/// Makes a new key file where the user chooses with Android's save picker
-/// (its access kept), for a key change; `None` when cancelled.
-#[tauri::command]
-pub async fn create_key_file(app: AppHandle) -> Result<Option<Picked>, String> {
-    off_main(move || {
-        let documents = app.state::<Documents<Wry>>();
-        let Some(picked) = documents.pick_to_create("PswManager.keyx")? else { return Ok(None) };
-        documents.write(&picked.uri, vault::new_key_file()?.as_bytes())?;
-        Ok(Some(picked))
-    })
-    .await
 }
 
 /// A key file's content, read once.

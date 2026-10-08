@@ -67,12 +67,27 @@ as a **visible file** the user can see and back up:
 - A file of the same name already in the folder at first run is kept as `<name>.kdbx.bak` before it is
   replaced, and the screen says so first.
 
+### Files and folders on the phone
+
+Android's pickers (files and folders) refuse some folders for every app — one named *Data*, say, whose
+files they hide and which they will not let be used. So, as an option, the user can turn on **All files
+access** for PswManager (Android's own setting, offered from the app the first time something is to be
+chosen; never needed otherwise). With it on, every place the app opens or writes something on the phone
+browses the phone's own storage in the app instead (its sheet keeps *Android's picker…* for an SD card or another volume): a key file (chosen or made), a database to open, the folder
+for a new database or for the visible copy, a file to attach, an attachment saved. What was chosen is then
+kept by its path and read and written as a picked document is. Without it, Android's pickers work as
+before. This is possible because the APK this project builds is not on Google Play, whose policy keeps
+that permission from password managers.
+
 ### A local file
 
 **Open a local file** picks an existing `.kdbx` anywhere Android's file picker reaches (the phone, an SD
 card, a folder another program syncs), with a persisted permission for that one file. That document is the
 database's **remote file**, synced with the working copy by the same rules as a cloud store or a LAN folder
-on Windows (*Synchronisation with a remote store* in `spec.md`):
+on Windows (*Synchronisation with a remote store* in `spec.md`). Android's pickers refuse some folders for
+every app (one named *Data*, say): with **All files access** turned on for PswManager (asked for only then,
+as for a key file), the phone's folders are browsed in the app instead, and the file chosen is synced by its
+path, as a LAN folder's file is on Windows:
 
 - Its revision is the hash of its content (Android's modification times and sizes cannot always tell an
   edit), so a change made elsewhere — Keepass2Android, Syncthing, another app — is seen at the next sync.
@@ -206,7 +221,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
-| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength) and / or a key file picked with Android's picker, or a **new key file** the app makes where the user chooses (as Windows' *New…*), or none; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows |
+| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; fine for the APK this project builds, which is not on Google Play, whose policy keeps that permission from password managers), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 

@@ -20,6 +20,8 @@ mod database;
 #[cfg(mobile)]
 mod editing;
 #[cfg(mobile)]
+mod phone_files;
+#[cfg(mobile)]
 mod icons;
 #[cfg(mobile)]
 mod provider;

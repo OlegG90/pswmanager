@@ -3,6 +3,9 @@ package io.github.olegg90.pswmanager
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -14,6 +17,7 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
@@ -43,6 +47,12 @@ class SaveArgs {
 }
 
 @InvokeArg
+class FolderArgs {
+  /** A folder the user picked ([DocumentsPlugin.pickFolder]). */
+  lateinit var folder: String
+}
+
+@InvokeArg
 class ChildArgs {
   /** A folder the user picked ([DocumentsPlugin.pickFolder]). */
   lateinit var folder: String
@@ -62,14 +72,12 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   private val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
-  /** The picker starts in Documents on the phone's own storage. */
-  private val documentsFolder: Uri =
-    DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
 
   @Command
   fun pickFolder(invoke: Invoke) {
+    // No starting place, as for files (see pickFile): pointed at Documents,
+    // the picker opens the "Documents" category, where no folder can be used.
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-      .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentsFolder)
       .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     startActivityForResult(invoke, intent, "picked")
   }
@@ -144,17 +152,37 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
   }
 
-  /** A new document named by the user in Android's save picker, its access kept
-   *  (a new key file, read at each unlock). */
+  /** Whether the app may read any file on the phone's storage (All files access). */
   @Command
-  fun pickToCreate(invoke: Invoke) {
-    val name = invoke.parseArgs(SaveArgs::class.java).name
-    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-      .addCategory(Intent.CATEGORY_OPENABLE)
-      .setType("application/octet-stream")
-      .putExtra(Intent.EXTRA_TITLE, name)
-      .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-    startActivityForResult(invoke, intent, "picked")
+  fun allFilesAccess(invoke: Invoke) {
+    // From Android 11; before, the app has no such access.
+    invoke.resolve(JSObject().put("granted", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()))
+  }
+
+  /** Android's page that turns All files access on for this app. */
+  @Command
+  fun askAllFilesAccess(invoke: Invoke) {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${activity.packageName}")))
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject("Cannot open the setting: ${e.message}")
+    }
+  }
+
+  /** The names of the files (not folders) in a picked folder. */
+  @Command
+  fun files(invoke: Invoke) = background(invoke) {
+    val folder = Uri.parse(invoke.parseArgs(FolderArgs::class.java).folder)
+    val children = DocumentsContract.buildChildDocumentsUriUsingTree(folder, DocumentsContract.getTreeDocumentId(folder))
+    val columns = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+    val names = JSArray()
+    resolver.query(children, columns, null, null, null)?.use { cursor ->
+      while (cursor.moveToNext()) {
+        if (cursor.getString(1) != DocumentsContract.Document.MIME_TYPE_DIR) names.put(cursor.getString(0))
+      }
+    }
+    JSObject().put("names", names)
   }
 
   /** The document named `name` in a picked folder, made when it is not there (unless `create` is false). */

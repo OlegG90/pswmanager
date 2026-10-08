@@ -84,7 +84,6 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             settings,
             set_setting,
             screen_off,
-            pick_key_file,
             clear_key_file,
             crate::icons::icon,
             lock_later,
@@ -109,10 +108,21 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::database::set_history_limits,
             crate::database::encryption_unlock_time,
             crate::database::set_encryption,
-            crate::database::pick_new_key_file,
             crate::database::change_master_key,
             crate::database::enter_other_key,
-            crate::database::create_key_file,
+            crate::phone_files::pick_key_folder,
+            crate::phone_files::key_file_in,
+            crate::phone_files::create_key_file_in,
+            crate::phone_files::use_key_file,
+            crate::phone_files::all_files_access,
+            crate::phone_files::ask_all_files_access,
+            crate::phone_files::browse,
+            crate::phone_files::key_file_at,
+            crate::phone_files::create_key_file_at,
+            crate::phone_files::open_database_at,
+            crate::phone_files::attach_file_at,
+            crate::phone_files::save_attachment_at,
+            crate::phone_files::folder_at,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,
@@ -525,19 +535,6 @@ const KEY_FILE: &str = "keyFile";
 
 pub(crate) fn key_file(store: &Store) -> Option<documents::Picked> {
     store.read(|s| s.settings.get(KEY_FILE).cloned()).and_then(|v| serde_json::from_value(v).ok())
-}
-
-/// Picks the key file the database is unlocked with (its access is kept).
-#[tauri::command]
-async fn pick_key_file(app: AppHandle) -> Result<Status, String> {
-    off_main(move || {
-        let store = app.state::<Store>();
-        if let Some(picked) = app.state::<Documents<Wry>>().pick_file()? {
-            remember_key_file(&store, &picked)?;
-        }
-        Ok(status_of(&store, &app.state::<Session>()))
-    })
-    .await
 }
 
 /// The database is unlocked with `picked` from now on.
