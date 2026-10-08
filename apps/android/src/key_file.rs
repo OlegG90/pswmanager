@@ -57,10 +57,7 @@ pub async fn key_file_in(app: AppHandle, folder: String, name: String) -> Result
 #[tauri::command]
 pub async fn create_key_file_in(app: AppHandle, folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
-        let name = name.trim().to_string();
-        if name.is_empty() || name.contains('/') {
-            return Err("Give the key file a name".into());
-        }
+        let name = file_name(&name)?;
         let documents = app.state::<Documents<Wry>>();
         if documents.find(&folder, &name)?.is_some() {
             return Err(format!("{name} is already there: choose another name"));
@@ -108,12 +105,28 @@ pub struct Browsed {
 
 /// `path` (none: the storage's top) as a folder within the phone's storage.
 fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path.unwrap_or(STORAGE));
+    let storage = Path::new(STORAGE).canonicalize().map_err(|e| format!("Cannot open the phone's storage: {e}"))?;
+    let path = path.map_or_else(|| storage.clone(), PathBuf::from);
     let canonical = path.canonicalize().map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
-    if !canonical.starts_with(STORAGE) {
+    if !canonical.starts_with(&storage) {
         return Err("Only the phone's own storage is browsed".into());
     }
     Ok(canonical)
+}
+
+/// A file's name as given for a key file: trimmed, and a name, not a path.
+fn file_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err("Give the key file a name".into());
+    }
+    Ok(name.to_string())
+}
+
+/// A file the app reads by its path: `file://` and the path as it is (not
+/// encoded; `DocumentIo` reads it so).
+fn path_uri(path: &Path) -> String {
+    format!("file://{}", path.display())
 }
 
 /// The folders and files in `path` (none: the storage's top), with All files
@@ -136,7 +149,8 @@ pub async fn browse(path: Option<String>) -> Result<Browsed, String> {
         }
         folders.sort_by_key(|n| n.to_lowercase());
         files.sort_by_key(|name| (!is_key_file(name), name.to_lowercase()));
-        let up = (folder != Path::new(STORAGE)).then(|| folder.parent().map(|p| p.display().to_string())).flatten();
+        let top = Path::new(STORAGE).canonicalize().map_err(|e| e.to_string())?;
+        let up = (folder != top).then(|| folder.parent()).flatten().map(|p| p.display().to_string());
         Ok(Browsed { path: folder.display().to_string(), up, folders, files })
     })
     .await
@@ -146,11 +160,12 @@ pub async fn browse(path: Option<String>) -> Result<Browsed, String> {
 #[tauri::command]
 pub async fn key_file_at(folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
+        let name = file_name(&name)?;
         let path = within_storage(Some(&folder))?.join(&name);
         if !path.is_file() {
             return Err(format!("{name} is not in the folder any more"));
         }
-        Ok(Picked { uri: format!("file://{}", path.display()), name })
+        Ok(Picked { uri: path_uri(&path), name })
     })
     .await
 }
@@ -160,16 +175,13 @@ pub async fn key_file_at(folder: String, name: String) -> Result<Picked, String>
 #[tauri::command]
 pub async fn create_key_file_at(folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
-        let name = name.trim().to_string();
-        if name.is_empty() || name.contains('/') {
-            return Err("Give the key file a name".into());
-        }
+        let name = file_name(&name)?;
         let path = within_storage(Some(&folder))?.join(&name);
         if path.exists() {
             return Err(format!("{name} is already there: choose another name"));
         }
         vault::create_key_file(&path)?;
-        Ok(Picked { uri: format!("file://{}", path.display()), name })
+        Ok(Picked { uri: path_uri(&path), name })
     })
     .await
 }
