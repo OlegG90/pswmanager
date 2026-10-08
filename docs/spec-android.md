@@ -12,8 +12,7 @@ Rust crate shared by both apps (see *Technology*), so they cannot drift apart.
 
 The look is in [`design/android/`](design/android/) (mockups from Claude Design). This spec describes
 behaviour, the mockups describe the look; where they disagree, this spec wins. The mockups also show
-things that come in later stages (the *Database* and *Backup* settings tabs, Templates, a database
-switch); see *Stages*.
+things that come in later stages (the *Backup* settings tab, Templates, a database switch); see *Stages*.
 
 ## Product
 
@@ -37,8 +36,8 @@ completely is a goal for later stages.
 ### Out of scope for now
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
-database on the phone), *Database settings* (name, history limits, key and
-encryption changes — they are done on Windows or in Keepass2Android), backup, the Templates
+database on the phone), changing the master password or key file (done on Windows or in Keepass2Android
+until #193's second part), backup, the Templates
 group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
 exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
 migration stays with `sic2kdbx.py`.
@@ -200,10 +199,11 @@ In tabs, as on Windows (mockup `1j`):
 |---|---|
 | General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons |
+| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The master password and key file are not changed here yet |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format |
 
-Settings belong to this phone; they are not synced with the PC. Their names, defaults and limits are the
+The phone's own settings belong to this phone; they are not synced with the PC (the Database tab's are the file's). Their names, defaults and limits are the
 PC's where both have one (`crates/core/src/settings.rs`). The screen opens from the toolbar's ⚙ and the drawer.
 
 ## Security behaviour

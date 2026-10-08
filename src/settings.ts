@@ -6,9 +6,8 @@ import { shownCombo } from './keys'
 import { ask } from './modal'
 import { changeMasterKey } from './change-key'
 import { changeEncryption, describeEncryption } from './change-encryption'
+import { HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from './database-settings'
 import { setUpSync } from './sync-setup'
-
-type Choice<T = number> = [value: T, label: string]
 
 const minutes = (never: string): Choice[] =>
   [...[1, 5, 15, 30, 60].map((m): Choice => [m, `${m} min`]), [0, never]]
@@ -16,15 +15,6 @@ const LOCK_AFTER = minutes('Never')
 const SYNC_EVERY = minutes('Off')
 const CLEAR_AFTER: Choice[] = [5, 10, 20, 30, 60, 120].map((s) => [s, `${s} s`])
 const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
-const versions = (n: number) => (n === 0 ? 'None' : n === 1 ? '1 version' : `${n} versions`)
-const HISTORY_ITEMS: Choice[] = [0, 3, 5, 10, 20, 50, 100].map((n): Choice => [n, versions(n)])
-const HISTORY_SIZE: Choice[] = [1, 2, 4, 6, 10, 20, 64].map((m): Choice => [m * 2 ** 20, formatSize(m * 2 ** 20)])
-
-/** `choices` with the file's own value among them: another client may have
- *  set no limit (-1), or a limit these do not offer. */
-function withValue(choices: Choice[], value: number, label: (value: number) => string): Choice[] {
-  return choices.some(([v]) => v === value) ? choices : [...choices, [value, value < 0 ? 'No limit' : label(value)]]
-}
 
 /** A switch: a button that is on or off. */
 function toggle(label: string, on: boolean, change: (on: boolean) => void): HTMLButtonElement {
@@ -201,8 +191,7 @@ export async function renderSettings(
     const setLimits = async (maxItems: number, maxSize: number) => {
       try {
         const going = await api.historyLimitsPreview(maxItems, maxSize)
-        const versions = going === 1 ? '1 older version' : `${going} older versions`
-        if (!going || await ask(`${versions} will be removed from the entries' history, in this file and in its synced copies.`, 'Remove')) {
+        if (!going || await ask(versionsGoing(going), 'Remove')) {
           d = await api.setHistoryLimits(maxItems, maxSize)
           onDatabase(d)
         }

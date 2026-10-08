@@ -16,6 +16,8 @@ mod cloud;
 #[cfg(mobile)]
 mod create;
 #[cfg(mobile)]
+mod database;
+#[cfg(mobile)]
 mod editing;
 #[cfg(mobile)]
 mod icons;

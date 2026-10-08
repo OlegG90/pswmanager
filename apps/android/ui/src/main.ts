@@ -2,7 +2,8 @@ import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
 import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
-import { OTP, PASSWORD, URL_FIELD, USERNAME } from '../../../../src/api'
+import { OTP, PASSWORD, URL_FIELD, USERNAME, type DatabaseSetting, type DatabaseSettings, type Encryption } from '../../../../src/api'
+import { describeEncryption, encryptionForm, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from '../../../../src/database-settings'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
@@ -745,7 +746,7 @@ function afterLock() {
 
 // ------------------------------------------------------------ settings
 
-type Tab = 'general' | 'appearance' | 'sync' | 'about'
+type Tab = 'general' | 'appearance' | 'database' | 'sync' | 'about'
 let settingsTab: Tab = 'general'
 
 /** A choice among values, saved as soon as it changes. */
@@ -835,21 +836,90 @@ function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   ]
 }
 
+/** The settings kept in the database file (#193), as on Windows: each change
+ *  is saved and synced like an edit; `changed` redraws with what was saved. */
+function databaseTab(d: DatabaseSettings | null, changed: (d: DatabaseSettings) => void): Node[] {
+  if (!d) return [el('p', { className: 'muted' }, 'The database settings could not be read.')]
+  const now = d
+  const run = (change: () => Promise<DatabaseSettings>) =>
+    void change().then(changed, (e) => (snack(String(e)), changed(now)))
+  const text = (label: string, hint: string, setting: DatabaseSetting, value: string, lines = 1) => {
+    const field = lines > 1 ? el('textarea', { className: 'field', rows: lines, value }) : input(value, { className: 'field' })
+    field.addEventListener('change', () => run(() => api.setDatabaseSetting(setting, field.value)))
+    return el('label', { className: 'edit-row' }, el('small', {}, `${label} · ${hint}`), field)
+  }
+  /** New history limits; when they remove versions, only after saying how many. */
+  const limits = (maxItems: number, maxSize: number) =>
+    void api.historyLimitsPreview(maxItems, maxSize).then((going) => {
+      const set = () => run(() => api.setHistoryLimits(maxItems, maxSize))
+      if (!going) return set()
+      // Shown as saved until the removal is confirmed, however the sheet closes.
+      changed(now)
+      confirmSheet(versionsGoing(going), 'Remove', set)
+    }, (e) => snack(String(e)))
+  const limit = (label: string, hint: string, value: number, choices: Choice[], pick: (v: number) => void) => {
+    const options = withValue(choices, value, label === 'Versions per entry' ? versions : formatSize)
+    const select = el('select', { className: 'field' }, ...options.map(([v, t], i) => el('option', { value: String(i), selected: v === value }, t)))
+    select.addEventListener('change', () => pick(options[Number(select.value)][0]))
+    return el('label', { className: 'setting' }, el('span', {}, label, el('small', {}, hint)), select)
+  }
+  return [
+    text('Name', 'on the unlock screen; the file keeps its name', 'name', now.name),
+    text('Description', 'under the name on the unlock screen', 'description', now.description, 2),
+    text('Default user name', 'on a new blank entry', 'defaultUsername', now.defaultUsername),
+    el('h2', {}, 'History'),
+    limit('Versions per entry', 'Older versions each entry keeps', now.historyMaxItems, HISTORY_ITEMS, (n) => limits(n, now.historyMaxSize)),
+    limit('Size per entry', 'The oldest versions go first when larger', now.historyMaxSize, HISTORY_SIZE, (n) => limits(now.historyMaxItems, n)),
+    el('h2', {}, 'Encryption'),
+    el('p', {}, describeEncryption(now.encryption)),
+    button('Change…', 'Change the cipher and key derivation', () => encryptionScreen(now.encryption, changed), 'wide'),
+    el('p', { className: 'muted' }, 'The master password and key file are changed on Windows or in Keepass2Android for now.'),
+  ]
+}
+
+/** Another cipher and / or key derivation, with a Test that times an unlock on this phone. */
+function encryptionScreen(now: Encryption, changed: (d: DatabaseSettings) => void) {
+  const error = el('p', { className: 'error', hidden: true })
+  const showError = (message: string) => ((error.textContent = message), (error.hidden = false))
+  const form = encryptionForm(now, api.encryptionUnlockTime, showError, 'this phone', () => (error.hidden = true))
+  const back = () => void settingsScreen(settingsBack)
+  const save = async () => {
+    const ms = form.unchanged() ? 0 : await form.measure()
+    if (ms === null) return
+    const change = () => void api.setEncryption(form.wanted()).then((d) => (changed(d), back(), snack('Encryption changed')), (e) => showError(String(e)))
+    if (form.heavy(ms)) confirmSheet('This phone and others may be slow to unlock the database with this, or run out of memory. Change anyway?', 'Change', change)
+    else change()
+  }
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Encryption')),
+    el('div', { className: 'encryption' }, ...form.fields),
+    error,
+    busyButton('Change', 'Save the database with this encryption', save, showError, 'primary'),
+  ], back)
+}
+
 async function settingsScreen(back: () => void) {
   settingsBack = back
   applySettings(await api.settings())
-  const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['sync', 'Sync'], ['about', 'About']]
+  const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']]
+  let kept: DatabaseSettings | null = null
+  try {
+    kept = await api.databaseSettings()
+  } catch (e) {
+    snack(String(e))
+  }
   const body = el('div', { className: 'settings' })
   const fill = () => {
     bar.querySelectorAll('button').forEach((b, i) => b.classList.toggle('chosen', tabs[i][0] === settingsTab))
-    body.replaceChildren(...tab(settingsTab, settings!))
+    body.replaceChildren(...(settingsTab === 'database' ? databaseTab(kept, (d) => ((kept = d), fill())) : tab(settingsTab, settings!)))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
   show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], back)
   fill()
 }
 
-function tab(which: Tab, s: Settings): Node[] {
+/** A tab of the phone's own settings (the Database tab is [databaseTab]). */
+function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
   switch (which) {
     case 'general':
       return [

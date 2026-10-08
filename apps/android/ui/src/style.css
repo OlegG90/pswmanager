@@ -535,6 +535,35 @@ button.tag-offer {
   flex-direction: column;
 }
 
+/* The encryption form (src/database-settings.ts): each label above its control. */
+.encryption label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.encryption select,
+.encryption input {
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.encryption .file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .setting select.field {
   width: auto;
   margin: 0;
