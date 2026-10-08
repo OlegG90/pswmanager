@@ -487,7 +487,7 @@ function listScreen(opened: Listing) {
     left: () => settingsPeek(() => listScreen(listing)),
   })
   // Another device changed the key: here until it is entered (as Windows' Enter key…).
-  const newKey = iconButton('keyRound', 'Enter the new key', otherKeyScreen)
+  const newKey = iconButton('keyRound', 'Enter the new key', () => void otherKeyScreen())
   newKey.hidden = !otherKey
   const toolbar = el('header', { className: 'bar' },
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
@@ -540,7 +540,7 @@ let keyAsked = false
 function askForKey() {
   if (!otherKey || keyAsked || !unlocked) return
   keyAsked = true
-  otherKeyScreen()
+  void otherKeyScreen()
 }
 
 /** Picks the folder for the visible copy and writes it there. */
@@ -731,7 +731,7 @@ function syncSheet() {
         ]
       : []),
     ...(signInAgain && database?.cloud ? [signInButton(database.cloud, close)] : []),
-    ...(otherKey ? [button('Enter the new key…', 'The master password and / or key file another device changed it to', () => (close(), otherKeyScreen()), 'primary')] : []),
+    ...(otherKey ? [button('Enter the new key…', 'The master password and / or key file another device changed it to', () => (close(), void otherKeyScreen()), 'primary')] : []),
     button('Sync now', 'Sync now', () => {
       close()
       void api.syncNow()
@@ -1081,13 +1081,14 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
     button('Change…', 'Change the cipher and key derivation', () => encryptionScreen(now.encryption), 'wide'),
     el('h2', {}, 'Master password and key file'),
     el('p', {}, database?.keyFile ? `Key file: ${database.keyFile}` : 'No key file'),
-    button('Change…', 'Change the master password and / or key file', changeKeyScreen, 'wide'),
+    button('Change…', 'Change the master password and / or key file', () => void changeKeyScreen(), 'wide'),
   ]
 }
 
 /** The key file a key is to have: the one the database has, another one
  *  picked with Android's picker, or none. */
 function keyFileChooser(fail: (message: string) => void, offerNew = false) {
+  // As the phone keeps it now (the status read when the screen opened).
   const now = database?.keyFile ?? null
   let chosen: NewKeyFile = { kind: 'keep' }
   const name = () => (chosen.kind === 'keep' ? now : chosen.kind === 'picked' ? chosen.name : null)
@@ -1111,7 +1112,9 @@ function keyFileChooser(fail: (message: string) => void, offerNew = false) {
 
 /** The key another device changed the database to (#193): the remote file is
  *  synced with it; once it opens, the phone unlocks with it. As on Windows. */
-function otherKeyScreen() {
+async function otherKeyScreen() {
+  // Which key file the phone uses, as it is now.
+  database = (await api.status()).database
   const error = errorLine()
   const password = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'The new master password', className: 'field' })
   error.hideOnInput(password)
@@ -1144,7 +1147,10 @@ function otherKeyScreen() {
 
 /** A new master password and / or key file, once the current master password
  *  proves right (#193); as on Windows (`spec.md` *Database settings*). */
-function changeKeyScreen() {
+async function changeKeyScreen() {
+  // Which key file the phone uses, as it is now: the chooser's No key file
+  // shows only when there is one to give up.
+  database = (await api.status()).database
   const error = errorLine()
   const back = () => void settingsScreen(settingsBack)
   const current = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Current master password', className: 'field' })
