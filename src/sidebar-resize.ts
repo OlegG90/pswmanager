@@ -1,56 +1,75 @@
-/** The sidebar's width, changed by dragging its edge (or with the arrow keys
- *  on it) and kept across runs on this PC; a double click puts it back. */
+/** The sidebar's width, changed by dragging its edge (or with the arrow keys,
+ *  Home and End on it) and kept across runs on this PC; a double click puts
+ *  it back. The list and the entry always keep room beside it. */
 
 const KEY = 'sidebar-width'
 const MIN = 140
 const MAX = 420
 const DEFAULT = 180
 const STEP = 10
+/** The list's least width (`#vault`'s grid) and the entry's least room. */
+const OTHERS = 220 + 160
 
-const clamp = (width: number) => Math.round(Math.min(MAX, Math.max(MIN, width)))
-
-/** Makes `handle` resize `sidebar` within `layout` (which reads `--sidebar-width`). */
-export function sidebarResizer(layout: HTMLElement, sidebar: HTMLElement, handle: HTMLElement) {
-  const set = (width: number, keep: boolean) => {
-    const w = clamp(width)
-    layout.style.setProperty('--sidebar-width', `${w}px`)
-    handle.setAttribute('aria-valuenow', String(w))
-    if (keep) {
-      try {
-        localStorage.setItem(KEY, String(w))
-      } catch {
-        // Not kept: the width still applies until the app closes.
-      }
+/** Makes `handle` (inside the sidebar) resize it within `layout`, which reads `--sidebar-width`. */
+export function sidebarResizer(layout: HTMLElement, handle: HTMLElement) {
+  let width = DEFAULT
+  let wanted = DEFAULT
+  // While the vault is hidden it has no width: no room to keep yet.
+  const most = () => (layout.clientWidth ? Math.max(MIN, Math.min(MAX, layout.clientWidth - OTHERS)) : MAX)
+  const apply = () => {
+    width = Math.round(Math.min(most(), Math.max(MIN, wanted)))
+    layout.style.setProperty('--sidebar-width', `${width}px`)
+    handle.setAttribute('aria-valuenow', String(width))
+    handle.setAttribute('aria-valuemax', String(most()))
+  }
+  const choose = (w: number) => {
+    wanted = w
+    apply()
+  }
+  const keep = () => {
+    try {
+      localStorage.setItem(KEY, String(width))
+    } catch {
+      // Not kept: the width still applies until the app closes.
     }
   }
   handle.setAttribute('aria-valuemin', String(MIN))
-  handle.setAttribute('aria-valuemax', String(MAX))
-  let saved = DEFAULT
   try {
-    saved = Number(localStorage.getItem(KEY)) || DEFAULT
+    wanted = Number(localStorage.getItem(KEY)) || DEFAULT
   } catch {
-    // Nothing kept: the default width.
+    // Nothing kept: the usual width.
   }
-  set(saved, false)
+  apply()
+  // Shown, or a narrower window: room from the sidebar first; a wider one gives it back.
+  new ResizeObserver(apply).observe(layout)
 
   handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return
     e.preventDefault()
     handle.setPointerCapture(e.pointerId)
-    const left = sidebar.getBoundingClientRect().left
-    const move = (m: PointerEvent) => set(m.clientX - left, false)
-    const up = (u: PointerEvent) => {
+    const left = handle.parentElement!.getBoundingClientRect().left
+    const move = (m: PointerEvent) => choose(m.clientX - left)
+    const end = () => {
       handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      set(u.clientX - left, true)
+      handle.removeEventListener('lostpointercapture', end)
+      keep()
     }
     handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
+    // Released, cancelled or taken away: capture is lost in every case.
+    handle.addEventListener('lostpointercapture', end)
   })
-  handle.addEventListener('dblclick', () => set(DEFAULT, true))
+  handle.addEventListener('dblclick', () => (choose(DEFAULT), keep()))
+  const keys: Record<string, () => number> = {
+    ArrowLeft: () => width - STEP,
+    ArrowRight: () => width + STEP,
+    Home: () => MIN,
+    End: () => most(),
+  }
   handle.addEventListener('keydown', (e) => {
-    const step = e.key === 'ArrowLeft' ? -STEP : e.key === 'ArrowRight' ? STEP : 0
-    if (!step) return
+    const to = keys[e.key]
+    if (!to) return
     e.preventDefault()
-    set(sidebar.getBoundingClientRect().width + step, true)
+    choose(to())
+    keep()
   })
 }

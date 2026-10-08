@@ -1320,7 +1320,7 @@ listen<string>('icon-ready', (e) => {
   siteIcons.refresh(e.payload)
 })
 
-sidebarResizer($('vault'), $('sidebar'), $('sidebar-resizer'))
+sidebarResizer($('vault'), $('sidebar-resizer'))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})
