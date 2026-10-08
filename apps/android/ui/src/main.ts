@@ -401,7 +401,7 @@ function listScreen(opened: Listing) {
   const title = el('h1', {})
   const searchField = el('input', { type: 'search', className: 'field search', value: query })
   const status = el('footer', { className: 'status' }, syncLine || 'Not synced yet')
-  const list = el('ul', { className: 'entries' })
+  const list = el('ul', { className: 'entries', role: 'listbox', ariaMultiSelectable: 'true', ariaLabel: 'Entries' })
   const inBin = () => search(listing.entries, '', TRASH).length
   const emptyBin = button('Empty the recycle bin…', 'Delete everything in it for good', () =>
     confirmSheet(`Delete ${entriesCount(inBin())} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
@@ -412,18 +412,19 @@ function listScreen(opened: Listing) {
   const chosenTitle = el('h1', {})
   const copyChosen = iconButton('copy', 'Copy from it', () => quickCopy(listing.entries.find((e) => chosen.has(e.id))!))
   const selecting = el('header', { className: 'bar', hidden: true },
-    iconButton('close', 'Clear the selection', () => select(null)),
+    iconButton('close', 'Clear the selection', () => clearSelection()),
     chosenTitle,
     copyChosen,
     iconButton('tag', 'Add or remove a tag', () => tagSheet([...chosen], listing, changedSeveral)),
     iconButton('trash', 'Move to the recycle bin', () =>
       confirmSheet(`Move ${entriesCount(chosen.size)} to the recycle bin?`, 'Delete', () =>
         void api.deleteEntries([...chosen]).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))))
-  const clearSelection = () => select(null)
-  /** Chooses `id` or lets it go (null: clears the selection). */
-  const select = (id: string | null) => {
-    if (id === null) chosen.clear()
-    else if (!chosen.delete(id)) chosen.add(id)
+  const toggle = (id: string) => {
+    if (!chosen.delete(id)) chosen.add(id)
+    marked()
+  }
+  const clearSelection = () => {
+    chosen.clear()
     marked()
   }
   /** The bar and the rows as the selection is. */
@@ -435,8 +436,9 @@ function listScreen(opened: Listing) {
     toolbar.hidden = searching.hidden = on
     findButton.hidden = on || searching.isConnected
     add.hidden = on
-    backs = backs.filter((b) => b !== clearSelection)
-    if (on) backs.push(clearSelection)
+    // Back clears it, after whatever was open over it (a sheet) is closed.
+    if (!on) backs = backs.filter((b) => b !== clearSelection)
+    else if (!backs.includes(clearSelection)) backs.push(clearSelection)
     for (const item of list.querySelectorAll<HTMLElement>('li[data-id]')) {
       const picked = chosen.has(item.dataset.id!)
       item.classList.toggle('selected', picked)
@@ -445,15 +447,15 @@ function listScreen(opened: Listing) {
   }
   const changedSeveral = (fresh: Listing, message: string) => {
     listing = fresh
-    select(null)
+    chosen.clear()
     fill()
     snack(message)
   }
   const pick = (entry: Entry) => {
-    if (chosen.size) select(entry.id)
+    if (chosen.size) toggle(entry.id)
     else void entryScreen(entry.id, listing)
   }
-  const press = (entry: Entry) => (sameFilter(filter, TRASH) ? quickCopy(entry) : select(entry.id))
+  const press = (entry: Entry) => (sameFilter(filter, TRASH) ? quickCopy(entry) : toggle(entry.id))
   const fill = () => {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
@@ -556,7 +558,7 @@ function filterLabel(f: Filter) {
 
 /** An entry in the list: a tap does `tap`, a long press `press`. */
 function row(entry: Entry, listing: Listing, tap: (entry: Entry) => void, press: (entry: Entry) => void): HTMLLIElement {
-  const item = el('li', { tabIndex: 0 }, icon(entry, listing), el('span', {}, el('b', {}, titleOf(entry)), el('small', {}, entry.username)))
+  const item = el('li', { tabIndex: 0, role: 'option' }, icon(entry, listing), el('span', {}, el('b', {}, titleOf(entry)), el('small', {}, entry.username)))
   item.dataset.id = entry.id
   item.addEventListener('click', () => tap(entry))
   item.addEventListener('contextmenu', (e) => {
@@ -578,6 +580,7 @@ function tagSheet(ids: string[], listing: Listing, done: (fresh: Listing, messag
   sheet((close) => {
     const name = input('', { className: 'field', ariaLabel: 'Tag', placeholder: 'Tag to add' })
     const offered = el('div', { className: 'tag-offers' })
+    // The first dozen that match what is typed: enough to pick from without scrolling the sheet.
     const offer = () =>
       offered.replaceChildren(...known.filter((t) => t.toLowerCase().includes(name.value.trim().toLowerCase())).slice(0, 12)
         .map((t) => button(`#${t}`, `Add the tag ${t}`, () => change(t, true, close), 'tag-offer')))
