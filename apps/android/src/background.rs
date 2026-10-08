@@ -11,9 +11,11 @@
 //! start of the app in the same process keeps those, as they are installed
 //! first.
 
-use jni::objects::{GlobalRef, JByteArray, JClass, JObject, JString, JValue, JValueOwned};
+use jni::objects::{Global, JByteArray, JClass, JObject, JString, JValue, JValueOwned};
+use jni::signature::{MethodSignature, RuntimeMethodSignature};
+use jni::strings::JNIString;
 use jni::sys::{jboolean, JNI_FALSE, JNI_TRUE};
-use jni::{JNIEnv, JavaVM};
+use jni::{Env, EnvUnowned, JavaVM, Outcome};
 use pswm_core::documents::{self, DocumentStore};
 use pswm_core::secrets::{self, SecretStore};
 use pswm_core::session::Session;
@@ -34,17 +36,31 @@ pub fn remember(app: &AppHandle) {
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_BackgroundUpload_uploadPending<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _class: JClass<'local>,
     context: JObject<'local>,
     state: JString<'local>,
 ) -> jboolean {
-    let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| upload(&mut env, &context, &state)));
-    if matches!(done, Ok(Ok(true))) {
+    let done = native(&mut env, false, |env| matches!(upload(env, &context, &state), Ok(true)));
+    if done {
         JNI_TRUE
     } else {
         JNI_FALSE
     }
+}
+
+/// Runs `work` with the [Env] of a native method's call (jni 0.22); `fallback`
+/// when JNI cannot give one or `work` panics.
+pub(crate) fn native<'local, T>(env: &mut EnvUnowned<'local>, fallback: T, work: impl FnOnce(&mut Env<'local>) -> T) -> T {
+    match env.with_env(|env| Ok::<T, jni::errors::Error>(work(env))).into_outcome() {
+        Outcome::Ok(value) => value,
+        _ => fallback,
+    }
+}
+
+/// A Java string as Rust's.
+pub(crate) fn text(env: &Env, value: &JString) -> Result<String, String> {
+    Ok(env.get_string(value).map_err(|e| e.to_string())?.to_string())
 }
 
 /// Whether the upload is settled ([sync::settled]): WorkManager tries again
@@ -54,11 +70,11 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_BackgroundUpload_upload
 /// app start in this process meanwhile, both write the file whole; the
 /// app's may put back an older sync state, which costs a needless check or
 /// merge at the next sync, never data.
-fn upload(env: &mut JNIEnv, context: &JObject, state: &JString) -> Result<bool, String> {
+fn upload(env: &mut Env, context: &JObject, state: &JString) -> Result<bool, String> {
     if let Some(app) = APP.get() {
         return Ok(crate::app::upload_pending_now(app));
     }
-    let state: String = env.get_string(state).map_err(|e| e.to_string())?.into();
+    let state = text(env, state)?;
     Kotlin::install(env, context)?;
     let store = Store::load(PathBuf::from(state));
     if !sync::has_pending(&store) {
@@ -73,9 +89,9 @@ fn upload(env: &mut JNIEnv, context: &JObject, state: &JString) -> Result<bool, 
 /// app's own plugins (the work started the process), these serve the app too.
 pub(crate) struct Kotlin {
     vm: JavaVM,
-    context: GlobalRef,
-    keystore: GlobalRef,
-    document_io: GlobalRef,
+    context: Global<JObject<'static>>,
+    keystore: Global<JClass<'static>>,
+    document_io: Global<JClass<'static>>,
 }
 
 /// An argument after the app's context.
@@ -86,13 +102,13 @@ enum Arg<'a> {
 
 impl Kotlin {
     /// Installs the core's secrets and documents through JNI, once.
-    pub(crate) fn install(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
+    pub(crate) fn install(env: &mut Env, context: &JObject) -> Result<(), String> {
         static INSTALLED: OnceLock<()> = OnceLock::new();
         if INSTALLED.get().is_some() {
             return Ok(());
         }
-        let class = |env: &mut JNIEnv, name: &str| -> Result<GlobalRef, String> {
-            let class = env.find_class(name).map_err(|e| e.to_string())?;
+        let class = |env: &mut Env, name: &str| -> Result<Global<JClass<'static>>, String> {
+            let class = env.find_class(JNIString::from(name)).map_err(|e| e.to_string())?;
             env.new_global_ref(class).map_err(|e| e.to_string())
         };
         let kotlin = Arc::new(Kotlin {
@@ -109,36 +125,37 @@ impl Kotlin {
 
     /// Calls `class`'s static `method` with the app's context and `args`, in a
     /// local frame (a whole database can pass through), and reads the answer
-    /// with `read`; a Java exception is cleared and becomes the error.
+    /// with `read`; a Java exception is caught (by the attachment) and becomes
+    /// the error.
     fn call<T>(
         &self,
-        class: &GlobalRef,
+        class: &Global<JClass<'static>>,
         method: &str,
         signature: &str,
         args: &[Arg],
-        read: impl FnOnce(&mut JNIEnv, JValueOwned) -> jni::errors::Result<T>,
+        read: impl FnOnce(&mut Env, JValueOwned) -> jni::errors::Result<T>,
     ) -> Result<T, String> {
-        let mut env = self.vm.attach_current_thread().map_err(|e| e.to_string())?;
-        let result = env.with_local_frame(8, |env| -> jni::errors::Result<T> {
-            let mut objects = Vec::with_capacity(args.len());
-            for arg in args {
-                objects.push(match arg {
-                    Arg::Text(text) => JObject::from(env.new_string(text)?),
-                    Arg::Bytes(bytes) => JObject::from(env.byte_array_from_slice(bytes)?),
-                });
-            }
-            let mut values = vec![JValue::Object(self.context.as_obj())];
-            for object in &objects {
-                values.push(JValue::Object(object));
-            }
-            let value = env.call_static_method(<&JClass>::from(class.as_obj()), method, signature, &values)?;
-            read(env, value)
-        });
-        if env.exception_check().unwrap_or(false) {
-            let _ = env.exception_clear();
-            return Err(format!("{method} failed"));
-        }
-        result.map_err(|e| e.to_string())
+        let name = JNIString::from(method);
+        let signature: RuntimeMethodSignature = signature.parse().map_err(|e: jni::errors::Error| e.to_string())?;
+        self.vm
+            .attach_current_thread(|env| {
+                env.with_local_frame(8, |env| -> jni::errors::Result<T> {
+                    let mut objects = Vec::with_capacity(args.len());
+                    for arg in args {
+                        objects.push(match arg {
+                            Arg::Text(text) => JObject::from(env.new_string(text)?),
+                            Arg::Bytes(bytes) => JObject::from(env.byte_array_from_slice(bytes)?),
+                        });
+                    }
+                    let mut values = vec![JValue::Object(self.context.as_obj())];
+                    for object in &objects {
+                        values.push(JValue::Object(object));
+                    }
+                    let value = env.call_static_method(&**class, &name, MethodSignature::from(&signature), &values)?;
+                    read(env, value)
+                })
+            })
+            .map_err(|e: jni::errors::Error| format!("{method} failed: {e}"))
     }
 }
 
@@ -158,7 +175,8 @@ impl SecretStore for Secrets {
                 if value.is_null() {
                     return Ok(None);
                 }
-                Ok(Some(Zeroizing::new(env.get_string(&JString::from(value))?.into())))
+                let value = env.cast_local::<JString>(value)?;
+                Ok(Some(Zeroizing::new(env.get_string(&value)?.to_string())))
             })
             .ok()
             .flatten()
@@ -180,7 +198,8 @@ impl DocumentStore for Documents {
             if value.is_null() {
                 return Ok(None);
             }
-            env.convert_byte_array(JByteArray::from(value)).map(Some)
+            let value = env.cast_local::<JByteArray>(value)?;
+            env.convert_byte_array(&value).map(Some)
         })
     }
 
