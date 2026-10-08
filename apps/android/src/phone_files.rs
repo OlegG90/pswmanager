@@ -49,6 +49,7 @@ fn is_key_file(name: &str) -> bool {
 #[tauri::command]
 pub async fn key_file_in(app: AppHandle, folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
+        let name = file_name(&name)?;
         let uri = app.state::<Documents<Wry>>().find(&folder, &name)?.ok_or(format!("{name} is not in the folder any more"))?;
         Ok(Picked { uri, name })
     })
@@ -76,6 +77,10 @@ pub async fn create_key_file_in(app: AppHandle, folder: String, name: String) ->
 /// *Use a key file…*).
 #[tauri::command]
 pub fn use_key_file(app: AppHandle, key_file: Picked) -> Result<Status, String> {
+    // One by its path is within the phone's storage, as browsing keeps it.
+    if let Some(path) = crate::documents::local(&key_file.uri) {
+        within_storage(path.parent().and_then(Path::to_str))?;
+    }
     let store = app.state::<Store>();
     app::remember_key_file(&store, &key_file)?;
     Ok(app::status_of(&store, &app.state::<Session>()))
@@ -96,7 +101,7 @@ pub async fn ask_all_files_access(app: AppHandle) -> Result<(), String> {
     off_main(move || app.state::<Documents<Wry>>().ask_all_files_access()).await
 }
 
-/// A folder of the phone's storage, browsed for a key file.
+/// A folder of the phone's storage, browsed.
 #[derive(Serialize)]
 pub struct Browsed {
     path: String,
@@ -224,7 +229,9 @@ pub async fn save_attachment_at(app: AppHandle, id: String, name: String, versio
         if path.exists() {
             return Err(format!("{file_name} is already there: choose another name"));
         }
-        std::fs::write(&path, &*data).map_err(|e| format!("Cannot save {file_name}: {e}"))
+        // A new file only: never over one there, nor through a link to one.
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| format!("Cannot save {file_name}: {e}"))?;
+        std::io::Write::write_all(&mut file, &data).map_err(|e| format!("Cannot save {file_name}: {e}"))
     })
     .await
 }

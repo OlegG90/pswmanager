@@ -3,6 +3,7 @@ package io.github.olegg90.pswmanager
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.provider.DocumentsContract
@@ -154,7 +155,8 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
   /** Whether the app may read any file on the phone's storage (All files access). */
   @Command
   fun allFilesAccess(invoke: Invoke) {
-    invoke.resolve(JSObject().put("granted", Environment.isExternalStorageManager()))
+    // From Android 11; before, the app has no such access.
+    invoke.resolve(JSObject().put("granted", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()))
   }
 
   /** Android's page that turns All files access on for this app. */

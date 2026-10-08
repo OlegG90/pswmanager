@@ -145,7 +145,7 @@ function chooseScreen() {
   }
   // Android's file picker, or the phone's folders browsed here (#207).
   const local = busyButton('Open a local file', 'A .kdbx on this phone or an SD card', async () => opened(await onPhone('Where the database is',
-    (done) => browsePhone({ first: (n) => /\.kdbx$/i.test(n), pick: api.openDatabaseAt, done }),
+    (done, picker) => browsePhone({ first: (n) => /\.kdbx$/i.test(n), pick: api.openDatabaseAt, done, picker }),
     api.openLocalFile)), error.show, 'card')
   show([
     el('p', { className: 'muted' }, 'First run'),
@@ -1096,10 +1096,12 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
  *  what was chosen, or null); otherwise a sheet offers Android's `picker`
  *  (which refuses some folders, one named Data, say) or turning the access
  *  on. Null when nothing was chosen. */
-function onPhone<T>(what: string, browse: (done: (it: T | null) => void) => void, picker: () => Promise<T | null>): Promise<T | null> {
+function onPhone<T>(what: string, browse: (done: (it: T | null) => void, picker: () => void) => void, picker: () => Promise<T | null>): Promise<T | null> {
   return new Promise((resolve, reject) => {
+    // Browsing reaches the phone's own storage: Android's picker stays for an SD card, say.
+    const toPicker = () => picker().then(resolve, reject)
     void api.allFilesAccess().then((granted) => {
-      if (granted) return browse(resolve)
+      if (granted) return browse(resolve, toPicker)
       let handedOn = false
       sheet((close) => [
         el('b', {}, what),
@@ -1120,15 +1122,16 @@ function onPhone<T>(what: string, browse: (done: (it: T | null) => void) => void
 
 /** A folder on the phone, for a new database or the visible copy. */
 const phoneFolder = (what: string) =>
-  onPhone<Picked>(what, (done) => browsePhone({ first: () => false, folder: api.folderAt, done }), api.pickFolder)
+  onPhone<Picked>(what, (done, picker) => browsePhone({ first: () => false, folder: api.folderAt, done, picker }), api.pickFolder)
 
 /** A key file to choose (`make`: a new one to make) (#207). */
 function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
   onPhone<Picked>(make ? 'Where the new key file goes' : 'Where the key file is',
-    (finish) => browsePhone({
+    (finish, picker) => browsePhone({
       first: isKeyFileName,
       ...(make ? { make: api.createKeyFileAt, makeName: 'PswManager.keyx' } : { pick: api.keyFileAt }),
       done: finish,
+      picker,
     }),
     () => new Promise((picked) => (make ? newKeyFileInFolder : keyFileFromFolder)(picked, fail)),
   ).then((keyFile) => keyFile && done(keyFile), (e) => fail(String(e)))
@@ -1148,19 +1151,28 @@ function browsePhone<T>(how: {
   makeName?: string
   folder?: (path: string) => Promise<T>
   done: (it: T | null) => void
+  /** Android's picker instead (an SD card, another volume). */
+  picker?: () => void
 }) {
+  let handedOn = false
   sheet((close) => {
     const where = el('b', {})
     const items = el('div', { className: 'browser' })
     const error = errorLine()
     const name = input(how.makeName ?? '', { className: 'field', ariaLabel: 'Name' })
     error.hideOnInput(name)
-    // What was chosen goes before the sheet closes, which would say null.
-    const finish = (chosen: Promise<T>) => void chosen.then((it) => (how.done(it), close()), (e) => error.show(String(e)))
+    // What was chosen goes before the sheet closes, which would say null;
+    // a second tap meanwhile does nothing.
+    let busy = false
+    const finish = (chosen: () => Promise<T>) => {
+      if (busy) return
+      busy = true
+      void chosen().then((it) => (how.done(it), close()), (e) => error.show(String(e))).finally(() => (busy = false))
+    }
     let shown = ''
     const actions = [
-      ...(how.make ? [name, button('Make it here', 'Make it in this folder', () => finish(how.make!(shown, name.value)), 'primary')] : []),
-      ...(how.folder ? [button('Use this folder', 'Use the folder shown', () => finish(how.folder!(shown)), 'primary')] : []),
+      ...(how.make ? [name, button('Make it here', 'Make it in this folder', () => finish(() => how.make!(shown, name.value)), 'primary')] : []),
+      ...(how.folder ? [button('Use this folder', 'Use the folder shown', () => finish(() => how.folder!(shown)), 'primary')] : []),
     ]
     const open = (path: string | null) => void api.browse(path).then((folder) => {
       shown = folder.path
@@ -1170,12 +1182,15 @@ function browsePhone<T>(how: {
       items.replaceChildren(
         ...(folder.up ? [button('↑ Up', 'The folder above', () => open(folder.up), 'item')] : []),
         ...folder.folders.map((f) => button(`${f}/`, `Open ${f}`, () => open(`${folder.path}/${f}`), 'item')),
-        ...(how.pick ? files.map((f) => button(f, `Use ${f}`, () => finish(how.pick!(folder.path, f)), 'item')) : []),
+        ...(how.pick ? files.map((f) => button(f, `Use ${f}`, () => finish(() => how.pick!(folder.path, f)), 'item')) : []),
       )
     }, (e) => error.show(String(e)))
     open(null)
-    return [where, items, error.line, ...actions, button('Cancel', 'Cancel', close, 'link')]
-  }, () => how.done(null))
+    const elsewhere = how.picker
+      ? [button('Android’s picker…', 'Somewhere else: an SD card, another volume', () => ((handedOn = true), close(), how.picker!()), 'link')]
+      : []
+    return [where, items, error.line, ...actions, ...elsewhere, button('Cancel', 'Cancel', close, 'link')]
+  }, () => handedOn || how.done(null))
 }
 
 /** A key file chosen through a folder (#207): Android's file picker lists
@@ -1523,7 +1538,7 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
     const save = (name: string) => void onPhone<boolean>(`Where ${name} goes`,
-      (done) => browsePhone({ first: () => false, makeName: name, make: (folder, as) => api.saveAttachmentAt(id, name, version, folder, as).then(() => true), done }),
+      (done, picker) => browsePhone({ first: () => false, makeName: name, make: (folder, as) => api.saveAttachmentAt(id, name, version, folder, as).then(() => true), done, picker }),
       () => api.saveAttachment(id, name, version)).then((saved) => saved && snack(`${name} saved`), (e) => snack(String(e)))
     rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [
       ['Open', 'fileOutput', () => open(a.name)],
@@ -1683,7 +1698,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
   const files = filesEditor(attachments, {
-    pick: () => onPhone('The file to attach', (done) => browsePhone({ first: () => false, pick: api.attachFileAt, done }), api.pickFileToAttach),
+    pick: () => onPhone('The file to attach', (done, picker) => browsePhone({ first: () => false, pick: api.attachFileAt, done, picker }), api.pickFileToAttach),
     release: api.releaseFiles,
     askName,
   }, (message) => showError(message))

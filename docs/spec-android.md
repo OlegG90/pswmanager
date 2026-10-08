@@ -73,7 +73,7 @@ Android's pickers (files and folders) refuse some folders for every app — one 
 files they hide and which they will not let be used. So, as an option, the user can turn on **All files
 access** for PswManager (Android's own setting, offered from the app the first time something is to be
 chosen; never needed otherwise). With it on, every place the app opens or writes something on the phone
-browses the phone's folders in the app instead: a key file (chosen or made), a database to open, the folder
+browses the phone's own storage in the app instead (its sheet keeps *Android's picker…* for an SD card or another volume): a key file (chosen or made), a database to open, the folder
 for a new database or for the visible copy, a file to attach, an attachment saved. What was chosen is then
 kept by its path and read and written as a picked document is. Without it, Android's pickers work as
 before. This is possible because the APK this project builds is not on Google Play, whose policy keeps

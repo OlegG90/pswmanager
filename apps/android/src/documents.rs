@@ -19,6 +19,14 @@ pub fn local(uri: &str) -> Option<&Path> {
     uri.strip_prefix("file://").map(Path::new)
 }
 
+/// `name` in a folder reached by its path: a name, not a path.
+fn in_folder(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err(format!("{name} is not a file's name"));
+    }
+    Ok(dir.join(name))
+}
+
 /// [local]'s URI for `path`.
 pub fn path_uri(path: &Path) -> String {
     format!("file://{}", path.display())
@@ -178,7 +186,7 @@ impl<R: Runtime> Documents<R> {
     /// The document named `name` in a picked folder, made when it is not there.
     pub fn child(&self, folder: &str, name: &str) -> Result<String, String> {
         if let Some(dir) = local(folder) {
-            let path = dir.join(name);
+            let path = in_folder(dir, name)?;
             if !path.exists() {
                 std::fs::File::create(&path).map_err(|e| path_error(&path, e))?;
             }
@@ -191,7 +199,7 @@ impl<R: Runtime> Documents<R> {
     /// The document named `name` in a picked folder, if it is there.
     pub fn find(&self, folder: &str, name: &str) -> Result<Option<String>, String> {
         if let Some(dir) = local(folder) {
-            let path = dir.join(name);
+            let path = in_folder(dir, name)?;
             return Ok(path.exists().then(|| path_uri(&path)));
         }
         Ok(self.call::<ChildAnswer>("child", ChildArgs { folder, name, create: false })?.uri)

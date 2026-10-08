@@ -2,6 +2,7 @@ package io.github.olegg90.pswmanager
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import java.io.File
 import java.io.FileNotFoundException
@@ -20,7 +21,7 @@ object DocumentIo {
   @JvmStatic
   fun read(context: Context, uri: String): ByteArray? {
     pathOf(uri)?.let { file ->
-      if (!Environment.isExternalStorageManager()) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
         throw Exception("All files access is off: turn it on again for PswManager to read ${file.name}")
       }
       return if (file.isFile) file.readBytes() else null
