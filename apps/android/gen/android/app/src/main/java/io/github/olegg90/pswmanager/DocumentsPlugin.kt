@@ -69,14 +69,12 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
 
   private val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 
-  /** The picker starts in Documents on the phone's own storage. */
-  private val documentsFolder: Uri =
-    DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents")
 
   @Command
   fun pickFolder(invoke: Invoke) {
+    // No starting place, as for files (see pickFile): pointed at Documents,
+    // the picker opens the "Documents" category, where no folder can be used.
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-      .putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentsFolder)
       .addFlags(readWrite or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     startActivityForResult(invoke, intent, "picked")
   }
