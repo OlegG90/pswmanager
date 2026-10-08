@@ -142,7 +142,10 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   keyboard shortcuts (see *Keyboard shortcuts*).
 - Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
   `#work`), the **list** of entries the sidebar's choice shows, and the selected **entry** (see *Groups and
-  tags*). There is no filter menu.
+  tags*). There is no filter menu. The sidebar's width is changed by dragging its edge (140 to 420 px, the
+  list and the entry keeping their room; ← / →, Home and End on the edge too; a double click puts the
+  usual width back) and is kept on this PC. A long tag name is cut short with
+  an ellipsis; its ⋯ menu and count stay in place, the counts in one column.
 - The entry view shows title, tags as yellow chips (the Favorite star stays separate), user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes, attached files (name and size) and when the entry was last changed
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers

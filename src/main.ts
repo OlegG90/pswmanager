@@ -7,6 +7,7 @@ import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
 import { menuButton } from './menu'
 import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
+import { sidebarResizer } from './sidebar-resize'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
@@ -1318,6 +1319,8 @@ listen('settings-changed', () => {
 listen<string>('icon-ready', (e) => {
   siteIcons.refresh(e.payload)
 })
+
+sidebarResizer($('vault'), $('sidebar-resizer'))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})
