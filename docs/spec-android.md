@@ -193,7 +193,8 @@ As in the mockups `1e`–`1j`.
 
 ### Settings
 
-In tabs, as on Windows (mockup `1j`):
+In tabs, as on Windows (mockup `1j`). The tabs scroll sideways when they do not fit; an arrow at an end
+shows that more are hidden that way, and a tap on it scrolls there.
 
 | Tab | Settings |
 |---|---|

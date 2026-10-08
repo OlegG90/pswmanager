@@ -914,8 +914,24 @@ async function settingsScreen(back: () => void) {
     body.replaceChildren(...(settingsTab === 'database' ? databaseTab(kept, (d) => ((kept = d), fill())) : tab(settingsTab, settings!)))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
-  show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), bar, body], back)
+  show([el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Settings')), scrolledTabs(bar), body], back)
   fill()
+  bar.querySelector('.chosen')?.scrollIntoView({ inline: 'nearest' })
+}
+
+/** The tabs, wider than the screen, with an arrow on each side where more of
+ *  them are hidden; tapping it scrolls that way. */
+function scrolledTabs(bar: HTMLElement): HTMLElement {
+  const by = (side: number) => () => bar.scrollBy({ left: side * bar.clientWidth * 0.6, behavior: 'smooth' })
+  const left = iconButton('back', 'More tabs to the left', by(-1), 'icon tabs-more left')
+  const right = iconButton('forward', 'More tabs to the right', by(1), 'icon tabs-more right')
+  const arrows = () => {
+    left.hidden = bar.scrollLeft <= 1
+    right.hidden = bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 1
+  }
+  bar.addEventListener('scroll', arrows, { passive: true })
+  new ResizeObserver(arrows).observe(bar)
+  return el('div', { className: 'tabs-box' }, left, bar, right)
 }
 
 /** A tab of the phone's own settings (the Database tab is [databaseTab]). */
