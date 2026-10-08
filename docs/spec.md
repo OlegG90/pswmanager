@@ -185,7 +185,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
   tag.
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
-  change (each entry keeps its previous version in history).
+  change (tags, the star among them, keep no version in history: see *Entry history*).
 - **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
   or **removed** from every entry, after a confirmation. The entries themselves stay.
 - **Trash:** **Restore** puts an entry back where it was (the group it was deleted from, which KDBX 4.1
@@ -211,6 +211,10 @@ which shows entries without user tags (the `Favorite` star does not count); then
 Every change to an entry keeps its previous version in the entry's history (KeePass's own history, which
 KeePassXC and Keepass2Android keep too, so their changes show here as well), up to the database's limits
 (`HistoryMaxItems`, 10 when the database does not say, and `HistoryMaxSize`; see *Database settings*).
+Tags are the exception (#181): adding, removing or renaming a tag, the Favorite star included, changes
+the entry without a new version, whether in the editor, for several entries or from the sidebar; the
+entry is still the newer one for a merge. An edit that changes anything else keeps the previous version
+as usual, its tags included.
 
 - **History (N)** in the entry view lists the older versions, newest first: when each was saved and what
   changed from it to the next newer version — the names of the fields (title, user name, password, URL,
@@ -363,7 +367,8 @@ while the database is locked):
   keepass-rs cannot rename a file either: renaming lets the entry go of the file the same way and attaches
   its content under the new name (history keeps the old name). Renaming to a name another file of the
   entry has is refused.
-- Every edit pushes the previous version into the entry's history.
+- Every edit pushes the previous version into the entry's history, except one that changes only the tags
+  (see *Entry history*).
 - **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,
   exclude look-alike characters. Generated with the OS CSPRNG.
 - **Strength indicator** (zxcvbn) next to the password field.

@@ -345,8 +345,16 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
         entry.move_to(group).map_err(|e| e.to_string())?;
         entry.times.location_changed = Some(Times::now());
     }
-    let tracked_edit = entry.fields != wanted || entry.tags != tags || icon_changed || expiry_changed;
-    if tracked_edit {
+    // Tags alone are no new version (see [set_tags]); with anything else they
+    // change in the same tracked edit.
+    let tracked_edit = entry.fields != wanted || icon_changed || expiry_changed;
+    if !tracked_edit {
+        if entry.tags != tags {
+            set_tags(&mut entry, tags);
+        }
+        return Ok((id, false));
+    }
+    {
         let mut tracked = entry.track_changes();
         tracked.edit(|e| {
             e.fields = wanted;
@@ -1113,17 +1121,22 @@ fn tag_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-/// Gives the entry the tags `change` makes of its own, its previous version
-/// kept in history. Nothing changes when they are the same.
+/// Gives the entry the tags `change` makes of its own. Nothing changes when
+/// they are the same.
 fn retag(db: &mut Database, id: EntryId, change: impl FnOnce(&[String]) -> Vec<String>) {
     let Some(entry) = db.entry(id) else { return };
     let tags = change(&entry.tags);
-    if tags == entry.tags {
-        return;
+    if tags != entry.tags {
+        set_tags(&mut db.entry_mut(id).expect("checked above"), tags);
     }
-    db.entry_mut(id).expect("checked above").track_changes().edit(|e| e.tags = tags);
-    // the tracker, dropped above, filed the old version into the history
-    trim_history(db, id);
+}
+
+/// Gives the entry `tags` without a new version in its history (#181): tags
+/// sort entries, they are not what the entry holds. The entry is still the
+/// newer one for a merge.
+fn set_tags(entry: &mut Entry, tags: Vec<String>) {
+    entry.tags = tags;
+    entry.times.last_modification = Some(Times::now());
 }
 
 /// True when an edit (`data` against the entry as the editor opened it,
@@ -1439,22 +1452,26 @@ mod tests {
     }
 
     #[test]
-    fn tags_are_set_on_several_entries_with_history() {
+    fn tags_are_set_on_several_entries_without_history() {
         let mut db = Database::new();
         let a = apply(&mut db, None, &with("a", |d| d.tags = vec!["work".into()]), &HashSet::new()).unwrap();
         let b = apply(&mut db, None, &data("b"), &HashSet::new()).unwrap();
         let binned = apply(&mut db, None, &data("binned"), &HashSet::new()).unwrap();
         let bin = db.entry(binned).unwrap().parent().id();
         let tags = |db: &Database, id: EntryId| db.entry(id).unwrap().tags.clone();
+        let modified = |db: &Database, id: EntryId| db.entry(id).unwrap().times.last_modification;
+        let before = modified(&db, a);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
         set_tag(&mut db, &[a, b], FAVORITE, true, &HashSet::new()).unwrap();
         assert_eq!((tags(&db, a), tags(&db, b)), (vec!["work".to_string(), FAVORITE.into()], vec![FAVORITE.to_string()]));
-        assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
+        // No new version (#181), but newer for a merge.
+        assert_eq!((history_len(&db, a), history_len(&db, b)), (0, 0));
+        assert!(modified(&db, a) > before);
         // Already so, even not last: nothing changes.
         set_tag(&mut db, &[a], "work", true, &HashSet::new()).unwrap();
         set_tag(&mut db, &[b], "work", false, &HashSet::new()).unwrap();
-        assert_eq!((history_len(&db, a), history_len(&db, b)), (1, 1));
         set_tag(&mut db, &[a, b], " work ", false, &HashSet::new()).unwrap();
-        assert_eq!((tags(&db, a), history_len(&db, b)), (vec![FAVORITE.to_string()], 1));
+        assert_eq!((tags(&db, a), history_len(&db, a)), (vec![FAVORITE.to_string()], 0));
         // Entries gone and hidden ones are left out.
         let gone = EntryId::from(uuid::Uuid::new_v4());
         set_tag(&mut db, &[gone, binned], "x", true, &HashSet::from([bin])).unwrap();
@@ -1478,7 +1495,19 @@ mod tests {
         assert!(rename_tag(&mut db, "new", FAVORITE).is_err());
         remove_tag(&mut db, "new");
         assert_eq!((tags(&db, a), tags(&db, b)), (vec!["x".to_string()], vec![]));
-        assert_eq!(history_len(&db, b), 2);
+        assert_eq!(history_len(&db, b), 0);
+    }
+
+    #[test]
+    fn the_editor_keeps_no_version_for_tags_alone() {
+        let mut db = Database::new();
+        let id = apply(&mut db, None, &data("a"), &HashSet::new()).unwrap();
+        apply(&mut db, Some(id), &with("a", |d| d.tags = vec!["work".into()]), &HashSet::new()).unwrap();
+        assert_eq!((db.entry(id).unwrap().tags.clone(), history_len(&db, id)), (vec!["work".to_string()], 0));
+        // With anything else, one version as before (its tags included).
+        apply(&mut db, Some(id), &with("b", |d| d.tags = vec!["home".into()]), &HashSet::new()).unwrap();
+        assert_eq!(history_len(&db, id), 1);
+        assert_eq!(db.entry(id).unwrap().history.as_ref().unwrap().get_entries()[0].tags, ["work"]);
     }
 
     #[test]
