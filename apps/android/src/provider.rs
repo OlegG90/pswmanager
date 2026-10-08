@@ -8,10 +8,10 @@
 //! setting says, but never sooner than [GRACE] (a passkey is used right after
 //! the unlock); not while the app is in front, whose own rules apply then.
 
-use crate::background::{Kotlin, APP};
+use crate::background::{native, text, Kotlin, APP};
 use jni::objects::{JByteArray, JObject, JString};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
-use jni::JNIEnv;
+use jni::{Env, EnvUnowned};
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
@@ -50,15 +50,15 @@ pub fn unlocked_in_app() {
 }
 
 /// A Java string argument; `None` when null.
-fn optional_text(env: &mut JNIEnv, value: &JString) -> Result<Option<String>, String> {
+fn optional_text(env: &mut Env, value: &JString) -> Result<Option<String>, String> {
     if value.is_null() {
         return Ok(None);
     }
-    Ok(Some(env.get_string(value).map_err(|e| e.to_string())?.into()))
+    text(env, value).map(Some)
 }
 
 /// A Java byte array argument; `None` when null.
-fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>>, String> {
+fn optional_bytes(env: &mut Env, value: &JByteArray) -> Result<Option<Vec<u8>>, String> {
     if value.is_null() {
         return Ok(None);
     }
@@ -66,12 +66,12 @@ fn optional_bytes(env: &mut JNIEnv, value: &JByteArray) -> Result<Option<Vec<u8>
 }
 
 /// A Rust string for Java; null if it cannot be made.
-fn java_text(env: &mut JNIEnv, text: impl AsRef<str>) -> jstring {
+fn java_text(env: &mut Env, text: impl AsRef<str>) -> jstring {
     env.new_string(text.as_ref()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
 /// Whether the database syncs with a cloud store (an upload then waits for a network).
-fn syncs_with_cloud(env: &mut JNIEnv, state: &JString) -> Result<bool, String> {
+fn syncs_with_cloud(env: &mut Env, state: &JString) -> Result<bool, String> {
     with_store(env, state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))
 }
 
@@ -84,7 +84,7 @@ fn yes(answer: impl FnOnce() -> bool) -> jboolean {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_isUnlocked(_env: JNIEnv, _this: JObject) -> jboolean {
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_isUnlocked(_env: EnvUnowned, _this: JObject) -> jboolean {
     yes(|| session().is_unlocked())
 }
 
@@ -93,11 +93,11 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_isUnlock
 /// and the sealed key.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_fingerprintAllowed<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     state: JString<'local>,
 ) -> jboolean {
-    yes(|| with_store(&mut env, &state, crate::app::biometric_allowed) == Ok(true))
+    native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, crate::app::biometric_allowed) == Ok(true)))
 }
 
 /// Unlocks with the master password (`sealed` null), or with the key sealed
@@ -107,25 +107,27 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_fingerpr
 /// The key is sealed only by the app (after its own unlock with the password).
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_unlock<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     context: JObject<'local>,
     state: JString<'local>,
     password: JString<'local>,
     sealed: JString<'local>,
 ) -> jstring {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unlock(&mut env, &context, &state, &password, &sealed)))
-        .unwrap_or_else(|_| Err("PswManager could not unlock: try in the app".into()));
-    match result {
-        Ok(()) => std::ptr::null_mut(),
-        Err(message) => java_text(&mut env, message),
-    }
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unlock(env, &context, &state, &password, &sealed)))
+            .unwrap_or_else(|_| Err("PswManager could not unlock: try in the app".into()));
+        match result {
+            Ok(()) => std::ptr::null_mut(),
+            Err(message) => java_text(env, message),
+        }
+    })
 }
 
 /// What the answer starts with when the sealed key is stale.
 const STALE: &str = "stale:";
 
-fn unlock(env: &mut JNIEnv, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(), String> {
+fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(), String> {
     if session().is_unlocked() {
         return Ok(()); // the app was unlocked meanwhile
     }
@@ -179,20 +181,22 @@ fn unlock(env: &mut JNIEnv, context: &JObject, state: &JString, password: &JStri
 /// (`[{id, title, username}]`); null while locked or for a request without a site.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_passkeys<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     request: JString<'local>,
 ) -> jstring {
-    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
-        let request: String = env.get_string(&request).ok()?.into();
-        let scope = webauthn::sign_in_scope(&request)?;
-        let offered = session().read(|v| v.passkeys_for(&scope.rp_id, &scope.allowed)).ok()?;
-        serde_json::to_string(&offered).ok()
-    }));
-    match found {
-        Ok(Some(json)) => java_text(&mut env, json),
-        _ => std::ptr::null_mut(),
-    }
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
+            let request = text(env, &request).ok()?;
+            let scope = webauthn::sign_in_scope(&request)?;
+            let offered = session().read(|v| v.passkeys_for(&scope.rp_id, &scope.allowed)).ok()?;
+            serde_json::to_string(&offered).ok()
+        }));
+        match found {
+            Ok(Some(json)) => java_text(env, json),
+            _ => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Signs in with the passkey of entry `id`, after the user was verified: the
@@ -201,7 +205,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_passkeys
 /// `clientDataHash`; an app gives its package and signing certificate.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     id: JString<'local>,
     request: JString<'local>,
@@ -210,15 +214,17 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
     package: JString<'local>,
     certificate: JByteArray<'local>,
 ) -> jstring {
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-        let id = optional_text(&mut env, &id)?.ok_or("No passkey chosen")?;
-        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
-        let caller = caller(&mut env, &origin, &client_data_hash, &package, &certificate)?;
-        session().read(|v| v.sign_with_passkey(&id, &request, &caller))?
-    }))
-    .unwrap_or_else(|_| Err("PswManager could not sign in".into()));
-    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    java_text(&mut env, text)
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+            let id = optional_text(env, &id)?.ok_or("No passkey chosen")?;
+            let request = optional_text(env, &request)?.ok_or("No request")?;
+            let caller = caller(env, &origin, &client_data_hash, &package, &certificate)?;
+            session().read(|v| v.sign_with_passkey(&id, &request, &caller))?
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not sign in".into()));
+        let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+        java_text(env, text)
+    })
 }
 
 /// What `sign`'s answer starts with when it failed.
@@ -232,25 +238,27 @@ const FAILED: &str = "failed:";
 /// while locked or for a request without a site.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPasskeyChoices<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     state: JString<'local>,
     request: JString<'local>,
 ) -> jstring {
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
-        let (rp_id, site) = webauthn::creation_site(&request).ok_or("The request names no site")?;
-        let excluded = webauthn::excluded_ids(&request);
-        let (excluded, entries) = session().read(|v| {
-            let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
-            (has_one, v.entries_for_new_passkey(&rp_id))
-        })?;
-        let cloud = syncs_with_cloud(&mut env, &state)?;
-        Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud }).to_string())
-    }))
-    .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
-    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    java_text(&mut env, text)
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+            let request = optional_text(env, &request)?.ok_or("No request")?;
+            let (rp_id, site) = webauthn::creation_site(&request).ok_or("The request names no site")?;
+            let excluded = webauthn::excluded_ids(&request);
+            let (excluded, entries) = session().read(|v| {
+                let has_one = !excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty();
+                (has_one, v.entries_for_new_passkey(&rp_id))
+            })?;
+            let cloud = syncs_with_cloud(env, &state)?;
+            Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud }).to_string())
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
+        let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+        java_text(env, text)
+    })
 }
 
 /// Makes a passkey for a creation request, after the user was verified, and
@@ -259,7 +267,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPassk
 /// `RegistrationResponseJSON`), or `FAILED` and why. Who asks as for `sign`.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePasskey<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     id: JString<'local>,
     request: JString<'local>,
@@ -268,25 +276,27 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePass
     package: JString<'local>,
     certificate: JByteArray<'local>,
 ) -> jstring {
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-        let id = optional_text(&mut env, &id)?;
-        let request = optional_text(&mut env, &request)?.ok_or("No request")?;
-        let caller = caller(&mut env, &origin, &client_data_hash, &package, &certificate)?;
-        let made = webauthn::make(&request, &caller)?;
-        session().with_mut(|v| v.add_passkey(id.as_deref(), &made))?;
-        if let Some(app) = APP.get() {
-            crate::editing::upload_soon(app);
-        }
-        Ok(made.response)
-    }))
-    .unwrap_or_else(|_| Err("PswManager could not make the passkey".into()));
-    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    java_text(&mut env, text)
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+            let id = optional_text(env, &id)?;
+            let request = optional_text(env, &request)?.ok_or("No request")?;
+            let caller = caller(env, &origin, &client_data_hash, &package, &certificate)?;
+            let made = webauthn::make(&request, &caller)?;
+            session().with_mut(|v| v.add_passkey(id.as_deref(), &made))?;
+            if let Some(app) = APP.get() {
+                crate::editing::upload_soon(app);
+            }
+            Ok(made.response)
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not make the passkey".into()));
+        let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+        java_text(env, text)
+    })
 }
 
 /// Who asks: a browser trusted to speak for the site (its `origin` and
 /// `client_data_hash`), or an app (its package and signing certificate).
-fn caller(env: &mut JNIEnv, origin: &JString, client_data_hash: &JByteArray, package: &JString, certificate: &JByteArray) -> Result<webauthn::Caller, String> {
+fn caller(env: &mut Env, origin: &JString, client_data_hash: &JByteArray, package: &JString, certificate: &JByteArray) -> Result<webauthn::Caller, String> {
     Ok(match (optional_text(env, origin)?, optional_bytes(env, client_data_hash)?) {
         (Some(origin), Some(client_data_hash)) => webauthn::Caller::Browser { origin, client_data_hash },
         (Some(_), None) => return Err("The browser did not give its client data".into()),
@@ -302,70 +312,76 @@ fn caller(env: &mut JNIEnv, origin: &JString, client_data_hash: &JByteArray, pac
 /// null while locked.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_logins<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     origin: JString<'local>,
     package: JString<'local>,
 ) -> jstring {
-    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
-        let origin = optional_text(&mut env, &origin).ok()?;
-        let package = optional_text(&mut env, &package).ok()??;
-        let place = LoginPlace::of(origin.as_deref(), &package).ok()?;
-        let offered = session().read(|v| v.logins_for(&place)).ok()?;
-        serde_json::to_string(&offered).ok()
-    }));
-    match found {
-        Ok(Some(json)) => java_text(&mut env, json),
-        _ => std::ptr::null_mut(),
-    }
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
+            let origin = optional_text(env, &origin).ok()?;
+            let package = optional_text(env, &package).ok()??;
+            let place = LoginPlace::of(origin.as_deref(), &package).ok()?;
+            let offered = session().read(|v| v.logins_for(&place)).ok()?;
+            serde_json::to_string(&offered).ok()
+        }));
+        match found {
+            Ok(Some(json)) => java_text(env, json),
+            _ => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Entry `id`'s login, as JSON (`{username, password}`), after the user was
 /// verified; null while locked or when the entry is gone.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     id: JString<'local>,
 ) -> jstring {
-    #[derive(serde::Serialize)]
-    struct Login<'a> {
-        username: &'a str,
-        password: &'a str,
-    }
-    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Zeroizing<String>> {
-        let id = optional_text(&mut env, &id).ok()??;
-        let (username, password) = session().with(|v| v.login(&id)).ok()?;
-        // One string, wiped once Java has its own copy.
-        serde_json::to_string(&Login { username: &username, password: &password }).ok().map(Zeroizing::new)
-    }));
-    match found {
-        Ok(Some(json)) => java_text(&mut env, json.as_str()),
-        _ => std::ptr::null_mut(),
-    }
+    native(&mut env, std::ptr::null_mut(), |env| {
+        #[derive(serde::Serialize)]
+        struct Login<'a> {
+            username: &'a str,
+            password: &'a str,
+        }
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Zeroizing<String>> {
+            let id = optional_text(env, &id).ok()??;
+            let (username, password) = session().with(|v| v.login(&id)).ok()?;
+            // One string, wiped once Java has its own copy.
+            serde_json::to_string(&Login { username: &username, password: &password }).ok().map(Zeroizing::new)
+        }));
+        match found {
+            Ok(Some(json)) => java_text(env, json.as_str()),
+            _ => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// The entries a login an app offers to save can update, as JSON
 /// (`{entries: [{id, title, username}], cloud}`), or `FAILED` and why.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginChoices<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     state: JString<'local>,
     origin: JString<'local>,
     package: JString<'local>,
 ) -> jstring {
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-        let origin = optional_text(&mut env, &origin)?;
-        let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
-        let place = LoginPlace::of(origin.as_deref(), &package)?;
-        let entries = session().read(|v| v.entries_for_login(&place))?;
-        let cloud = syncs_with_cloud(&mut env, &state)?;
-        Ok(serde_json::json!({ "entries": entries, "cloud": cloud }).to_string())
-    }))
-    .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
-    let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
-    java_text(&mut env, text)
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
+            let origin = optional_text(env, &origin)?;
+            let package = optional_text(env, &package)?.ok_or("The app asking is unknown")?;
+            let place = LoginPlace::of(origin.as_deref(), &package)?;
+            let entries = session().read(|v| v.entries_for_login(&place))?;
+            let cloud = syncs_with_cloud(env, &state)?;
+            Ok(serde_json::json!({ "entries": entries, "cloud": cloud }).to_string())
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not read the request".into()));
+        let text = answer.unwrap_or_else(|why| format!("{FAILED}{why}"));
+        java_text(env, text)
+    })
 }
 
 /// Saves a login an app offers: into entry `id`, or a new entry titled
@@ -373,7 +389,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginCho
 /// `FAILED` and why.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogin<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     id: JString<'local>,
     origin: JString<'local>,
@@ -382,36 +398,38 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
     username: JString<'local>,
     password: JString<'local>,
 ) -> jstring {
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
-        let id = optional_text(&mut env, &id)?;
-        let origin = optional_text(&mut env, &origin)?;
-        let package = optional_text(&mut env, &package)?.ok_or("The app asking is unknown")?;
-        let title = optional_text(&mut env, &title)?.unwrap_or_default();
-        let username = Zeroizing::new(optional_text(&mut env, &username)?.unwrap_or_default());
-        let password = Zeroizing::new(optional_text(&mut env, &password)?.ok_or("No password")?);
-        let place = LoginPlace::of(origin.as_deref(), &package)?;
-        session().with_mut(|v| v.save_login(id.as_deref(), &place, &title, &username, &password))?;
-        if let Some(app) = APP.get() {
-            crate::editing::upload_soon(app);
-        }
-        Ok(())
-    }))
-    .unwrap_or_else(|_| Err("PswManager could not save the password".into()));
-    let text = match answer {
-        Ok(()) => String::new(),
-        Err(why) => format!("{FAILED}{why}"),
-    };
-    java_text(&mut env, text)
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+            let id = optional_text(env, &id)?;
+            let origin = optional_text(env, &origin)?;
+            let package = optional_text(env, &package)?.ok_or("The app asking is unknown")?;
+            let title = optional_text(env, &title)?.unwrap_or_default();
+            let username = Zeroizing::new(optional_text(env, &username)?.unwrap_or_default());
+            let password = Zeroizing::new(optional_text(env, &password)?.ok_or("No password")?);
+            let place = LoginPlace::of(origin.as_deref(), &package)?;
+            session().with_mut(|v| v.save_login(id.as_deref(), &place, &title, &username, &password))?;
+            if let Some(app) = APP.get() {
+                crate::editing::upload_soon(app);
+            }
+            Ok(())
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not save the password".into()));
+        let text = match answer {
+            Ok(()) => String::new(),
+            Err(why) => format!("{FAILED}{why}"),
+        };
+        java_text(env, text)
+    })
 }
 
 /// Runs `work` with the app's `Store` when the app runs, else with one on the
 /// state file (as the background upload does, with the same caveat: should
 /// the app start meanwhile, both write the file whole).
-fn with_store<T>(env: &mut JNIEnv, state: &JString, work: impl FnOnce(&Store) -> T) -> Result<T, String> {
+fn with_store<T>(env: &mut Env, state: &JString, work: impl FnOnce(&Store) -> T) -> Result<T, String> {
     if let Some(app) = APP.get() {
         return Ok(work(&app.state::<Store>()));
     }
-    let state: String = env.get_string(state).map_err(|e| e.to_string())?.into();
+    let state = text(env, state)?;
     Ok(work(&Store::load(PathBuf::from(state))))
 }
 
