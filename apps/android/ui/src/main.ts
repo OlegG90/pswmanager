@@ -1074,6 +1074,11 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
     return el('label', { className: 'setting' }, el('span', {}, label, el('small', {}, hint)), select)
   }
   return [
+    // First: at the screen's foot its buttons were under Android's navigation bar.
+    el('h2', {}, 'Master password and key file'),
+    el('p', {}, database?.keyFile ? `Key file: ${database.keyFile}` : 'No key file'),
+    button('Change…', 'Change the master password and / or key file', () => void changeKeyScreen(), 'wide'),
+    el('h2', {}, 'Database'),
     text('Name', 'on the unlock screen; the file keeps its name', 'name', now.name),
     text('Description', 'under the name on the unlock screen', 'description', now.description, 2),
     text('Default user name', 'on a new blank entry', 'defaultUsername', now.defaultUsername),
@@ -1085,9 +1090,6 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
     el('h2', {}, 'Encryption'),
     el('p', {}, describeEncryption(now.encryption)),
     button('Change…', 'Change the cipher and key derivation', () => encryptionScreen(now.encryption), 'wide'),
-    el('h2', {}, 'Master password and key file'),
-    el('p', {}, database?.keyFile ? `Key file: ${database.keyFile}` : 'No key file'),
-    button('Change…', 'Change the master password and / or key file', () => void changeKeyScreen(), 'wide'),
   ]
 }
 
