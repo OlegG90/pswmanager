@@ -120,13 +120,37 @@ pub async fn change_master_key(app: AppHandle, current: String, password: String
         app::sync_first(&app).map_err(|e| format!("{e}; the key is unchanged"))?;
         let session = app.state::<Session>();
         session.with_mut(|v| v.change_key_to(&current, new))?;
-        match &next {
-            Some(picked) => app::remember_key_file(&store, picked)?,
-            None => app::forget_key_file(&store)?,
-        }
-        let _ = app.state::<Biometric<Wry>>().forget();
+        take_key(&app, next.as_ref()).map_err(|e| format!("The key is changed, but {e}"))?;
         app::start_sync(app.clone());
         Ok(app::status_of(&store, &session))
+    })
+    .await
+}
+
+/// The database is on a new key: the phone unlocks with its key file (none:
+/// the master password alone) from now on, and the key sealed for
+/// fingerprint unlock (the old one) goes; it is sealed again at the next
+/// unlock with the password.
+fn take_key(app: &AppHandle, key_file: Option<&Picked>) -> Result<(), String> {
+    let store = app.state::<Store>();
+    match key_file {
+        Some(picked) => app::remember_key_file(&store, picked),
+        None => app::forget_key_file(&store),
+    }
+    .map_err(|e| format!("the key file could not be kept ({e})"))?;
+    let _ = app.state::<Biometric<Wry>>().forget();
+    Ok(())
+}
+
+/// Makes a new key file where the user chooses with Android's save picker
+/// (its access kept), for a key change; `None` when cancelled.
+#[tauri::command]
+pub async fn create_key_file(app: AppHandle) -> Result<Option<Picked>, String> {
+    off_main(move || {
+        let documents = app.state::<Documents<Wry>>();
+        let Some(picked) = documents.pick_to_create("PswManager.keyx")? else { return Ok(None) };
+        documents.write(&picked.uri, vault::new_key_file()?.as_bytes())?;
+        Ok(Some(picked))
     })
     .await
 }
@@ -163,11 +187,7 @@ pub async fn enter_other_key(app: AppHandle, password: String, key_file: NewKeyF
             return Err(if e == app::OTHER_KEY { "This master password or key file does not open it either".into() } else { e });
         }
         if session.read(|v| v.uses_key(&given))?? {
-            match &next {
-                Some(picked) => app::remember_key_file(&store, picked)?,
-                None => app::forget_key_file(&store)?,
-            }
-            let _ = app.state::<Biometric<Wry>>().forget();
+            take_key(&app, next.as_ref()).map_err(|e| format!("The new key is in use, but {e}"))?;
         }
         Ok(app::status_of(&store, &session))
     })

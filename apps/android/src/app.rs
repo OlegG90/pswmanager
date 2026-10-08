@@ -112,6 +112,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::database::pick_new_key_file,
             crate::database::change_master_key,
             crate::database::enter_other_key,
+            crate::database::create_key_file,
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,

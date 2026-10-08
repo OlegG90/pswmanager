@@ -936,6 +936,9 @@ async function lock() {
 function afterLock() {
   unlocked = false
   query = ''
+  // The next unlock's sync says again whether another device changed the key.
+  otherKey = false
+  keyAsked = false
   unlockScreen()
 }
 
@@ -1084,7 +1087,7 @@ function databaseTab(now: DatabaseSettings, saved: (d: DatabaseSettings) => void
 
 /** The key file a key is to have: the one the database has, another one
  *  picked with Android's picker, or none. */
-function keyFileChooser(fail: (message: string) => void) {
+function keyFileChooser(fail: (message: string) => void, offerNew = false) {
   const now = database?.keyFile ?? null
   let chosen: NewKeyFile = { kind: 'keep' }
   const name = () => (chosen.kind === 'keep' ? now : chosen.kind === 'picked' ? chosen.name : null)
@@ -1094,13 +1097,16 @@ function keyFileChooser(fail: (message: string) => void) {
     shown.textContent = name() ? `Key file: ${name()}` : 'No key file'
     none.hidden = !name()
   }
-  const pick = busyButton('Choose a key file…', 'A key file picked with Android’s picker', async () => {
-    const picked = await api.pickNewKeyFile()
+  const take = (pick: () => Promise<Picked | null>) => async () => {
+    const picked = await pick()
     if (picked) chosen = { kind: 'picked', ...picked }
     refresh()
-  }, fail, 'wide')
+  }
+  const pick = busyButton('Choose a key file…', 'A key file picked with Android’s picker', take(api.pickNewKeyFile), fail, 'wide')
   refresh()
-  return { nodes: [shown, pick, none], value: () => chosen, name }
+  // As Windows' New…: a key file the app makes, kept apart from the database.
+  const make = busyButton('New key file…', 'Make a new key file where you choose; keep it apart from the database', take(api.createKeyFile), fail, 'wide')
+  return { nodes: [shown, pick, ...(offerNew ? [make] : []), none], value: () => chosen, name }
 }
 
 /** The key another device changed the database to (#193): the remote file is
@@ -1110,6 +1116,10 @@ function otherKeyScreen() {
   const password = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'The new master password', className: 'field' })
   error.hideOnInput(password)
   const keyFile = keyFileChooser((e) => error.show(e))
+  const notNow = () => {
+    password.value = ''
+    void api.listing().then(listScreen)
+  }
   const use = busyButton('Use this key', 'Sync with the remote file using this key', async () => {
     const status = await api.enterOtherKey(password.value, keyFile.value())
     password.value = ''
@@ -1120,15 +1130,15 @@ function otherKeyScreen() {
   }, (e) => error.show(e.replace(/^Error: /, '')), 'primary')
   enterPresses(use, password)
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', () => void api.listing().then(listScreen)), el('h1', {}, 'New key')),
+    el('header', { className: 'bar' }, iconButton('back', 'Back', notNow), el('h1', {}, 'New key')),
     el('p', {}, 'Another device changed the master password or key file. Enter the new one to sync again. Until then this phone works with its own copy, and its changes do not go up.'),
     password,
     el('h2', {}, 'Key file'),
     ...keyFile.nodes,
     error.line,
     use,
-    button('Not now', 'Keep working with this phone’s copy; the key can be entered later', () => void api.listing().then(listScreen), 'link'),
-  ], () => void api.listing().then(listScreen))
+    button('Not now', 'Keep working with this phone’s copy; the key can be entered later', notNow, 'link'),
+  ], notNow)
   password.focus()
 }
 
@@ -1142,7 +1152,7 @@ function changeKeyScreen() {
   const again = el('input', { type: 'password', autocomplete: 'new-password', placeholder: 'The new master password again', className: 'field' })
   const strength = strengthMeter(password, api.passwordStrength)
   for (const field of [current, password, again]) error.hideOnInput(field)
-  const keyFile = keyFileChooser((e) => error.show(e))
+  const keyFile = keyFileChooser((e) => error.show(e), true)
   const clear = () => (current.value = password.value = again.value = '')
   const change = busyButton('Change', 'Save the database with the new key', async () => {
     if (!password.value && !keyFile.name()) throw new Error('Give a master password, a key file, or both')

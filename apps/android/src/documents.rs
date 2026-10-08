@@ -117,6 +117,17 @@ impl<R: Runtime> Documents<R> {
         Ok(self.call::<PickAnswer>("pickToSave", Args { name })?.uri)
     }
 
+    /// A new document the user names with Android's save picker (`name`
+    /// suggested), its access kept; `None` when they cancelled.
+    pub fn pick_to_create(&self, name: &str) -> Result<Option<Picked>, String> {
+        #[derive(Serialize)]
+        struct Args<'a> {
+            name: &'a str,
+        }
+        let answer: PickAnswer = self.call("pickToCreate", Args { name })?;
+        Ok(answer.uri.map(|uri| Picked { uri, name: answer.name }))
+    }
+
     /// A folder the user picks; `None` when they cancelled.
     pub fn pick_folder(&self) -> Result<Option<Picked>, String> {
         self.pick("pickFolder")

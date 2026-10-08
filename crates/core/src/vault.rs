@@ -1052,15 +1052,21 @@ pub fn key_reading(password: Option<&str>, key_file: Option<&mut dyn std::io::Re
 /// random bytes in KeePass's XML key file, version 2.0, which KeePassXC and
 /// Keepass2Android read too.
 pub fn create_key_file(path: &Path) -> Result<(), String> {
-    let mut data = Zeroizing::new([0u8; 32]);
-    getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
-    let xml = key_file_xml(&data);
+    let xml = new_key_file()?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|e| format!("Cannot make {}: {e}", path.display()))?;
     std::io::Write::write_all(&mut file, xml.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", path.display()))
+}
+
+/// A new key file's content, as [create_key_file] writes it (for a file the
+/// app reaches otherwise, such as an Android document).
+pub fn new_key_file() -> Result<Zeroizing<String>, String> {
+    let mut data = Zeroizing::new([0u8; 32]);
+    getrandom::fill(data.as_mut()).map_err(|e| format!("Cannot make a key: {e}"))?;
+    Ok(key_file_xml(&data))
 }
 
 /// KeePass's XML key file, version 2.0: the key in hex, in groups of four

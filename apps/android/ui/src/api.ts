@@ -186,6 +186,8 @@ export const api = {
   setEncryption: (encryption: Encryption) => invoke<DatabaseSettings>('set_encryption', { encryption }),
   /** A key file for a key change; null when cancelled. */
   pickNewKeyFile: () => invoke<Picked | null>('pick_new_key_file'),
+  /** Makes a new key file where the user chooses; null when cancelled. */
+  createKeyFile: () => invoke<Picked | null>('create_key_file'),
   /** After `current` proves right: an empty `password` means none. */
   changeMasterKey: (current: string, password: string, keyFile: NewKeyFile) => invoke<Status>('change_master_key', { current, password, keyFile }),
   /** The key another device changed the database to; the remote file is synced with it. */
