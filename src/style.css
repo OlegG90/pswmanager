@@ -539,7 +539,7 @@ input[type='range']:focus-visible {
 
 #vault {
   display: grid;
-  grid-template: auto 1fr / minmax(140px, 180px) minmax(220px, 30%) 1fr;
+  grid-template: auto 1fr / var(--sidebar-width, 180px) minmax(220px, 30%) 1fr;
   height: 100%;
 }
 
@@ -610,6 +610,7 @@ input[type='range']:focus-visible {
 /* The groups stay in place; a long list of tags scrolls on its own below a
    rule, so the two never run together. */
 #sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -617,6 +618,24 @@ input[type='range']:focus-visible {
   padding: 0 0 8px;
   background: var(--color-surface);
   border-right: 1px solid var(--color-divider);
+}
+
+/* The sidebar's edge: dragged to change its width (src/sidebar-resize.ts). */
+#sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+#sidebar-resizer:hover,
+#sidebar-resizer:focus-visible {
+  background: var(--color-accent);
+  opacity: 0.4;
+  outline: none;
 }
 
 #groups {
@@ -718,11 +737,18 @@ button.icon.state svg {
   white-space: nowrap;
 }
 
-/* A tag's ⋯ menu (rename, remove) shows where the pointer or the focus is. */
+/* A tag's ⋯ menu (rename, remove) shows where the pointer or the focus is,
+   in a column of its own: a long name is cut short instead of pushing the
+   menu out, and every count (Untagged's too) lines up. */
 #tags li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   padding-right: 6px;
+}
+
+#tags .side-item .name {
+  font-size: 13px;
 }
 
 #tags li .more {
@@ -747,6 +773,10 @@ button.icon.state svg {
 }
 
 .side-item .count {
+  flex: none;
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--color-neutral-700);
 }
