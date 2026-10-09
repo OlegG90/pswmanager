@@ -17,6 +17,11 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
 @InvokeArg
+class ScreenshotArgs {
+  var allowed: Boolean = false
+}
+
+@InvokeArg
 class UploadArgs {
   /** The app's state file. */
   lateinit var state: String
@@ -34,7 +39,8 @@ class UploadArgs {
  *   Added after the webview's own handler, so it is asked first.
  * - The screen turning off: `window.pswmScreenOff()`, which locks.
  *
- * And what the app asks of Android: the background upload ([UploadWorker]).
+ * And what the app asks of Android: the background upload ([UploadWorker]),
+ * and whether its screens may be captured ([Screenshots]).
  */
 @TauriPlugin
 class SystemPlugin(private val activity: Activity) : Plugin(activity) {
@@ -59,6 +65,15 @@ class SystemPlugin(private val activity: Activity) : Plugin(activity) {
       }
     }
     ContextCompat.registerReceiver(activity, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+  }
+
+  /** The *Allow screenshots* setting changed: the app's window follows at once, the other screens as they open. */
+  @Command
+  fun allowScreenshots(invoke: Invoke) {
+    val args = invoke.parseArgs(ScreenshotArgs::class.java)
+    Screenshots.set(activity.applicationContext, args.allowed)
+    activity.runOnUiThread { Screenshots.apply(activity) }
+    invoke.resolve(JSObject())
   }
 
   /** Changes are waiting: they go up in the background if the app cannot send them first. */

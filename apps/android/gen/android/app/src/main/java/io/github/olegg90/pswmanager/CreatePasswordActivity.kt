@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
-import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -43,7 +42,7 @@ class CreatePasswordActivity : AppCompatActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    Screenshots.apply(this)
     if (savedInstanceState != null) return cancel()
     val provided = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
     request = provided?.callingRequest as? CreatePasswordRequest ?: return fail("No password to save")

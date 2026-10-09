@@ -2,7 +2,6 @@ package io.github.olegg90.pswmanager
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.GetCredentialResponse
@@ -23,7 +22,7 @@ import kotlin.concurrent.thread
 class PasswordActivity : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    Screenshots.apply(this)
     // Made again (the prompt is gone with the old one): Android hears it was cancelled.
     if (savedInstanceState != null) return cancel()
     val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return fail("No login chosen")

@@ -110,6 +110,8 @@ export interface Settings {
   biometricUnlock: boolean
   /** Sideways swipes on the list open the drawer and the settings. */
   swipes: boolean
+  /** Screenshots and screen recording show the app (off by default). */
+  allowScreenshots: boolean
   /** Days between asking for the master password when biometric unlock is on. */
   passwordEveryDays: number
   version: string
