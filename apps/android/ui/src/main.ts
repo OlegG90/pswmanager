@@ -957,7 +957,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
         mergedCard(preview, icon(kept, listing)),
         busyButton('Merge', 'Merge them into it', () =>
           api.mergeEntries(kept.id, ids).then((fresh) => (snack(`Merged into ${into}`), reshow(fresh))), failed, 'primary'),
-        button('Cancel', 'Back to the similar entries', cancel, 'link'),
+        button('Cancel', 'Back to the similar entries', cancel, 'wide'),
       ], cancel)
     }
     const section: HTMLElement = el('section', {},

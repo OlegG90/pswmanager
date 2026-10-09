@@ -979,7 +979,7 @@ button.wide[hidden] {
   display: none;
 }
 
-/* Find similar: per site, the entries ticked to merge or delete and the one kept. */
+/* Find similar: per site, the entries ticked to merge and the one kept. */
 .similar input {
   flex: none;
   margin: 0;
