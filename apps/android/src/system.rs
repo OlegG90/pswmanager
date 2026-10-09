@@ -1,5 +1,6 @@
 //! What Android tells the page (`SystemPlugin.kt`): Back, and the screen
-//! turning off; and what the app asks of Android: the background upload.
+//! turning off; and what the app asks of Android: the background upload, and
+//! whether its screens may be captured.
 
 use serde::Serialize;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -24,6 +25,12 @@ struct UploadArgs<'a> {
 }
 
 impl<R: Runtime> System<R> {
+    /// The app's window follows the *Allow screenshots* setting at once
+    /// (other screens read it as they open).
+    pub fn apply_screenshots(&self) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde_json::Value>("applyScreenshots", ()).map(|_| ()).map_err(|e| e.to_string())
+    }
+
     /// Asks WorkManager to upload what the state file `state` says is waiting,
     /// once there is a network for a `cloud` store (`UploadWorker.kt`).
     pub fn schedule_upload(&self, state: &str, cloud: bool) -> Result<(), String> {

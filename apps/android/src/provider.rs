@@ -100,6 +100,17 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_fingerpr
     native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, crate::app::biometric_allowed) == Ok(true)))
 }
 
+/// Whether the settings allow screenshots of the app's screens
+/// (`Screenshots.kt`, as each screen opens); `false` when it cannot tell.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_screenshotsAllowed<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+) -> jboolean {
+    native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, |store| Settings::of(store).allow_screenshots()) == Ok(true)))
+}
+
 /// Unlocks with the master password (`sealed` null), or with the key sealed
 /// for biometric unlock (`sealed`, after the fingerprint). Null when
 /// unlocked, else why not, for the user; [STALE] first when the sealed key no

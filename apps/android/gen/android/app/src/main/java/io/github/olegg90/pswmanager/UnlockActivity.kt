@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
-import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -21,7 +20,7 @@ import kotlin.concurrent.thread
  * (#161): the fingerprint (the key sealed for biometric unlock) when it is
  * allowed, else the master password. The database is then unlocked in Rust
  * for the app too, and Android gets the provider's answer again, now
- * unlocked. Never captured on screen.
+ * unlocked. Captured on screen only if the settings allow screenshots.
  */
 @RequiresApi(34)
 class UnlockActivity : AppCompatActivity() {
@@ -33,7 +32,7 @@ class UnlockActivity : AppCompatActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    Screenshots.apply(this)
     val pad = (24 * resources.displayMetrics.density).toInt()
     password = EditText(this).apply {
       hint = "Master password"

@@ -532,8 +532,11 @@ fn settings(store: State<Store>) -> SettingsView {
 }
 
 #[tauri::command]
-fn set_setting(store: State<Store>, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
+fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
     Settings::of(&store).set(&name, value)?;
+    if name == "allowScreenshots" {
+        app.state::<crate::system::System<Wry>>().apply_screenshots()?;
+    }
     Ok(settings(store))
 }
 

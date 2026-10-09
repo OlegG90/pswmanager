@@ -76,6 +76,12 @@ impl<'a> Settings<'a> {
         self.get("swipes", Value::as_bool).unwrap_or(true)
     }
 
+    /// On the phone: screenshots and screen recording of the app (off: the
+    /// screens are never captured, as by default).
+    pub fn allow_screenshots(&self) -> bool {
+        self.get("allowScreenshots", Value::as_bool).unwrap_or(false)
+    }
+
     /// On the phone: how often the master password is asked for anyway.
     pub fn password_every(&self) -> Duration {
         let (default, min, max) = PASSWORD_EVERY_DAYS;
@@ -116,6 +122,7 @@ impl<'a> Settings<'a> {
             lock_on_screen_off: self.lock_on_screen_off(),
             biometric_unlock: self.biometric_unlock(),
             swipes: self.swipes(),
+            allow_screenshots: self.allow_screenshots(),
             password_every_days: self.password_every().as_secs() / (24 * 60 * 60),
         }
     }
@@ -152,6 +159,7 @@ pub struct View {
     pub lock_on_screen_off: bool,
     pub biometric_unlock: bool,
     pub swipes: bool,
+    pub allow_screenshots: bool,
     pub password_every_days: u64,
 }
 
@@ -163,7 +171,7 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
-        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" => value.is_boolean(),
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" | "allowScreenshots" => value.is_boolean(),
         "passwordEveryDays" => within(PASSWORD_EVERY_DAYS, false),
         "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
@@ -252,13 +260,17 @@ mod tests {
         assert_eq!((view.lock_after_minutes, view.clear_clipboard, view.sync_every_minutes), (5, 20, 5));
         assert!(view.lock_on_session_lock && !view.lock_when_hidden && view.download_icons);
         assert_eq!(view.hotkey, "Ctrl+Alt+P");
+        assert!(!view.allow_screenshots, "the phone's screens are not captured unless allowed");
 
         settings.set("lockAfterMinutes", 0.into()).unwrap();
+        settings.set("allowScreenshots", true.into()).unwrap();
+        assert!(settings.set("allowScreenshots", 1.into()).is_err());
         settings.set("clearClipboard", 60.into()).unwrap();
         settings.set("downloadIcons", false.into()).unwrap();
         let view = Settings::of(&Store::load(dir.path().join("pswm.json"))).view();
         assert_eq!((view.lock_after_minutes, view.clear_clipboard), (0, 60));
         assert!(!view.download_icons);
+        assert!(view.allow_screenshots);
     }
 
     #[test]

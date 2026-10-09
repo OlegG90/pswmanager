@@ -190,13 +190,14 @@ As in the mockups `1e`–`1j`.
   the database on the phone for export once it is unlocked (Android's `registerExport`: one entry, the
   database's name, under a secret random id in the app's private storage; cleared by *Forget*), so the
   system lists it among the apps to import from. Picked there, Android starts PswManager's export screen
-  (outside the app's window, never captured): a request not from Google Play services or without that id
-  is refused; the screen names the app the entries go to and asks for the master password or the
-  fingerprint **every time**, unlocked or not. The database is then opened afresh with that key (the
-  session is not touched) and every entry in use (not the recycle bin or templates) goes over as CXF:
-  logins, URLs and Android apps, TOTP, passkeys, notes and additional attributes, groups as collections,
-  the Favorite star; history, icons, the expiry and files stay. The JSON is handed to the system's content
-  URI and never written anywhere else or logged. Nothing in the database changes.
+  (outside the app's window; captured only if the settings allow screenshots): a request not from Google
+  Play services or without that id is refused; the screen names the app the entries go to and asks for
+  the master password or the fingerprint **every time**, unlocked or not. The database is then opened
+  afresh with that key (the session is not touched) and every entry in use (not the recycle bin or
+  templates) goes over as CXF: logins, URLs and Android apps, TOTP, passkeys, notes and additional
+  attributes, groups as collections, the Favorite star; history, icons, the expiry and files stay. The
+  JSON is handed to the system's content URI and never written anywhere else or logged. Nothing in the
+  database changes.
 - **Entry view:** title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
   secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
@@ -239,7 +240,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 
 | Tab | Settings |
 |---|---|
-| General | locking and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
+| General | locking, screenshots and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
 | Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; fine for the APK this project builds, which is not on Google Play, whose policy keeps that permission from password managers), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
@@ -262,8 +263,10 @@ PC's where both have one (`crates/core/src/settings.rs`). The screen opens from 
   so the keyboard's clipboard suggestions and the system's copy preview do not show it. It is cleared after
   the set time only if it still holds the copied value, as far as Android lets the app tell (an app in the
   background cannot read the clipboard; it then relies on the change it last saw).
-- **Screens are never captured:** `FLAG_SECURE` is always on, so screenshots and screen recording show
-  nothing and the recent-apps thumbnail is blank.
+- **Screens are not captured** unless *Allow screenshots* (Settings, General; off by default, #192) is on:
+  `FLAG_SECURE`, so screenshots and screen recording show nothing and the recent-apps thumbnail is blank.
+  The switch applies at once to the app's window and to every screen opened after it, the credential
+  provider's included; it is kept per phone, not in the database.
 - **An opened attachment** is copied to a folder of its own in the app's cache (`cache/open/<random>/`)
   and handed to the other app through a content URI (`FileProvider`) with read permission only. The folder
   is deleted when the database locks and when the app starts. APKs and scripts are not opened.
@@ -416,7 +419,8 @@ background.
 - **By hand on the phone, before a release:** first run with Dropbox, OneDrive, Google Drive and a local file;
   Stop syncing, Disconnect and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
-  screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
+  screenshots blocked, and shown once *Allow screenshots* is on (the window at once, other screens as they
+  open); opening an attachment and its clean-up; sync at each moment of the table, offline and
   back; biometric unlock and its invalidation (stage A3); importing from Google Password Manager (with
   test entries) and the entries then on Windows.
 - **Compatibility gate** (as in `spec.md`), with the phone in it: a change made in PswManager on the phone
