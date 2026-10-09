@@ -140,6 +140,8 @@ fn take(into: &mut EntryData, from: &EntryData) {
     };
     // Values that differ from `into`'s own, with the name they go under.
     let mut differing: Vec<FieldData> = Vec::new();
+    // Other addresses: `into`'s further URLs.
+    let mut urls: Vec<&String> = Vec::new();
     // A TOTP secret this app cannot read is kept, but not as the entry's.
     let otp_works = otp::normalize(&from.otp, &into.title).is_ok();
     let theirs = [&from.username, &from.password, &from.url, &from.notes, &from.otp];
@@ -150,6 +152,8 @@ fn take(into: &mut EntryData, from: &EntryData) {
         let fills = label != "TOTP" || otp_works;
         if ours.is_empty() && fills {
             *ours = theirs.clone();
+        } else if label == "URL" {
+            urls.push(theirs);
         } else {
             differing.push(FieldData { name: label.to_string(), value: theirs.clone(), protected });
         }
@@ -158,6 +162,10 @@ fn take(into: &mut EntryData, from: &EntryData) {
     let has_passkey = |data: &EntryData| data.fields.iter().any(|f| f.name.starts_with(passkey::PREFIX));
     let both_passkeys = has_passkey(into) && has_passkey(from);
     for field in &from.fields {
+        if field.name.starts_with(MORE_URLS) {
+            urls.push(&field.value);
+            continue;
+        }
         match into.fields.iter().find(|f| f.name == field.name) {
             Some(ours) if ours.value == field.value => {}
             None if !(both_passkeys && field.name.starts_with(passkey::PREFIX)) => into.fields.push(field.clone()),
@@ -167,6 +175,9 @@ fn take(into: &mut EntryData, from: &EntryData) {
     for field in differing {
         add_differing(into, field, source);
     }
+    for url in urls {
+        add_url(into, url);
+    }
     for tag in &from.tags {
         if !into.tags.contains(tag) {
             into.tags.push(tag.clone());
@@ -175,6 +186,20 @@ fn take(into: &mut EntryData, from: &EntryData) {
     if into.icon == edit::IconChoice::Auto {
         into.icon = from.icon.clone();
     }
+}
+
+/// Further URLs of an entry, as Keepass2Android and KeePassXC keep them:
+/// `KP2A_URL_1`, `KP2A_URL_2`…
+const MORE_URLS: &str = "KP2A_URL";
+
+/// `url` as the next of `into`'s further URLs, unless it has it already.
+fn add_url(into: &mut EntryData, url: &str) {
+    let has = |f: &FieldData| f.name.starts_with(MORE_URLS) && f.value == url;
+    if into.url == url || into.fields.iter().any(has) {
+        return;
+    }
+    let name = (1..).map(|n| format!("{MORE_URLS}_{n}")).find(|name| !into.fields.iter().any(|f| f.name == *name)).expect("a free name");
+    into.fields.push(FieldData { name, value: url.to_string(), protected: false });
 }
 
 /// The fields the editor has its own inputs for, but the title: their names
@@ -271,7 +296,7 @@ mod tests {
         assert_eq!(field(&db, keep, fields::PASSWORD).as_deref(), Some("new-pass"));
         assert_eq!(field(&db, keep, "Password (Gmail)").as_deref(), Some("old-pass"));
         assert!(db.entry(keep).unwrap().fields["Password (Gmail)"].is_protected());
-        assert_eq!(field(&db, keep, "URL (Gmail)").as_deref(), Some("https://mail.google.com"));
+        assert_eq!(field(&db, keep, "KP2A_URL_1").as_deref(), Some("https://mail.google.com"));
         assert_eq!(field(&db, keep, fields::NOTES).as_deref(), Some("recovery codes in the safe"));
         assert_eq!(field(&db, keep, "Recovery email").as_deref(), Some("me@example.com"));
         assert_eq!(field(&db, keep, "User name (Gmail)"), None, "the same value is not added");
@@ -347,11 +372,25 @@ mod tests {
         let shown: Vec<(&str, Option<&str>, bool)> = preview.fields.iter().map(|f| (f.name.as_str(), f.value.as_deref(), f.fills)).collect();
         assert_eq!(shown, [
             ("User name", Some("me@gmail.com"), true),
+            ("KP2A_URL_1", Some("https://mail.google.com"), false),
             ("Password (Gmail)", None, false),
-            ("URL (Gmail)", Some("https://mail.google.com"), false),
         ]);
         assert_eq!(preview.tags, ["Mail"]);
         assert_eq!(preview.files, ["codes.txt"]);
+    }
+
+    #[test]
+    fn other_addresses_become_further_urls() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Shop", "https://shop.com", |e| e.set_unprotected("KP2A_URL_1", "https://m.shop.com"));
+        let a = add(&mut db, "Shop EU", "https://eu.shop.com", |e| e.set_unprotected("KP2A_URL_1", "https://m.shop.com"));
+        let b = add(&mut db, "Shop app", "https://shop.com", |e| e.set_unprotected("KP2A_URL_1", "androidapp://com.shop"));
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[a, b], &hidden).unwrap();
+        assert_eq!(field(&db, keep, "KP2A_URL_1").as_deref(), Some("https://m.shop.com"));
+        assert_eq!(field(&db, keep, "KP2A_URL_2").as_deref(), Some("https://eu.shop.com"));
+        assert_eq!(field(&db, keep, "KP2A_URL_3").as_deref(), Some("androidapp://com.shop"));
+        assert_eq!(field(&db, keep, "KP2A_URL_4"), None);
     }
 
     #[test]

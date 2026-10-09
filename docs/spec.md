@@ -409,11 +409,13 @@ while the database is locked):
   - **Merge**: what they have goes into the kept entry, as one edit (its previous version goes to its
     history), and they go to the recycle bin. An empty field of the kept entry is filled from them; a
     value that differs from its own becomes an additional field named after the entry it came from
-    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), and a value already
-    there (under any name) is not added again. Tags are joined; files are carried over (a name already taken gets a
-    number, the same content is not added twice); the kept entry's icon is taken from them when it has
-    none of its own. A passkey is its fields together: when both have one, the other's goes in as
-    additional fields named after it and does not fill in the kept one's.
+    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), but for an address:
+    another URL (and the other's own further URLs) becomes one of its further URLs, `KP2A_URL_1`,
+    `KP2A_URL_2`… as Keepass2Android and KeePassXC keep them, so their autofill finds it. A value
+    already there (under any name) is not added again. Tags are joined; files are carried over (a name
+    already taken gets a number, the same content is not added twice); the kept entry's icon is taken
+    from them when it has none of its own. A passkey is its fields together: when both have one, the
+    other's goes in as additional fields named after it and does not fill in the kept one's.
   - **Move to the recycle bin**: the ticked entries; the kept one too when it is ticked, so a site's
     entries can all go.
   - **Leave as is**: the site leaves the report until it is opened again.
