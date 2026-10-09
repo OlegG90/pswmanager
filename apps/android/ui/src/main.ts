@@ -503,6 +503,7 @@ function listScreen(opened: Listing) {
       status.textContent = 'Syncing…'
       void api.syncNow()
     }),
+    iconButton('tools', 'Tools', toolsSheet),
     iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
   const closeSearch = () => {
@@ -774,9 +775,7 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     el('h2', {}, 'Tags'),
     item(UNTAGGED, 'Untagged', search(entries, '', UNTAGGED).length),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
-    button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'action'),
-    button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
-    button('Lock', 'Lock the database', () => void lock(), 'action'),
+    el('p', { className: 'version' }, `Version ${settings?.version ?? ''}`),
   )
   const sliding = slide(shade, panel, -1, close)
   if (!dragged) sliding.release(true)
@@ -890,6 +889,14 @@ function settingsPeek(back: () => void): Sliding {
   const close = overlay(shade)
   const sliding = slide(shade, panel, 1, close)
   return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back, parts ?? undefined))) }
+}
+
+/** Tools (#183): the commands that work on the whole database, from the toolbar's wrench. */
+function toolsSheet() {
+  sheet((close) => [
+    el('b', {}, 'Tools'),
+    button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
+  ])
 }
 
 /** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
@@ -1467,7 +1474,8 @@ function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
     case 'about':
       return [
         el('p', {}, `PswManager for Android, version ${s.version}`),
-        el('p', { className: 'muted' }, 'The database is a KeePass file (KDBX 4.1): it opens in PswManager on Windows, KeePassXC and Keepass2Android.'),
+        el('p', { className: 'muted' }, 'The database is a KeePass file (KDBX 4.1).'),
+        button('GitHub repository', 'Open the GitHub repository in the browser', () => void api.openRepository().catch((e) => snack(String(e))), 'link'),
       ]
   }
 }
