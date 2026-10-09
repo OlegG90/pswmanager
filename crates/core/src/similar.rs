@@ -88,6 +88,57 @@ pub fn merge(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &Hash
     Ok(())
 }
 
+/// What a merge would change in the kept entry, for the user to see first.
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub struct Preview {
+    /// Its empty fields that are filled, then the additional fields it gets.
+    pub fields: Vec<PreviewField>,
+    pub tags: Vec<String>,
+    /// The files it gets, by the names they will have.
+    pub files: Vec<String>,
+    /// It gets another's icon.
+    pub icon: bool,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct PreviewField {
+    pub name: String,
+    /// `None` for a protected value (a password, a TOTP secret): it stays here.
+    pub value: Option<String>,
+    /// One of its own fields, empty until now.
+    pub fills: bool,
+}
+
+/// What [merge] would change in `keep`: worked out by merging on a copy.
+pub fn preview(db: &Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Preview, String> {
+    let read = |db: &Database| db.entry(keep).map(|e| (edit::read(&e, Vec::new()), e.attachments_named().map(|(n, _)| n.to_string()).collect::<Vec<_>>()));
+    let (before, files_before) = read(db).ok_or(NOT_FOUND)?;
+    let mut merged = db.clone();
+    merge(&mut merged, keep, others, hidden)?;
+    let (after, files_after) = read(&merged).ok_or(NOT_FOUND)?;
+
+    let mut preview = Preview::default();
+    let standard = [
+        ("User name", &before.username, &after.username, false),
+        ("Password", &before.password, &after.password, true),
+        ("URL", &before.url, &after.url, false),
+        ("Notes", &before.notes, &after.notes, false),
+        ("TOTP", &before.otp, &after.otp, true),
+    ];
+    for (name, was, is, protected) in standard {
+        if was != is {
+            preview.fields.push(PreviewField { name: name.to_string(), value: (!protected).then(|| is.clone()), fills: true });
+        }
+    }
+    for field in after.fields.iter().filter(|f| !before.fields.iter().any(|b| b.name == f.name)) {
+        preview.fields.push(PreviewField { name: field.name.clone(), value: (!field.protected).then(|| field.value.clone()), fills: false });
+    }
+    preview.tags = after.tags.iter().filter(|t| !before.tags.contains(t)).cloned().collect();
+    preview.files = files_after.into_iter().filter(|f| !files_before.contains(f)).collect();
+    preview.icon = before.icon != after.icon;
+    Ok(preview)
+}
+
 /// Adds what `from` has to `into` (see [merge]).
 fn take(into: &mut EntryData, from: &EntryData) {
     let source = match from.title.trim() {
@@ -277,6 +328,30 @@ mod tests {
         names.sort();
         assert_eq!(names, ["scan (2).pdf", "scan.pdf"]);
         assert_eq!(kept.attachment_by_name("scan (2).pdf").unwrap().data.get(), b"theirs");
+    }
+
+    #[test]
+    fn preview_shows_what_a_merge_adds_without_protected_values() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Google", "https://accounts.google.com", |e| e.set_protected(fields::PASSWORD, "new-pass"));
+        let other = add(&mut db, "Gmail", "https://mail.google.com", |e| {
+            e.set_unprotected(fields::USERNAME, "me@gmail.com");
+            e.set_protected(fields::PASSWORD, "old-pass");
+            e.tags = vec!["Mail".into()];
+            e.add_attachment("codes.txt", Value::protected(b"1234".to_vec()));
+        });
+        let hidden = edit::hidden_groups(&db);
+        let before = db.clone();
+        let preview = preview(&db, keep, &[other], &hidden).unwrap();
+        assert_eq!(db, before, "nothing changes");
+        let shown: Vec<(&str, Option<&str>, bool)> = preview.fields.iter().map(|f| (f.name.as_str(), f.value.as_deref(), f.fills)).collect();
+        assert_eq!(shown, [
+            ("User name", Some("me@gmail.com"), true),
+            ("Password (Gmail)", None, false),
+            ("URL (Gmail)", Some("https://mail.google.com"), false),
+        ]);
+        assert_eq!(preview.tags, ["Mail"]);
+        assert_eq!(preview.files, ["codes.txt"]);
     }
 
     #[test]

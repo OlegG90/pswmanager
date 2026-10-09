@@ -1121,6 +1121,12 @@ fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: 
     Ok(listing)
 }
 
+/// What merging entries into `keep` would change in it; protected values are left out.
+#[tauri::command(async)]
+fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<similar::Preview, String> {
+    session.read(|v| v.merge_preview(&keep, &others))?
+}
+
 /// An image file for an entry's own icon, as base64; `None` when cancelled.
 #[tauri::command(async)]
 fn pick_icon_image(window: Window) -> Result<Option<String>, String> {
@@ -1389,6 +1395,7 @@ pub fn run() {
             password_health,
             similar_entries,
             merge_entries,
+            merge_preview,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.

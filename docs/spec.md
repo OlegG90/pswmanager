@@ -417,7 +417,10 @@ while the database is locked):
   - **Move to the recycle bin**: the ticked entries; the kept one too when it is ticked, so a site's
     entries can all go.
   - **Leave as is**: the site leaves the report until it is opened again.
-- Asked first; worked out and applied in the backend, which gets only ids from the window.
+- Merge asks first and shows what the kept entry would get: the fields filled and added (a protected
+  value as *hidden*: it does not leave the backend), tags, files and the icon. The backend works this
+  out by merging on a copy, so it is what the merge does.
+- Worked out and applied in the backend, which gets only ids from the window.
 
 ## Saving and synchronisation
 

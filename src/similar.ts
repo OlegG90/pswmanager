@@ -1,6 +1,6 @@
-import { api, type Entry, type Listing } from './api'
+import { api, type Entry, type Listing, type MergePreview } from './api'
 import { busyButton, button, el } from './dom'
-import { ask } from './modal'
+import { ask, dialog } from './modal'
 
 export interface SimilarOptions {
   done: () => void
@@ -17,6 +17,20 @@ const titleOf = (entry: Entry) => entry.title || '(no title)'
 
 /** `"Mail"`, or `3 entries`. */
 const describe = (entries: Entry[]) => (entries.length === 1 ? `"${titleOf(entries[0])}"` : `${entries.length} entries`)
+
+/** Asks to merge, showing what the kept entry gets (`preview`). */
+function confirmMerge(message: string, preview: MergePreview): Promise<boolean> {
+  const line = (name: string, value: string, hint = '') =>
+    el('li', {}, el('span', { className: 'name' }, name), el('span', { className: 'value' }, value), hint ? el('span', { className: 'hint' }, hint) : '')
+  const lines = [
+    ...preview.fields.map((f) => line(f.name, f.value ?? 'hidden', f.fills ? 'was empty' : 'new field')),
+    ...(preview.tags.length ? [line('Tags', preview.tags.join(', '))] : []),
+    ...preview.files.map((name) => line('File', name)),
+    ...(preview.icon ? [line('Icon', 'from another entry')] : []),
+  ]
+  const body = lines.length ? el('ul', { className: 'merge-preview' }, ...lines) : el('p', { className: 'muted' }, 'Nothing it does not have already.')
+  return dialog(message, false, (answer) => ({ body: [body], buttons: [button('Merge', 'Merge', () => answer(true), 'danger')] }), 'Cancel', 'merge')
+}
 
 /** One site's entries, the most recently changed first. */
 interface Site {
@@ -62,8 +76,10 @@ function siteSection(site: Site, options: SimilarOptions, redraw: () => Promise<
     const others = ticked(false)
     if (!others.length) return
     const into = titleOf(keptEntry())
-    if (!await ask(`Merge ${describe(others)} into "${into}"? What they have that "${into}" does not is added to it, and they go to the recycle bin.`, 'Merge')) return
-    options.changed(await api.mergeEntries(keep, others.map((e) => e.id)), `Merged into "${into}"`)
+    const ids = others.map((e) => e.id)
+    const preview = await api.mergePreview(keep, ids)
+    if (!await confirmMerge(`Merge ${describe(others)} into "${into}"? They go to the recycle bin; "${into}" gets:`, preview)) return
+    options.changed(await api.mergeEntries(keep, ids), `Merged into "${into}"`)
     await redraw()
   }
   async function remove() {
