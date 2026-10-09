@@ -387,8 +387,8 @@ while the database is locked):
 
 ## Password health
 
-- A report, opened from the toolbar, of passwords worth changing among the entries in use (not the
-  recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
+- A report, opened from the toolbar's *Tools* menu, of passwords worth changing among the entries in
+  use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
 - A password's age runs from when it was last set: the oldest version in the entry's history with the
@@ -396,6 +396,34 @@ while the database is locked):
 - Worked out in the backend on demand: the window gets titles and reasons, never a password, and nothing
   is sent anywhere or stored.
 - Each listed entry opens in the editor with the password field focused.
+
+## Similar entries
+
+- A report, opened from the toolbar's *Tools* menu (*Similar entries*), of entries in use (not the
+  recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+  `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
+  not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
+  URL are not listed.
+- Each site's entries are listed most recently changed first. One is **kept** (the first, at first; any
+  can be chosen), the others are **ticked**; for the ticked ones:
+  - **Merge**: what they have goes into the kept entry, as one edit (its previous version goes to its
+    history), and they go to the recycle bin. An empty field of the kept entry is filled from them; a
+    value that differs from its own becomes an additional field named after the entry it came from
+    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), but for an address:
+    another URL (and the other's own further URLs) becomes one of its further URLs, `KP2A_URL_1`,
+    `KP2A_URL_2`… as Keepass2Android and KeePassXC keep them, so their autofill finds it. A value
+    already there (under any name) is not added again. Tags are joined; files are carried over (a name
+    already taken gets a number, the same content is not added twice); the kept entry's icon is taken
+    from them when it has none of its own. A passkey is its fields together, and an entry holds one: it
+    comes whole to a kept entry without one; when both have one (not the same credential), the other's
+    is not carried over in any part, and the preview says so: it stays in its entry, in the recycle bin.
+  - **Move to the recycle bin**: the ticked entries; the kept one too when it is ticked, so a site's
+    entries can all go.
+  - **Leave as is**: the site leaves the report until it is opened again.
+- Merge asks first and shows what the kept entry would get: the fields filled and added (a protected
+  value as *hidden*: it does not leave the backend), tags, files and the icon. The backend works this
+  out by merging on a copy, so it is what the merge does.
+- Worked out and applied in the backend, which gets only ids from the window.
 
 ## Saving and synchronisation
 
@@ -573,7 +601,7 @@ with code 2.
 
 - **Shell:** Tauri 2 (Rust) + WebView2, tray via Tauri's `tray-icon` feature.
 - **Code:** one Cargo workspace: `crates/core` holds what does not depend on the platform (the database,
-  editing, merging, syncing and the stores, TOTP, the generator, password health, site icons) and is
+  editing, merging, syncing and the stores, TOTP, the generator, password health, similar entries, site icons) and is
   shared with the Android app (see `spec-android.md`); `src-tauri` is the Windows app around it (the
   window, tray, hotkey, clipboard, file watching, the Credential Manager, which the core reaches through
   its secret-store hook).

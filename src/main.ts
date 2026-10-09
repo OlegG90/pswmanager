@@ -16,6 +16,7 @@ import { renderSettings } from './settings'
 import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
+import { renderSimilar } from './similar'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
@@ -32,7 +33,7 @@ const list = $<HTMLUListElement>('list')
 const detail = $('detail')
 const settingsView = $('settings')
 const chooseView = $('choose')
-const healthView = $('health')
+const reportView = $('report')
 const toast = $('toast')
 
 
@@ -45,8 +46,8 @@ const EMPTY: Listing = {
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
-/** The password health report is over the vault. */
-let healthOpen = false
+/** A report (password health, similar entries) is over the vault. */
+let reportOpen = false
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
 let listing = EMPTY
@@ -196,7 +197,7 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
-  closeHealth()
+  closeReport()
   closeEditor()
   stopTotp()
   listing = EMPTY
@@ -1048,27 +1049,41 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
-// ---------------------------------------------------------------- password health
+// ---------------------------------------------------------------- reports
 
-async function openHealth() {
-  if (healthOpen || !unlocked || isEditing()) return
+/** Shows the report `draw` fills the report view with, over the vault. */
+async function openReport(draw: () => Promise<void>) {
+  if (reportOpen || !unlocked || isEditing()) return
   try {
-    await renderHealth(healthView, { done: closeHealth, fix: changePassword, icon: iconOf })
+    await draw()
   } catch (e) {
     return notify(String(e))
   }
   if (!unlocked) return // locked while checking
-  healthOpen = true
+  reportOpen = true
   vault.hidden = true
-  healthView.hidden = false
-  healthView.querySelector('button')?.focus()
+  reportView.hidden = false
+  reportView.querySelector('button')?.focus()
 }
 
-function closeHealth() {
-  if (!healthOpen) return
-  healthOpen = false
-  healthView.hidden = true
-  healthView.replaceChildren()
+const openHealth = () => openReport(() => renderHealth(reportView, { done: closeReport, fix: changePassword, icon: iconOf }))
+
+const openSimilar = () =>
+  openReport(() =>
+    renderSimilar(reportView, {
+      done: closeReport,
+      entry: (id) => listing.entries.find((e) => e.id === id),
+      icon: iconOf,
+      changed: (next, message) => applyListing(next, message, false),
+      fail: (message) => notify(message),
+    }),
+  )
+
+function closeReport() {
+  if (!reportOpen) return
+  reportOpen = false
+  reportView.hidden = true
+  reportView.replaceChildren()
   if (unlocked && !settingsOpen) {
     vault.hidden = false
     searchInput.focus()
@@ -1082,7 +1097,7 @@ function iconOf(id: string): HTMLElement {
 
 /** "Change password" in the report: the entry, shown in the list, in the editor. */
 function changePassword(id: string) {
-  closeHealth()
+  closeReport()
   searchInput.value = ''
   filter = ALL
   fillSidebar()
@@ -1109,7 +1124,7 @@ async function openSettings() {
   } catch (e) {
     return notify(String(e))
   }
-  closeHealth()
+  closeReport()
   settingsOpen = true
   unlockForm.hidden = true
   chooseView.hidden = true
@@ -1145,7 +1160,11 @@ $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', newEntry)
 $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
-$('health-button').addEventListener('click', openHealth)
+// The tools that work on the whole database.
+$('settings-button').before(menuButton('Tools for the whole database', [
+  { label: 'Password health', title: 'Find reused, weak and old passwords', action: openHealth },
+  { label: 'Similar entries', title: 'Find entries for the same site, to merge or delete', action: openSimilar },
+], 'Tools'))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
@@ -1224,10 +1243,10 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (isAsking()) return // the question on screen has the keys
-  if (healthOpen) {
+  if (reportOpen) {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeHealth()
+      closeReport()
     } else if (e.ctrlKey && e.code === 'KeyL') {
       e.preventDefault()
       lock()
@@ -1292,7 +1311,7 @@ listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 // A copy opens with a key this device does not know, or no longer does.
 listen<KeyNeeded>('key-needed', (e) => showKeyNeeded(e.payload))
 listen('window-shown', () => {
-  if (settingsOpen || healthOpen) return
+  if (settingsOpen || reportOpen) return
   if (unlocked) searchInput.focus()
   else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else passwordInput.focus()

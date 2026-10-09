@@ -294,6 +294,27 @@ export interface Finding {
   detail: string
 }
 
+/** Entries for one site: a registrable domain (`google.com`), or the address
+ *  itself when it is not a site's. The most recently changed first. */
+export interface Similar {
+  site: string
+  ids: string[]
+}
+
+/** What a merge would change in the kept entry. */
+export interface MergePreview {
+  /** Its empty fields that are filled (`fills`), then the additional fields it gets;
+   *  `value` is null for a protected one. */
+  fields: { name: string; value: string | null; fills: boolean }[]
+  tags: string[]
+  /** By the names they will have. */
+  files: string[]
+  /** It gets another's icon. */
+  icon: boolean
+  /** The entries whose passkey it does not get: it has another one. */
+  passkeysLeft: string[]
+}
+
 /** Each entry is in one list at most: reused, else weak, else old. */
 export interface Health {
   reused: Finding[]
@@ -416,6 +437,11 @@ export const api = {
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
   passwordHealth: () => invoke<Health>('password_health'),
+  similarEntries: () => invoke<Similar[]>('similar_entries'),
+  /** Adds what `others` have to `keep` and moves them to the recycle bin. */
+  mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
+  /** What `mergeEntries` would change in `keep`; nothing changes. */
+  mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
   setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),

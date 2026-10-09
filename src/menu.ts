@@ -12,13 +12,13 @@ export interface MenuItem {
 let closeOpen: (() => void) | null = null
 
 /**
- * A "⋯" button that opens a short list of actions under it (above it when
+ * A button ("⋯" unless `label` says otherwise) that opens a short list of actions under it (above it when
  * there is no room below). Arrow keys move between the actions, Esc closes
  * the menu and gives the focus back to the button; a click elsewhere or
  * moving the focus away closes it too.
  */
-export function menuButton(title: string, items: MenuItem[]): HTMLSpanElement {
-  const trigger = button('⋯', title, () => (menu.hidden ? open() : close()), 'more')
+export function menuButton(title: string, items: MenuItem[], label = '⋯'): HTMLSpanElement {
+  const trigger = button(label, title, () => (menu.hidden ? open() : close()), 'more')
   trigger.setAttribute('aria-haspopup', 'menu')
   trigger.setAttribute('aria-expanded', 'false')
   const entries = items.map((item) => {

@@ -165,7 +165,7 @@ As in the mockups `1e`–`1j`.
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
-  database: *Import from another app…*, and the tools to come (such as *Find similar*, #176).
+  database: *Import from another app…*, and the tools to come (such as *Find similar*, #215).
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
