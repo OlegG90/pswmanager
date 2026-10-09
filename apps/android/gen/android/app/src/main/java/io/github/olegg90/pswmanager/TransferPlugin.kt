@@ -5,17 +5,29 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.providerevents.ProviderEventsManager
 import androidx.credentials.providerevents.exception.ImportCredentialsCancellationException
 import androidx.credentials.providerevents.exception.ImportCredentialsNoExportOptionException
+import androidx.credentials.providerevents.transfer.ClearExportRequest
 import androidx.credentials.providerevents.transfer.CredentialTypes
+import androidx.credentials.providerevents.transfer.ExportEntry
 import androidx.credentials.providerevents.transfer.ImportCredentialsRequest
 import androidx.credentials.providerevents.transfer.KnownExtensions
+import androidx.credentials.providerevents.transfer.RegisterExportRequest
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+@InvokeArg
+class ExportArgs {
+  /** The database, as the importing app lists it. */
+  lateinit var name: String
+}
 
 /**
  * Importing from another password manager (#152) through Android's
@@ -53,7 +65,57 @@ class TransferPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
+  /**
+   * Offers the database for export to other password managers (#153): Android's
+   * Credential Transfer then lists PswManager among the apps to import from, and
+   * starts [ExportActivity] when it is picked. Registering again replaces it.
+   */
+  @Command
+  fun registerExport(invoke: Invoke) {
+    val args = invoke.parseArgs(ExportArgs::class.java)
+    settle(invoke) {
+      val icon = ContextCompat.getDrawable(activity, R.mipmap.ic_launcher)!!.toBitmap(ICON, ICON)
+      val entry = ExportEntry(ExportRegistration.id(activity), args.name, "PswManager", icon, EXPORTED)
+      ProviderEventsManager.create(activity).registerExport(RegisterExportRequest.create(activity, listOf(entry)))
+      ExportRegistration.registered(activity, args.name)
+    }
+  }
+
+  /** The database is forgotten: PswManager is no longer offered for export. */
+  @Command
+  fun clearExport(invoke: Invoke) {
+    // A new id from now on, whatever Android says: a request for the old one is refused.
+    ExportRegistration.cleared(activity)
+    settle(invoke) { ProviderEventsManager.create(activity).clearExport(ClearExportRequest()) }
+  }
+
+  /** Runs `work` in the window's scope and settles `invoke` with how it ended. */
+  private fun settle(invoke: Invoke, work: suspend () -> Unit) {
+    val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Needs the app's own window")
+    scope.launch {
+      try {
+        work()
+        invoke.resolve(JSObject())
+      } catch (e: CancellationException) {
+        invoke.reject("transfer:cancelled")
+        throw e
+      } catch (e: Exception) {
+        invoke.reject(e.message ?: e.toString())
+      }
+    }
+  }
+
   companion object {
+    /** The icon's side for the system's list, in pixels (it scales it to 32). */
+    private const val ICON = 96
+
+    /** What the core writes ([crates/core/src/cxf.rs] `export`). */
+    private val EXPORTED = setOf(
+      CredentialTypes.CREDENTIAL_TYPE_BASIC_AUTH, CredentialTypes.CREDENTIAL_TYPE_PUBLIC_KEY,
+      CredentialTypes.CREDENTIAL_TYPE_TOTP, CredentialTypes.CREDENTIAL_TYPE_NOTE,
+      CredentialTypes.CREDENTIAL_TYPE_CUSTOM_FIELDS,
+    )
+
     /** What the core reads into entries (crates/core/src/cxf.rs). */
     private val TYPES = setOf(
       CredentialTypes.CREDENTIAL_TYPE_BASIC_AUTH, CredentialTypes.CREDENTIAL_TYPE_PUBLIC_KEY,

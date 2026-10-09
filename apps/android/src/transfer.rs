@@ -1,7 +1,9 @@
 //! Importing from another password manager on this phone (#152) through
 //! `TransferPlugin.kt` (Android's Credential Transfer): the export comes
 //! straight here, never to the page, and the core reads it into new entries
-//! ([pswm_core::cxf]) in a group of their own.
+//! ([pswm_core::cxf]) in a group of their own. And offering the database for
+//! export to them (#153): the export itself is `ExportActivity.kt`'s, through
+//! `provider.rs`, as Android starts it outside the app's window.
 
 use crate::app::off_main;
 use pswm_core::cxf::{self, Skipped};
@@ -45,6 +47,32 @@ impl<R: Runtime> Transfer<R> {
             }
         }
     }
+}
+
+#[derive(Serialize)]
+struct ExportArgs<'a> {
+    name: &'a str,
+}
+
+impl<R: Runtime> Transfer<R> {
+    /// Offers the database (named `name` in the system's list) for export.
+    pub fn register_export(&self, name: &str) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde_json::Value>("registerExport", ExportArgs { name }).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// No longer offers it.
+    pub fn clear_export(&self) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde_json::Value>("clearExport", ()).map(|_| ()).map_err(|e| e.to_string())
+    }
+}
+
+/// Offers the database on the phone for export to another password manager,
+/// named `name` in the system's list (once unlocked: the page knows its name
+/// then). Where Android's transfer is missing (no Google Play services), it
+/// says why; the page lets that pass.
+#[tauri::command]
+pub async fn register_export(app: AppHandle, name: String) -> Result<(), String> {
+    off_main(move || app.state::<Transfer<Wry>>().register_export(&name)).await
 }
 
 /// What an import brought.

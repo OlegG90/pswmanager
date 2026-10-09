@@ -62,6 +62,29 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.pswm_android.Translucent" />
+        <!-- Another password manager imports from PswManager (#153): Android's
+             Credential Transfer starts it, only with write access to the URI
+             the export goes to. -->
+        <activity
+            android:name=".ExportActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:requireContentUriPermissionFromCaller="write"
+            android:screenOrientation="portrait">
+            <!-- The URI is the importer's file provider's: Android resolves its
+                 type, and a filter without one would not match then (two
+                 filters, as data in one would make the type required). -->
+            <intent-filter>
+                <action android:name="androidx.identitycredentials.action.IMPORT_CREDENTIALS" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.identitycredentials.action.IMPORT_CREDENTIALS" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".UnlockActivity"
             android:exported="false"
