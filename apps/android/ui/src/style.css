@@ -358,7 +358,7 @@ main.list-screen {
   inset: 0 auto 0 0;
   width: min(320px, 85vw);
   overflow-y: auto;
-  padding: max(16px, env(safe-area-inset-top)) 12px 24px;
+  padding: max(16px, env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom));
   background: var(--color-bg);
 }
 
@@ -414,7 +414,8 @@ main.list-screen {
   background: var(--color-accent-100);
 }
 
-/* The app's version closes the drawer, under a rule as a section heading has. */
+/* The app's version closes the drawer, under a rule as a section heading has; the
+ * drawer's padding keeps it clear of Android's navigation bar. */
 .drawer .version {
   margin: 16px 0 0;
   padding: 12px 10px 0;
