@@ -94,10 +94,11 @@ class TransferPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun clearExport(invoke: Invoke) {
     val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Needs the app's own window")
+    // A new id from now on, whatever Android says: a request for the old one is refused.
+    ExportRegistration.cleared(activity)
     scope.launch {
       try {
         ProviderEventsManager.create(activity).clearExport(ClearExportRequest())
-        ExportRegistration.cleared(activity)
         invoke.resolve(JSObject())
       } catch (e: CancellationException) {
         invoke.reject("transfer:cancelled")

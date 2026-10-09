@@ -17,6 +17,7 @@ import androidx.credentials.providerevents.IntentHandler
 import androidx.credentials.providerevents.exception.ImportCredentialsNoExportOptionException
 import androidx.credentials.providerevents.transfer.ImportCredentialsResponse
 import androidx.credentials.providerevents.transfer.ProviderImportCredentialsRequest
+import java.security.MessageDigest
 import java.security.SecureRandom
 import kotlin.concurrent.thread
 
@@ -40,6 +41,12 @@ object ExportRegistration {
     val id = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     prefs(context).edit().putString(ID, id).apply()
     return id
+  }
+
+  /** Whether `credId` is the registered id (compared in constant time); false when none is. */
+  fun matches(context: Context, credId: String): Boolean {
+    val id = prefs(context).getString(ID, null) ?: return false
+    return MessageDigest.isEqual(id.toByteArray(), credId.toByteArray())
   }
 
   /** The database registered, as the importing app shows it. */
@@ -72,7 +79,7 @@ class ExportActivity : AppCompatActivity() {
     super.onCreate(savedInstanceState)
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
     request = IntentHandler.retrieveProviderImportCredentialsRequest(intent) ?: return cancel()
-    if (callingPackage != PLAY_SERVICES || request.credId != ExportRegistration.id(this)) {
+    if (callingPackage != PLAY_SERVICES || !ExportRegistration.matches(this, request.credId)) {
       return refuse("PswManager exports only through Android's transfer")
     }
     val destination = label(request.callingAppInfo.packageName)
