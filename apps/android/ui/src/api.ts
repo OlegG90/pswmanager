@@ -165,6 +165,8 @@ export const api = {
     invoke<{ status: Status; copyProblem: string | null }>('create_database', { name, password, place }),
   /** Imports from another password manager on this phone; null when the user went back. */
   importFromApp: () => invoke<Imported | null>('import_from_app'),
+  /** Offers the database for export to other password managers (#153), named `name` there. */
+  registerExport: (name: string) => invoke<void>('register_export', { name }),
   cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),
   openCloudFile: (cloud: Cloud, file: CloudFile, folder: Picked) =>
     invoke<{ status: Status; copyProblem: string | null }>('open_cloud_file', { cloud, file, folder }),

@@ -303,6 +303,14 @@ impl Vault {
         crate::health::check(self.visible_entries(), keepass::db::Times::now())
     }
 
+    /// The entries in use as a CXF export for another password manager (see
+    /// [crate::cxf::export]), one account named after the database. Every
+    /// secret is in it, in clear.
+    pub fn export(&self) -> Zeroizing<String> {
+        let name = self.db.meta.database_name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "PswManager".into());
+        crate::cxf::export(self.visible_entries(), &name, chrono::Utc::now().timestamp())
+    }
+
     /// The entries the user works with that are for the same site.
     pub fn similar(&self) -> Vec<crate::similar::Similar> {
         crate::similar::find(self.visible_entries())

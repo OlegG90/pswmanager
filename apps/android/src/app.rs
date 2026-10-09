@@ -135,7 +135,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::password_strength,
             crate::editing::pick_file_to_attach,
             crate::editing::release_files,
-            crate::transfer::import_from_app
+            crate::transfer::import_from_app,
+            crate::transfer::register_export
         ])
 }
 
@@ -253,6 +254,8 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
             forget_key_file(&store)?;
             // It is this database's key.
             let _ = app.state::<Biometric<Wry>>().forget();
+            // Nothing to export any more (where the transfer works at all).
+            let _ = app.state::<crate::transfer::Transfer<Wry>>().clear_export();
         }
         Ok(status_of(&store, &session))
     })

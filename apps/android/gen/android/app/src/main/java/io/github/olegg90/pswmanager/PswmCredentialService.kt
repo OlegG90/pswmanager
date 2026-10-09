@@ -75,6 +75,13 @@ object ProviderBridge {
   /** Saves a login into entry `id` (a new one titled `title` when null): empty, or [FAILED] and why. */
   external fun saveLogin(id: String?, origin: String?, packageName: String, title: String, username: String, password: String): String
 
+  /**
+   * The database's entries in use as CXF JSON for another password manager
+   * ([ExportActivity]), the user checked with the master password or the
+   * sealed key; [FAILED] and why (then [STALE] for a stale sealed key).
+   */
+  external fun export(context: Context, state: String, password: String?, sealed: String?): String?
+
   const val STALE = "stale:"
 
   /** The entry (and its title) a picked passkey or login is for, in the activity's intent. */

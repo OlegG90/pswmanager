@@ -131,6 +131,25 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
     if session().is_unlocked() {
         return Ok(()); // the app was unlocked meanwhile
     }
+    let (vault, listing) = open_with(env, context, state, password, sealed)?;
+    with_store(env, state, |store| {
+        if let Some(app) = APP.get() {
+            crate::icons::fetch(app, &listing);
+        }
+        session().set(Some(vault));
+        lock_later(Settings::of(store).lock_in_background());
+    })?;
+    if let Some(app) = APP.get() {
+        crate::app::start_sync(app.clone());
+    }
+    Ok(())
+}
+
+/// The database opened with the master password (`sealed` null) or the key
+/// sealed for biometric unlock, as [unlock] takes them: the key is checked
+/// by opening the file with it. [STALE] first when the sealed key no longer
+/// opens it.
+fn open_with(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(pswm_core::vault::Vault, pswm_core::vault::Listing), String> {
     Kotlin::install(env, context)?;
     let password = optional_text(env, password)?.map(Zeroizing::new);
     let sealed = optional_text(env, sealed)?.map(Zeroizing::new);
@@ -153,7 +172,7 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
             (None, None) => None,
         };
         let password = password.as_deref().map(String::as_str).filter(|p| !p.is_empty());
-        let (vault, listing) = crate::app::open_vault(store, password, key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
+        let opened = crate::app::open_vault(store, password, key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
             if with_sealed_key && e == pswm_core::dbfile::WRONG_KEY {
                 format!("{STALE}The database's key has changed: unlock with the new master password")
             } else {
@@ -164,17 +183,35 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
             // The master password was typed: the fingerprint counts again for the set days.
             crate::app::password_asked(store);
         }
-        if let Some(app) = APP.get() {
-            crate::icons::fetch(app, &listing);
+        Ok(opened)
+    })?
+}
+
+/// Another password manager imports from PswManager (#153): the database's
+/// entries in use as CXF JSON, once the user is checked again with the
+/// master password or the sealed key (`ExportActivity.kt`), every time,
+/// unlocked or not. The database is opened afresh with that key, so the
+/// session (the app's, the provider's) is not touched. [FAILED] and why
+/// when it cannot be; [STALE] after it for a stale sealed key.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_export<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    context: JObject<'local>,
+    state: JString<'local>,
+    password: JString<'local>,
+    sealed: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            open_with(env, &context, &state, &password, &sealed).map(|(vault, _)| vault.export())
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not export: try again".into()));
+        match result {
+            Ok(json) => java_text(env, json.as_str()),
+            Err(why) => java_text(env, format!("{FAILED}{why}")),
         }
-        session().set(Some(vault));
-        lock_later(Settings::of(store).lock_in_background());
-        Ok::<(), String>(())
-    })??;
-    if let Some(app) = APP.get() {
-        crate::app::start_sync(app.clone());
-    }
-    Ok(())
+    })
 }
 
 /// The passkeys for a sign-in request (WebAuthn's `requestJson`), as JSON

@@ -3633,6 +3633,7 @@ dependencies = [
  "hmac 0.13.0",
  "keepass",
  "p256",
+ "percent-encoding",
  "psl",
  "serde",
  "serde_json",

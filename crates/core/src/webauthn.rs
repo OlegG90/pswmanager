@@ -249,11 +249,17 @@ fn credential_json(id: &str, response: Value) -> String {
 
 /// A PKCS#8 key in PEM, wrapped in lines or not (KeePassXC writes either).
 fn private_key(pem: &str) -> Result<SigningKey, String> {
-    const UNREADABLE: &str = "The passkey's key cannot be read";
-    let inner = pem.trim().trim_start_matches("-----BEGIN PRIVATE KEY-----").trim_end_matches("-----END PRIVATE KEY-----");
+    pkcs8_der(pem).and_then(|der| SigningKey::from_pkcs8_der(&der).ok()).ok_or_else(|| "The passkey's key cannot be read".to_string())
+}
+
+/// The DER of a passkey's PKCS#8 key in PEM, wrapped in lines or not
+/// (KeePassXC writes either); `None` when it is not a P-256 key this app can
+/// sign with.
+pub(crate) fn pkcs8_der(pem: &str) -> Option<Zeroizing<Vec<u8>>> {
+    let inner = pem.trim().strip_prefix("-----BEGIN PRIVATE KEY-----")?.strip_suffix("-----END PRIVATE KEY-----")?;
     let body: Zeroizing<String> = Zeroizing::new(inner.chars().filter(|c| !c.is_whitespace()).collect());
-    let der = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).map_err(|_| UNREADABLE.to_string())?);
-    SigningKey::from_pkcs8_der(&der).map_err(|_| UNREADABLE.to_string())
+    let der = Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).ok()?);
+    SigningKey::from_pkcs8_der(&der).ok().map(|_| der)
 }
 
 fn parse(options_json: &str) -> Result<Value, String> {
