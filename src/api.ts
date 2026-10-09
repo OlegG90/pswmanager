@@ -311,6 +311,8 @@ export interface MergePreview {
   files: string[]
   /** It gets another's icon. */
   icon: boolean
+  /** The entries whose passkey it does not get: it has another one. */
+  passkeysLeft: string[]
 }
 
 /** Each entry is in one list at most: reused, else weak, else old. */

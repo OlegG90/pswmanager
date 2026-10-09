@@ -65,14 +65,24 @@ pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Vec<Similar> {
 /// its previous version goes into its history. An entry gone meanwhile is
 /// left out.
 pub fn merge(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<(), String> {
+    merge_noting(db, keep, others, hidden).map(|_| ())
+}
+
+/// [merge], returning the titles of the entries whose passkey was left out
+/// (see [take]).
+fn merge_noting(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Vec<String>, String> {
     let kept = db.entry(keep).ok_or(NOT_FOUND)?;
     let mut data = edit::read(&kept, edit::path_of(db, kept.parent().id()));
     let mut contents: Vec<Zeroizing<Vec<u8>>> = kept.attachments_named().map(|(_, a)| Zeroizing::new(a.data.get().clone())).collect();
     let mut files: Vec<FileEdit> = Vec::new();
+    let mut passkeys_left = Vec::new();
     let others: Vec<EntryId> = others.iter().copied().filter(|&id| id != keep && db.entry(id).is_some()).collect();
     for &id in &others {
         let other = db.entry(id).expect("checked above");
-        take(&mut data, &edit::read(&other, Vec::new()));
+        let from = edit::read(&other, Vec::new());
+        if !take(&mut data, &from) {
+            passkeys_left.push(titled(&from).to_string());
+        }
         for (name, file) in other.attachments_named() {
             let content = Zeroizing::new(file.data.get().clone());
             if !contents.contains(&content) {
@@ -85,7 +95,7 @@ pub fn merge(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &Hash
     for id in others {
         edit::recycle(db, id)?;
     }
-    Ok(())
+    Ok(passkeys_left)
 }
 
 /// What a merge would change in the kept entry, for the user to see first.
@@ -98,6 +108,8 @@ pub struct Preview {
     pub files: Vec<String>,
     /// It gets another's icon.
     pub icon: bool,
+    /// The entries whose passkey it does not get: it has another one.
+    pub passkeys_left: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -114,10 +126,10 @@ pub fn preview(db: &Database, keep: EntryId, others: &[EntryId], hidden: &HashSe
     let read = |db: &Database| db.entry(keep).map(|e| (edit::read(&e, Vec::new()), e.attachments_named().map(|(n, _)| n.to_string()).collect::<Vec<_>>()));
     let (mut before, files_before) = read(db).ok_or(NOT_FOUND)?;
     let mut merged = db.clone();
-    merge(&mut merged, keep, others, hidden)?;
+    let passkeys_left = merge_noting(&mut merged, keep, others, hidden)?;
     let (mut after, files_after) = read(&merged).ok_or(NOT_FOUND)?;
 
-    let mut preview = Preview::default();
+    let mut preview = Preview { passkeys_left, ..Preview::default() };
     for ((name, was, protected), (_, is, _)) in standard(&mut before).into_iter().zip(standard(&mut after)) {
         if was != is {
             preview.fields.push(PreviewField { name: name.to_string(), value: (!protected).then(|| is.clone()), fills: true });
@@ -133,11 +145,9 @@ pub fn preview(db: &Database, keep: EntryId, others: &[EntryId], hidden: &HashSe
 }
 
 /// Adds what `from` has to `into` (see [merge]).
-fn take(into: &mut EntryData, from: &EntryData) {
-    let source = match from.title.trim() {
-        "" => "another entry",
-        title => title,
-    };
+/// Returns false when `from`'s passkey is left out: `into` has another one.
+fn take(into: &mut EntryData, from: &EntryData) -> bool {
+    let source = titled(from);
     // Values that differ from `into`'s own, with the name they go under.
     let mut differing: Vec<FieldData> = Vec::new();
     // Other addresses: `into`'s further URLs.
@@ -158,17 +168,23 @@ fn take(into: &mut EntryData, from: &EntryData) {
             differing.push(FieldData { name: label.to_string(), value: theirs.clone(), protected });
         }
     }
-    // A passkey is its fields together: one does not fill in another's.
+    // A passkey is its fields together, and an entry has one: when both
+    // have one, `from`'s is not taken, field by field or otherwise.
+    let credential = |data: &EntryData| data.fields.iter().find(|f| f.name == passkey::CREDENTIAL_ID).map(|f| f.value.clone());
     let has_passkey = |data: &EntryData| data.fields.iter().any(|f| f.name.starts_with(passkey::PREFIX));
     let both_passkeys = has_passkey(into) && has_passkey(from);
+    let passkey_taken = !both_passkeys || credential(into) == credential(from);
     for field in &from.fields {
         if field.name.starts_with(MORE_URLS) {
             urls.push(&field.value);
             continue;
         }
+        if both_passkeys && field.name.starts_with(passkey::PREFIX) {
+            continue;
+        }
         match into.fields.iter().find(|f| f.name == field.name) {
             Some(ours) if ours.value == field.value => {}
-            None if !(both_passkeys && field.name.starts_with(passkey::PREFIX)) => into.fields.push(field.clone()),
+            None => into.fields.push(field.clone()),
             _ => differing.push(field.clone()),
         }
     }
@@ -185,6 +201,14 @@ fn take(into: &mut EntryData, from: &EntryData) {
     }
     if into.icon == edit::IconChoice::Auto {
         into.icon = from.icon.clone();
+    }
+    passkey_taken
+}
+
+fn titled(data: &EntryData) -> &str {
+    match data.title.trim() {
+        "" => "another entry",
+        title => title,
     }
 }
 
@@ -411,6 +435,31 @@ mod tests {
         assert_eq!(field(&db, keep, fields::PASSWORD).as_deref(), Some("secret"));
         assert_eq!(field(&db, keep, passkey::PRIVATE_KEY).as_deref(), Some("key-a"));
         assert_eq!(field(&db, keep, passkey::USER_HANDLE), None);
-        assert_eq!(field(&db, keep, &format!("{} (Google passkey)", passkey::USER_HANDLE)).as_deref(), Some("handle-b"));
+        let names: Vec<String> = db.entry(keep).unwrap().fields.keys().cloned().collect();
+        assert!(!names.iter().any(|n| n.contains("(Google passkey)")), "no part of it: {names:?}");
+    }
+
+    #[test]
+    fn a_passkey_comes_whole_to_an_entry_without_one_and_the_preview_names_one_left_out() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Google", "google.com", |_| {});
+        let first = add(&mut db, "Passkey A", "google.com", |e| {
+            e.set_unprotected(passkey::CREDENTIAL_ID, "cred-a");
+            e.set_protected(passkey::PRIVATE_KEY, "key-a");
+        });
+        let same = add(&mut db, "Passkey A again", "google.com", |e| {
+            e.set_unprotected(passkey::CREDENTIAL_ID, "cred-a");
+            e.set_protected(passkey::PRIVATE_KEY, "key-a");
+        });
+        let second = add(&mut db, "Passkey B", "google.com", |e| {
+            e.set_unprotected(passkey::CREDENTIAL_ID, "cred-b");
+            e.set_protected(passkey::PRIVATE_KEY, "key-b");
+        });
+        let hidden = edit::hidden_groups(&db);
+        let preview = preview(&db, keep, &[first, same, second], &hidden).unwrap();
+        assert_eq!(preview.passkeys_left, ["Passkey B"]);
+        merge(&mut db, keep, &[first, same, second], &hidden).unwrap();
+        assert_eq!(field(&db, keep, passkey::CREDENTIAL_ID).as_deref(), Some("cred-a"));
+        assert_eq!(field(&db, keep, passkey::PRIVATE_KEY).as_deref(), Some("key-a"));
     }
 }

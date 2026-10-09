@@ -414,8 +414,9 @@ while the database is locked):
     `KP2A_URL_2`… as Keepass2Android and KeePassXC keep them, so their autofill finds it. A value
     already there (under any name) is not added again. Tags are joined; files are carried over (a name
     already taken gets a number, the same content is not added twice); the kept entry's icon is taken
-    from them when it has none of its own. A passkey is its fields together: when both have one, the
-    other's goes in as additional fields named after it and does not fill in the kept one's.
+    from them when it has none of its own. A passkey is its fields together, and an entry holds one: it
+    comes whole to a kept entry without one; when both have one (not the same credential), the other's
+    is not carried over in any part, and the preview says so: it stays in its entry, in the recycle bin.
   - **Move to the recycle bin**: the ticked entries; the kept one too when it is ticked, so a site's
     entries can all go.
   - **Leave as is**: the site leaves the report until it is opened again.

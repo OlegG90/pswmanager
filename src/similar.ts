@@ -28,7 +28,10 @@ function confirmMerge(message: string, preview: MergePreview): Promise<boolean> 
     ...(preview.icon ? [line('Icon', 'from another entry')] : []),
   ]
   const body = lines.length ? el('ul', { className: 'merge-preview' }, ...lines) : el('p', { className: 'muted' }, 'Nothing it does not have already.')
-  return dialog(message, false, (answer) => ({ body: [body], buttons: [button('Merge', 'Merge', () => answer(true), 'danger')] }), 'Cancel', 'merge')
+  // An entry holds one passkey: another one stays in its entry, in the recycle bin.
+  const left = preview.passkeysLeft.map((title) =>
+    el('p', { className: 'merge-warning' }, `The passkey of "${title}" is not carried over: this entry has its own. It stays in "${title}", in the recycle bin.`))
+  return dialog(message, false, (answer) => ({ body: [body, ...left], buttons: [button('Merge', 'Merge', () => answer(true), 'danger')] }), 'Cancel', 'merge')
 }
 
 /** One site's entries, the most recently changed first. */

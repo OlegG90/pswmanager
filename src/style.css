@@ -2103,6 +2103,11 @@ dialog.modal.merge {
   white-space: pre-line;
 }
 
+dialog.modal p.merge-warning {
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
 .merge-preview .hint {
   color: var(--color-neutral-700);
 }
