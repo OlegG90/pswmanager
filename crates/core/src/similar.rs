@@ -100,6 +100,7 @@ fn merge_noting(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &H
 
 /// What a merge would change in the kept entry, for the user to see first.
 #[derive(Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Preview {
     /// Its empty fields that are filled, then the additional fields it gets.
     pub fields: Vec<PreviewField>,
@@ -401,6 +402,14 @@ mod tests {
         ]);
         assert_eq!(preview.tags, ["Mail"]);
         assert_eq!(preview.files, ["codes.txt"]);
+    }
+
+    #[test]
+    fn the_preview_has_the_names_the_window_reads() {
+        let json = serde_json::to_value(Preview::default()).unwrap();
+        let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, ["fields", "files", "icon", "passkeysLeft", "tags"]);
     }
 
     #[test]
