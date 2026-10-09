@@ -320,6 +320,9 @@ function folderScreen(cloud: Cloud, files: CloudFile[], file: CloudFile) {
 async function unlockedWith(opened: Listing) {
   unlocked = true
   listScreen(opened)
+  // Offered for export to other password managers (#153); a phone without
+  // Android's transfer (no Google Play services) simply does not list it.
+  if (database) void api.registerExport(database.title).catch(() => {})
   const last = await api.lastSync()
   if (last) applySync(last)
 }

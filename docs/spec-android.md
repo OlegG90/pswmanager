@@ -37,8 +37,8 @@ completely is a goal for later stages.
 
 Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
 database on the phone), backup, the Templates
-group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play,
-exporting to another password manager (#153). Importing from one is in (#152, *Screens*); SafeInCloud's
+group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
+Importing from another password manager (#152) and exporting to one (#153) are in (*Screens*); SafeInCloud's
 migration stays with `sic2kdbx.py`.
 
 ## The database on the phone
@@ -185,7 +185,18 @@ As in the mockups `1e`–`1j`.
   additional attributes (the mapping in `docs/cxp-research.md`). The database is saved and synced as after
   any change, all or nothing. A sheet then says how many entries came in and lists what did not, with the
   reason (files, whose content an export does not carry; passkey extensions such as PRF; anything
-  unreadable). Exporting to another app comes later, with the credential provider stage (#153).
+  unreadable).
+- **Export to another app** (#153): the other way, started in the app that imports. PswManager offers
+  the database on the phone for export once it is unlocked (Android's `registerExport`: one entry, the
+  database's name, under a secret random id in the app's private storage; cleared by *Forget*), so the
+  system lists it among the apps to import from. Picked there, Android starts PswManager's export screen
+  (outside the app's window, never captured): a request not from Google Play services or without that id
+  is refused; the screen names the app the entries go to and asks for the master password or the
+  fingerprint **every time**, unlocked or not. The database is then opened afresh with that key (the
+  session is not touched) and every entry in use (not the recycle bin or templates) goes over as CXF:
+  logins, URLs and Android apps, TOTP, passkeys, notes and additional attributes, groups as collections,
+  the Favorite star; history, icons, the expiry and files stay. The JSON is handed to the system's content
+  URI and never written anywhere else or logged. Nothing in the database changes.
 - **Entry view:** title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
   secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another

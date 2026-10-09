@@ -1,16 +1,17 @@
-//! Importing from another password manager: a FIDO Credential Exchange
-//! Format (CXF 1.0) export, as Android's Credential Transfer hands it over,
-//! read into new entries (see `docs/cxp-research.md` for the mapping). Every
-//! item becomes a new entry; nothing in the database is changed or merged.
+//! Exchanging entries with another password manager in the FIDO Credential
+//! Exchange Format (CXF 1.0), as Android's Credential Transfer hands it over
+//! (see `docs/cxp-research.md` for the mapping). Importing reads an export
+//! into new entries: nothing in the database is changed or merged. Exporting
+//! writes the entries in use as one account, the reverse of the same mapping.
 
 use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
-use keepass::db::GroupId;
+use keepass::db::{fields as standard, EntryRef, GroupId};
 use keepass::Database;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -82,6 +83,240 @@ pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSe
         }
     }
     Ok(import.entries.len())
+}
+
+/// Who the exports are from, as the importing app shows it.
+pub const EXPORTER_NAME: &str = "PswManager";
+/// The exporter's id in an export (CXF asks for a domain).
+pub const EXPORTER_ID: &str = "olegg90.github.io";
+
+/// `entries` (the entries in use) as a CXF 1.0 export: one account named
+/// `account` (the database), its groups as collections. What CXF cannot
+/// carry stays behind: history, icons, the expiry and files. The JSON holds
+/// every secret in clear: it is wiped when dropped, and must never be logged
+/// or written where the user can see it.
+pub fn export<'a>(entries: impl Iterator<Item = EntryRef<'a>>, account: &str, now: i64) -> Zeroizing<String> {
+    let mut items = Vec::new();
+    let mut collections = Collections::default();
+    for entry in entries {
+        let id = b64(entry.id().uuid().as_bytes());
+        collections.add(&edit::path_of(entry.database(), entry.parent().id()), &id);
+        items.push(write_item(&entry, &id));
+    }
+    let mut root = json!({
+        "version": {"major": 1, "minor": 0},
+        "exporterRpId": EXPORTER_ID,
+        "exporterDisplayName": EXPORTER_NAME,
+        "timestamp": now,
+        "accounts": [{
+            "id": b64(account.as_bytes()),
+            "username": "",
+            "email": "",
+            "fullName": account,
+            "collections": collections.into_json(),
+            "items": items,
+        }],
+    });
+    let json = Zeroizing::new(root.to_string());
+    wipe(&mut root);
+    json
+}
+
+/// An entry as a CXF item, its id `id`.
+fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
+    let text = |name: &str| entry.get(name).unwrap_or("").to_string();
+    let title = text(standard::TITLE);
+    let mut item = Map::new();
+    item.insert("id".into(), id.into());
+    let seconds = |t: Option<NaiveDateTime>| t.map(|t| t.and_utc().timestamp());
+    if let Some(at) = seconds(entry.times.creation) {
+        item.insert("creationAt".into(), at.into());
+    }
+    if let Some(at) = seconds(entry.times.last_modification) {
+        item.insert("modifiedAt".into(), at.into());
+    }
+    item.insert("title".into(), title.clone().into());
+    item.insert("favorite".into(), entry.tags.iter().any(|t| t == FAVORITE).into());
+    let tags: Vec<&String> = entry.tags.iter().filter(|t| *t != FAVORITE).collect();
+    if !tags.is_empty() {
+        item.insert("tags".into(), json!(tags));
+    }
+
+    // The entry's URL and its further ones (`KP2A_URL_n`); apps apart.
+    let mut urls = Vec::new();
+    let mut apps = Vec::new();
+    let further = entry.fields.iter().filter(|(name, _)| name.starts_with(MORE_URLS)).map(|(_, v)| v.get().trim().to_string());
+    for url in std::iter::once(text(standard::URL).trim().to_string()).chain(further).filter(|u| !u.is_empty()) {
+        match url.strip_prefix("androidapp://") {
+            Some(app) => apps.push(json!({"bundleId": app})),
+            None => urls.push(Value::from(url)),
+        }
+    }
+    if !urls.is_empty() || !apps.is_empty() {
+        item.insert("scope".into(), json!({"urls": urls, "androidApps": apps}));
+    }
+
+    let mut credentials = Vec::new();
+    let (username, password) = (text(standard::USERNAME), text(standard::PASSWORD));
+    if !username.is_empty() || !password.is_empty() {
+        credentials.push(json!({
+            "type": "basic-auth",
+            "username": {"fieldType": "string", "value": username},
+            "password": {"fieldType": "concealed-string", "value": password},
+        }));
+    }
+    if let Some(totp) = entry.get(standard::OTP).and_then(|otp| write_totp(otp, &title)) {
+        credentials.push(totp);
+    }
+    if let Some(passkey) = write_passkey(entry) {
+        credentials.push(passkey);
+    }
+    let notes = text(standard::NOTES);
+    if !notes.is_empty() {
+        credentials.push(json!({"type": "note", "content": {"fieldType": "string", "value": notes}}));
+    }
+    let mut others: Vec<(&String, Value)> = entry
+        .fields
+        .iter()
+        .filter(|(name, value)| {
+            !edit::STANDARD.contains(&name.as_str()) && !name.starts_with(passkey::PREFIX) && !name.starts_with(MORE_URLS) && !value.get().is_empty()
+        })
+        .map(|(name, value)| {
+            let kind = if value.is_protected() { "concealed-string" } else { "string" };
+            (name, json!({"fieldType": kind, "value": value.get(), "label": name}))
+        })
+        .collect();
+    others.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    if !others.is_empty() {
+        credentials.push(json!({"type": "custom-fields", "fields": others.into_iter().map(|(_, f)| f).collect::<Vec<_>>()}));
+    }
+    item.insert("credentials".into(), credentials.into());
+    Value::Object(item)
+}
+
+/// Further URLs as Keepass2Android keeps them: `KP2A_URL_1`, `KP2A_URL_2`…
+const MORE_URLS: &str = "KP2A_URL";
+
+/// The entry's TOTP secret (an `otpauth://` URI or a bare secret) as a CXF
+/// TOTP credential; `None` when it is not one this app can read.
+fn write_totp(otp: &str, title: &str) -> Option<Value> {
+    otp::Totp::parse(otp).ok()?;
+    let otp = otp.trim();
+    let mut totp = json!({"type": "totp", "period": 30, "digits": 6, "algorithm": "sha1"});
+    if !otp.to_ascii_lowercase().starts_with("otpauth:") {
+        totp["secret"] = otp.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '=').collect::<String>().to_ascii_uppercase().into();
+        totp["issuer"] = title.into();
+        return Some(totp);
+    }
+    let uri = url::Url::parse(otp).ok()?;
+    // The label is `issuer:user` or just a name.
+    let label = percent_decode(uri.path().trim_start_matches('/'));
+    let (label_issuer, user) = match label.split_once(':') {
+        Some((issuer, user)) => (Some(issuer.trim().to_string()), user.trim().to_string()),
+        None => (None, label.trim().to_string()),
+    };
+    let mut issuer = label_issuer;
+    for (key, value) in uri.query_pairs() {
+        match key.to_ascii_lowercase().as_str() {
+            "secret" => totp["secret"] = value.replace([' ', '-', '='], "").to_ascii_uppercase().into(),
+            "issuer" => issuer = Some(value.into_owned()),
+            "period" => totp["period"] = value.parse::<u64>().ok()?.into(),
+            "digits" => totp["digits"] = value.parse::<u64>().ok()?.into(),
+            "algorithm" => totp["algorithm"] = value.to_ascii_lowercase().into(),
+            _ => {}
+        }
+    }
+    if let Some(issuer) = issuer.filter(|i| !i.is_empty()) {
+        totp["issuer"] = issuer.into();
+    }
+    if !user.is_empty() {
+        totp["username"] = user.into();
+    }
+    Some(totp)
+}
+
+/// `%xx` escapes in a URI's path, as a label has them.
+fn percent_decode(text: &str) -> String {
+    url::form_urlencoded::parse(format!("x={}", text.replace('+', "%2B")).as_bytes()).next().map(|(_, v)| v.into_owned()).unwrap_or_default()
+}
+
+/// The passkey KeePassXC keeps in the entry's attributes as a CXF passkey;
+/// `None` without one, or with one missing a part.
+fn write_passkey(entry: &EntryRef<'_>) -> Option<Value> {
+    let get = |name: &str| entry.get(name).filter(|v| !v.is_empty());
+    let key = Zeroizing::new(b64(&der(get(passkey::PRIVATE_KEY)?)?));
+    let username = get(passkey::USERNAME).unwrap_or("");
+    Some(json!({
+        "type": "passkey",
+        "credentialId": get(passkey::CREDENTIAL_ID)?,
+        "rpId": get(passkey::RELYING_PARTY)?,
+        "username": username,
+        "userDisplayName": username,
+        "userHandle": get(passkey::USER_HANDLE)?,
+        "key": key.as_str(),
+    }))
+}
+
+/// A PEM private key's DER bytes.
+fn der(pem: &str) -> Option<Zeroizing<Vec<u8>>> {
+    let body: Zeroizing<String> = Zeroizing::new(pem.lines().filter(|l| !l.starts_with("-----")).map(str::trim).collect());
+    base64::engine::general_purpose::STANDARD.decode(body.as_bytes()).ok().map(Zeroizing::new)
+}
+
+/// Unpadded base64url, as CXF has ids and keys.
+fn b64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// The groups as CXF collections: each with the items right in it and its
+/// subgroups as sub-collections. Entries at the top are in none.
+#[derive(Default)]
+struct Collections(Vec<Collection>);
+
+struct Collection {
+    title: String,
+    items: Vec<String>,
+    below: Collections,
+}
+
+impl Collections {
+    /// Puts item `id` in the collection at `path` (made where missing).
+    fn add(&mut self, path: &[String], id: &str) {
+        let Some((first, rest)) = path.split_first() else { return };
+        let at = match self.0.iter().position(|c| c.title == *first) {
+            Some(at) => at,
+            None => {
+                self.0.push(Collection { title: first.clone(), items: Vec::new(), below: Collections::default() });
+                self.0.len() - 1
+            }
+        };
+        let collection = &mut self.0[at];
+        if rest.is_empty() {
+            collection.items.push(id.to_string());
+        } else {
+            collection.below.add(rest, id);
+        }
+    }
+
+    fn into_json(self) -> Vec<Value> {
+        self.into_json_under("")
+    }
+
+    /// Each collection's id is its path, so ids differ across the tree.
+    fn into_json_under(self, above: &str) -> Vec<Value> {
+        self.0
+            .into_iter()
+            .map(|c| {
+                let path = format!("{above}/{}", c.title);
+                json!({
+                    "id": b64(path.as_bytes()),
+                    "title": c.title,
+                    "items": c.items.iter().map(|item| json!({"item": item})).collect::<Vec<_>>(),
+                    "subCollections": c.below.into_json_under(&path),
+                })
+            })
+            .collect()
+    }
 }
 
 /// The export's header: its version, who made it, and every account's items.
@@ -593,6 +828,61 @@ mod tests {
         // The empty item is not an entry.
         assert_eq!(import.entries.len(), 4);
         assert!(import.skipped.iter().any(|s| s.title.is_empty() && s.why.contains("nothing")));
+    }
+
+    fn entry_data(title: &str) -> EntryData {
+        let mut data = EntryData::default();
+        data.title = title.into();
+        data
+    }
+
+    #[test]
+    fn an_export_reads_back_as_the_entries() {
+        let mut db = Database::new();
+        let hidden = edit::hidden_groups(&db);
+        let mut mail = entry_data("Mail");
+        mail.username = "alice".into();
+        mail.password = "pw-1".into();
+        mail.url = "https://mail.example.com".into();
+        mail.notes = "first line\nsecond".into();
+        mail.otp = "otpauth://totp/Mail:alice?secret=JBSWY3DPEHPK3PXP&issuer=Mail&period=30&digits=6&algorithm=SHA1".into();
+        mail.tags = vec!["work".into(), FAVORITE.into()];
+        mail.group = vec!["Work".into(), "Mail".into()];
+        mail.fields = vec![
+            FieldData { name: "KP2A_URL_1".into(), value: "https://webmail.example.com".into(), protected: false },
+            FieldData { name: "KP2A_URL_2".into(), value: "androidapp://com.example.mail".into(), protected: false },
+            FieldData { name: "Answer".into(), value: "blue".into(), protected: true },
+        ];
+        edit::apply(&mut db, None, &mail, &hidden).unwrap();
+        let mut key = entry_data("Site");
+        key.fields = passkey::fields("site.example", "bob", "Y3JlZC0x", "dXNlcg", "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgcICQoLDA0ODw==\n-----END PRIVATE KEY-----");
+        edit::apply(&mut db, None, &key, &hidden).unwrap();
+
+        let json = export(db.iter_all_entries(), "Personal", 1_760_000_000);
+        let import = parse(&json).unwrap();
+        assert_eq!(import.exporter, EXPORTER_NAME);
+        assert!(import.skipped.is_empty(), "{:?}", import.skipped);
+        let mail = &import.entries.iter().find(|e| e.data.title == "Mail").unwrap().data;
+        assert_eq!((mail.username.as_str(), mail.password.as_str(), mail.url.as_str()), ("alice", "pw-1", "https://mail.example.com"));
+        assert_eq!(mail.notes, "first line\nsecond");
+        assert_eq!(mail.otp, "otpauth://totp/Mail:alice?secret=JBSWY3DPEHPK3PXP&issuer=Mail&period=30&digits=6&algorithm=SHA1");
+        assert_eq!(mail.tags, ["work", FAVORITE]);
+        assert_eq!(mail.group, ["Work", "Mail"]);
+        assert_eq!(field(mail, "KP2A_URL_1").unwrap().value, "https://webmail.example.com");
+        assert_eq!(field(mail, "KP2A_URL_2").unwrap().value, "androidapp://com.example.mail");
+        assert!(field(mail, "Answer").unwrap().protected);
+        let site = &import.entries.iter().find(|e| e.data.title == "Site").unwrap().data;
+        assert_eq!(field(site, passkey::CREDENTIAL_ID).unwrap().value, "Y3JlZC0x");
+        assert_eq!(field(site, passkey::PRIVATE_KEY).unwrap().value, "-----BEGIN PRIVATE KEY-----\nAAECAwQFBgcICQoLDA0ODw==\n-----END PRIVATE KEY-----");
+        assert_eq!((site.url.as_str(), site.username.as_str()), ("https://site.example", "bob"));
+    }
+
+    #[test]
+    fn a_bare_totp_secret_is_exported_with_the_title_as_issuer() {
+        let totp = write_totp("jbsw y3dp ehpk 3pxp", "Bank").unwrap();
+        assert_eq!(totp["secret"], "JBSWY3DPEHPK3PXP");
+        assert_eq!(totp["issuer"], "Bank");
+        assert!(write_totp("not base32!", "Bank").is_none());
     }
 
     #[test]
