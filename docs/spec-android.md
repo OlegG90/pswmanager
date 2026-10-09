@@ -147,7 +147,7 @@ A local file skips steps 2–3.
 As in the mockups `1e`–`1j`.
 
 - **List**, laid out as in Keepass2Android: a toolbar on top (☰ for the drawer, the group or tag shown,
-  *Sync now*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
+  *Sync now*, *Tools*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
@@ -162,9 +162,9 @@ As in the mockups `1e`–`1j`.
 - **Drawer** (☰ or a swipe to the right on the list): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
   mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
-  does not count) and the tags (as `#work`) with their counts; then **Tools** (#183), the commands that
-  work on the whole database: *Import from another app…* (and the tools to come, such as *Find similar*,
-  #176); *Settings* and *Lock* at the bottom.
+  does not count) and the tags (as `#work`) with their counts; *Settings* and *Lock* at the bottom.
+- **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
+  database: *Import from another app…*, and the tools to come (such as *Find similar*, #176).
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a

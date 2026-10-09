@@ -503,6 +503,7 @@ function listScreen(opened: Listing) {
       status.textContent = 'Syncing…'
       void api.syncNow()
     }),
+    iconButton('tools', 'Tools', toolsSheet),
     iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
   const closeSearch = () => {
@@ -762,9 +763,6 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     b.classList.toggle('chosen', sameFilter(f, filter))
     return b
   }
-  // A command that works on the whole database, under Tools (#183).
-  const tool = (label: string, icon: IconName, run: () => void) =>
-    el('button', { type: 'button', onclick: () => (close(), run()) }, el('span', {}, svgIcon(icon), label))
   const entries = listing.entries
   panel.append(
     el('b', { className: 'title' }, database?.title ?? ''),
@@ -777,8 +775,6 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     el('h2', {}, 'Tags'),
     item(UNTAGGED, 'Untagged', search(entries, '', UNTAGGED).length),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
-    el('h2', {}, 'Tools'),
-    tool('Import from another app…', 'download', importSheet),
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
     button('Lock', 'Lock the database', () => void lock(), 'action'),
   )
@@ -894,6 +890,14 @@ function settingsPeek(back: () => void): Sliding {
   const close = overlay(shade)
   const sliding = slide(shade, panel, 1, close)
   return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back, parts ?? undefined))) }
+}
+
+/** Tools (#183): the commands that work on the whole database, from the toolbar's wrench. */
+function toolsSheet() {
+  sheet((close) => [
+    el('b', {}, 'Tools'),
+    button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
+  ])
 }
 
 /** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
