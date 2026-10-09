@@ -190,13 +190,14 @@ As in the mockups `1e`–`1j`.
   the database on the phone for export once it is unlocked (Android's `registerExport`: one entry, the
   database's name, under a secret random id in the app's private storage; cleared by *Forget*), so the
   system lists it among the apps to import from. Picked there, Android starts PswManager's export screen
-  (outside the app's window, never captured): a request not from Google Play services or without that id
-  is refused; the screen names the app the entries go to and asks for the master password or the
-  fingerprint **every time**, unlocked or not. The database is then opened afresh with that key (the
-  session is not touched) and every entry in use (not the recycle bin or templates) goes over as CXF:
-  logins, URLs and Android apps, TOTP, passkeys, notes and additional attributes, groups as collections,
-  the Favorite star; history, icons, the expiry and files stay. The JSON is handed to the system's content
-  URI and never written anywhere else or logged. Nothing in the database changes.
+  (outside the app's window; captured only if the settings allow screenshots): a request not from Google
+  Play services or without that id is refused; the screen names the app the entries go to and asks for
+  the master password or the fingerprint **every time**, unlocked or not. The database is then opened
+  afresh with that key (the session is not touched) and every entry in use (not the recycle bin or
+  templates) goes over as CXF: logins, URLs and Android apps, TOTP, passkeys, notes and additional
+  attributes, groups as collections, the Favorite star; history, icons, the expiry and files stay. The
+  JSON is handed to the system's content URI and never written anywhere else or logged. Nothing in the
+  database changes.
 - **Entry view:** title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
   secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another

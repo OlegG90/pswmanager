@@ -20,7 +20,7 @@ import kotlin.concurrent.thread
  * (#161): the fingerprint (the key sealed for biometric unlock) when it is
  * allowed, else the master password. The database is then unlocked in Rust
  * for the app too, and Android gets the provider's answer again, now
- * unlocked. Never captured on screen.
+ * unlocked. Captured on screen only if the settings allow screenshots.
  */
 @RequiresApi(34)
 class UnlockActivity : AppCompatActivity() {

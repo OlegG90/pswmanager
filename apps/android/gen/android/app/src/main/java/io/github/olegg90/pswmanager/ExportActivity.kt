@@ -4,7 +4,6 @@ import android.app.Activity
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
-import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -24,7 +23,8 @@ import kotlin.concurrent.thread
  * secret id), the user sees where the entries go and confirms with the
  * fingerprint or the master password, every time, unlocked or not; Rust then
  * opens the database with that key and hands over its entries in use as CXF
- * JSON, which goes to the system's content URI. Never captured on screen.
+ * JSON, which goes to the system's content URI. Captured on screen only if
+ * the settings allow screenshots.
  */
 class ExportActivity : AppCompatActivity() {
   private lateinit var request: ProviderImportCredentialsRequest
@@ -36,7 +36,7 @@ class ExportActivity : AppCompatActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+    Screenshots.apply(this)
     request = IntentHandler.retrieveProviderImportCredentialsRequest(intent) ?: return cancel()
     if (callingPackage != PLAY_SERVICES || !ExportRegistration.matches(this, request.credId)) {
       return refuse("PswManager exports only through Android's transfer")
