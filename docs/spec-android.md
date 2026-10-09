@@ -419,7 +419,8 @@ background.
 - **By hand on the phone, before a release:** first run with Dropbox, OneDrive, Google Drive and a local file;
   Stop syncing, Disconnect and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
-  screenshots blocked; opening an attachment and its clean-up; sync at each moment of the table, offline and
+  screenshots blocked, and shown once *Allow screenshots* is on (the window at once, other screens as they
+  open); opening an attachment and its clean-up; sync at each moment of the table, offline and
   back; biometric unlock and its invalidation (stage A3); importing from Google Password Manager (with
   test entries) and the entries then on Windows.
 - **Compatibility gate** (as in `spec.md`), with the phone in it: a change made in PswManager on the phone

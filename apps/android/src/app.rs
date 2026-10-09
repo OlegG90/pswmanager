@@ -535,7 +535,7 @@ fn settings(store: State<Store>) -> SettingsView {
 fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
     Settings::of(&store).set(&name, value)?;
     if name == "allowScreenshots" {
-        app.state::<crate::system::System<Wry>>().allow_screenshots(Settings::of(&store).allow_screenshots())?;
+        app.state::<crate::system::System<Wry>>().apply_screenshots()?;
     }
     Ok(settings(store))
 }

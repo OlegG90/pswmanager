@@ -24,16 +24,11 @@ struct UploadArgs<'a> {
     cloud: bool,
 }
 
-#[derive(Serialize)]
-struct ScreenshotArgs {
-    allowed: bool,
-}
-
 impl<R: Runtime> System<R> {
-    /// Lets screenshots and screen recording show the app's screens, or not
-    /// (`FLAG_SECURE`), at once and for every screen opened from now on.
-    pub fn allow_screenshots(&self, allowed: bool) -> Result<(), String> {
-        self.0.run_mobile_plugin::<serde_json::Value>("allowScreenshots", ScreenshotArgs { allowed }).map(|_| ()).map_err(|e| e.to_string())
+    /// The app's window follows the *Allow screenshots* setting at once
+    /// (other screens read it as they open).
+    pub fn apply_screenshots(&self) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde_json::Value>("applyScreenshots", ()).map(|_| ()).map_err(|e| e.to_string())
     }
 
     /// Asks WorkManager to upload what the state file `state` says is waiting,

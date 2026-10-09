@@ -1538,6 +1538,7 @@ function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
         el('h2', {}, 'Unlock'),
         toggle('Unlock with fingerprint', 'The fingerprint button on the unlock screen; set up at the next unlock with the password. Off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
         choice('Master password', 'Asked for again after', 'passwordEveryDays', s.passwordEveryDays, [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`] as [number, string])),
+        el('h2', {}, 'Screen'),
         toggle('Allow screenshots', 'Screenshots and screen recording show PswManager, and so does the recent-apps preview', 'allowScreenshots', s.allowScreenshots),
         el('h2', {}, 'Clipboard'),
         choice('Clear after copying', 'Only if it still holds the copied value', 'clearClipboard', s.clearClipboard, [5, 10, 20, 30, 60, 120].map((n) => [n, `${n} s`] as [number, string])),

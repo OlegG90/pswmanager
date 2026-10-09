@@ -260,13 +260,17 @@ mod tests {
         assert_eq!((view.lock_after_minutes, view.clear_clipboard, view.sync_every_minutes), (5, 20, 5));
         assert!(view.lock_on_session_lock && !view.lock_when_hidden && view.download_icons);
         assert_eq!(view.hotkey, "Ctrl+Alt+P");
+        assert!(!view.allow_screenshots, "the phone's screens are not captured unless allowed");
 
         settings.set("lockAfterMinutes", 0.into()).unwrap();
+        settings.set("allowScreenshots", true.into()).unwrap();
+        assert!(settings.set("allowScreenshots", 1.into()).is_err());
         settings.set("clearClipboard", 60.into()).unwrap();
         settings.set("downloadIcons", false.into()).unwrap();
         let view = Settings::of(&Store::load(dir.path().join("pswm.json"))).view();
         assert_eq!((view.lock_after_minutes, view.clear_clipboard), (0, 60));
         assert!(!view.download_icons);
+        assert!(view.allow_screenshots);
     }
 
     #[test]

@@ -17,11 +17,6 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
 @InvokeArg
-class ScreenshotArgs {
-  var allowed: Boolean = false
-}
-
-@InvokeArg
 class UploadArgs {
   /** The app's state file. */
   lateinit var state: String
@@ -69,9 +64,7 @@ class SystemPlugin(private val activity: Activity) : Plugin(activity) {
 
   /** The *Allow screenshots* setting changed: the app's window follows at once, the other screens as they open. */
   @Command
-  fun allowScreenshots(invoke: Invoke) {
-    val args = invoke.parseArgs(ScreenshotArgs::class.java)
-    Screenshots.set(activity.applicationContext, args.allowed)
+  fun applyScreenshots(invoke: Invoke) {
     activity.runOnUiThread { Screenshots.apply(activity) }
     invoke.resolve(JSObject())
   }
