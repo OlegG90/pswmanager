@@ -2076,40 +2076,63 @@ label.similar .keep {
   font-size: 13px;
 }
 
-/* What a merge adds to the kept entry, in the dialog that asks. */
-dialog.modal.merge {
-  width: min(600px, 90vw);
+/* The kept entry as a merge would leave it: what the merge adds in the
+   accent colour, starred (src/similar-parts.ts mergedCard). */
+.merge-card {
+  margin-top: 16px;
 }
 
-.merge-preview {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  max-height: 50vh;
-  overflow-y: auto;
-}
-
-.merge-preview li {
-  display: grid;
-  grid-template-columns: minmax(8em, auto) 1fr auto;
+.merge-head {
+  display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 6px 0;
-  border-top: 1px solid var(--color-divider);
-  font-size: 13px;
+  padding: 8px 0 12px;
+  font-size: 18px;
 }
 
-.merge-preview .value {
+.merge-line {
+  display: grid;
+  grid-template-columns: minmax(8em, 30%) 1fr;
+  gap: 12px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.merge-line .name {
+  color: var(--color-neutral-700);
+}
+
+.merge-line .value {
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
-dialog.modal p.merge-warning {
+.merge-tag {
+  margin-right: 8px;
+}
+
+.merge-card .new,
+.merge-line.new .name {
+  color: var(--color-accent-700);
+  font-weight: 600;
+}
+
+.merge-line.new {
+  background: var(--color-accent-100);
+}
+
+.merge-line.new .merge-tag:not(.new) {
+  color: var(--color-text);
+  font-weight: normal;
+}
+
+.merge-card .merge-warning {
   color: var(--color-danger);
   font-size: 13px;
 }
 
-.merge-preview .hint {
-  color: var(--color-neutral-700);
+.merge-legend {
+  font-size: 13px;
 }
 
 .similar-actions {

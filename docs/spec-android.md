@@ -169,10 +169,10 @@ As in the mockups `1e`–`1j`.
 - **Find similar entries** (#215): a screen of the entries that are for the same site, as on Windows
   (`docs/spec.md`, *Similar entries*; the grouping, the merge and its preview are the shared core's).
   Per site the entries are listed most recently changed first, each with a tick and *Keep* (the first,
-  at first); *Merge* shows in a sheet what the kept entry would get (protected values as *hidden*, a
-  passkey not carried over named) before it is done; *Delete* moves the ticked entries to the recycle
-  bin after asking; *Leave as is* takes the site off the screen until it is opened from Tools again.
-  Back returns to the list.
+  at first); *Proceed* shows the kept entry as the merge would leave it (what it adds in another colour
+  and starred), with *Merge* and *Cancel* (Back too: the sites again, ticks as they were); *Leave as is*
+  takes the site off the screen until it is opened from Tools again. No delete here. Back from the
+  sites returns to the list.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
