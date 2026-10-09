@@ -28,15 +28,15 @@ pub fn site_of(url: &str) -> Option<String> {
     if url.is_empty() {
         return None;
     }
-    if let Some(host) = icons::web_url(url).and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_string())) {
-        return Some(psl::domain_str(&host).unwrap_or(&host).to_string());
-    }
-    let ip = url::Url::parse(url)
-        .ok()
-        .filter(|u| matches!(u.scheme(), "http" | "https") && matches!(u.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_))));
-    Some(match ip {
-        Some(u) => u.host_str().expect("checked above").to_string(),
-        None => url.trim_end_matches('/').to_string(),
+    // A site's address, or a web address on an IP address (web_url takes named hosts only).
+    let web = icons::web_url(url).or_else(|| url::Url::parse(url).ok().filter(|u| matches!(u.scheme(), "http" | "https")));
+    Some(match web.as_ref().and_then(url::Url::host) {
+        Some(url::Host::Domain(host)) if host.contains('.') => {
+            let host = host.trim_end_matches('.');
+            psl::domain_str(host).unwrap_or(host).to_string()
+        }
+        Some(ip @ (url::Host::Ipv4(_) | url::Host::Ipv6(_))) => ip.to_string(),
+        _ => url.trim_end_matches('/').to_string(),
     })
 }
 
@@ -112,20 +112,13 @@ pub struct PreviewField {
 /// What [merge] would change in `keep`: worked out by merging on a copy.
 pub fn preview(db: &Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Preview, String> {
     let read = |db: &Database| db.entry(keep).map(|e| (edit::read(&e, Vec::new()), e.attachments_named().map(|(n, _)| n.to_string()).collect::<Vec<_>>()));
-    let (before, files_before) = read(db).ok_or(NOT_FOUND)?;
+    let (mut before, files_before) = read(db).ok_or(NOT_FOUND)?;
     let mut merged = db.clone();
     merge(&mut merged, keep, others, hidden)?;
-    let (after, files_after) = read(&merged).ok_or(NOT_FOUND)?;
+    let (mut after, files_after) = read(&merged).ok_or(NOT_FOUND)?;
 
     let mut preview = Preview::default();
-    let standard = [
-        ("User name", &before.username, &after.username, false),
-        ("Password", &before.password, &after.password, true),
-        ("URL", &before.url, &after.url, false),
-        ("Notes", &before.notes, &after.notes, false),
-        ("TOTP", &before.otp, &after.otp, true),
-    ];
-    for (name, was, is, protected) in standard {
+    for ((name, was, protected), (_, is, _)) in standard(&mut before).into_iter().zip(standard(&mut after)) {
         if was != is {
             preview.fields.push(PreviewField { name: name.to_string(), value: (!protected).then(|| is.clone()), fills: true });
         }
@@ -147,19 +140,14 @@ fn take(into: &mut EntryData, from: &EntryData) {
     };
     // Values that differ from `into`'s own, with the name they go under.
     let mut differing: Vec<FieldData> = Vec::new();
+    // A TOTP secret this app cannot read is kept, but not as the entry's.
     let otp_works = otp::normalize(&from.otp, &into.title).is_ok();
-    let standard = [
-        ("User name", &mut into.username, &from.username, false, true),
-        ("Password", &mut into.password, &from.password, true, true),
-        ("URL", &mut into.url, &from.url, false, true),
-        ("Notes", &mut into.notes, &from.notes, false, true),
-        // A TOTP secret this app cannot read is kept, but not as the entry's.
-        ("TOTP", &mut into.otp, &from.otp, true, otp_works),
-    ];
-    for (label, ours, theirs, protected, fills) in standard {
+    let theirs = [&from.username, &from.password, &from.url, &from.notes, &from.otp];
+    for ((label, ours, protected), theirs) in standard(into).into_iter().zip(theirs) {
         if theirs.is_empty() || ours == theirs {
             continue;
         }
+        let fills = label != "TOTP" || otp_works;
         if ours.is_empty() && fills {
             *ours = theirs.clone();
         } else {
@@ -189,6 +177,18 @@ fn take(into: &mut EntryData, from: &EntryData) {
     }
 }
 
+/// The fields the editor has its own inputs for, but the title: their names
+/// as an additional field takes them, the values, and whether they are protected.
+fn standard(data: &mut EntryData) -> [(&'static str, &mut String, bool); 5] {
+    [
+        ("User name", &mut data.username, false),
+        ("Password", &mut data.password, true),
+        ("URL", &mut data.url, false),
+        ("Notes", &mut data.notes, false),
+        ("TOTP", &mut data.otp, true),
+    ]
+}
+
 /// `field`, a value `into` has another one for, as `<name> (<source>)`
 /// (numbered when taken); not when `into` already has the value in a field.
 fn add_differing(into: &mut EntryData, mut field: FieldData, source: &str) {
@@ -198,8 +198,8 @@ fn add_differing(into: &mut EntryData, mut field: FieldData, source: &str) {
     }
     let label = std::mem::take(&mut field.name);
     let taken = |name: &str| into.fields.iter().any(|f| f.name == name);
-    field.name = (1..)
-        .map(|n| if n == 1 { format!("{label} ({source})") } else { format!("{label} ({source} {n})") })
+    field.name = std::iter::once(format!("{label} ({source})"))
+        .chain((2..).map(|n| format!("{label} ({source} {n})")))
         .find(|name| !taken(name))
         .expect("a free name");
     into.fields.push(field);
