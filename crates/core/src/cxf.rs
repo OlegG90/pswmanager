@@ -113,7 +113,7 @@ pub fn export<'a>(entries: impl Iterator<Item = EntryRef<'a>>, account: &str, no
             "username": "",
             "email": "",
             "fullName": account,
-            "collections": collections.into_json(),
+            "collections": collections.into_json(""),
             "items": items,
         }],
     });
@@ -142,18 +142,8 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
         item.insert("tags".into(), json!(tags));
     }
 
-    // The entry's URL and its further ones (`KP2A_URL_n`); apps apart.
-    let mut urls = Vec::new();
-    let mut apps = Vec::new();
-    let further = entry.fields.iter().filter(|(name, _)| name.starts_with(MORE_URLS)).map(|(_, v)| v.get().trim().to_string());
-    for url in std::iter::once(text(standard::URL).trim().to_string()).chain(further).filter(|u| !u.is_empty()) {
-        match url.strip_prefix("androidapp://") {
-            Some(app) => apps.push(json!({"bundleId": app})),
-            None => urls.push(Value::from(url)),
-        }
-    }
-    if !urls.is_empty() || !apps.is_empty() {
-        item.insert("scope".into(), json!({"urls": urls, "androidApps": apps}));
+    if let Some(scope) = write_scope(entry) {
+        item.insert("scope".into(), scope);
     }
 
     let mut credentials = Vec::new();
@@ -175,11 +165,10 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
             None => unread.push(concealed("TOTP", otp)),
         }
     }
-    let passkey = write_passkey(entry);
-    let passkey_written = passkey.is_some();
-    if let Some(passkey) = passkey {
+    if let Some(passkey) = write_passkey(entry) {
         credentials.push(passkey);
     }
+    let passkey_written = credentials.iter().any(|c| c["type"] == "passkey");
     let notes = text(standard::NOTES);
     if !notes.is_empty() {
         credentials.push(json!({"type": "note", "content": {"fieldType": "string", "value": notes}}));
@@ -207,21 +196,39 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
 
 /// Further URLs as Keepass2Android keeps them: `KP2A_URL_1`, `KP2A_URL_2`…
 const MORE_URLS: &str = "KP2A_URL";
+/// An Android app among an entry's URLs, as Keepass2Android keeps it.
+const ANDROID_APP: &str = "androidapp://";
+
+/// The entry's URL and its further ones (`KP2A_URL_n`) as a CXF scope, Android
+/// apps apart; `None` without any.
+fn write_scope(entry: &EntryRef<'_>) -> Option<Value> {
+    let further = entry.fields.iter().filter(|(name, _)| name.starts_with(MORE_URLS)).map(|(_, v)| v.get().as_str());
+    let (mut urls, mut apps) = (Vec::new(), Vec::new());
+    for url in std::iter::once(entry.get(standard::URL).unwrap_or("")).chain(further).map(str::trim).filter(|u| !u.is_empty()) {
+        match url.strip_prefix(ANDROID_APP) {
+            Some(app) => apps.push(json!({"bundleId": app})),
+            None => urls.push(Value::from(url)),
+        }
+    }
+    (!urls.is_empty() || !apps.is_empty()).then(|| json!({"urls": urls, "androidApps": apps}))
+}
 
 /// The entry's TOTP secret (an `otpauth://` URI or a bare secret) as a CXF
 /// TOTP credential; `None` when it is not one this app can read.
 fn write_totp(otp: &str, title: &str) -> Option<Value> {
     otp::Totp::parse(otp).ok()?;
     let otp = otp.trim();
+    // Base32 as people type it: any case, spaces, dashes, padding.
+    let clean = |secret: &str| secret.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '=').collect::<String>().to_ascii_uppercase();
     let mut totp = json!({"type": "totp", "period": 30, "digits": 6, "algorithm": "sha1"});
     if !otp.to_ascii_lowercase().starts_with("otpauth:") {
-        totp["secret"] = otp.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '=').collect::<String>().to_ascii_uppercase().into();
+        totp["secret"] = clean(otp).into();
         totp["issuer"] = title.into();
         return Some(totp);
     }
     let uri = url::Url::parse(otp).ok()?;
     // The label is `issuer:user` or just a name.
-    let label = percent_decode(uri.path().trim_start_matches('/'));
+    let label = percent_encoding::percent_decode_str(uri.path().trim_start_matches('/')).decode_utf8_lossy().into_owned();
     let (label_issuer, user) = match label.split_once(':') {
         Some((issuer, user)) => (Some(issuer.trim().to_string()), user.trim().to_string()),
         None => (None, label.trim().to_string()),
@@ -229,7 +236,7 @@ fn write_totp(otp: &str, title: &str) -> Option<Value> {
     let mut issuer = label_issuer;
     for (key, value) in uri.query_pairs() {
         match key.to_ascii_lowercase().as_str() {
-            "secret" => totp["secret"] = value.replace([' ', '-', '='], "").to_ascii_uppercase().into(),
+            "secret" => totp["secret"] = clean(&value).into(),
             "issuer" => issuer = Some(value.into_owned()),
             "period" => totp["period"] = value.parse::<u64>().ok()?.into(),
             "digits" => totp["digits"] = value.parse::<u64>().ok()?.into(),
@@ -244,27 +251,6 @@ fn write_totp(otp: &str, title: &str) -> Option<Value> {
         totp["username"] = user.into();
     }
     Some(totp)
-}
-
-/// `%xx` escapes in a URI's path, as a label has them (`AT%26T:bob`).
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let hex = bytes.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
-        match (bytes[i], hex) {
-            (b'%', Some(byte)) => {
-                out.push(byte);
-                i += 3;
-            }
-            (byte, _) => {
-                out.push(byte);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// The passkey KeePassXC keeps in the entry's attributes as a CXF passkey;
@@ -305,14 +291,10 @@ impl Collections {
     /// Puts item `id` in the collection at `path` (made where missing).
     fn add(&mut self, path: &[String], id: &str) {
         let Some((first, rest)) = path.split_first() else { return };
-        let at = match self.0.iter().position(|c| c.title == *first) {
-            Some(at) => at,
-            None => {
-                self.0.push(Collection { title: first.clone(), items: Vec::new(), below: Collections::default() });
-                self.0.len() - 1
-            }
-        };
-        let collection = &mut self.0[at];
+        if !self.0.iter().any(|c| c.title == *first) {
+            self.0.push(Collection { title: first.clone(), items: Vec::new(), below: Collections::default() });
+        }
+        let collection = self.0.iter_mut().find(|c| c.title == *first).expect("added above");
         if rest.is_empty() {
             collection.items.push(id.to_string());
         } else {
@@ -320,12 +302,8 @@ impl Collections {
         }
     }
 
-    fn into_json(self) -> Vec<Value> {
-        self.into_json_under("")
-    }
-
-    /// Each collection's id is its path, so ids differ across the tree.
-    fn into_json_under(self, above: &str) -> Vec<Value> {
+    /// Each collection's id is its path (below `above`), so ids differ across the tree.
+    fn into_json(self, above: &str) -> Vec<Value> {
         self.0
             .into_iter()
             .map(|c| {
@@ -334,7 +312,7 @@ impl Collections {
                     "id": b64(path.as_bytes()),
                     "title": c.title,
                     "items": c.items.iter().map(|item| json!({"item": item})).collect::<Vec<_>>(),
-                    "subCollections": c.below.into_json_under(&path),
+                    "subCollections": c.below.into_json(&path),
                 })
             })
             .collect()
@@ -425,9 +403,9 @@ fn read_scope(item: &Value, data: &mut EntryData, fields: &mut Fields) {
     let scope = item.get("scope");
     let mut urls = scope.into_iter().flat_map(|s| list(s, "urls")).filter_map(Value::as_str).map(str::to_string);
     data.url = urls.next().unwrap_or_default();
-    let apps = scope.into_iter().flat_map(|s| list(s, "androidApps")).filter_map(|a| text(a, "bundleId")).map(|id| format!("androidapp://{id}"));
+    let apps = scope.into_iter().flat_map(|s| list(s, "androidApps")).filter_map(|a| text(a, "bundleId")).map(|id| format!("{ANDROID_APP}{id}"));
     for (n, url) in urls.chain(apps).enumerate() {
-        fields.add(&format!("KP2A_URL_{}", n + 1), &url, false);
+        fields.add(&format!("{MORE_URLS}_{}", n + 1), &url, false);
     }
 }
 

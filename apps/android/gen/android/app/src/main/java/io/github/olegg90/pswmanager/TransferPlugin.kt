@@ -73,32 +73,28 @@ class TransferPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun registerExport(invoke: Invoke) {
     val args = invoke.parseArgs(ExportArgs::class.java)
-    val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Needs the app's own window")
-    scope.launch {
-      try {
-        val icon = ContextCompat.getDrawable(activity, R.mipmap.ic_launcher)!!.toBitmap(ICON, ICON)
-        val entry = ExportEntry(ExportRegistration.id(activity), args.name, "PswManager", icon, EXPORTED)
-        ProviderEventsManager.create(activity).registerExport(RegisterExportRequest.create(activity, listOf(entry)))
-        ExportRegistration.registered(activity, args.name)
-        invoke.resolve(JSObject())
-      } catch (e: CancellationException) {
-        invoke.reject("transfer:cancelled")
-        throw e
-      } catch (e: Exception) {
-        invoke.reject(e.message ?: e.toString())
-      }
+    settle(invoke) {
+      val icon = ContextCompat.getDrawable(activity, R.mipmap.ic_launcher)!!.toBitmap(ICON, ICON)
+      val entry = ExportEntry(ExportRegistration.id(activity), args.name, "PswManager", icon, EXPORTED)
+      ProviderEventsManager.create(activity).registerExport(RegisterExportRequest.create(activity, listOf(entry)))
+      ExportRegistration.registered(activity, args.name)
     }
   }
 
   /** The database is forgotten: PswManager is no longer offered for export. */
   @Command
   fun clearExport(invoke: Invoke) {
-    val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Needs the app's own window")
     // A new id from now on, whatever Android says: a request for the old one is refused.
     ExportRegistration.cleared(activity)
+    settle(invoke) { ProviderEventsManager.create(activity).clearExport(ClearExportRequest()) }
+  }
+
+  /** Runs `work` in the window's scope and settles `invoke` with how it ended. */
+  private fun settle(invoke: Invoke, work: suspend () -> Unit) {
+    val scope = (activity as? AppCompatActivity)?.lifecycleScope ?: return invoke.reject("Needs the app's own window")
     scope.launch {
       try {
-        ProviderEventsManager.create(activity).clearExport(ClearExportRequest())
+        work()
         invoke.resolve(JSObject())
       } catch (e: CancellationException) {
         invoke.reject("transfer:cancelled")
