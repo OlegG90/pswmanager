@@ -75,5 +75,9 @@ export const labelOf = (field: string) => LABELS[field] ?? field
 
 export const titleOf = (entry: { title: string }) => entry.title || '(no title)'
 
+/** `"Mail"` (in `quote`), or `3 entries`. */
+export const describeEntries = (entries: { title: string }[], quote = (title: string) => `"${title}"`) =>
+  entries.length === 1 ? quote(titleOf(entries[0])) : `${entries.length} entries`
+
 /** A TOTP code split in two halves for reading: `123 456`. */
 export const splitCode = (code: string) => `${code.slice(0, code.length / 2)} ${code.slice(code.length / 2)}`

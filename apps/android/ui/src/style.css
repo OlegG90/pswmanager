@@ -977,8 +977,12 @@ button.wide[hidden] {
 }
 
 /* Find similar: per site, the entries ticked to merge or delete and the one kept. */
+/* The title over the user name and URL; Keep, not this, is the row's last. */
 .similar .entries li > span {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .similar input[type="checkbox"],
