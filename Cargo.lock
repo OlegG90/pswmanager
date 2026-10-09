@@ -3592,6 +3592,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "psl"
+version = "2.1.241"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7319b480e204d67e759cad7886178335d26324c7c8573c126cc9dfa7350d064"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
 name = "pswm-android"
 version = "0.12.0"
 dependencies = [
@@ -3618,6 +3633,7 @@ dependencies = [
  "hmac 0.13.0",
  "keepass",
  "p256",
+ "psl",
  "serde",
  "serde_json",
  "sha2 0.11.0",

@@ -397,6 +397,26 @@ while the database is locked):
   is sent anywhere or stored.
 - Each listed entry opens in the editor with the password field focused.
 
+## Similar entries
+
+- A report, opened from the toolbar (*Similar*), of entries in use (not the recycle bin or templates)
+  that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+  `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
+  not a site's (an IP address, `androidapp://…`). Entries without a URL are not listed.
+- Each site's entries are listed most recently changed first. One is **kept** (the first, at first; any
+  can be chosen), the others are **ticked**; for the ticked ones:
+  - **Merge**: what they have goes into the kept entry, as one edit (its previous version goes to its
+    history), and they go to the recycle bin. An empty field of the kept entry is filled from them; a
+    value that differs from its own becomes an additional field named after the entry it came from
+    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), and a value already
+    there is not added again. Tags are joined; files are carried over (a name already taken gets a
+    number, the same content is not added twice); the kept entry's icon is taken from them when it has
+    none of its own. A passkey is its fields together: when both have one, the other's goes in as
+    additional fields named after it and does not fill in the kept one's.
+  - **Move to the recycle bin**: the ticked entries only; the kept one stays as it is.
+  - **Leave as is**: the site leaves the report until it is opened again.
+- Asked first; worked out and applied in the backend, which gets only ids from the window.
+
 ## Saving and synchronisation
 
 The app always works on the database's own file on this PC. Without sync the app keeps that file
@@ -573,7 +593,7 @@ with code 2.
 
 - **Shell:** Tauri 2 (Rust) + WebView2, tray via Tauri's `tray-icon` feature.
 - **Code:** one Cargo workspace: `crates/core` holds what does not depend on the platform (the database,
-  editing, merging, syncing and the stores, TOTP, the generator, password health, site icons) and is
+  editing, merging, syncing and the stores, TOTP, the generator, password health, similar entries, site icons) and is
   shared with the Android app (see `spec-android.md`); `src-tauri` is the Windows app around it (the
   window, tray, hotkey, clipboard, file watching, the Credential Manager, which the core reaches through
   its secret-store hook).

@@ -292,6 +292,11 @@ impl Vault {
         crate::health::check(self.visible_entries(), keepass::db::Times::now())
     }
 
+    /// The entries the user works with that are for the same site.
+    pub fn similar(&self) -> Vec<crate::similar::Similar> {
+        crate::similar::find(self.visible_entries())
+    }
+
     /// Every entry, the recycle bin's and the templates too, each marked with its [Kind].
     pub fn listing(&self) -> Listing {
         let mut custom_icons = BTreeMap::new();
@@ -714,6 +719,22 @@ impl Vault {
                 }
             }
             Ok(())
+        })
+    }
+
+    /// Merges entries `others` into `keep` and moves them to the recycle bin
+    /// (see [crate::similar::merge]), and saves the file, as one change.
+    /// Entries in the recycle bin or templates are not merged.
+    pub fn merge_entries(&mut self, keep: &str, others: &[String]) -> Result<(), String> {
+        let keep = parse_id(keep)?;
+        let others = parse_ids(others)?;
+        self.change(|db, hidden| {
+            let usable = |id: &EntryId| db.entry(*id).is_some_and(|e| kind(&e) == Kind::Entry);
+            if !usable(&keep) {
+                return Err(NOT_FOUND.into());
+            }
+            let others: Vec<EntryId> = others.iter().copied().filter(usable).collect();
+            crate::similar::merge(db, keep, &others, hidden)
         })
     }
 

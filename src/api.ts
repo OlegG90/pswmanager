@@ -295,6 +295,13 @@ export interface Finding {
 }
 
 /** Each entry is in one list at most: reused, else weak, else old. */
+/** Entries for one site: a registrable domain (`google.com`), or the address
+ *  itself when it is not a site's. The most recently changed first. */
+export interface Similar {
+  site: string
+  ids: string[]
+}
+
 export interface Health {
   reused: Finding[]
   weak: Finding[]
@@ -416,6 +423,9 @@ export const api = {
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
   passwordHealth: () => invoke<Health>('password_health'),
+  similarEntries: () => invoke<Similar[]>('similar_entries'),
+  /** Adds what `others` have to `keep` and moves them to the recycle bin. */
+  mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
   setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),

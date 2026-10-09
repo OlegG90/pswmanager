@@ -1,0 +1,281 @@
+//! Find similar: entries for the same site (their URLs share a registrable
+//! domain, or are the same address), and merging such entries into one.
+
+use crate::edit::{self, passkey, EntryData, FieldData, FileChange, FileEdit, NOT_FOUND};
+use crate::{icons, otp};
+use keepass::db::{EntryId, EntryRef, GroupId};
+use keepass::Database;
+use serde::Serialize;
+use std::collections::{BTreeMap, HashSet};
+use zeroize::Zeroizing;
+
+/// Entries for one site.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Similar {
+    /// The registrable domain (`google.com`), or the address itself when it
+    /// is not a site's (`androidapp://…`, an IP address).
+    pub site: String,
+    /// The most recently changed first.
+    pub ids: Vec<String>,
+}
+
+/// What entries are grouped by: the registrable domain of a site's address
+/// (mail.google.com and accounts.google.com are both `google.com`), else the
+/// address itself; `None` for an entry without a URL.
+pub fn site_of(url: &str) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let host = icons::web_url(url).and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_string()));
+    Some(match host {
+        Some(host) => psl::domain_str(&host).unwrap_or(&host).to_string(),
+        None => url.trim_end_matches('/').to_string(),
+    })
+}
+
+/// The sites more than one of `entries` is for, by name.
+pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Vec<Similar> {
+    let mut sites: BTreeMap<String, Vec<EntryRef<'a>>> = BTreeMap::new();
+    for entry in entries {
+        if let Some(site) = entry.get(keepass::db::fields::URL).and_then(site_of) {
+            sites.entry(site).or_default().push(entry);
+        }
+    }
+    sites
+        .into_iter()
+        .filter(|(_, entries)| entries.len() > 1)
+        .map(|(site, mut entries)| {
+            entries.sort_by_key(|e| std::cmp::Reverse(e.times.last_modification));
+            Similar { site, ids: entries.iter().map(|e| e.id().uuid().to_string()).collect() }
+        })
+        .collect()
+}
+
+/// Merges `others` into `keep`: its empty fields are filled from them, a
+/// value that differs from its own becomes an additional field named after
+/// the entry it came from, tags are joined and files carried over (the same
+/// content once). Then `others` go to the recycle bin. One edit of `keep`:
+/// its previous version goes into its history. An entry gone meanwhile is
+/// left out.
+pub fn merge(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<(), String> {
+    let kept = db.entry(keep).ok_or(NOT_FOUND)?;
+    let mut data = edit::read(&kept, edit::path_of(db, kept.parent().id()));
+    let mut contents: Vec<Zeroizing<Vec<u8>>> = kept.attachments_named().map(|(_, a)| Zeroizing::new(a.data.get().clone())).collect();
+    let mut files: Vec<FileEdit> = Vec::new();
+    let others: Vec<EntryId> = others.iter().copied().filter(|&id| id != keep && db.entry(id).is_some()).collect();
+    for &id in &others {
+        let other = db.entry(id).expect("checked above");
+        take(&mut data, &edit::read(&other, Vec::new()));
+        for (name, file) in other.attachments_named() {
+            let content = Zeroizing::new(file.data.get().clone());
+            if !contents.contains(&content) {
+                contents.push(content.clone());
+                files.push(FileChange::Add { name: name.to_string(), content });
+            }
+        }
+    }
+    edit::apply_with_files(db, Some(keep), &data, &files, hidden)?;
+    for id in others {
+        edit::recycle(db, id)?;
+    }
+    Ok(())
+}
+
+/// Adds what `from` has to `into` (see [merge]).
+fn take(into: &mut EntryData, from: &EntryData) {
+    let source = match from.title.trim() {
+        "" => "another entry",
+        title => title,
+    };
+    // Values that differ from `into`'s own, with the name they go under.
+    let mut differing: Vec<FieldData> = Vec::new();
+    let otp_works = otp::normalize(&from.otp, &into.title).is_ok();
+    let standard = [
+        ("User name", &mut into.username, &from.username, false, true),
+        ("Password", &mut into.password, &from.password, true, true),
+        ("URL", &mut into.url, &from.url, false, true),
+        ("Notes", &mut into.notes, &from.notes, false, true),
+        // A TOTP secret this app cannot read is kept, but not as the entry's.
+        ("TOTP", &mut into.otp, &from.otp, true, otp_works),
+    ];
+    for (label, ours, theirs, protected, fills) in standard {
+        if theirs.is_empty() || ours == theirs {
+            continue;
+        }
+        if ours.is_empty() && fills {
+            *ours = theirs.clone();
+        } else {
+            differing.push(FieldData { name: label.to_string(), value: theirs.clone(), protected });
+        }
+    }
+    // A passkey is its fields together: one does not fill in another's.
+    let has_passkey = |data: &EntryData| data.fields.iter().any(|f| f.name.starts_with(passkey::PREFIX));
+    let both_passkeys = has_passkey(into) && has_passkey(from);
+    for field in &from.fields {
+        match into.fields.iter().find(|f| f.name == field.name) {
+            Some(ours) if ours.value == field.value => {}
+            None if !(both_passkeys && field.name.starts_with(passkey::PREFIX)) => into.fields.push(field.clone()),
+            _ => differing.push(field.clone()),
+        }
+    }
+    for field in differing {
+        add_differing(into, field, source);
+    }
+    for tag in &from.tags {
+        if !into.tags.contains(tag) {
+            into.tags.push(tag.clone());
+        }
+    }
+    if into.icon == edit::IconChoice::Auto {
+        into.icon = from.icon.clone();
+    }
+}
+
+/// `field`, a value `into` has another one for, as `<name> (<source>)`
+/// (numbered when taken); not when one of those already has the value.
+fn add_differing(into: &mut EntryData, mut field: FieldData, source: &str) {
+    let label = std::mem::take(&mut field.name);
+    let prefix = format!("{label} (");
+    if into.fields.iter().any(|f| f.name.starts_with(&prefix) && f.value == field.value) {
+        return;
+    }
+    let taken = |name: &str| into.fields.iter().any(|f| f.name == name);
+    field.name = (1..)
+        .map(|n| if n == 1 { format!("{label} ({source})") } else { format!("{label} ({source} {n})") })
+        .find(|name| !taken(name))
+        .expect("a free name");
+    into.fields.push(field);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keepass::db::{fields, Value};
+
+    fn add(db: &mut Database, title: &str, url: &str, set: impl FnOnce(&mut keepass::db::EntryMut<'_>)) -> EntryId {
+        let mut root = db.root_mut();
+        let mut entry = root.add_entry();
+        entry.set_unprotected(fields::TITLE, title);
+        entry.set_unprotected(fields::URL, url);
+        set(&mut entry);
+        entry.id()
+    }
+
+    fn field(db: &Database, id: EntryId, name: &str) -> Option<String> {
+        db.entry(id).unwrap().fields.get(name).map(|v| v.get().clone())
+    }
+
+    #[test]
+    fn sites_are_registrable_domains_or_the_address() {
+        assert_eq!(site_of("https://mail.google.com/mail/u/0").as_deref(), Some("google.com"));
+        assert_eq!(site_of("accounts.google.com").as_deref(), Some("google.com"));
+        assert_eq!(site_of("https://www.bbc.co.uk/").as_deref(), Some("bbc.co.uk"));
+        assert_eq!(site_of("http://router.lan").as_deref(), Some("router.lan"));
+        assert_eq!(site_of("http://192.168.1.1/").as_deref(), Some("http://192.168.1.1"));
+        assert_eq!(site_of("androidapp://com.example").as_deref(), Some("androidapp://com.example"));
+        assert_eq!(site_of("  "), None);
+    }
+
+    #[test]
+    fn finds_entries_for_the_same_site() {
+        let mut db = Database::new();
+        add(&mut db, "Gmail", "https://mail.google.com", |_| {});
+        add(&mut db, "Google", "accounts.google.com", |_| {});
+        add(&mut db, "GitHub", "https://github.com", |_| {});
+        add(&mut db, "No URL", "", |_| {});
+        add(&mut db, "No URL 2", "", |_| {});
+        let found = find(db.iter_all_entries());
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].site, "google.com");
+        assert_eq!(found[0].ids.len(), 2);
+    }
+
+    #[test]
+    fn merge_fills_empty_fields_and_keeps_differing_values() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Google", "https://accounts.google.com", |e| {
+            e.set_unprotected(fields::USERNAME, "me@gmail.com");
+            e.set_protected(fields::PASSWORD, "new-pass");
+            e.tags = vec!["Work".into()];
+        });
+        let other = add(&mut db, "Gmail", "https://mail.google.com", |e| {
+            e.set_unprotected(fields::USERNAME, "me@gmail.com");
+            e.set_protected(fields::PASSWORD, "old-pass");
+            e.set_unprotected(fields::NOTES, "recovery codes in the safe");
+            e.set_unprotected("Recovery email", "me@example.com");
+            e.tags = vec!["Work".into(), "Mail".into()];
+            e.add_attachment("codes.txt", Value::protected(b"1234".to_vec()));
+        });
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[other], &hidden).unwrap();
+
+        assert_eq!(field(&db, keep, fields::PASSWORD).as_deref(), Some("new-pass"));
+        assert_eq!(field(&db, keep, "Password (Gmail)").as_deref(), Some("old-pass"));
+        assert!(db.entry(keep).unwrap().fields["Password (Gmail)"].is_protected());
+        assert_eq!(field(&db, keep, "URL (Gmail)").as_deref(), Some("https://mail.google.com"));
+        assert_eq!(field(&db, keep, fields::NOTES).as_deref(), Some("recovery codes in the safe"));
+        assert_eq!(field(&db, keep, "Recovery email").as_deref(), Some("me@example.com"));
+        assert_eq!(field(&db, keep, "User name (Gmail)"), None, "the same value is not added");
+        let kept = db.entry(keep).unwrap();
+        assert_eq!(kept.tags, ["Work", "Mail"]);
+        assert_eq!(kept.attachment_by_name("codes.txt").unwrap().data.get(), b"1234");
+        assert_eq!(edit::history_count(&kept), 1, "one edit");
+        let bin = db.recycle_bin().unwrap().id();
+        assert_eq!(db.entry(other).unwrap().parent().id(), bin);
+    }
+
+    #[test]
+    fn merge_names_differing_values_apart_and_adds_each_once() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Shop", "shop.com", |e| e.set_protected(fields::PASSWORD, "one"));
+        let a = add(&mut db, "Shop", "shop.com", |e| e.set_protected(fields::PASSWORD, "two"));
+        let b = add(&mut db, "Shop", "shop.com", |e| e.set_protected(fields::PASSWORD, "three"));
+        let c = add(&mut db, "Shop", "shop.com", |e| e.set_protected(fields::PASSWORD, "two"));
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[a, b, c], &hidden).unwrap();
+        assert_eq!(field(&db, keep, "Password (Shop)").as_deref(), Some("two"));
+        assert_eq!(field(&db, keep, "Password (Shop 2)").as_deref(), Some("three"));
+        assert_eq!(field(&db, keep, "Password (Shop 3)"), None);
+    }
+
+    #[test]
+    fn merge_carries_files_over_once_and_numbers_taken_names() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Bank", "bank.com", |e| {
+            e.add_attachment("scan.pdf", Value::protected(b"mine".to_vec()));
+        });
+        let other = add(&mut db, "Bank", "bank.com", |e| {
+            e.add_attachment("scan.pdf", Value::protected(b"theirs".to_vec()));
+            e.add_attachment("copy.pdf", Value::protected(b"mine".to_vec()));
+        });
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[other], &hidden).unwrap();
+        let kept = db.entry(keep).unwrap();
+        let mut names: Vec<&str> = kept.attachments_named().map(|(name, _)| name).collect();
+        names.sort();
+        assert_eq!(names, ["scan (2).pdf", "scan.pdf"]);
+        assert_eq!(kept.attachment_by_name("scan (2).pdf").unwrap().data.get(), b"theirs");
+    }
+
+    #[test]
+    fn a_passkey_does_not_fill_in_another() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Google", "google.com", |e| {
+            e.set_protected(passkey::PRIVATE_KEY, "key-a");
+        });
+        let login = add(&mut db, "Google login", "google.com", |e| {
+            e.set_protected(fields::PASSWORD, "secret");
+        });
+        let other = add(&mut db, "Google passkey", "google.com", |e| {
+            e.set_protected(passkey::PRIVATE_KEY, "key-b");
+            e.set_unprotected(passkey::USER_HANDLE, "handle-b");
+        });
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[login, other], &hidden).unwrap();
+        assert_eq!(field(&db, keep, fields::PASSWORD).as_deref(), Some("secret"));
+        assert_eq!(field(&db, keep, passkey::PRIVATE_KEY).as_deref(), Some("key-a"));
+        assert_eq!(field(&db, keep, passkey::USER_HANDLE), None);
+        assert_eq!(field(&db, keep, &format!("{} (Google passkey)", passkey::USER_HANDLE)).as_deref(), Some("handle-b"));
+    }
+}

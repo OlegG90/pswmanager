@@ -1936,36 +1936,36 @@ button.switch[aria-checked='true'] .knob {
   background: var(--color-accent);
 }
 
-/* Password health */
+/* Reports over the vault: password health, similar entries */
 
-#health {
+#report {
   height: 100%;
   overflow-y: auto;
 }
 
-#health > * {
+#report > * {
   width: min(720px, 92vw);
   margin-inline: auto;
 }
 
-#health > header {
+#report > header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   padding: 32px 0 4px;
 }
 
-#health h1 {
+#report h1 {
   font-size: 30px;
   margin: 0;
 }
 
-#health .intro {
+#report .intro {
   margin-top: 12px;
   margin-bottom: 0;
 }
 
-#health .stats {
+#report .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   margin-top: 24px;
@@ -1973,35 +1973,35 @@ button.switch[aria-checked='true'] .knob {
   border-bottom: 1px solid var(--color-divider);
 }
 
-#health .stat {
+#report .stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 16px 0;
 }
 
-#health .count {
+#report .count {
   font-family: var(--font-heading);
   font-size: 40px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
-#health .hint {
+#report .hint {
   font-size: 13px;
   color: var(--color-neutral-700);
 }
 
-#health section {
+#report section {
   margin-top: 24px;
 }
 
-#health section:last-child,
-#health > p:last-child {
+#report section:last-child,
+#report > p:last-child {
   padding-bottom: 48px;
 }
 
-#health h3 {
+#report h3 {
   font-family: var(--font-body);
   font-size: 12px;
   font-weight: 600;
@@ -2043,4 +2043,42 @@ button.finding .action {
 
 button.finding:focus-visible {
   outline-offset: -2px;
+}
+
+/* An entry among similar ones: ticked to merge or delete, or the one kept. */
+label.similar {
+  display: grid;
+  grid-template-columns: auto 28px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 4px;
+  border-top: 1px solid var(--color-divider);
+  cursor: pointer;
+}
+
+label.similar .text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+label.similar .hint {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+label.similar .keep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.similar-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--color-divider);
 }

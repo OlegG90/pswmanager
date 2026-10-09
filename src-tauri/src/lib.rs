@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, settings, staged, store, vault};
+use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -1109,6 +1109,18 @@ fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> 
     Ok(listing)
 }
 
+/// Merges entries into `keep`, moving them to the recycle bin; saves the file
+/// and returns the new listing.
+#[tauri::command(async)]
+fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: Vec<String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.merge_entries(&keep, &others)?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
 /// An image file for an entry's own icon, as base64; `None` when cancelled.
 #[tauri::command(async)]
 fn pick_icon_image(window: Window) -> Result<Option<String>, String> {
@@ -1147,6 +1159,12 @@ fn password_strength(password: String) -> health::Strength {
 #[tauri::command(async)]
 fn password_health(session: State<Session>) -> Result<health::Health, String> {
     session.read(Vault::health)
+}
+
+/// The entries that are for the same site, by their ids.
+#[tauri::command(async)]
+fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
+    session.read(Vault::similar)
 }
 
 /// The settings screen's values.
@@ -1369,6 +1387,8 @@ pub fn run() {
             settings,
             set_setting,
             password_health,
+            similar_entries,
+            merge_entries,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.
