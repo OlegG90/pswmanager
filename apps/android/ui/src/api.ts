@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
 
-export type { Entry, EntryData, EntryDetail, Version, VersionDetail }
+export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail }
 
 export interface Database {
   title: string
@@ -215,6 +215,12 @@ export const api = {
   enterOtherKey: (password: string, keyFile: NewKeyFile) => invoke<Status>('enter_other_key', { password, keyFile }),
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
+  /** The entries that are for the same site. */
+  similarEntries: () => invoke<Similar[]>('similar_entries'),
+  /** What `mergeEntries` would change in `keep`; nothing changes. */
+  mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),
+  /** Adds what `others` have to `keep` and moves them to the recycle bin. */
+  mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
   /** Puts an entry from the recycle bin back where it was. */
   restoreEntry: (id: string) => invoke<Listing>('restore_entry', { id }),
   /** Removes an entry in the recycle bin for good. */

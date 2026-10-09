@@ -1,6 +1,7 @@
 import { api, type Entry, type Listing, type MergePreview } from './api'
 import { busyButton, button, el } from './dom'
 import { titleOf } from './entry-text'
+import { describeEntries as describe, mergePreviewParts } from './merge-preview'
 import { ask, dialog } from './modal'
 
 export interface SimilarOptions {
@@ -14,24 +15,9 @@ export interface SimilarOptions {
   fail: (message: string) => void
 }
 
-/** `"Mail"`, or `3 entries`. */
-const describe = (entries: Entry[]) => (entries.length === 1 ? `"${titleOf(entries[0])}"` : `${entries.length} entries`)
-
 /** Asks to merge, showing what the kept entry gets (`preview`). */
 function confirmMerge(message: string, preview: MergePreview): Promise<boolean> {
-  const line = (name: string, value: string, hint = '') =>
-    el('li', {}, el('span', { className: 'name' }, name), el('span', { className: 'value' }, value), hint ? el('span', { className: 'hint' }, hint) : '')
-  const lines = [
-    ...preview.fields.map((f) => line(f.name, f.value ?? 'hidden', f.fills ? 'was empty' : 'new field')),
-    ...(preview.tags.length ? [line('Tags', preview.tags.join(', '))] : []),
-    ...preview.files.map((name) => line('File', name)),
-    ...(preview.icon ? [line('Icon', 'from another entry')] : []),
-  ]
-  const body = lines.length ? el('ul', { className: 'merge-preview' }, ...lines) : el('p', { className: 'muted' }, 'Nothing it does not have already.')
-  // An entry holds one passkey: another one stays in its entry, in the recycle bin.
-  const left = preview.passkeysLeft.map((title) =>
-    el('p', { className: 'merge-warning' }, `The passkey of "${title}" is not carried over: this entry has its own. It stays in "${title}", in the recycle bin.`))
-  return dialog(message, false, (answer) => ({ body: [body, ...left], buttons: [button('Merge', 'Merge', () => answer(true), 'danger')] }), 'Cancel', 'merge')
+  return dialog(message, false, (answer) => ({ body: mergePreviewParts(preview), buttons: [button('Merge', 'Merge', () => answer(true), 'danger')] }), 'Cancel', 'merge')
 }
 
 /** One site's entries, the most recently changed first. */
