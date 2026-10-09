@@ -762,6 +762,9 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     b.classList.toggle('chosen', sameFilter(f, filter))
     return b
   }
+  // A command that works on the whole database, under Tools (#183).
+  const tool = (label: string, icon: IconName, run: () => void) =>
+    el('button', { type: 'button', onclick: () => (close(), run()) }, el('span', {}, svgIcon(icon), label))
   const entries = listing.entries
   panel.append(
     el('b', { className: 'title' }, database?.title ?? ''),
@@ -774,7 +777,8 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     el('h2', {}, 'Tags'),
     item(UNTAGGED, 'Untagged', search(entries, '', UNTAGGED).length),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
-    button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'action'),
+    el('h2', {}, 'Tools'),
+    tool('Import from another app…', 'download', importSheet),
     button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
     button('Lock', 'Lock the database', () => void lock(), 'action'),
   )

@@ -162,8 +162,9 @@ As in the mockups `1e`–`1j`.
 - **Drawer** (☰ or a swipe to the right on the list): the database's name and sync, the groups *All*,
   *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
   mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
-  does not count) and the tags (as `#work`) with their counts; *Import from another app…*, *Settings* and
-  *Lock* at the bottom.
+  does not count) and the tags (as `#work`) with their counts; then **Tools** (#183), the commands that
+  work on the whole database: *Import from another app…* (and the tools to come, such as *Find similar*,
+  #176); *Settings* and *Lock* at the bottom.
 - **Import from another app** (#152, after `docs/cxp-research.md`): a sheet says what it does, then
   Android's Credential Transfer lists the password managers on the phone that can export (Google Password
   Manager, Bitwarden, 1Password, …); the user picks one and confirms there. PswManager need not be a
