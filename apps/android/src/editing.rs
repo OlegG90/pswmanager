@@ -11,7 +11,7 @@ use pswm_core::session::Session;
 use pswm_core::similar;
 use pswm_core::store::Store;
 use pswm_core::staged::StagedFile;
-use pswm_core::vault::{Listing, Saved};
+use pswm_core::vault::{Listing, MergePreview, Saved};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Wry};
 use zeroize::Zeroizing;
@@ -113,7 +113,7 @@ pub fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>,
 
 /// What merging entries into `keep` would change in it; protected values are left out.
 #[tauri::command(async)]
-pub fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<similar::Preview, String> {
+pub fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<MergePreview, String> {
     session.read(|v| v.merge_preview(&keep, &others))?
 }
 

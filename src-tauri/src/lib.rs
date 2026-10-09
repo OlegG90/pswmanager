@@ -1123,7 +1123,7 @@ fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: 
 
 /// What merging entries into `keep` would change in it; protected values are left out.
 #[tauri::command(async)]
-fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<similar::Preview, String> {
+fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<vault::MergePreview, String> {
     session.read(|v| v.merge_preview(&keep, &others))?
 }
 

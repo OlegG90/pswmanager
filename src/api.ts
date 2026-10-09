@@ -301,16 +301,11 @@ export interface Similar {
   ids: string[]
 }
 
-/** What a merge would change in the kept entry. */
+/** The kept entry as a merge would leave it (secrets masked), and what it gets. */
 export interface MergePreview {
-  /** Its empty fields that are filled (`fills`), then the additional fields it gets;
-   *  `value` is null for a protected one. */
-  fields: { name: string; value: string | null; fills: boolean }[]
-  tags: string[]
-  /** By the names they will have. */
-  files: string[]
-  /** It gets another's icon. */
-  icon: boolean
+  entry: EntryDetail
+  /** By field name (`UserName`, `Password (Gmail)`), tag and file name. */
+  added: { fields: string[]; tags: string[]; files: string[]; icon: boolean }
   /** The entries whose passkey it does not get: it has another one. */
   passkeysLeft: string[]
 }

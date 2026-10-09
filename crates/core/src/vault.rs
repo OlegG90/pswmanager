@@ -158,6 +158,17 @@ pub struct EntryDetail {
     pub versions: usize,
 }
 
+/// The kept entry as a merge would leave it, shown before it is done: as the
+/// entry view shows it (secrets masked), with what it gets marked.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergePreview {
+    pub entry: EntryDetail,
+    pub added: crate::similar::Added,
+    /// The entries whose passkey it does not get: it has another one.
+    pub passkeys_left: Vec<String>,
+}
+
 /// An older version of an entry, as its history lists it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -733,11 +744,15 @@ impl Vault {
         })
     }
 
-    /// What [Vault::merge_entries] would change in `keep`; nothing changes.
-    pub fn merge_preview(&self, keep: &str, others: &[String]) -> Result<crate::similar::Preview, String> {
+    /// `keep` as [Vault::merge_entries] would leave it, and what it gets:
+    /// worked out by merging on a copy, so nothing changes.
+    pub fn merge_preview(&self, keep: &str, others: &[String]) -> Result<MergePreview, String> {
         let (keep, others) = (parse_id(keep)?, parse_ids(others)?);
         let others = mergeable(&self.db, keep, &others)?;
-        crate::similar::preview(&self.db, keep, &others, &self.hidden_groups())
+        let mut merged = self.db.clone();
+        let passkeys_left = crate::similar::merge_noting(&mut merged, keep, &others, &self.hidden_groups())?;
+        let (before, after) = (self.db.entry(keep).ok_or(NOT_FOUND)?, merged.entry(keep).ok_or(NOT_FOUND)?);
+        Ok(MergePreview { entry: detail_of(&after), added: crate::similar::added(&before, &after), passkeys_left })
     }
 
     /// The file as it is now, if it changed on disk since it was last read or
@@ -1190,6 +1205,32 @@ pub mod tests {
 
     fn kind_of(vault: &Vault, id: &str) -> Option<Kind> {
         vault.listing().entries.into_iter().find(|e| e.id == id).map(|e| e.kind)
+    }
+
+    #[test]
+    fn a_merge_preview_shows_the_entry_merged_without_its_secrets() {
+        let mut db = Database::new();
+        let mut add = |title: &str, user: &str, password: &str| {
+            let mut root = db.root_mut();
+            let mut e = root.add_entry();
+            e.set_unprotected(fields::TITLE, title);
+            e.set_unprotected(fields::URL, "https://shop.com");
+            e.set_unprotected(fields::USERNAME, user);
+            e.set_protected(fields::PASSWORD, password);
+            e.id().uuid().to_string()
+        };
+        let keep = add("Shop", "", "pass-one");
+        let other = add("Shop old", "me", "pass-two");
+        let vault = Vault::from_database(db);
+        let preview = vault.merge_preview(&keep, &[other.clone()]).unwrap();
+        assert_eq!(preview.entry.summary.username, "me");
+        assert!(preview.added.fields.contains(&fields::USERNAME.to_string()));
+        assert_eq!(kind_of(&vault, &other), Some(Kind::Entry), "nothing changes");
+        let json = serde_json::to_value(&preview).unwrap();
+        let keys: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["added", "entry", "passkeysLeft"]);
+        let text = json.to_string();
+        assert!(!text.contains("pass-one") && !text.contains("pass-two"), "{text}");
     }
 
     #[test]

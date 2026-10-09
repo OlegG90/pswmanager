@@ -979,7 +979,7 @@ button.wide[hidden] {
   display: none;
 }
 
-/* Find similar: per site, the entries ticked to merge or delete and the one kept. */
+/* Find similar: per site, the entries ticked to merge and the one kept. */
 .similar input {
   flex: none;
   margin: 0;
@@ -999,39 +999,57 @@ button.wide[hidden] {
   margin: 8px 0 16px;
 }
 
-/* What a merge gives the kept entry (src/similar-parts.ts), in the sheet that asks. */
-.sheet .merge-scroll {
-  max-height: 45vh;
-  overflow-y: auto;
+/* The kept entry as a merge would leave it: what the merge adds in the
+   accent colour, starred (src/similar-parts.ts mergedCard). */
+.merge-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 12px;
 }
 
-.merge-preview {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.merge-preview li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 12px;
-  padding: 6px 0;
+.merge-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px;
   border-top: 1px solid var(--color-neutral-300);
-  font-size: 14px;
 }
 
-.merge-preview .value {
+.merge-line .name {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+.merge-line .value {
   overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
-.merge-preview .hint {
-  grid-column: 2;
-  font-size: 12px;
-  color: var(--color-neutral-700);
+.merge-tag {
+  margin-right: 8px;
+}
+
+.merge-card .new,
+.merge-line.new .name {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.merge-line.new {
+  background: var(--color-accent-100);
+}
+
+.merge-line.new .merge-tag:not(.new) {
+  color: var(--color-text);
+  font-weight: normal;
 }
 
 .merge-warning {
   color: var(--color-error);
   font-size: 14px;
+}
+
+.merge-legend {
+  font-size: 13px;
 }

@@ -405,8 +405,13 @@ while the database is locked):
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
   URL are not listed.
 - Each site's entries are listed most recently changed first. One is **kept** (the first, at first; any
-  can be chosen), the others are **ticked**; for the ticked ones:
-  - **Merge**: what they have goes into the kept entry, as one edit (its previous version goes to its
+  can be chosen), the others are **ticked** to merge into it; per site:
+  - **Proceed**: the kept entry as the merge would leave it, shown as the entry view shows an entry
+    (secrets masked: they do not leave the backend), with what the merge adds in another colour and
+    starred (*), and a passkey not carried over named. The backend works it out by merging on a copy, so
+    it is what the merge does. From there **Merge** or **Cancel** (back to the sites, the ticks as they
+    were).
+  - **Merge**: what the ticked ones have goes into the kept entry, as one edit (its previous version goes to its
     history), and they go to the recycle bin. An empty field of the kept entry is filled from them; a
     value that differs from its own becomes an additional field named after the entry it came from
     (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), but for an address:
@@ -416,13 +421,9 @@ while the database is locked):
     already taken gets a number, the same content is not added twice); the kept entry's icon is taken
     from them when it has none of its own. A passkey is its fields together, and an entry holds one: it
     comes whole to a kept entry without one; when both have one (not the same credential), the other's
-    is not carried over in any part, and the preview says so: it stays in its entry, in the recycle bin.
-  - **Move to the recycle bin**: the ticked entries; the kept one too when it is ticked, so a site's
-    entries can all go.
+    is not carried over in any part, and Proceed says so: it stays in its entry, in the recycle bin.
   - **Leave as is**: the site leaves the report until it is opened again.
-- Merge asks first and shows what the kept entry would get: the fields filled and added (a protected
-  value as *hidden*: it does not leave the backend), tags, files and the icon. The backend works this
-  out by merging on a copy, so it is what the merge does.
+- No delete here: merging is risky enough, and the merged entries go to the recycle bin anyway.
 - Worked out and applied in the backend, which gets only ids from the window.
 
 ## Saving and synchronisation

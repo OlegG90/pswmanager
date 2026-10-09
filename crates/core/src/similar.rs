@@ -70,7 +70,7 @@ pub fn merge(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &Hash
 
 /// [merge], returning the titles of the entries whose passkey was left out
 /// (see [take]).
-fn merge_noting(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Vec<String>, String> {
+pub(crate) fn merge_noting(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Vec<String>, String> {
     let kept = db.entry(keep).ok_or(NOT_FOUND)?;
     let mut data = edit::read(&kept, edit::path_of(db, kept.parent().id()));
     let mut contents: Vec<Zeroizing<Vec<u8>>> = kept.attachments_named().map(|(_, a)| Zeroizing::new(a.data.get().clone())).collect();
@@ -98,50 +98,35 @@ fn merge_noting(db: &mut Database, keep: EntryId, others: &[EntryId], hidden: &H
     Ok(passkeys_left)
 }
 
-/// What a merge would change in the kept entry, for the user to see first.
+/// What a merge gives the kept entry, by field name (`UserName`,
+/// `Password (Gmail)`), tag and file name, for the window to mark in the entry
+/// as it would be.
 #[derive(Debug, Default, PartialEq, Serialize)]
-pub struct Preview {
-    /// Its empty fields that are filled, then the additional fields it gets.
-    pub fields: Vec<PreviewField>,
+#[serde(rename_all = "camelCase")]
+pub struct Added {
+    /// Fields filled or added.
+    pub fields: Vec<String>,
     pub tags: Vec<String>,
-    /// The files it gets, by the names they will have.
+    /// By the names they will have.
     pub files: Vec<String>,
     /// It gets another's icon.
     pub icon: bool,
-    /// The entries whose passkey it does not get: it has another one.
-    pub passkeys_left: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
-pub struct PreviewField {
-    pub name: String,
-    /// `None` for a protected value (a password, a TOTP secret): it stays here.
-    pub value: Option<String>,
-    /// One of its own fields, empty until now.
-    pub fills: bool,
-}
-
-/// What [merge] would change in `keep`: worked out by merging on a copy.
-pub fn preview(db: &Database, keep: EntryId, others: &[EntryId], hidden: &HashSet<GroupId>) -> Result<Preview, String> {
-    let read = |db: &Database| db.entry(keep).map(|e| (edit::read(&e, Vec::new()), e.attachments_named().map(|(n, _)| n.to_string()).collect::<Vec<_>>()));
-    let (mut before, files_before) = read(db).ok_or(NOT_FOUND)?;
-    let mut merged = db.clone();
-    let passkeys_left = merge_noting(&mut merged, keep, others, hidden)?;
-    let (mut after, files_after) = read(&merged).ok_or(NOT_FOUND)?;
-
-    let mut preview = Preview { passkeys_left, ..Preview::default() };
-    for ((name, was, protected), (_, is, _)) in standard(&mut before).into_iter().zip(standard(&mut after)) {
-        if was != is {
-            preview.fields.push(PreviewField { name: name.to_string(), value: (!protected).then(|| is.clone()), fills: true });
-        }
+/// What `after` (the kept entry merged) has that `before` did not.
+pub fn added(before: &EntryRef<'_>, after: &EntryRef<'_>) -> Added {
+    let had = |name: &str| before.attachment_by_name(name).is_some();
+    Added {
+        fields: after
+            .fields
+            .iter()
+            .filter(|(name, value)| before.fields.get(name.as_str()).map(|v| v.get()) != Some(value.get()))
+            .map(|(name, _)| name.clone())
+            .collect(),
+        tags: after.tags.iter().filter(|t| !before.tags.contains(t)).cloned().collect(),
+        files: after.attachments_named().map(|(name, _)| name).filter(|name| !had(name)).map(str::to_string).collect(),
+        icon: edit::icon_choice(before) != edit::icon_choice(after),
     }
-    for field in after.fields.iter().filter(|f| !before.fields.iter().any(|b| b.name == f.name)) {
-        preview.fields.push(PreviewField { name: field.name.clone(), value: (!field.protected).then(|| field.value.clone()), fills: false });
-    }
-    preview.tags = after.tags.iter().filter(|t| !before.tags.contains(t)).cloned().collect();
-    preview.files = files_after.into_iter().filter(|f| !files_before.contains(f)).collect();
-    preview.icon = before.icon != after.icon;
-    Ok(preview)
 }
 
 /// Adds what `from` has to `into` (see [merge]).
@@ -380,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_shows_what_a_merge_adds_without_protected_values() {
+    fn added_names_what_a_merge_gives_the_kept_entry() {
         let mut db = Database::new();
         let keep = add(&mut db, "Google", "https://accounts.google.com", |e| e.set_protected(fields::PASSWORD, "new-pass"));
         let other = add(&mut db, "Gmail", "https://mail.google.com", |e| {
@@ -390,17 +375,14 @@ mod tests {
             e.add_attachment("codes.txt", Value::protected(b"1234".to_vec()));
         });
         let hidden = edit::hidden_groups(&db);
-        let before = db.clone();
-        let preview = preview(&db, keep, &[other], &hidden).unwrap();
-        assert_eq!(db, before, "nothing changes");
-        let shown: Vec<(&str, Option<&str>, bool)> = preview.fields.iter().map(|f| (f.name.as_str(), f.value.as_deref(), f.fills)).collect();
-        assert_eq!(shown, [
-            ("User name", Some("me@gmail.com"), true),
-            ("KP2A_URL_1", Some("https://mail.google.com"), false),
-            ("Password (Gmail)", None, false),
-        ]);
-        assert_eq!(preview.tags, ["Mail"]);
-        assert_eq!(preview.files, ["codes.txt"]);
+        let mut merged = db.clone();
+        merge(&mut merged, keep, &[other], &hidden).unwrap();
+        let mut added = added(&db.entry(keep).unwrap(), &merged.entry(keep).unwrap());
+        added.fields.sort();
+        assert_eq!(added.fields, ["KP2A_URL_1", "Password (Gmail)", fields::USERNAME]);
+        assert_eq!(added.tags, ["Mail"]);
+        assert_eq!(added.files, ["codes.txt"]);
+        assert!(!added.icon);
     }
 
     #[test]
@@ -440,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn a_passkey_comes_whole_to_an_entry_without_one_and_the_preview_names_one_left_out() {
+    fn a_passkey_comes_whole_to_an_entry_without_one_and_one_left_out_is_named() {
         let mut db = Database::new();
         let keep = add(&mut db, "Google", "google.com", |_| {});
         let first = add(&mut db, "Passkey A", "google.com", |e| {
@@ -456,9 +438,7 @@ mod tests {
             e.set_protected(passkey::PRIVATE_KEY, "key-b");
         });
         let hidden = edit::hidden_groups(&db);
-        let preview = preview(&db, keep, &[first, same, second], &hidden).unwrap();
-        assert_eq!(preview.passkeys_left, ["Passkey B"]);
-        merge(&mut db, keep, &[first, same, second], &hidden).unwrap();
+        assert_eq!(merge_noting(&mut db, keep, &[first, same, second], &hidden).unwrap(), ["Passkey B"]);
         assert_eq!(field(&db, keep, passkey::CREDENTIAL_ID).as_deref(), Some("cred-a"));
         assert_eq!(field(&db, keep, passkey::PRIVATE_KEY).as_deref(), Some("key-a"));
     }
