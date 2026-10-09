@@ -1,7 +1,7 @@
 import { api, type Entry, type Listing, type MergePreview } from './api'
 import { busyButton, button, el } from './dom'
 import { describeEntries, titleOf } from './entry-text'
-import { mergePreviewParts, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
+import { leaveSite, mergePreviewParts, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
 import { ask, dialog } from './modal'
 
 export interface SimilarOptions {
@@ -31,7 +31,7 @@ function siteSection(site: Site, options: SimilarOptions, redraw: () => Promise<
       tick,
       options.icon(entry.id),
       el('span', { className: 'text' }, el('span', {}, titleOf(entry)), el('span', { className: 'hint' }, similarHint(entry))),
-      el('span', { className: 'keep' }, keep, 'Keep')))
+      el('span', { className: 'keep' }, keep, 'Keep')), (t) => `"${t}"`)
   async function merge() {
     const others = choice.toMerge()
     if (!others.length) return options.fail(NONE_TICKED)
@@ -46,7 +46,7 @@ function siteSection(site: Site, options: SimilarOptions, redraw: () => Promise<
   async function remove() {
     const chosen = choice.toDelete()
     if (!chosen.length) return options.fail(NONE_TICKED)
-    if (!await ask(choice.deleteQuestion(chosen, (t) => `"${t}"`), 'Move to the recycle bin')) return
+    if (!await ask(choice.deleteQuestion(chosen), 'Move to the recycle bin')) return
     options.changed(await api.deleteEntries(chosen.map((e) => e.id)), `Moved ${describeEntries(chosen)} to the recycle bin`)
     await redraw()
   }
@@ -69,7 +69,7 @@ export async function renderSimilar(container: HTMLElement, options: SimilarOpti
     const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
     const leave = (name: string) => (section: HTMLElement) => {
       left.add(name)
-      section.replaceWith(...(container.querySelectorAll('section').length > 1 ? [] : [none()]))
+      leaveSite(container, section, none)
     }
     container.replaceChildren(
       el('header', {}, el('h1', {}, 'Similar entries'), button('Done', 'Back (Esc)', options.done)),

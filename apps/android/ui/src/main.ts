@@ -9,7 +9,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
-import { mergePreviewParts, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { leaveSite, mergePreviewParts, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
@@ -915,15 +915,15 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
     return
   }
   const toList = () => listScreen(listing)
-  const shown = screenShown + 1 // this screen's, once shown below
-  /** After a change: this screen again, unless another one came meanwhile. */
-  const again = (message: string) => (fresh: Listing) => {
-    snack(message)
+  /** The screen count once this one shows (see show()). */
+  let shown = 0
+  /** This screen again, from `fresh`, unless another one came meanwhile. */
+  const reshow = (fresh: Listing) => {
     if (screenShown === shown) void similarScreen(fresh, left)
   }
+  const again = (message: string) => (fresh: Listing) => (snack(message), reshow(fresh))
   const failed = (e: unknown) => snack(String(e))
   const quote = (title: string) => `“${title}”`
-  const byId = new Map(listing.entries.map((e) => [e.id, e]))
   const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
 
   const site = (site: Site) => {
@@ -932,7 +932,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
         tick,
         icon(entry, listing),
         el('span', {}, el('b', {}, titleOf(entry)), el('small', {}, similarHint(entry))),
-        el('label', { className: 'keep' }, keep, 'Keep')))
+        el('label', { className: 'keep' }, keep, 'Keep')), quote)
     const merge = async () => {
       const others = choice.toMerge()
       if (!others.length) return snack(NONE_TICKED)
@@ -951,7 +951,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
     const remove = () => {
       const chosen = choice.toDelete()
       if (!chosen.length) return snack(NONE_TICKED)
-      confirmSheet(choice.deleteQuestion(chosen, quote), 'Delete', () =>
+      confirmSheet(choice.deleteQuestion(chosen), 'Delete', () =>
         void api.deleteEntries(chosen.map((e) => e.id)).then(again(`Moved ${describeEntries(chosen, quote)} to the recycle bin`), failed))
     }
     const section: HTMLElement = el('section', {},
@@ -962,22 +962,22 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
         button('Delete', 'Move the ticked entries to the recycle bin', remove, 'link danger'),
         button('Leave as is', 'Leave these entries as they are', () => {
           left.add(site.name)
-          section.replaceWith(...(screen.querySelectorAll('section').length > 1 ? [] : [none()]))
+          leaveSite(screen, section, none)
         }, 'link')))
     return section
   }
 
+  const byId = new Map(listing.entries.map((e) => [e.id, e]))
   const sites = similarSites(found, (id) => byId.get(id), left)
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back to the list', toList), el('h1', {}, 'Similar entries')),
     el('p', { className: 'muted' }, SIMILAR_INTRO),
     ...(sites.length ? sites.map(site) : [none()]),
   ], toList, 'similar')
+  shown = screenShown
   // Entries another device changed: the sites again, from the list as it is now.
   onSynced = (synced) => {
-    if (synced.changed) void api.listing().then((fresh) => {
-      if (screenShown === shown) void similarScreen(fresh, left)
-    })
+    if (synced.changed) void api.listing().then(reshow)
   }
 }
 

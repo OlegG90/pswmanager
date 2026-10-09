@@ -221,7 +221,9 @@ main.list-screen {
   border-bottom: 1px solid var(--color-neutral-300);
 }
 
-.entries li > span:last-child {
+/* The title over what is under it; a row may end with more after it (Keep). */
+.entries li > span {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -645,7 +647,8 @@ button.tabs-more.right {
   padding: 8px;
 }
 
-.setting input[type="checkbox"] {
+.setting input[type="checkbox"],
+.similar input {
   width: 22px;
   height: 22px;
   accent-color: var(--color-accent);
@@ -977,21 +980,9 @@ button.wide[hidden] {
 }
 
 /* Find similar: per site, the entries ticked to merge or delete and the one kept. */
-/* The title over the user name and URL; Keep, not this, is the row's last. */
-.similar .entries li > span {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.similar input[type="checkbox"],
-.similar input[type="radio"] {
+.similar input {
   flex: none;
-  width: 22px;
-  height: 22px;
   margin: 0;
-  accent-color: var(--color-accent);
 }
 
 .similar label.keep {
@@ -1008,7 +999,7 @@ button.wide[hidden] {
   margin: 8px 0 16px;
 }
 
-/* What a merge gives the kept entry (src/merge-preview.ts), in the sheet that asks. */
+/* What a merge gives the kept entry (src/similar-parts.ts), in the sheet that asks. */
 .sheet .merge-scroll {
   max-height: 45vh;
   overflow-y: auto;

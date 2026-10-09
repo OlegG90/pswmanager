@@ -27,9 +27,14 @@ export function similarSites(found: Similar[], entry: (id: string) => Entry | un
 /**
  * The choice among one site's entries: one is kept (the most recently changed,
  * at first), the others are ticked. `row` lays out each entry's tick and Keep;
- * choosing another to keep ticks the one kept before in its place.
+ * choosing another to keep ticks the one kept before in its place. Titles in
+ * questions are in `quote`.
  */
-export function siteChoice(site: Site, row: (entry: Entry, tick: HTMLInputElement, keep: HTMLInputElement) => HTMLElement) {
+export function siteChoice(
+  site: Site,
+  row: (entry: Entry, tick: HTMLInputElement, keep: HTMLInputElement) => HTMLElement,
+  quote: (title: string) => string,
+) {
   let keep = site.entries[0].id
   const rows = site.entries.map((entry) => {
     const tick = el('input', { type: 'checkbox', checked: entry.id !== keep, title: 'Merge or delete this one', ariaLabel: `Merge or delete ${titleOf(entry)}` })
@@ -50,12 +55,17 @@ export function siteChoice(site: Site, row: (entry: Entry, tick: HTMLInputElemen
     toMerge: () => ticked().filter((e) => e.id !== keep),
     /** What Delete takes: the ticked ones, the kept one too when it is ticked. */
     toDelete: ticked,
-    /** The question before deleting `chosen`, titles in `quote`. */
-    deleteQuestion: (chosen: Entry[], quote: (title: string) => string) => {
+    /** The question before deleting `chosen`. */
+    deleteQuestion: (chosen: Entry[]) => {
       const stays = chosen.some((e) => e.id === keep) ? '' : ` ${quote(titleOf(kept()))} stays as it is.`
       return `Move ${describeEntries(chosen, quote)} to the recycle bin?${stays}`
     },
   }
+}
+
+/** Takes a site's `section` off the screen (`container`), saying `none` when it was the last. */
+export function leaveSite(container: HTMLElement, section: HTMLElement, none: () => HTMLElement) {
+  section.replaceWith(...(container.querySelectorAll('section').length > 1 ? [] : [none()]))
 }
 
 /** The text under a similar entry's title. */
