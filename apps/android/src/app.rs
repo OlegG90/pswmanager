@@ -79,6 +79,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             totp,
             copy_totp,
             open_url,
+            open_repository,
             open_attachment,
             save_attachment,
             settings,
@@ -843,6 +844,12 @@ async fn copy_totp(app: AppHandle, id: String) -> Result<u64, String> {
 fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), String> {
     let url = session.with(|v| Some(v.web_url(&id)))?.ok_or("The entry has no web address")?;
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Opens the project's GitHub page in the default browser (Settings → About).
+#[tauri::command]
+fn open_repository(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(env!("CARGO_PKG_REPOSITORY"), None::<&str>).map_err(|e| e.to_string())
 }
 
 async fn copy_to_clipboard(app: AppHandle, value: Zeroizing<String>) -> Result<u64, String> {

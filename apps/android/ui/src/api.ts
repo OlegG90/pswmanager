@@ -145,6 +145,8 @@ export const api = {
   totp: (id: string) => invoke<Code | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
+  /** The project's GitHub page, in the browser (Settings → About). */
+  openRepository: () => invoke<void>('open_repository'),
   openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
   /** False when the user cancelled Android's save picker. */
   saveAttachment: (id: string, name: string, version: number | null = null) => invoke<boolean>('save_attachment', { id, name, version }),

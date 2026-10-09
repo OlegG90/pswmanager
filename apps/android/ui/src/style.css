@@ -414,9 +414,13 @@ main.list-screen {
   background: var(--color-accent-100);
 }
 
-.drawer button.action {
-  margin-top: 20px;
-  color: var(--color-accent);
+/* The app's version closes the drawer, under a rule as a section heading has. */
+.drawer .version {
+  margin: 16px 0 0;
+  padding: 12px 10px 0;
+  border-top: 1px solid var(--color-neutral-300);
+  font-size: 12px;
+  color: var(--color-neutral-500);
 }
 
 /* Browsing the phone's files for a key file: the folder's items scroll. */

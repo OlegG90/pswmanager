@@ -775,8 +775,7 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     el('h2', {}, 'Tags'),
     item(UNTAGGED, 'Untagged', search(entries, '', UNTAGGED).length),
     ...tagCounts(entries).map(([tag, count]) => item({ kind: 'tag', tag }, tag, count)),
-    button('Settings', 'Settings', () => (close(), void settingsScreen(() => listScreen(listing))), 'action'),
-    button('Lock', 'Lock the database', () => void lock(), 'action'),
+    el('p', { className: 'version' }, `Version ${settings?.version ?? ''}`),
   )
   const sliding = slide(shade, panel, -1, close)
   if (!dragged) sliding.release(true)
@@ -1475,7 +1474,8 @@ function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
     case 'about':
       return [
         el('p', {}, `PswManager for Android, version ${s.version}`),
-        el('p', { className: 'muted' }, 'The database is a KeePass file (KDBX 4.1): it opens in PswManager on Windows, KeePassXC and Keepass2Android.'),
+        el('p', { className: 'muted' }, 'The database is a KeePass file (KDBX 4.1).'),
+        button('GitHub repository', 'Open the GitHub repository in the browser', () => void api.openRepository().catch((e) => snack(String(e))), 'link'),
       ]
   }
 }
