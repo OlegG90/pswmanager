@@ -20,16 +20,22 @@ pub struct Similar {
 }
 
 /// What entries are grouped by: the registrable domain of a site's address
-/// (mail.google.com and accounts.google.com are both `google.com`), else the
-/// address itself; `None` for an entry without a URL.
+/// (mail.google.com and accounts.google.com are both `google.com`), the IP
+/// address of a web address on one, else the address itself; `None` for an
+/// entry without a URL.
 pub fn site_of(url: &str) -> Option<String> {
     let url = url.trim();
     if url.is_empty() {
         return None;
     }
-    let host = icons::web_url(url).and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_string()));
-    Some(match host {
-        Some(host) => psl::domain_str(&host).unwrap_or(&host).to_string(),
+    if let Some(host) = icons::web_url(url).and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_string())) {
+        return Some(psl::domain_str(&host).unwrap_or(&host).to_string());
+    }
+    let ip = url::Url::parse(url)
+        .ok()
+        .filter(|u| matches!(u.scheme(), "http" | "https") && matches!(u.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_))));
+    Some(match ip {
+        Some(u) => u.host_str().expect("checked above").to_string(),
         None => url.trim_end_matches('/').to_string(),
     })
 }
@@ -133,13 +139,13 @@ fn take(into: &mut EntryData, from: &EntryData) {
 }
 
 /// `field`, a value `into` has another one for, as `<name> (<source>)`
-/// (numbered when taken); not when one of those already has the value.
+/// (numbered when taken); not when `into` already has the value in a field.
 fn add_differing(into: &mut EntryData, mut field: FieldData, source: &str) {
-    let label = std::mem::take(&mut field.name);
-    let prefix = format!("{label} (");
-    if into.fields.iter().any(|f| f.name.starts_with(&prefix) && f.value == field.value) {
+    let standard = [&into.username, &into.password, &into.url, &into.notes, &into.otp];
+    if standard.contains(&&field.value) || into.fields.iter().any(|f| f.value == field.value) {
         return;
     }
+    let label = std::mem::take(&mut field.name);
     let taken = |name: &str| into.fields.iter().any(|f| f.name == name);
     field.name = (1..)
         .map(|n| if n == 1 { format!("{label} ({source})") } else { format!("{label} ({source} {n})") })
@@ -172,7 +178,8 @@ mod tests {
         assert_eq!(site_of("accounts.google.com").as_deref(), Some("google.com"));
         assert_eq!(site_of("https://www.bbc.co.uk/").as_deref(), Some("bbc.co.uk"));
         assert_eq!(site_of("http://router.lan").as_deref(), Some("router.lan"));
-        assert_eq!(site_of("http://192.168.1.1/").as_deref(), Some("http://192.168.1.1"));
+        assert_eq!(site_of("http://192.168.1.1/").as_deref(), Some("192.168.1.1"));
+        assert_eq!(site_of("https://192.168.1.1/admin").as_deref(), Some("192.168.1.1"));
         assert_eq!(site_of("androidapp://com.example").as_deref(), Some("androidapp://com.example"));
         assert_eq!(site_of("  "), None);
     }
@@ -237,6 +244,20 @@ mod tests {
         assert_eq!(field(&db, keep, "Password (Shop)").as_deref(), Some("two"));
         assert_eq!(field(&db, keep, "Password (Shop 2)").as_deref(), Some("three"));
         assert_eq!(field(&db, keep, "Password (Shop 3)"), None);
+    }
+
+    #[test]
+    fn a_value_the_kept_entry_has_under_another_name_is_not_added() {
+        let mut db = Database::new();
+        let keep = add(&mut db, "Mail", "mail.com", |e| {
+            e.set_unprotected(fields::NOTES, "old notes");
+            e.set_unprotected("Recovery email", "me@example.com");
+        });
+        let other = add(&mut db, "Mail", "mail.com", |e| e.set_unprotected(fields::NOTES, "me@example.com"));
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[other], &hidden).unwrap();
+        let names: Vec<String> = db.entry(keep).unwrap().fields.keys().cloned().collect();
+        assert!(!names.iter().any(|f| f.starts_with("Notes (")), "{names:?}");
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! PswManager's core, shared by the Windows and Android apps: the KeePass
 //! database and its changes, merging, syncing with the stores, TOTP, the
-//! generator, password health, similar entries and site icons. Nothing here knows the platform:
-//! what does (where secrets are kept, the browser for a sign-in) is handed in.
+//! generator, password health, similar entries and site icons. Nothing here
+//! knows the platform: what does (where secrets are kept, the browser for a
+//! sign-in) is handed in.
 
 pub mod backup;
 pub mod cxf;

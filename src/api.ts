@@ -294,7 +294,6 @@ export interface Finding {
   detail: string
 }
 
-/** Each entry is in one list at most: reused, else weak, else old. */
 /** Entries for one site: a registrable domain (`google.com`), or the address
  *  itself when it is not a site's. The most recently changed first. */
 export interface Similar {
@@ -302,6 +301,7 @@ export interface Similar {
   ids: string[]
 }
 
+/** Each entry is in one list at most: reused, else weak, else old. */
 export interface Health {
   reused: Finding[]
   weak: Finding[]
