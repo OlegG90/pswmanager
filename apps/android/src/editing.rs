@@ -8,6 +8,7 @@ use pswm_core::edit::{self, EntryData, FileChange};
 use pswm_core::generator;
 use pswm_core::health;
 use pswm_core::session::Session;
+use pswm_core::similar;
 use pswm_core::store::Store;
 use pswm_core::staged::StagedFile;
 use pswm_core::vault::{Listing, Saved};
@@ -98,6 +99,29 @@ pub fn release_files(session: State<Session>, files: Vec<u64>) {
 pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
     let listing = session.with_mut(|v| {
         v.delete_entries(&ids)?;
+        Ok(v.listing())
+    })?;
+    upload_soon(&app);
+    Ok(listing)
+}
+
+/// The entries that are for the same site (Tools › Find similar entries).
+#[tauri::command(async)]
+pub fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
+    session.read(|v| v.similar())
+}
+
+/// What merging entries into `keep` would change in it; protected values are left out.
+#[tauri::command(async)]
+pub fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<similar::Preview, String> {
+    session.read(|v| v.merge_preview(&keep, &others))?
+}
+
+/// Merges entries into `keep`, moving them to the recycle bin.
+#[tauri::command(async)]
+pub fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: Vec<String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.merge_entries(&keep, &others)?;
         Ok(v.listing())
     })?;
     upload_soon(&app);

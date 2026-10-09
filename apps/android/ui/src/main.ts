@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
-import { beforeExtension, dateOf, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
+import { beforeExtension, dateOf, describeEntries, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
 import { OTP, PASSWORD, URL_FIELD, USERNAME, type DatabaseSetting, type DatabaseSettings, type Encryption } from '../../../../src/api'
 import { describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from '../../../../src/database-settings'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
@@ -9,8 +9,9 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
+import { leaveSite, mergePreviewParts, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { svgIcon, type IconName } from './icons'
-import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -503,7 +504,7 @@ function listScreen(opened: Listing) {
       status.textContent = 'Syncing…'
       void api.syncNow()
     }),
-    iconButton('tools', 'Tools', toolsSheet),
+    iconButton('tools', 'Tools', () => toolsSheet(listing)),
     iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
   const closeSearch = () => {
@@ -892,11 +893,92 @@ function settingsPeek(back: () => void): Sliding {
 }
 
 /** Tools (#183): the commands that work on the whole database, from the toolbar's wrench. */
-function toolsSheet() {
+function toolsSheet(listing: Listing) {
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
+    button('Find similar entries', 'Entries for the same site, to merge or delete', () => (close(), void similarScreen(listing)), 'item'),
   ])
+}
+
+/** Find similar (#215): the entries that are for the same site, as on Windows
+ *  (docs/spec.md, *Similar entries*). Per site one is kept (the most recently
+ *  changed, at first) and the others are ticked: Merge (after showing what the
+ *  kept one gets), Delete, or Leave as is (until the screen is opened again
+ *  from Tools; `left` keeps that while it shows again after a change). */
+async function similarScreen(listing: Listing, left = new Set<string>()) {
+  let found: Similar[]
+  try {
+    found = await api.similarEntries()
+  } catch (e) {
+    snack(String(e))
+    return
+  }
+  const toList = () => listScreen(listing)
+  /** The screen count once this one shows (see show()). */
+  let shown = 0
+  /** This screen again, from `fresh`, unless another one came meanwhile. */
+  const reshow = (fresh: Listing) => {
+    if (screenShown === shown) void similarScreen(fresh, left)
+  }
+  const again = (message: string) => (fresh: Listing) => (snack(message), reshow(fresh))
+  const failed = (e: unknown) => snack(String(e))
+  const quote = (title: string) => `“${title}”`
+  const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
+
+  const site = (site: Site) => {
+    const choice = siteChoice(site, (entry, tick, keep) =>
+      el('li', {},
+        tick,
+        icon(entry, listing),
+        el('span', {}, el('b', {}, titleOf(entry)), el('small', {}, similarHint(entry))),
+        el('label', { className: 'keep' }, keep, 'Keep')), quote)
+    const merge = async () => {
+      const others = choice.toMerge()
+      if (!others.length) return snack(NONE_TICKED)
+      const kept = choice.kept()
+      const into = quote(titleOf(kept))
+      const ids = others.map((e) => e.id)
+      const preview = await api.mergePreview(kept.id, ids)
+      sheet((close) => [
+        el('b', {}, `Merge ${describeEntries(others, quote)} into ${into}`),
+        el('p', { className: 'muted' }, `They go to the recycle bin; ${into} gets:`),
+        el('div', { className: 'merge-scroll' }, ...mergePreviewParts(preview)),
+        button('Merge', 'Merge', () => (close(), void api.mergeEntries(kept.id, ids).then(again(`Merged into ${into}`), failed)), 'primary'),
+        button('Cancel', 'Cancel', close, 'link'),
+      ])
+    }
+    const remove = () => {
+      const chosen = choice.toDelete()
+      if (!chosen.length) return snack(NONE_TICKED)
+      confirmSheet(choice.deleteQuestion(chosen), 'Delete', () =>
+        void api.deleteEntries(chosen.map((e) => e.id)).then(again(`Moved ${describeEntries(chosen, quote)} to the recycle bin`), failed))
+    }
+    const section: HTMLElement = el('section', {},
+      el('h2', {}, site.name),
+      el('ul', { className: 'entries' }, ...choice.rows),
+      el('div', { className: 'similar-actions' },
+        busyButton('Merge', 'Add what the ticked entries have to the kept one, and move them to the recycle bin', merge, failed),
+        button('Delete', 'Move the ticked entries to the recycle bin', remove, 'link danger'),
+        button('Leave as is', 'Leave these entries as they are', () => {
+          left.add(site.name)
+          leaveSite(screen, section, none)
+        }, 'link')))
+    return section
+  }
+
+  const byId = new Map(listing.entries.map((e) => [e.id, e]))
+  const sites = similarSites(found, (id) => byId.get(id), left)
+  show([
+    el('header', { className: 'bar' }, iconButton('back', 'Back to the list', toList), el('h1', {}, 'Similar entries')),
+    el('p', { className: 'muted' }, SIMILAR_INTRO),
+    ...(sites.length ? sites.map(site) : [none()]),
+  ], toList, 'similar')
+  shown = screenShown
+  // Entries another device changed: the sites again, from the list as it is now.
+  onSynced = (synced) => {
+    if (synced.changed) void api.listing().then(reshow)
+  }
 }
 
 /** Importing from another password manager on this phone (#152): what it does, then Android's list of apps. */
