@@ -74,6 +74,15 @@ auto-type, group notes, the recycle bin, and attachments unless the transfer car
 **Lost coming in (CXF → KDBX):** field types, membership of more than one collection, item references.
 Neither loss touches what PswManager is used for (logins, TOTP, passkeys, notes).
 
+**A login and a passkey for the same site** (#182). CXF lets an item hold several related credentials, so a
+`basic-auth` and a `passkey` in **one item** become one entry: the user name and password in the standard
+fields, the passkey in its `KPEX_PASSKEY_*` attributes, as KeePassXC keeps them. The specification lets an
+importer split an item, but says nothing about joining separate ones, and how to group them is the
+exporter's choice. Google Password Manager sends a site's password and its passkey as **separate items**, so
+they come in as two entries: one with the login, one with the passkey. The import keeps them that way.
+Every item stays a new entry, and nothing is guessed from matching URLs or user names, which can differ between the two (a passkey's user name is whatever the site gave it). Joining the
+two is left to the user, with *Find similar* (#176) or by hand.
+
 ## Platforms
 
 ### Android: Credential Transfer (Credential Manager)
