@@ -387,8 +387,8 @@ while the database is locked):
 
 ## Password health
 
-- A report, opened from the toolbar, of passwords worth changing among the entries in use (not the
-  recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
+- A report, opened from the toolbar's *Tools* menu, of passwords worth changing among the entries in
+  use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
 - A password's age runs from when it was last set: the oldest version in the entry's history with the
@@ -399,8 +399,8 @@ while the database is locked):
 
 ## Similar entries
 
-- A report, opened from the toolbar (*Similar*), of entries in use (not the recycle bin or templates)
-  that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+- A report, opened from the toolbar's *Tools* menu (*Similar entries*), of entries in use (not the
+  recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
   URL are not listed.

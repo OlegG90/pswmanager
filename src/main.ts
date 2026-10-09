@@ -1160,8 +1160,11 @@ $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', newEntry)
 $('empty-trash').addEventListener('click', () => deleteForGood())
 $('settings-button').addEventListener('click', openSettings)
-$('health-button').addEventListener('click', openHealth)
-$('similar-button').addEventListener('click', openSimilar)
+// The tools that work on the whole database.
+$('settings-button').before(menuButton('Tools for the whole database', [
+  { label: 'Password health', title: 'Find reused, weak and old passwords', action: openHealth },
+  { label: 'Similar entries', title: 'Find entries for the same site, to merge or delete', action: openSimilar },
+], 'Tools'))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
