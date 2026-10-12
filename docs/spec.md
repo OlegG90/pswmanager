@@ -176,7 +176,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 The sidebar has two parts. **Groups** are fixed: an entry is in one because of what it is or what was done
 to it, never by picking the group. **Tags** are the user's own way to sort entries. First is **Untagged**,
 which shows entries without user tags (the `Favorite` star does not count); then every tag of entries in use
-(not templates or the trash), with its number of entries.
+(not templates or the trash). Every group and tag shows its number of entries, the counts in one column
+(#223).
 
 | Group | Shows |
 |---|---|

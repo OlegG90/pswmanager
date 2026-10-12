@@ -215,23 +215,26 @@ async function showLocked() {
   showUnlock(await api.status())
 }
 
-/** The sidebar: the fixed groups, then the tags with their counts. A tag no
+/** The sidebar: the fixed groups and the tags, each with its count. A tag no
  *  entry has any more goes back to All. */
 function fillSidebar() {
   const tags = tagCounts(listing.entries)
   const chosen = filter
   if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
-  const item = (choice: Filter, label: string, count?: number, picture?: SharedIcon) => {
-    const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label))
+  const countOf = (choice: Filter) => search(listing.entries, '', choice).length
+  const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
+    const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (count !== undefined) b.append(el('span', { className: 'count' }, String(count)))
     if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', () => showFilter(choice))
     return el('li', {}, b)
   }
-  groupsList.replaceChildren(...GROUPS.map(({ group, label }) => item({ kind: 'group', group }, label, undefined, GROUP_ICONS[group])))
+  groupsList.replaceChildren(...GROUPS.map(({ group, label }) => {
+    const choice: Filter = { kind: 'group', group }
+    return item(choice, label, countOf(choice), GROUP_ICONS[group])
+  }))
   tagsList.replaceChildren(
-    item(UNTAGGED, 'Untagged', search(listing.entries, '', UNTAGGED).length),
+    item(UNTAGGED, 'Untagged', countOf(UNTAGGED)),
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
