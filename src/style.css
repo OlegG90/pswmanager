@@ -739,7 +739,8 @@ button.icon.state svg {
 
 /* A tag's ⋯ menu (rename, remove) shows where the pointer or the focus is,
    in a column of its own: a long name is cut short instead of pushing the
-   menu out, and every count (Untagged's too) lines up. */
+   menu out. The groups keep that column empty, so every count lines up. */
+#groups li,
 #tags li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
