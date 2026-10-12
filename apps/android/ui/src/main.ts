@@ -931,15 +931,15 @@ function toolsSheet(listing: Listing) {
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
-    button('Find similar entries', 'Entries for the same site, to merge or delete', () => (close(), void similarScreen(listing)), 'item'),
+    button('Find similar entries', 'Entries for the same site and user name, to merge them', () => (close(), void similarScreen(listing)), 'item'),
   ])
 }
 
-/** Find similar (#215): the entries that are for the same site, as on Windows
- *  (docs/spec.md, *Similar entries*). Per site one is kept (the most recently
- *  changed, at first) and the others are ticked. Proceed shows the kept one as
- *  the merge would leave it, with Merge and Cancel (back to the sites, ticks as
- *  they were); Leave as is takes the site off until the screen is opened again
+/** Find similar (#215): the entries that are for the same site and account, as
+ *  on Windows (docs/spec.md, *Similar entries*). Per section one is kept (the
+ *  most recently changed, at first) and the others are ticked. Proceed shows the
+ *  kept one as the merge would leave it, with Merge and Cancel (back to the
+ *  sections, ticks as they were); Leave as is takes the section off until the screen is opened again
  *  from Tools (`left` keeps that while it shows again after a change). */
 async function similarScreen(listing: Listing, left = new Set<string>()) {
   let found: Similar[]

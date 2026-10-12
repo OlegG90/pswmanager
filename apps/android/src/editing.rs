@@ -105,7 +105,7 @@ pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>)
     Ok(listing)
 }
 
-/// The entries that are for the same site (Tools › Find similar entries).
+/// The entries that are for the same site and account (Tools › Find similar entries).
 #[tauri::command(async)]
 pub fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
     session.read(|v| v.similar())

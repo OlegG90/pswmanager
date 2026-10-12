@@ -1167,7 +1167,7 @@ fn password_health(session: State<Session>) -> Result<health::Health, String> {
     session.read(Vault::health)
 }
 
-/// The entries that are for the same site, by their ids.
+/// The entries that are for the same site and account, by their ids.
 #[tauri::command(async)]
 fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
     session.read(Vault::similar)

@@ -311,7 +311,7 @@ impl Vault {
         crate::cxf::export(self.visible_entries(), &name, chrono::Utc::now().timestamp())
     }
 
-    /// The entries the user works with that are for the same site.
+    /// The entries the user works with that are for the same site and account.
     pub fn similar(&self) -> Vec<crate::similar::Similar> {
         crate::similar::find(self.visible_entries())
     }

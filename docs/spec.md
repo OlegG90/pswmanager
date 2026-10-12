@@ -407,8 +407,9 @@ while the database is locked):
   URL are not listed.
 - The **user name** tells accounts apart (#227): a site's entries are grouped by user name (trimmed, any
   case), and entries with different user names are never offered to merge; each account is a section of
-  its own, headed with the site and the user name (`google.com · me@example.com`). Entries without a user
-  name go with the site's only user name; when it has several, they are a section of their own.
+  its own, headed with the site and the user name (`google.com · me@example.com`; the site alone without
+  one). Entries without a user name go with the site's only user name; when it has several, they are a
+  section of their own.
 - Each section's entries are listed most recently changed first. One is **kept** (the first, at first; any
   can be chosen), the others are **ticked** to merge into it; per section:
   - **Proceed**: the kept entry as the merge would leave it, shown as the entry view shows an entry
