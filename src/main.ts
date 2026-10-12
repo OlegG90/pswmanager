@@ -221,6 +221,7 @@ function fillSidebar() {
   const tags = tagCounts(listing.entries)
   const chosen = filter
   if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
+  const countOf = (choice: Filter) => search(listing.entries, '', choice).length
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
@@ -230,10 +231,10 @@ function fillSidebar() {
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => {
     const choice: Filter = { kind: 'group', group }
-    return item(choice, label, search(listing.entries, '', choice).length, GROUP_ICONS[group])
+    return item(choice, label, countOf(choice), GROUP_ICONS[group])
   }))
   tagsList.replaceChildren(
-    item(UNTAGGED, 'Untagged', search(listing.entries, '', UNTAGGED).length),
+    item(UNTAGGED, 'Untagged', countOf(UNTAGGED)),
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
