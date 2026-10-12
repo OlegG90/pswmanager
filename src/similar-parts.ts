@@ -22,7 +22,10 @@ export interface Site {
  *  entries the list has (in use); a site with one left is not one any more. */
 export function similarSites(found: Similar[], entry: (id: string) => Entry | undefined, left: Set<string>): Site[] {
   return found
-    .map((s) => ({ name: s.userName ? `${s.site} · ${s.userName}` : s.site, entries: s.ids.map(entry).filter((e): e is Entry => e?.kind === 'entry') }))
+    .map((s) => ({
+      name: s.userName ? `${s.site} · ${s.userName}` : s.site,
+      entries: s.ids.map(entry).filter((e): e is Entry => e?.kind === 'entry'),
+    }))
     .filter((s) => !left.has(s.name) && s.entries.length > 1)
 }
 

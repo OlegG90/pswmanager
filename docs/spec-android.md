@@ -169,8 +169,8 @@ As in the mockups `1e`–`1j`.
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
   database: *Import from another app…* and *Find similar entries*.
-- **Find similar entries** (#215): a screen of the entries that are for the same site and account, as on Windows
-  (`docs/spec.md`, *Similar entries*; the grouping, the merge and its preview are the shared core's).
+- **Find similar entries** (#215): a screen of the entries that are for the same site and account, as on
+  Windows (`docs/spec.md`, *Similar entries*; the grouping, the merge and its preview are the shared core's).
   Per section (a site and user name) the entries are listed most recently changed first, each with a tick
   and *Keep* (the first, at first); *Proceed* shows the kept entry as the merge would leave it (what it
   adds in another colour and starred), with *Merge* and *Cancel* (Back too: the sections again, ticks as

@@ -939,8 +939,9 @@ function toolsSheet(listing: Listing) {
  *  on Windows (docs/spec.md, *Similar entries*). Per section one is kept (the
  *  most recently changed, at first) and the others are ticked. Proceed shows the
  *  kept one as the merge would leave it, with Merge and Cancel (back to the
- *  sections, ticks as they were); Leave as is takes the section off until the screen is opened again
- *  from Tools (`left` keeps that while it shows again after a change). */
+ *  sections, ticks as they were); Leave as is takes the section off until the
+ *  screen is opened again from Tools (`left` keeps that while it shows again
+ *  after a change). */
 async function similarScreen(listing: Listing, left = new Set<string>()) {
   let found: Similar[]
   try {

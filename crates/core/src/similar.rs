@@ -55,16 +55,16 @@ pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Vec<Similar> {
             sites.entry(site).or_default().push(entry);
         }
     }
-    sites
-        .into_iter()
-        .flat_map(|(site, entries)| accounts(entries).into_iter().map(move |entries| (site.clone(), entries)))
-        .filter(|(_, entries)| entries.len() > 1)
-        .map(|(site, mut entries)| {
+    let mut found = Vec::new();
+    for (site, entries) in sites {
+        for mut entries in accounts(entries).into_iter().filter(|entries| entries.len() > 1) {
             entries.sort_by_key(|e| std::cmp::Reverse(e.times.last_modification));
             let user_name = entries.iter().find_map(|e| user_name(e)).unwrap_or_default().to_string();
-            Similar { site, user_name, ids: entries.iter().map(|e| e.id().uuid().to_string()).collect() }
-        })
-        .collect()
+            let ids = entries.iter().map(|e| e.id().uuid().to_string()).collect();
+            found.push(Similar { site: site.clone(), user_name, ids });
+        }
+    }
+    found
 }
 
 /// One site's entries by account: the same user name, told apart without
