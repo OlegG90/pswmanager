@@ -201,7 +201,8 @@ As in the mockups `1e`–`1j`.
   attributes, groups as collections, the Favorite star; history, icons, the expiry and files stay. The
   JSON is handed to the system's content URI and never written anywhere else or logged. Nothing in the
   database changes.
-- **Entry view:** title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
+- **Entry view** (Back returns to the list where it was, with the entry in view, after an edit too while
+  the entry is still listed, #228): title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
   secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
   app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
