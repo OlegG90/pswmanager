@@ -294,10 +294,12 @@ export interface Finding {
   detail: string
 }
 
-/** Entries for one site: a registrable domain (`google.com`), or the address
- *  itself when it is not a site's. The most recently changed first. */
+/** Entries for one site and account: a registrable domain (`google.com`), or
+ *  the address itself when it is not a site's, and the user name they share
+ *  (empty: none). The most recently changed first. */
 export interface Similar {
   site: string
+  userName: string
   ids: string[]
 }
 

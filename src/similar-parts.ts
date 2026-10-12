@@ -6,12 +6,14 @@ import { labelOf, titleOf } from './entry-text'
  *  *Similar entries*); each draws it in its own way. */
 
 export const SIMILAR_INTRO =
-  'Entries whose URLs are for the same site. Merging keeps one entry with everything the others have; they go to the recycle bin.'
-export const NO_SIMILAR = 'No two entries are for the same site.'
+  'Entries whose URLs are for the same site, with the same user name. Merging keeps one entry with everything the others have; they go to the recycle bin.'
+export const NO_SIMILAR = 'No two entries are for the same site and user name.'
 export const NONE_TICKED = 'Tick the entries to merge into the kept one'
 
-/** One site's entries, the most recently changed first. */
+/** One site's entries for one account, the most recently changed first. */
 export interface Site {
+  /** The site with the user name (`google.com · me@example.com`): what the
+   *  section is headed with, and what tells it from the site's other accounts. */
   name: string
   entries: Entry[]
 }
@@ -20,9 +22,11 @@ export interface Site {
  *  entries the list has (in use); a site with one left is not one any more. */
 export function similarSites(found: Similar[], entry: (id: string) => Entry | undefined, left: Set<string>): Site[] {
   return found
-    .filter((s) => !left.has(s.site))
-    .map((s) => ({ name: s.site, entries: s.ids.map(entry).filter((e): e is Entry => e?.kind === 'entry') }))
-    .filter((s) => s.entries.length > 1)
+    .map((s) => ({
+      name: s.userName ? `${s.site} · ${s.userName}` : s.site,
+      entries: s.ids.map(entry).filter((e): e is Entry => e?.kind === 'entry'),
+    }))
+    .filter((s) => !left.has(s.name) && s.entries.length > 1)
 }
 
 /**

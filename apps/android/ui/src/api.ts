@@ -219,7 +219,7 @@ export const api = {
   enterOtherKey: (password: string, keyFile: NewKeyFile) => invoke<Status>('enter_other_key', { password, keyFile }),
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
-  /** The entries that are for the same site. */
+  /** The entries that are for the same site and account. */
   similarEntries: () => invoke<Similar[]>('similar_entries'),
   /** What `mergeEntries` would change in `keep`; nothing changes. */
   mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),

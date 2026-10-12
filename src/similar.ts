@@ -64,7 +64,7 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
   return section
 }
 
-/** Fills `container` with the entries that are for the same site. */
+/** Fills `container` with the entries that are for the same site and account. */
 export async function renderSimilar(container: HTMLElement, options: SimilarOptions) {
   /** Sites left as they are, while the report is open. */
   const left = new Set<string>()
