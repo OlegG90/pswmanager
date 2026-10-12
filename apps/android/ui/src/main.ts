@@ -503,10 +503,7 @@ function listScreen(opened: Listing) {
     iconButton('menu', 'Groups and tags', () => drawer(listing, fill)),
     title,
     newKey,
-    iconButton('sync', 'Sync now', () => {
-      status.textContent = 'Syncing…'
-      void api.syncNow()
-    }),
+    syncButton(() => (status.textContent = 'Syncing…')),
     iconButton('tools', 'Tools', () => toolsSheet(listing)),
     iconButton('settings', 'Settings', () => void settingsScreen(() => listScreen(listing))),
     iconButton('lock', 'Lock', () => void lock()))
@@ -614,10 +611,29 @@ function swipes(target: HTMLElement, allowed: () => boolean, to: { right?: () =>
   target.addEventListener('touchcancel', end)
 }
 
-/** Pulling the list down from its top syncs. */
+/** Whether the database syncs with a cloud store: only then is there a sync to
+ *  start by hand (#225, #226). A local file still syncs at the moments of
+ *  *Synchronisation* in the spec. */
+const linked = () => !!database?.cloud
+
+/** The toolbar's Sync now; without a store it looks disabled and, tapped, says
+ *  where sync is set up. */
+function syncButton(started: () => void) {
+  const notSetUp = 'Sync is not set up: Settings → Sync'
+  const on = linked()
+  const b = iconButton('sync', on ? 'Sync now' : notSetUp, () => {
+    if (!on) return snack(notSetUp)
+    started()
+    void api.syncNow()
+  })
+  if (!on) b.setAttribute('aria-disabled', 'true')
+  return b
+}
+
+/** Pulling the list down from its top syncs, with a store linked. */
 function pullToSync(scroll: HTMLElement, started: () => void) {
   let from: number | null = null
-  scroll.addEventListener('touchstart', (e) => (from = scroll.scrollTop === 0 ? e.touches[0].clientY : null), { passive: true })
+  scroll.addEventListener('touchstart', (e) => (from = linked() && scroll.scrollTop === 0 ? e.touches[0].clientY : null), { passive: true })
   scroll.addEventListener('touchend', (e) => {
     if (from !== null && e.changedTouches[0].clientY - from > 80) {
       started()
@@ -725,7 +741,7 @@ function quickCopy(entry: Entry) {
 const signInButton = (cloud: Cloud, close: () => void) =>
   button('Sign in', 'Sign in again', () => (close(), void signIn(cloud).then(() => api.syncNow(), (e) => snack(String(e)))), 'primary')
 
-/** The status line's sheet: what the last sync did, and Sync now. */
+/** The status line's sheet: what the last sync did, and Sync now with a store linked. */
 function syncSheet() {
   sheet((close) => [
     el('b', {}, 'Sync'),
@@ -743,10 +759,12 @@ function syncSheet() {
       : []),
     ...(signInAgain && database?.cloud ? [signInButton(database.cloud, close)] : []),
     ...(otherKey ? [button('Enter the new key…', 'The master password and / or key file another device changed it to', () => (close(), void otherKeyScreen()), 'primary')] : []),
-    button('Sync now', 'Sync now', () => {
-      close()
-      void api.syncNow()
-    }, 'primary'),
+    ...(linked()
+      ? [button('Sync now', 'Sync now', () => {
+          close()
+          void api.syncNow()
+        }, 'primary')]
+      : []),
   ])
 }
 
@@ -1107,17 +1125,18 @@ function syncWithStore(): Node[] {
   return [el('h2', {}, 'Store'), ...CLOUDS.map((cloud) => button(`Sync with ${STORES[cloud].name}…`, `Sync this database with ${STORES[cloud].name}`, () => void choose(cloud), 'wide'))]
 }
 
-/** Stop syncing and Disconnect, for a database synced with a cloud store. */
+/** Stop syncing, for a database synced with a cloud store: the one way out, as
+ *  on Windows (#225). */
 function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   const store = current.syncedWith ?? 'the store'
   const after = current.copyFolder
     ? `From then on it syncs with its copy in ${current.copyFolder}, like a local file.`
     : 'There is no copy on this phone: the database stays inside the app only.'
-  const stop = (signOut: boolean) => async () => {
+  const stop = async () => {
     try {
-      database = (await api.stopSyncing(signOut)).database
+      database = (await api.stopSyncing()).database
       syncLine = ''
-      snack(signOut ? 'Disconnected' : 'Syncing stopped')
+      snack('Syncing stopped')
       void settingsScreen(settingsBack)
     } catch (e) {
       snack(String(e))
@@ -1125,10 +1144,8 @@ function stopSyncing(current: NonNullable<Status['database']>): Node[] {
   }
   return [
     el('h2', {}, 'Store'),
-    button('Stop syncing', 'Stop syncing with the store', () =>
-      confirmSheet(`Stop syncing with ${store}? The file there stays as it is. ${after}`, 'Stop syncing', () => void stop(false)()), 'wide'),
-    button('Disconnect…', 'Stop syncing and sign out of the store', () =>
-      confirmSheet(`Stop syncing and sign out of ${store}? The file there stays as it is. ${after}`, 'Disconnect', () => void stop(true)()), 'wide'),
+    button('Stop syncing…', 'Stop syncing with the store', () =>
+      confirmSheet(`Stop syncing with ${store}? The file there stays as it is. ${after}`, 'Stop syncing', () => void stop()), 'wide'),
   ]
 }
 
@@ -1554,7 +1571,7 @@ function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
         el('p', {}, database?.syncedWith ? `Syncs with ${database.syncedWith}` : 'Not synced'),
         ...(database?.cloud ? [el('p', { className: 'muted' }, database.copyFolder ? `Copy on this phone: ${database.copyFolder}` : 'No copy on this phone yet')] : []),
         choice('Check for changes', 'While the app is in front and unlocked', 'syncEveryMinutes', s.syncEveryMinutes, minutes('Off')),
-        button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary'),
+        ...(linked() ? [button('Sync now', 'Sync now', () => void api.syncNow().then(() => snack('Syncing…')), 'primary')] : []),
         ...(database ? (database.cloud ? stopSyncing(database) : syncWithStore()) : []),
         el('p', { className: 'muted' }, 'To use another database, lock this one and choose “Use another database…”: its file stays where it is.'),
       ]

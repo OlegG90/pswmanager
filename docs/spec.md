@@ -522,7 +522,7 @@ working copy has changed since that sync.
 | The window is hidden to the tray | yes |
 | Lock (by hand, after inactivity, Windows lock) | an upload only: the key is dropped at once, so a merge waits for the next unlock |
 | Quit | an upload only, waiting at most 10 s; what did not go up is synced at the next start |
-| **Sync now** (a button in the window, an item in the tray menu) | yes |
+| **Sync now** (a button in the window, an item in the tray menu) | yes; while the database has no remote store the button is disabled and says sync is set up in *Settings → Sync* (#226) |
 | While unlocked | the remote revision is checked every 5 min (1–60, or off); the file is downloaded only when it changed |
 
 - **Offline:** everything works on the working copy; the status says changes are waiting, and the next

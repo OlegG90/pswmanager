@@ -151,7 +151,10 @@ As in the mockups `1e`–`1j`.
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
   stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
-  down to sync.
+  down to sync. Syncing by hand (*Sync now* here, in the sync sheet and in *Settings → Sync*, and the pull)
+  needs a cloud store linked: without one *Sync now* looks disabled and, tapped, says sync is set up in
+  *Settings → Sync*, the pull does nothing and the others are not shown (#225, #226). A local file still
+  syncs at the moments in *Synchronisation*.
 - **Swipes on the list** (#194): a swipe to the right brings the drawer in from the left, a swipe to the
   left the settings in from the right, in step with the finger; let go past a third of the way (or
   flicked) it opens, otherwise it goes back. The other way takes it away again: a swipe to the left closes
@@ -243,7 +246,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 | General | locking, screenshots and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
 | Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; fine for the APK this project builds, which is not on Google Play, whose policy keeps that permission from password managers), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows |
-| Sync | where it syncs and the visible copy's folder; how often to check for changes; **Sync now**. From stage A4: **Stop syncing** (e.g. when the store cannot be reached or the account has a problem): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone. **Disconnect** does the same and signs the store's account out. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
+| Sync | where it syncs and the visible copy's folder; how often to check for changes; with a cloud store linked, **Sync now** and **Stop syncing** (e.g. when the store cannot be reached or the account has a problem), the one way out as on Windows (#225): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone and the store's account stays signed in. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format (KDBX 4.1); a link to the GitHub repository, opened in the browser |
 
 The phone's own settings belong to this phone; they are not synced with the PC (the Database tab's are the file's). Their names, defaults and limits are the
@@ -373,8 +376,8 @@ background.
     `io.github.olegg90.pswmanager:/oauth2redirect`, and the client has no secret.
 - The same narrow access as on Windows (Dropbox's app folder, OneDrive's app folder, Google's `drive.file`).
 - The refresh token is kept in the app's private storage, **encrypted with a key in the Android Keystore**
-  (not bound to a biometric, so the background upload can use it). **Disconnect** deletes it; the working
-  copy stays.
+  (not bound to a biometric, so the background upload can use it). *Use another database…* deletes it; the
+  working copy stays.
 
 ## State
 
@@ -417,7 +420,7 @@ background.
   `crates/core`; the Windows app's tests keep passing after A0 unchanged. The Android-only parts (SAF save,
   lifecycle triggers, Keystore) are thin and tested by hand.
 - **By hand on the phone, before a release:** first run with Dropbox, OneDrive, Google Drive and a local file;
-  Stop syncing, Disconnect and syncing with a store again; unlock;
+  Stop syncing and syncing with a store again; unlock;
   search, view, copy and the clipboard clearing; TOTP; lock on background, screen off and inactivity;
   screenshots blocked, and shown once *Allow screenshots* is on (the window at once, other screens as they
   open); opening an attachment and its clean-up; sync at each moment of the table, offline and

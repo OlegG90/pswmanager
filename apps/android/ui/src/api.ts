@@ -124,8 +124,8 @@ export const api = {
   status: () => invoke<Status>('status'),
   openLocalFile: () => invoke<Status | null>('open_local_file'),
   forgetDatabase: () => invoke<Status>('forget_database'),
-  /** Stops syncing with the cloud store (with `signOut`, *Disconnect*); the visible copy becomes the file. */
-  stopSyncing: (signOut: boolean) => invoke<Status>('stop_syncing', { signOut }),
+  /** Stops syncing with the cloud store; the visible copy becomes the file. */
+  stopSyncing: () => invoke<Status>('stop_syncing'),
   /** Syncs this database with `file` in the store (merged), or uploads it there as a new file (null). */
   syncWithCloud: (cloud: Cloud, file: CloudFile | null) => invoke<Status>('sync_with_cloud', { cloud, file }),
   /** With biometric unlock on and no sealed key (or the password due), the key is then sealed for it. */
