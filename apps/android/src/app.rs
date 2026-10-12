@@ -265,19 +265,18 @@ async fn forget_database(app: AppHandle) -> Result<Status, String> {
 /// Stops syncing with the cloud store (it cannot be reached, the account has
 /// a problem, or another store is wanted). The visible copy becomes the
 /// database's file, synced like a local file; without one the database stays
-/// in the app only. With `sign_out` the store's account is signed out too
-/// (*Disconnect*). The remote file is left alone.
+/// in the app only. The remote file is left alone, and the store's account
+/// stays signed in (#225).
 #[tauri::command]
-async fn stop_syncing(app: AppHandle, sign_out: bool) -> Result<Status, String> {
+async fn stop_syncing(app: AppHandle) -> Result<Status, String> {
     off_main(move || {
         while_not_syncing(&app, || {
             let store = app.state::<Store>();
-            let cloud = store.read(|s| s.remote().and_then(|r| r.location.cloud())).ok_or("This database does not sync with a cloud store")?;
+            if !store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())) {
+                return Err("This database does not sync with a cloud store".into());
+            }
             crate::visible::stop_syncing(&store)?;
             *app.state::<LastSync>().0.lock().unwrap() = None;
-            if sign_out {
-                cloud.provider().sign_out();
-            }
             Ok(status_of(&store, &app.state::<Session>()))
         })
     })

@@ -97,7 +97,9 @@ button {
   padding: 10px 16px;
 }
 
-button:disabled {
+/* Looks disabled but still tapped, to say why (the toolbar's Sync now). */
+button:disabled,
+button[aria-disabled='true'] {
   opacity: 0.5;
 }
 

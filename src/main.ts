@@ -1009,15 +1009,17 @@ function notify(message: string, seconds = 3) {
   toastTimer = window.setTimeout(() => (toast.hidden = true), seconds * 1000)
 }
 
-/** The sync line in the toolbar; hidden for a database that is not synced. */
+/** The sync line in the toolbar, hidden for a database that is not synced;
+ *  Sync stays, disabled, and says where sync is set up (#226). */
 function showSyncStatus(status: SyncStatus) {
   const line = $('sync-status')
   line.hidden = !status.remote || !status.text && !status.busy
   line.textContent = status.busy ? 'Syncing…' : status.text
   line.title = line.textContent
   line.classList.toggle('problem', status.problem && !status.busy)
-  $('sync-button').hidden = !status.remote
-  $<HTMLButtonElement>('sync-button').disabled = status.busy
+  const button = $<HTMLButtonElement>('sync-button')
+  button.disabled = !status.remote || status.busy
+  button.title = status.remote ? 'Sync now' : 'Sync is not set up: Settings → Sync'
 }
 
 /** The copy that needs a key, as the app last said (`key-needed`); null when none does. */
