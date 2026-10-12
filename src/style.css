@@ -641,6 +641,14 @@ input[type='range']:focus-visible {
 #groups {
   flex: none;
   padding-bottom: 8px;
+  overflow-y: hidden; /* for the gutter below; it never scrolls */
+}
+
+/* Both lists keep room for a scrollbar, so the counts stay in one column
+   when the tags scroll. */
+#groups,
+#tags {
+  scrollbar-gutter: stable;
 }
 
 #tags-heading {
