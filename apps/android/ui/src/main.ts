@@ -620,12 +620,13 @@ const linked = () => !!database?.cloud
  *  where sync is set up. */
 function syncButton(started: () => void) {
   const notSetUp = 'Sync is not set up: Settings → Sync'
-  const b = iconButton('sync', linked() ? 'Sync now' : notSetUp, () => {
-    if (!linked()) return snack(notSetUp)
+  const on = linked()
+  const b = iconButton('sync', on ? 'Sync now' : notSetUp, () => {
+    if (!on) return snack(notSetUp)
     started()
     void api.syncNow()
   })
-  if (!linked()) b.setAttribute('aria-disabled', 'true')
+  if (!on) b.setAttribute('aria-disabled', 'true')
   return b
 }
 
