@@ -411,6 +411,10 @@ function iconButton(name: IconName, title: string, onClick: () => void, classNam
   return b
 }
 
+/** Where the list was when an entry was opened from it, for that group or tag
+ *  and search: going back finds it there again (#228). */
+let listPlace: { top: number; id: string; filter: Filter; query: string } | null = null
+
 /** The list, as Keepass2Android lays it out: a toolbar on top, the entries,
  *  the search button floating at the bottom right, the sync status under it. */
 function listScreen(opened: Listing) {
@@ -469,8 +473,9 @@ function listScreen(opened: Listing) {
     snack(message)
   }
   const pick = (entry: Entry) => {
-    if (chosen.size) toggle(entry.id)
-    else void entryScreen(entry.id, listing)
+    if (chosen.size) return toggle(entry.id)
+    listPlace = { top: scroll.scrollTop, id: entry.id, filter, query }
+    void entryScreen(entry.id, listing)
   }
   const press = (entry: Entry) => (sameFilter(filter, TRASH) ? quickCopy(entry) : toggle(entry.id))
   const fill = () => {
@@ -532,6 +537,14 @@ function listScreen(opened: Listing) {
     backs.push(closeSearch)
   }
   fill()
+  // Back from an entry opened here: the list where it was, with that entry in
+  // view (after an edit it may have moved).
+  const place = listPlace
+  listPlace = null
+  if (place && sameFilter(place.filter, filter) && place.query === query) {
+    scroll.scrollTop = place.top
+    list.querySelector(`li[data-id="${CSS.escape(place.id)}"]`)?.scrollIntoView({ block: 'nearest' })
+  }
   onSynced = (synced) => {
     status.textContent = synced.text
     status.classList.toggle('problem', synced.problem)
@@ -1022,6 +1035,7 @@ function importedSheet({ added, exporter, group, skipped }: Imported) {
 void listen('locked', () => {
   unlocked = false
   query = ''
+  listPlace = null
   unlockScreen()
 })
 
@@ -1037,6 +1051,7 @@ function afterLock() {
   // The next unlock's sync says again whether another device changed the key.
   otherKey = false
   keyAsked = false
+  listPlace = null
   unlockScreen()
 }
 
