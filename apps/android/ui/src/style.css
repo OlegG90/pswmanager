@@ -970,7 +970,7 @@ button.fingerprint[hidden] {
   display: none;
 }
 
-/* A button of its own, the width of the screen (the store's Stop syncing, Disconnect). */
+/* A button of its own, the width of the screen (the store's Stop syncing). */
 button.wide {
   display: block;
   width: 100%;

@@ -619,8 +619,9 @@ const linked = () => !!database?.cloud
 /** The toolbar's Sync now; without a store it looks disabled and, tapped, says
  *  where sync is set up. */
 function syncButton(started: () => void) {
-  const b = iconButton('sync', 'Sync now', () => {
-    if (!linked()) return snack('Sync is not set up: Settings → Sync')
+  const notSetUp = 'Sync is not set up: Settings → Sync'
+  const b = iconButton('sync', linked() ? 'Sync now' : notSetUp, () => {
+    if (!linked()) return snack(notSetUp)
     started()
     void api.syncNow()
   })
