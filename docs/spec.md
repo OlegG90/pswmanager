@@ -405,8 +405,12 @@ while the database is locked):
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
   URL are not listed.
-- Each site's entries are listed most recently changed first. One is **kept** (the first, at first; any
-  can be chosen), the others are **ticked** to merge into it; per site:
+- The **user name** tells accounts apart (#227): a site's entries are grouped by user name (trimmed, any
+  case), and entries with different user names are never offered to merge; each account is a section of
+  its own, headed with the site and the user name (`google.com · me@example.com`). Entries without a user
+  name go with the site's only user name; when it has several, they are a section of their own.
+- Each section's entries are listed most recently changed first. One is **kept** (the first, at first; any
+  can be chosen), the others are **ticked** to merge into it; per section:
   - **Proceed**: the kept entry as the merge would leave it, shown as the entry view shows an entry
     (secrets masked: they do not leave the backend), with what the merge adds in another colour and
     starred (*), and a passkey not carried over named. The backend works it out by merging on a copy, so
@@ -423,7 +427,7 @@ while the database is locked):
     from them when it has none of its own. A passkey is its fields together, and an entry holds one: it
     comes whole to a kept entry without one; when both have one (not the same credential), the other's
     is not carried over in any part, and Proceed says so: it stays in its entry, in the recycle bin.
-  - **Leave as is**: the site leaves the report until it is opened again.
+  - **Leave as is**: the section leaves the report until it is opened again.
 - No delete here: merging is risky enough, and the merged entries go to the recycle bin anyway.
 - Worked out and applied in the backend, which gets only ids from the window.
 

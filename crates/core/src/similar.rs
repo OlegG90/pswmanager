@@ -1,5 +1,6 @@
 //! Find similar: entries for the same site (their URLs share a registrable
-//! domain, or are the same address), and merging such entries into one.
+//! domain, or are the same address) and the same account (user name), and
+//! merging such entries into one.
 
 use crate::edit::{self, passkey, EntryData, FieldData, FileChange, FileEdit, NOT_FOUND};
 use crate::{icons, otp};
@@ -9,12 +10,16 @@ use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use zeroize::Zeroizing;
 
-/// Entries for one site.
+/// Entries for one site and one account.
 #[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Similar {
     /// The registrable domain (`google.com`), or the address itself when it
     /// is not a site's (`androidapp://…`, an IP address).
     pub site: String,
+    /// The user name the entries share, as the most recently changed of them
+    /// has it; empty when none has one.
+    pub user_name: String,
     /// The most recently changed first.
     pub ids: Vec<String>,
 }
@@ -40,7 +45,9 @@ pub fn site_of(url: &str) -> Option<String> {
     })
 }
 
-/// The sites more than one of `entries` is for, by name.
+/// The sites and accounts more than one of `entries` is for, by site and
+/// user name (#227): entries for one site with different user names are
+/// different accounts, never offered to merge.
 pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Vec<Similar> {
     let mut sites: BTreeMap<String, Vec<EntryRef<'a>>> = BTreeMap::new();
     for entry in entries {
@@ -50,12 +57,40 @@ pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Vec<Similar> {
     }
     sites
         .into_iter()
+        .flat_map(|(site, entries)| accounts(entries).into_iter().map(move |entries| (site.clone(), entries)))
         .filter(|(_, entries)| entries.len() > 1)
         .map(|(site, mut entries)| {
             entries.sort_by_key(|e| std::cmp::Reverse(e.times.last_modification));
-            Similar { site, ids: entries.iter().map(|e| e.id().uuid().to_string()).collect() }
+            let user_name = entries.iter().find_map(|e| user_name(e)).unwrap_or_default().to_string();
+            Similar { site, user_name, ids: entries.iter().map(|e| e.id().uuid().to_string()).collect() }
         })
         .collect()
+}
+
+/// One site's entries by account: the same user name, told apart without
+/// regard to case. Entries without one go with the site's only user name;
+/// when it has several, they are an account of their own, as no one can tell
+/// whose they are.
+fn accounts(entries: Vec<EntryRef<'_>>) -> Vec<Vec<EntryRef<'_>>> {
+    let mut named: BTreeMap<String, Vec<EntryRef<'_>>> = BTreeMap::new();
+    let mut unnamed = Vec::new();
+    for entry in entries {
+        match user_name(&entry) {
+            Some(name) => named.entry(name.to_lowercase()).or_default().push(entry),
+            None => unnamed.push(entry),
+        }
+    }
+    let mut accounts: Vec<_> = named.into_values().collect();
+    match accounts.as_mut_slice() {
+        [only] => only.append(&mut unnamed),
+        _ => accounts.push(unnamed),
+    }
+    accounts
+}
+
+/// The entry's user name, trimmed; `None` when it has none.
+fn user_name<'e>(entry: &'e EntryRef<'_>) -> Option<&'e str> {
+    entry.get(keepass::db::fields::USERNAME).map(str::trim).filter(|name| !name.is_empty())
 }
 
 /// Merges `others` into `keep`: its empty fields are filled from them, a
@@ -281,6 +316,27 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].site, "google.com");
         assert_eq!(found[0].ids.len(), 2);
+    }
+
+    #[test]
+    fn different_user_names_are_different_accounts() {
+        let user = |name: &'static str| move |e: &mut keepass::db::EntryMut<'_>| e.set_unprotected(fields::USERNAME, name);
+        let mut db = Database::new();
+        add(&mut db, "Gmail", "https://mail.google.com", user("alice@example.com"));
+        add(&mut db, "Google", "accounts.google.com", user(" Alice@Example.com "));
+        add(&mut db, "Google (Bob)", "https://google.com", user("bob@example.com"));
+        add(&mut db, "Google (shared)", "https://google.com", user("carol@example.com"));
+        add(&mut db, "Google (?)", "https://google.com", |_| {});
+        add(&mut db, "Google (??)", "https://google.com", |_| {});
+        add(&mut db, "GitHub", "https://github.com", user("alice"));
+        add(&mut db, "GitHub (old)", "https://github.com", |_| {});
+        let found: Vec<(String, String, usize)> =
+            find(db.iter_all_entries()).into_iter().map(|s| (s.site, s.user_name.to_lowercase(), s.ids.len())).collect();
+        // The same name in any case is one account and Bob and Carol have one
+        // entry each; with several names on a site the entries without one are
+        // their own, with one name they join it.
+        let expected = [("github.com", "alice", 2), ("google.com", "alice@example.com", 2), ("google.com", "", 2)];
+        assert_eq!(found, expected.map(|(site, user, n)| (site.to_string(), user.to_string(), n)));
     }
 
     #[test]
