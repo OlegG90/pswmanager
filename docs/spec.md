@@ -453,11 +453,13 @@ while the database is locked):
 - *Tools → Import from a file…* (#238; on the phone a *Tools* item of its own): a file another password
   manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). A
   question says what it takes first; then the file is picked.
-  - **CSV**, its columns found by the names in its first line (any case): title (`name`, `title`), URL
-    (`url`, `login_uri`, `website`), user name, password, notes, TOTP (`totp`, `otpauth`), folder or
-    group (a path `Work/Mail`; KeePass's starts with its top group, which is left out), favourite
-    (the star), tags; Bitwarden's `fields` column as one field a line; what an app keeps for itself (ids,
-    times, Firefox's form origin, an icon) is left out, and any other column becomes an additional field.
+  - **CSV**, its columns found by the names in its first line (any case; the usual names, e.g. title
+    `name` or `title`, URL `url`, `login_uri` or `website`, TOTP `totp` or `otpauth`): title, URL (one a
+    line in the cell: more go to `KP2A_URL_n`), user name, password, notes, TOTP, folder or group (a path
+    `Work/Mail` or `Work\Mail`; KeePassXC's starts with its top group, which is left out), favourite (the
+    star), tags; Bitwarden's `fields` column as one field a line (unprotected: a CSV does not say which
+    were hidden); what an app keeps for itself (ids, the item's type, times, Firefox's form origin and
+    realm, an icon) is left out, and any other column becomes an additional field.
     So Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass and KeePassXC files
     all read. A row with no title is titled after its URL's host. A file whose first line names no URL,
     user name or password column is refused.
@@ -468,11 +470,13 @@ while the database is locked):
     the times.
   - A **CXF** JSON file reads as the phone's Credential Transfer does.
 - The entries are added as the phone's import adds them: each a **new entry** in the group *Imported
-  from <file name> <date>*, nothing changed or replaced, saved and synced as one change, all or nothing.
+  from <file name> <date>* (as the phone's import, a group rather than a tag), nothing changed or
+  replaced, saved and synced as one change, all or nothing.
   Then what came in and what did not (with the reason) is shown.
 - The file holds every password in clear text: its content is held in memory only and wiped once read,
-  never logged. Windows then offers to **delete the file** (*Delete the file* / *Keep it*); the phone
-  reminds the user to delete it, as the app may not delete another app's file.
+  never logged. Both apps say so before the file is picked; Windows then offers to **delete the file**
+  (*Delete the file* / *Keep it*, only the file just imported), the phone reminds the user to delete it, as
+  the app may not delete another app's file.
 
 ## Saving and synchronisation
 

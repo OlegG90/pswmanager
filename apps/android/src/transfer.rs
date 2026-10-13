@@ -107,7 +107,7 @@ pub async fn import_from_app(app: AppHandle) -> Result<Option<Imported>, String>
         let Some(json) = app.state::<Transfer<Wry>>().import()? else { return Ok(None) };
         let import = cxf::parse(&json)?;
         drop(json); // wiped now rather than at the end
-        add(&app, import).map(Some)
+        add(&app, import, "The database locked while the other app was open: unlock it and import again").map(Some)
     })
     .await
 }
@@ -125,14 +125,15 @@ pub async fn import_from_file(app: AppHandle) -> Result<Option<Imported>, String
         let content = Zeroizing::new(content);
         let import = file_import::parse(&name, &content)?;
         drop(content); // wiped now rather than at the end
-        add(&app, import).map(Some)
+        add(&app, import, "The database locked meanwhile: unlock it and import again").map(Some)
     })
     .await
 }
 
 /// Adds what was read as new entries in the group `Imported from <exporter>
-/// <date>`, saved and synced as any change.
-fn add(app: &AppHandle, import: Import) -> Result<Imported, String> {
+/// <date>`, saved and synced as any change; `locked` says why it failed when
+/// the database locked on the way.
+fn add(app: &AppHandle, import: Import, locked: &str) -> Result<Imported, String> {
     let session = app.state::<Session>();
     let group = import.group_name_today();
     let (added, listing) = session
@@ -140,7 +141,7 @@ fn add(app: &AppHandle, import: Import) -> Result<Imported, String> {
             let added = v.import(&import, &group)?;
             Ok((added, v.listing()))
         })
-        .map_err(|e| if session.is_unlocked() { e } else { "The database locked while the other app was open: unlock it and import again".into() })?;
+        .map_err(|e| if session.is_unlocked() { e } else { locked.to_string() })?;
     if added > 0 {
         crate::icons::fetch(app, &listing);
         crate::editing::upload_soon(app);

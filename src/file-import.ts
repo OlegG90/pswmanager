@@ -6,7 +6,8 @@ import { ask, dialog } from './modal'
 const ABOUT =
   'Choose a file another password manager exported: CSV (Google Password Manager, Chrome, Edge, Firefox, ' +
   'Bitwarden, 1Password, KeePass) or Bitwarden’s JSON, which brings passkeys too. Everything in it is added ' +
-  'as new entries in a group of their own; nothing here is changed or replaced.'
+  'as new entries in a group of their own; nothing here is changed or replaced. Such a file holds every ' +
+  'password in clear text: delete it once the import is done (the app offers to).'
 
 /**
  * Tools › Import from a file…: says what it does, lets the user pick the file,

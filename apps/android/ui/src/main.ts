@@ -1043,7 +1043,7 @@ async function runImport(importing = api.importFromApp, fromFile = false) {
 function fileImportSheet() {
   sheet((close) => [
     el('b', {}, 'Import from a file'),
-    el('p', {}, 'Choose a file another password manager exported: CSV (Google Password Manager, Chrome, Firefox, Bitwarden, 1Password, KeePass) or Bitwarden’s JSON, which brings passkeys too. Everything in it is added as new entries: nothing here is changed or replaced.'),
+    el('p', {}, 'Choose a file another password manager exported: CSV (Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass) or Bitwarden’s JSON, which brings passkeys too. Everything in it is added as new entries: nothing here is changed or replaced.'),
     el('p', { className: 'muted' }, 'Such a file holds every password in clear text: delete it once the import is done.'),
     button('Choose the file', 'Choose the file to import', () => (close(), void runImport(api.importFromFile, true)), 'primary'),
     button('Cancel', 'Cancel', close, 'link'),

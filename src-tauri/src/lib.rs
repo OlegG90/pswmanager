@@ -1214,6 +1214,9 @@ fn import_file(app: AppHandle, window: Window) -> Result<Option<FileImported>, S
     if !session.is_unlocked() {
         return Err("Unlock the database first".into());
     }
+    // Only the file this import reads may be deleted after it.
+    let imported = app.state::<ImportedFile>();
+    imported.0.lock().unwrap().take();
     let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
     let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
@@ -1228,7 +1231,7 @@ fn import_file(app: AppHandle, window: Window) -> Result<Option<FileImported>, S
         fetch_icons(&app, &listing);
         sync::upload_soon(&app);
     }
-    *app.state::<ImportedFile>().0.lock().unwrap() = Some(path);
+    *imported.0.lock().unwrap() = Some(path);
     Ok(Some(FileImported { file, group, added, skipped: import.skipped, listing }))
 }
 

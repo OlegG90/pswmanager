@@ -101,16 +101,22 @@ fn login_of(login: &Value, data: &mut EntryData, fields: &mut Fields, passkeys: 
     data.username = text(login, "username").unwrap_or("").to_string();
     data.password = text(login, "password").unwrap_or("").to_string();
     data.otp = text(login, "totp").unwrap_or("").trim().to_string();
-    let mut uris = list(login, "uris").filter_map(|u| text(u, "uri")).filter(|u| !u.trim().is_empty());
-    data.url = uris.next().unwrap_or("").to_string();
-    for (n, uri) in uris.enumerate() {
-        fields.add(&format!("{MORE_URLS}_{}", n + 1), uri, false);
-    }
+    urls(list(login, "uris").filter_map(|u| text(u, "uri")), data, fields);
     for credential in list(login, "fido2Credentials") {
         match bitwarden_passkey(credential) {
             Ok(passkey) => passkeys.push(passkey),
             Err(e) => why.push(format!("A passkey: {e}")),
         }
+    }
+}
+
+/// The first address is the entry's URL, more go in fields as Keepass2Android
+/// keeps them (`KP2A_URL_n`).
+fn urls<'a>(urls: impl Iterator<Item = &'a str>, data: &mut EntryData, fields: &mut Fields) {
+    let mut urls = urls.map(str::trim).filter(|u| !u.is_empty());
+    data.url = urls.next().unwrap_or("").to_string();
+    for (n, url) in urls.enumerate() {
+        fields.add(&format!("{MORE_URLS}_{}", n + 1), url, false);
     }
 }
 
@@ -161,9 +167,9 @@ fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
     value.get(key).and_then(Value::as_array).into_iter().flatten()
 }
 
-/// A folder's path (`Work/Mail`) as group names.
+/// A folder's path (`Work/Mail`, or LastPass's `Work\Mail`) as group names.
 fn path(name: &str) -> Vec<String> {
-    name.split('/').map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect()
+    name.split(['/', '\\']).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect()
 }
 
 // ------------------------------------------------------------------------ CSV
@@ -213,7 +219,16 @@ fn column(name: &str) -> Column {
 fn csv(text: &str) -> Result<Import, String> {
     let mut rows = rows(text).into_iter();
     let header = rows.next().ok_or("The file is empty")?;
-    let columns: Vec<Column> = header.iter().map(|name| column(name)).collect();
+    // KeePassXC's `Group` starts with the top group (its file has `Last Modified`);
+    // anyone else's is a plain path.
+    let keepass = header.iter().any(|name| name.trim().eq_ignore_ascii_case("last modified"));
+    let columns: Vec<Column> = header
+        .iter()
+        .map(|name| match column(name) {
+            Column::KeePassGroup if !keepass => Column::Group,
+            column => column,
+        })
+        .collect();
     let known = [Column::Url, Column::Username, Column::Password];
     if !columns.iter().any(|c| known.contains(c)) {
         return Err("Not a CSV file PswManager knows: its first line should name the columns (url, username, password…)".into());
@@ -228,7 +243,8 @@ fn csv(text: &str) -> Result<Import, String> {
             let value = cell.as_str();
             match column {
                 Column::Title => data.title = value.trim().to_string(),
-                Column::Url => data.url = value.trim().to_string(),
+                // Bitwarden puts every address in the cell, one a line.
+                Column::Url => urls(value.lines(), &mut data, &mut fields),
                 Column::Username => data.username = value.to_string(),
                 Column::Password => data.password = value.to_string(),
                 Column::Notes => data.notes = value.to_string(),
@@ -270,7 +286,8 @@ fn rows(text: &str) -> Vec<Vec<Zeroizing<String>>> {
             ('"', true) => quoted = false,
             ('"', false) if cell.is_empty() => quoted = true,
             (',', false) => row.push(std::mem::replace(&mut cell, Zeroizing::new(String::new()))),
-            ('\r', false) if chars.peek() == Some(&'\n') => {}
+            // A line break is `\n` in a cell too.
+            ('\r', _) if chars.peek() == Some(&'\n') => {}
             ('\n', false) => {
                 row.push(std::mem::replace(&mut cell, Zeroizing::new(String::new())));
                 rows.push(std::mem::take(&mut row));
@@ -329,6 +346,16 @@ mod tests {
         let data = &parse("keepass.csv", csv.as_bytes()).unwrap().entries[0].data;
         assert_eq!(data.group, ["Shop"]);
         assert!(data.fields.is_empty());
+    }
+
+    #[test]
+    fn csv_cells_with_several_addresses_and_line_breaks() {
+        let csv = "name,login_uri,login_username,notes,grouping\r\nMail,\"https://a.example.com\r\nhttps://b.example.com\",x,\"one\r\ntwo\",Work\\Mail\r\n";
+        let data = &parse("export.csv", csv.as_bytes()).unwrap().entries[0].data;
+        assert_eq!(data.url, "https://a.example.com");
+        assert_eq!(field(data, "KP2A_URL_1"), Some("https://b.example.com"));
+        assert_eq!(data.notes, "one\ntwo");
+        assert_eq!(data.group, ["Work", "Mail"]);
     }
 
     #[test]
