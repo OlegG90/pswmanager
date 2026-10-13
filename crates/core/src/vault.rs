@@ -1596,6 +1596,18 @@ pub mod tests {
     }
 
     #[test]
+    fn an_import_with_times_to_the_millisecond_is_saved() {
+        // Bitwarden's times have milliseconds; KDBX keeps whole seconds.
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let json = r#"{"encrypted": false, "items": [{"type": 1, "name": "Site",
+            "creationDate": "2026-01-02T03:04:05.123Z", "revisionDate": "2026-01-02T03:04:05.456Z",
+            "login": {"username": "u", "password": "p"}}]}"#;
+        let import = crate::file_import::parse("bitwarden.json", json.as_bytes()).unwrap();
+        assert_eq!(vault.import(&import, "Imported").unwrap(), 1);
+    }
+
+    #[test]
     fn an_import_is_saved_and_reads_back_with_its_passkey() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());

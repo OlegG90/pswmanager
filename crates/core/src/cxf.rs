@@ -7,7 +7,7 @@
 use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike};
 use keepass::db::{fields as standard, EntryRef, GroupId};
 use keepass::Database;
 use serde::Serialize;
@@ -75,11 +75,13 @@ pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSe
         data.group = under.iter().chain(&imported.data.group).cloned().collect();
         let id = edit::apply(db, None, &data, hidden)?;
         let mut entry = db.entry_mut(id).ok_or("The new entry is gone")?;
+        // In whole seconds, as the file keeps them: the save reads it back to compare.
+        let seconds = |t: NaiveDateTime| t.with_nanosecond(0).unwrap_or(t);
         if let Some(created) = imported.created {
-            entry.times.creation = Some(created);
+            entry.times.creation = Some(seconds(created));
         }
         if let Some(modified) = imported.modified {
-            entry.times.last_modification = Some(modified);
+            entry.times.last_modification = Some(seconds(modified));
         }
     }
     Ok(import.entries.len())
