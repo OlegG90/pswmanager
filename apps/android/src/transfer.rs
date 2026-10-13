@@ -8,7 +8,8 @@
 use crate::app::off_main;
 use crate::documents::Documents;
 use pswm_core::cxf::{self, Import, Skipped};
-use pswm_core::file_export::{self, Exported, Format};
+use pswm_core::documents::DocumentStore;
+use pswm_core::file_export::{self, Format};
 use pswm_core::file_import;
 use pswm_core::session::Session;
 use pswm_core::vault::Listing;
@@ -178,7 +179,7 @@ pub async fn delete_imported_file(app: AppHandle) -> Result<(), String> {
 /// Writes the entries in use to a new file (#240) where Android's save picker
 /// puts it; `None` when none was chosen.
 #[tauri::command]
-pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported>, String> {
+pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<file_export::Exported>, String> {
     off_main(move || {
         let session = app.state::<Session>();
         let export = session.export(format)?;
@@ -195,7 +196,7 @@ pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported
 /// Writes the entries in use to a new file `name` in a browsed folder (All
 /// files access), never over a file there.
 #[tauri::command]
-pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<Exported, String> {
+pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<file_export::Exported, String> {
     off_main(move || {
         let session = app.state::<Session>();
         let export = session.export(format)?;
