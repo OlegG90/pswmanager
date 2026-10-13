@@ -44,6 +44,10 @@ export interface Imported {
   /** What could not be brought over, and why. */
   skipped: Skipped[]
   listing: Listing
+  /** It came from a file, which holds every password in clear text. */
+  fromFile: boolean
+  /** The app may delete that file (it was read by its path). */
+  deletable: boolean
 }
 
 export interface Saved {
@@ -165,6 +169,12 @@ export const api = {
     invoke<{ status: Status; copyProblem: string | null }>('create_database', { name, password, place }),
   /** Imports from another password manager on this phone; null when the user went back. */
   importFromApp: () => invoke<Imported | null>('import_from_app'),
+  /** Picks a file another password manager exported and imports it (#238). */
+  importFromFile: () => invoke<Imported | null>('import_from_file'),
+  /** Imports the file `name` in a browsed folder (All files access). */
+  importFileAt: (folder: string, name: string) => invoke<Imported>('import_file_at', { folder, name }),
+  /** Deletes the file the last import read by its path. */
+  deleteImportedFile: () => invoke<void>('delete_imported_file'),
   /** Offers the database for export to other password managers (#153), named `name` there. */
   registerExport: (name: string) => invoke<void>('register_export', { name }),
   cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),

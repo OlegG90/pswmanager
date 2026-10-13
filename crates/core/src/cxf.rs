@@ -7,7 +7,7 @@
 use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike};
 use keepass::db::{fields as standard, EntryRef, GroupId};
 use keepass::Database;
 use serde::Serialize;
@@ -75,11 +75,13 @@ pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSe
         data.group = under.iter().chain(&imported.data.group).cloned().collect();
         let id = edit::apply(db, None, &data, hidden)?;
         let mut entry = db.entry_mut(id).ok_or("The new entry is gone")?;
+        // In whole seconds, as the file keeps them: the save reads it back to compare.
+        let seconds = |t: NaiveDateTime| t.with_nanosecond(0).unwrap_or(t);
         if let Some(created) = imported.created {
-            entry.times.creation = Some(created);
+            entry.times.creation = Some(seconds(created));
         }
         if let Some(modified) = imported.modified {
-            entry.times.last_modification = Some(modified);
+            entry.times.last_modification = Some(seconds(modified));
         }
     }
     Ok(import.entries.len())
@@ -195,7 +197,7 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
 }
 
 /// Further URLs as Keepass2Android keeps them: `KP2A_URL_1`, `KP2A_URL_2`…
-const MORE_URLS: &str = "KP2A_URL";
+pub(crate) const MORE_URLS: &str = "KP2A_URL";
 /// An Android app among an entry's URLs, as Keepass2Android keeps it.
 const ANDROID_APP: &str = "androidapp://";
 
@@ -320,7 +322,7 @@ impl Collections {
 }
 
 /// The export's header: its version, who made it, and every account's items.
-fn read_header(root: &Value) -> Result<Import, String> {
+pub(crate) fn read_header(root: &Value) -> Result<Import, String> {
     let major = root.get("version").and_then(|v| v.get("major")).and_then(Value::as_u64);
     if major != Some(1) {
         return Err("This export is in a Credential Exchange version PswManager cannot read".into());
@@ -377,14 +379,26 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
     read_scope(item, &mut data, &mut fields);
     let mut why = Vec::new();
     let passkeys = read_credentials(item, &mut data, &mut fields, &mut why);
+    let times = (time(item, "creationAt"), time(item, "modifiedAt"));
+    finish(import, data, fields, passkeys, why, times);
+}
+
+/// Adds an item read from another app's export to `import`: its passkeys
+/// placed (see [place_passkeys]), and what was left out noted under its title.
+pub(crate) fn finish(
+    import: &mut Import,
+    mut data: EntryData,
+    mut fields: Fields,
+    passkeys: Vec<Passkey>,
+    mut why: Vec<String>,
+    (created, modified): (Option<NaiveDateTime>, Option<NaiveDateTime>),
+) {
+    let title = data.title.clone();
     let extra = place_passkeys(passkeys, &mut data, &mut fields);
     data.fields = fields.0;
     if data.title.is_empty() {
         data.title = crate::icons::host_of(&data.url).unwrap_or_else(|| "Untitled".into());
     }
-
-    let created = time(item, "creationAt");
-    let modified = time(item, "modifiedAt");
     let empty = data.username.is_empty() && data.password.is_empty() && data.otp.is_empty() && data.notes.is_empty() && data.fields.is_empty();
     // An item with nothing but a title or an address is kept as a bookmark.
     if !empty || extra.is_empty() && (!title.is_empty() || !data.url.is_empty()) {
@@ -543,7 +557,7 @@ fn other_fields(credential: &Value, kind: &str, known: &[&str], fields: &mut Fie
 }
 
 /// `credit-card` or `streetAddress` as words: `Credit card`, `Street address`.
-fn words(name: &str) -> String {
+pub(crate) fn words(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars() {
         match c {
@@ -590,7 +604,7 @@ fn totp_uri(credential: &Value, title: &str) -> Result<String, String> {
 
 /// A passkey: its relying party and user name, and the attributes KeePassXC
 /// keeps it in.
-struct Passkey {
+pub(crate) struct Passkey {
     rp: String,
     username: String,
     fields: Vec<FieldData>,
@@ -602,8 +616,13 @@ impl Passkey {
     fn read(credential: &Value) -> Result<Passkey, String> {
         let need = |key| text(credential, key).filter(|v| !v.is_empty()).ok_or_else(|| format!("its {key} is missing"));
         let (rp, credential_id, user_handle) = (need("rpId")?, need("credentialId")?, need("userHandle")?);
-        let username = text(credential, "username").unwrap_or("");
-        let key = pem(need("key")?)?;
+        Passkey::new(rp, text(credential, "username").unwrap_or(""), credential_id, user_handle, need("key")?)
+    }
+
+    /// A passkey from its parts: the ids as unpadded base64url, the PKCS#8
+    /// key (DER) as base64url.
+    pub(crate) fn new(rp: &str, username: &str, credential_id: &str, user_handle: &str, key: &str) -> Result<Passkey, String> {
+        let key = pem(key)?;
         Ok(Passkey { rp: rp.to_string(), username: username.to_string(), fields: passkey::fields(rp, username, credential_id, user_handle, &key) })
     }
 
@@ -628,11 +647,11 @@ fn pem(base64url: &str) -> Result<Zeroizing<String>, String> {
 /// Additional fields, each name used once: a taken name, a standard field's,
 /// or one a passkey's attributes use, gets a number (`Password (2)`).
 #[derive(Default)]
-struct Fields(Vec<FieldData>);
+pub(crate) struct Fields(Vec<FieldData>);
 
 impl Fields {
     /// Adds a field, unless `value` is empty.
-    fn add(&mut self, name: &str, value: &str, protected: bool) {
+    pub(crate) fn add(&mut self, name: &str, value: &str, protected: bool) {
         if value.is_empty() {
             return;
         }
@@ -677,7 +696,7 @@ fn editable<'a>(credential: &'a Value, key: &str) -> Option<Editable<'a>> {
 }
 
 /// The string member `key`.
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
@@ -687,7 +706,7 @@ fn first_text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
 }
 
 /// The members of the array `key`; none when it is missing.
-fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+pub(crate) fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
     value.get(key).and_then(Value::as_array).into_iter().flatten()
 }
 
@@ -698,7 +717,7 @@ fn time(value: &Value, key: &str) -> Option<NaiveDateTime> {
 }
 
 /// Overwrites every string in the JSON, secrets among them.
-fn wipe(value: &mut Value) {
+pub(crate) fn wipe(value: &mut Value) {
     match value {
         Value::String(s) => s.zeroize(),
         Value::Array(items) => items.iter_mut().for_each(wipe),

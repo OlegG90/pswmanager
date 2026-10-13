@@ -10,6 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, 
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { fileImportAbout } from '../../../../src/file-import-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
@@ -931,6 +932,7 @@ function toolsSheet(listing: Listing) {
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
+    button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), fileImportSheet()), 'item'),
     button('Find similar entries', 'Entries for the same site and user name, to merge them', () => (close(), void similarScreen(listing)), 'item'),
   ])
 }
@@ -1027,26 +1029,54 @@ function importSheet() {
   ])
 }
 
+/** Imports with `importing`; the sheet after it ends with `after`, if given. */
 async function runImport() {
-  try {
-    const imported = await api.importFromApp()
-    if (!imported) return
-    if (imported.added) listScreen(imported.listing)
-    importedSheet(imported)
-  } catch (e) {
-    snack(String(e))
-  }
+  showImported(await api.importFromApp().catch((e) => (snack(String(e)), null)))
 }
 
-/** What an import brought, and what it could not. */
-function importedSheet({ added, exporter, group, skipped }: Imported) {
+/** The list with what an import brought, and the sheet saying so. */
+function showImported(imported: Imported | null) {
+  if (!imported) return
+  if (imported.added) listScreen(imported.listing)
+  importedSheet(imported)
+}
+
+const isExportName = (name: string) => /\.(csv|json)$/i.test(name)
+
+/** Import from a file (#238): what it takes, then the phone's folders (All
+ *  files access, #207) or Android's file picker. */
+function fileImportSheet() {
+  sheet((close) => [
+    el('b', {}, 'Import from a file'),
+    ...fileImportAbout(),
+    button('Choose the file', 'Choose the file to import', () => {
+      close()
+      onPhone<Imported>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
+        .then(showImported, (e) => snack(String(e)))
+    }, 'primary'),
+    button('Cancel', 'Cancel', close, 'link'),
+  ])
+}
+
+/** What an import brought, and what it could not; after a file, deleting it
+ *  (one read by its path), or a reminder to (the app may not delete another
+ *  app's file). */
+function importedSheet({ added, exporter, group, skipped, fromFile, deletable }: Imported) {
   sheet((close) => [
     el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
     el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
     ...(skipped.length
       ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
       : []),
-    button('OK', 'OK', close, 'primary'),
+    ...(deletable
+      ? [el('p', {}, `${exporter} holds every password in clear text. Delete it now that its entries are here?`),
+          button('Delete the file', `Delete ${exporter}`, () => {
+            close()
+            api.deleteImportedFile().then(() => snack(`${exporter} deleted`), (e) => snack(String(e)))
+          }, 'item danger'),
+          button('Keep it', 'Keep the file', close, 'link')]
+      : [...(fromFile ? [el('p', { className: 'muted' }, 'The file holds every password in clear text: delete it now, in the app you keep it in.')] : []),
+          button('OK', 'OK', close, 'primary')]),
   ])
 }
 

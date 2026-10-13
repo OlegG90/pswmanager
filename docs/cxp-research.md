@@ -107,8 +107,10 @@ two is left to the user, with *Find similar* (#176) or by hand.
 ### Windows
 
 No system transfer and no public API for one as of October 2026. On Windows, Credential Exchange can only
-be a **file**, and no manager writes a CXF file yet except KeePassXC's unreleased PR (plain JSON). Not worth
-doing now.
+be a **file**, and no manager writes a CXF file yet except KeePassXC's unreleased PR (plain JSON). So the
+Windows app (and the phone, beside Credential Transfer) imports the files managers do write: CSV and
+Bitwarden's unencrypted JSON, passkeys included, and a CXF file too (#238, `docs/spec.md` *Import from a
+file*).
 
 ### Apple
 

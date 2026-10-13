@@ -11,6 +11,7 @@ pub mod documents;
 pub mod dropbox;
 pub mod edit;
 pub mod encryption;
+pub mod file_import;
 pub mod generator;
 pub mod google;
 pub mod health;
