@@ -13,15 +13,23 @@ use pswm_core::session::Session;
 use pswm_core::vault::Listing;
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
+use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime, Wry};
 use zeroize::Zeroizing;
 
 pub struct Transfer<R: Runtime>(PluginHandle<R>);
 
+/// The file the last import read by its path (All files access): the app
+/// offers to delete it, as it holds every secret in clear.
+#[derive(Default)]
+pub struct ImportedFile(Mutex<Option<PathBuf>>);
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("transfer")
         .setup(|app, api| {
             app.manage(Transfer(api.register_android_plugin("io.github.olegg90.pswmanager", "TransferPlugin")?));
+            app.manage(ImportedFile::default());
             Ok(())
         })
         .build()
@@ -91,6 +99,10 @@ pub struct Imported {
     pub skipped: Vec<Skipped>,
     /// The list with the new entries.
     pub listing: Listing,
+    /// It came from a file (which holds every secret in clear).
+    pub from_file: bool,
+    /// The app may delete that file ([delete_imported_file]).
+    pub deletable: bool,
 }
 
 /// Imports from another app on this phone: the system's list of apps, then
@@ -107,7 +119,7 @@ pub async fn import_from_app(app: AppHandle) -> Result<Option<Imported>, String>
         let Some(json) = app.state::<Transfer<Wry>>().import()? else { return Ok(None) };
         let import = cxf::parse(&json)?;
         drop(json); // wiped now rather than at the end
-        add(&app, import, "The database locked while the other app was open: unlock it and import again").map(Some)
+        add(&app, import, "The database locked while the other app was open: unlock it and import again", false, None).map(Some)
     })
     .await
 }
@@ -121,19 +133,52 @@ pub async fn import_from_file(app: AppHandle) -> Result<Option<Imported>, String
         if !app.state::<Session>().is_unlocked() {
             return Err("Unlock the database first".into());
         }
+        app.state::<ImportedFile>().0.lock().unwrap().take();
         let Some((name, content)) = app.state::<Documents<Wry>>().pick_to_read()? else { return Ok(None) };
         let content = Zeroizing::new(content);
         let import = file_import::parse(&name, &content)?;
         drop(content); // wiped now rather than at the end
-        add(&app, import, "The database locked meanwhile: unlock it and import again").map(Some)
+        add(&app, import, LOCKED_MEANWHILE, true, None).map(Some)
+    })
+    .await
+}
+
+const LOCKED_MEANWHILE: &str = "The database locked meanwhile: unlock it and import again";
+
+/// Imports the file `name` in a browsed folder (All files access, #207), as
+/// [import_from_file] does; the app may then delete it.
+#[tauri::command]
+pub async fn import_file_at(app: AppHandle, folder: String, name: String) -> Result<Imported, String> {
+    off_main(move || {
+        if !app.state::<Session>().is_unlocked() {
+            return Err("Unlock the database first".into());
+        }
+        app.state::<ImportedFile>().0.lock().unwrap().take();
+        let name = crate::phone_files::file_name(&name)?;
+        let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
+        let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {name}: {e}"))?);
+        let import = file_import::parse(&name, &content)?;
+        drop(content); // wiped now rather than at the end
+        add(&app, import, LOCKED_MEANWHILE, true, Some(path))
+    })
+    .await
+}
+
+/// Deletes the file the last import read by its path (the user confirmed): only that one.
+#[tauri::command]
+pub async fn delete_imported_file(app: AppHandle) -> Result<(), String> {
+    off_main(move || {
+        let path = app.state::<ImportedFile>().0.lock().unwrap().take().ok_or("No file was imported")?;
+        std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
     })
     .await
 }
 
 /// Adds what was read as new entries in the group `Imported from <exporter>
 /// <date>`, saved and synced as any change; `locked` says why it failed when
-/// the database locked on the way.
-fn add(app: &AppHandle, import: Import, locked: &str) -> Result<Imported, String> {
+/// the database locked on the way. `from_file`: it came from a file; `file`:
+/// that file read by its path, which the app may then delete.
+fn add(app: &AppHandle, import: Import, locked: &str, from_file: bool, file: Option<PathBuf>) -> Result<Imported, String> {
     let session = app.state::<Session>();
     let group = import.group_name_today();
     let (added, listing) = session
@@ -146,5 +191,7 @@ fn add(app: &AppHandle, import: Import, locked: &str) -> Result<Imported, String
         crate::icons::fetch(app, &listing);
         crate::editing::upload_soon(app);
     }
-    Ok(Imported { exporter: import.exporter, group, added, skipped: import.skipped, listing })
+    let deletable = file.is_some();
+    *app.state::<ImportedFile>().0.lock().unwrap() = file;
+    Ok(Imported { exporter: import.exporter, group, added, skipped: import.skipped, listing, from_file, deletable })
 }

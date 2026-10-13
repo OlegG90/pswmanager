@@ -112,7 +112,7 @@ pub struct Browsed {
 }
 
 /// `path` (none: the storage's top) as a folder within the phone's storage.
-fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
+pub(crate) fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
     let storage = Path::new(STORAGE).canonicalize().map_err(|e| format!("Cannot open the phone's storage: {e}"))?;
     let path = path.map_or_else(|| storage.clone(), PathBuf::from);
     let canonical = path.canonicalize().map_err(|e| format!("Cannot open {}: {e}", path.display()))?;
@@ -123,7 +123,7 @@ fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
 }
 
 /// A file's name as given for a key file: trimmed, and a name, not a path.
-fn file_name(name: &str) -> Result<String, String> {
+pub(crate) fn file_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() || name == "." || name == ".." || name.contains('/') {
         return Err("Give the key file a name".into());

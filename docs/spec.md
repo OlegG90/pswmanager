@@ -475,8 +475,10 @@ while the database is locked):
   Then what came in and what did not (with the reason) is shown.
 - The file holds every password in clear text: its content is held in memory only and wiped once read,
   never logged. Both apps say so before the file is picked; Windows then offers to **delete the file**
-  (*Delete the file* / *Keep it*, only the file just imported), the phone reminds the user to delete it, as
-  the app may not delete another app's file.
+  (*Delete the file* / *Keep it*, only the file just imported). The phone picks the file as it picks a key
+  file (#207): with All files access on, in the phone's folders (exports listed first), and then offers to
+  delete it the same way; through Android's picker, it reminds the user to delete it, as the app may not
+  delete another app's file.
 
 ## Saving and synchronisation
 

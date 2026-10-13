@@ -1030,39 +1030,53 @@ function importSheet() {
 }
 
 /** Imports with `importing`; the sheet after it ends with `after`, if given. */
-async function runImport(importing = api.importFromApp, after?: string) {
-  try {
-    const imported = await importing()
-    if (!imported) return
-    if (imported.added) listScreen(imported.listing)
-    importedSheet(imported, after)
-  } catch (e) {
-    snack(String(e))
-  }
+async function runImport() {
+  showImported(await api.importFromApp().catch((e) => (snack(String(e)), null)))
 }
 
-/** Import from a file (#238): what it takes, then Android's file picker. */
+/** The list with what an import brought, and the sheet saying so. */
+function showImported(imported: Imported | null) {
+  if (!imported) return
+  if (imported.added) listScreen(imported.listing)
+  importedSheet(imported)
+}
+
+const isExportName = (name: string) => /\.(csv|json)$/i.test(name)
+
+/** Import from a file (#238): what it takes, then the phone's folders (All
+ *  files access, #207) or Android's file picker. */
 function fileImportSheet() {
   sheet((close) => [
     el('b', {}, 'Import from a file'),
     ...fileImportAbout(),
-    button('Choose the file', 'Choose the file to import', () => (close(), void runImport(api.importFromFile,
-      'The file holds every password in clear text: delete it now, in the app you keep it in.')), 'primary'),
+    button('Choose the file', 'Choose the file to import', () => {
+      close()
+      onPhone<Imported>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
+        .then(showImported, (e) => snack(String(e)))
+    }, 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
   ])
 }
 
-/** What an import brought, and what it could not; then `after` (after a
- *  file, a reminder to delete it: the app may not delete another app's file). */
-function importedSheet({ added, exporter, group, skipped }: Imported, after?: string) {
+/** What an import brought, and what it could not; after a file, deleting it
+ *  (one read by its path), or a reminder to (the app may not delete another
+ *  app's file). */
+function importedSheet({ added, exporter, group, skipped, fromFile, deletable }: Imported) {
   sheet((close) => [
     el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
     el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
     ...(skipped.length
       ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
       : []),
-    ...(after ? [el('p', { className: 'muted' }, after)] : []),
-    button('OK', 'OK', close, 'primary'),
+    ...(deletable
+      ? [el('p', {}, `${exporter} holds every password in clear text. Delete it now that its entries are here?`),
+          button('Delete the file', `Delete ${exporter}`, () => {
+            close()
+            api.deleteImportedFile().then(() => snack(`${exporter} deleted`), (e) => snack(String(e)))
+          }, 'item danger'),
+          button('Keep it', 'Keep the file', close, 'link')]
+      : [...(fromFile ? [el('p', { className: 'muted' }, 'The file holds every password in clear text: delete it now, in the app you keep it in.')] : []),
+          button('OK', 'OK', close, 'primary')]),
   ])
 }
 
