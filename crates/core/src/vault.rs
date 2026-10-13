@@ -311,6 +311,28 @@ impl Vault {
         crate::cxf::export(self.visible_entries(), &name, chrono::Utc::now().timestamp())
     }
 
+    /// The entries in use as a file for another password manager (#240, see
+    /// [crate::file_export]), named after the database. Every secret is in
+    /// it, in clear.
+    pub fn export_file(&self, format: crate::file_export::Format) -> (String, crate::file_export::Export) {
+        use crate::file_export::{self, Export, Format};
+        let name = self.database_name();
+        let export = match format {
+            Format::Csv => file_export::csv(self.visible_entries()),
+            Format::Cxf => Export {
+                content: self.export(),
+                entries: self.visible_entries().count(),
+                left_out: file_export::cxf_left_out(self.visible_entries().filter(|e| e.attachments().next().is_some()).count()),
+            },
+        };
+        (file_export::file_name(&name, format), export)
+    }
+
+    /// The database's name, empty when it has none.
+    pub fn database_name(&self) -> String {
+        self.db.meta.database_name.clone().unwrap_or_default()
+    }
+
     /// The entries the user works with that are for the same site and account.
     pub fn similar(&self) -> Vec<crate::similar::Similar> {
         crate::similar::find(self.visible_entries())

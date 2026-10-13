@@ -139,6 +139,10 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::transfer::import_from_file,
             crate::transfer::import_file_at,
             crate::transfer::delete_imported_file,
+            confirm_export,
+            crate::transfer::export_to,
+            crate::transfer::export_at,
+            crate::transfer::export_name,
             crate::transfer::register_export
         ])
 }
@@ -296,13 +300,7 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     off_main(move || {
         let store = app.state::<Store>();
         let password = Some(password.as_str()).filter(|p| !p.is_empty());
-        let key_file = match key_file(&store) {
-            Some(picked) => {
-                let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
-                Some(Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?))
-            }
-            None => None,
-        };
+        let key_file = key_file_content(&app, &store)?;
         let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice))?;
         let biometric = app.state::<Biometric<Wry>>();
         if seal_wanted(&store, &biometric) {
@@ -313,6 +311,64 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
             }
         }
         Ok(listing)
+    })
+    .await
+}
+
+/// The database's key file, read, if it has one.
+fn key_file_content(app: &AppHandle, store: &Store) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+    let Some(picked) = key_file(store) else { return Ok(None) };
+    let content = app.state::<Documents<Wry>>().read(&picked.uri)?;
+    Ok(Some(Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?)))
+}
+
+/// The user was checked again for an export (#240): when, so the export that
+/// follows is allowed, within a few minutes, until a file is written.
+#[derive(Default)]
+pub(crate) struct ExportAllowed(std::sync::Mutex<Option<std::time::Instant>>);
+
+impl ExportAllowed {
+    /// Whether a check allows an export now.
+    pub(crate) fn allows(&self) -> bool {
+        self.0.lock().unwrap().is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(5 * 60))
+    }
+
+    /// A file was written: the next export is checked again.
+    pub(crate) fn used(&self) {
+        self.0.lock().unwrap().take();
+    }
+}
+
+/// Checks the user again before an export: the master password (with the
+/// database's key file), or with none, the fingerprint. Every secret goes into
+/// the file in clear, so being unlocked is not enough.
+#[tauri::command]
+async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
+    off_main(move || {
+        let store = app.state::<Store>();
+        let (password, key_file) = match password {
+            Some(password) => (Some(Zeroizing::new(password)), key_file_content(&app, &store)?),
+            None => {
+                if !biometric_allowed(&store) {
+                    return Err("Enter the master password".into());
+                }
+                let sealed = app.state::<Biometric<Wry>>().retrieve().map_err(|failure| match failure {
+                    Failure::Cancelled => CANCELLED.to_string(),
+                    Failure::Other(message) => message,
+                    _ => "Enter the master password".into(),
+                })?;
+                let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "Enter the master password")?;
+                (secret.password.clone().map(Zeroizing::new), secret.key_file().map_err(|e| e.to_string())?)
+            }
+        };
+        let mut key_file = key_file.as_deref().map(Vec::as_slice);
+        let password = password.as_deref().map(String::as_str).filter(|p| !p.is_empty());
+        let key = vault::key_reading(password, key_file.as_mut().map(|k| k as &mut dyn std::io::Read))?;
+        if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
+            return Err("The master password is not right".into());
+        }
+        *app.state::<ExportAllowed>().0.lock().unwrap() = Some(std::time::Instant::now());
+        Ok(())
     })
     .await
 }

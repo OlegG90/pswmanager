@@ -304,6 +304,17 @@ export interface FileImported {
   listing: Listing
 }
 
+/** A file format an export writes (#240). */
+export type ExportFormat = 'csv' | 'cxf'
+
+/** What an export wrote. */
+export interface Exported {
+  file: string
+  entries: number
+  /** What the format could not carry, one line each. */
+  leftOut: string[]
+}
+
 /** An entry the password health check lists, and why. */
 export interface Finding {
   id: string
@@ -395,6 +406,10 @@ export const api = {
   importFile: () => invoke<FileImported | null>('import_file'),
   /** Deletes the file the last import read. */
   deleteImportedFile: () => invoke<void>('delete_imported_file'),
+  /** Checks the user again before an export: the master password, or with null Windows Hello (`cancelled` when closed). */
+  confirmExport: (password: string | null) => invoke<void>('confirm_export', { password }),
+  /** Writes the entries in use to a new file the user names; null when none was named. */
+  exportFile: (format: ExportFormat) => invoke<Exported | null>('export_file', { format }),
   /** Whether the unlock screen offers Windows Hello for the current database. */
   helloReady: () => invoke<boolean>('hello_ready'),
   /** Fails with `cancelled` when the user closed Windows Hello's prompt. */

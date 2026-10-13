@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, StagedFile, Strength, Version, VersionDetail } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported } from '../../../../src/api'
 
-export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail }
+export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported }
 
 export interface Database {
   title: string
@@ -175,6 +175,14 @@ export const api = {
   importFileAt: (folder: string, name: string) => invoke<Imported>('import_file_at', { folder, name }),
   /** Deletes the file the last import read by its path. */
   deleteImportedFile: () => invoke<void>('delete_imported_file'),
+  /** Checks the user again before an export: the master password, or with null the fingerprint (`cancelled` when closed). */
+  confirmExport: (password: string | null) => invoke<void>('confirm_export', { password }),
+  /** The name an export's file is offered under. */
+  exportName: (format: ExportFormat) => invoke<string>('export_name', { format }),
+  /** Writes the export where Android's save picker puts it; null when none was chosen. */
+  exportTo: (format: ExportFormat) => invoke<Exported | null>('export_to', { format }),
+  /** Writes the export as a new file `name` in a browsed folder (All files access). */
+  exportAt: (format: ExportFormat, folder: string, name: string) => invoke<Exported>('export_at', { format, folder, name }),
   /** Offers the database for export to other password managers (#153), named `name` there. */
   registerExport: (name: string) => invoke<void>('register_export', { name }),
   cloudFiles: (cloud: Cloud) => invoke<CloudFile[]>('cloud_files', { cloud }),

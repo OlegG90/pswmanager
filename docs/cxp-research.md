@@ -123,7 +123,10 @@ Out of scope (no iPad / iPhone app).
   logged, and dropped once merged.
 - A **file** export in CXF would be a plain-text dump of the database, passkey private keys included
   (KeePassXC has the same complaint: [#10407](https://github.com/keepassxreboot/keepassxc/issues/10407)).
-  PswManager should not write one; the KDBX file already is the encrypted, portable export.
+  The KDBX file already is the encrypted, portable export; still, a manager that does not read KDBX can
+  only take a file, so PswManager writes one on request (#240, `docs/spec.md` *Export to a file*): CSV or
+  CXF JSON, after checking the user again, only as a new file where the user puts it, and saying it is
+  clear text.
 - An import adds entries to an unlocked database and saves it the usual way (atomic save, sync); the
   imported entries are marked so the user can review them (a group or a tag), and nothing is overwritten:
   a CXF item becomes a new entry.

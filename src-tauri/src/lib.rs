@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -1242,6 +1242,81 @@ fn delete_imported_file(app: AppHandle) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
 }
 
+/// The user was checked again for an export (#240): when, so the export
+/// that follows is allowed, within a few minutes, until a file is written.
+#[derive(Default)]
+struct ExportAllowed(Mutex<Option<std::time::Instant>>);
+
+/// How long a check allows the export that follows.
+const EXPORT_WINDOW: Duration = Duration::from_secs(5 * 60);
+
+/// Checks the user again before an export: the master password (with the
+/// database's key file), or with none, Windows Hello. Every secret goes into
+/// the file in clear, so being unlocked is not enough.
+#[tauri::command(async)]
+fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
+    let store = app.state::<Store>();
+    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
+    let password = match password.map(Zeroizing::new) {
+        Some(password) => Some(password),
+        None => {
+            if !hello_ready(app.state()) {
+                return Err("Enter the master password".into());
+            }
+            hello::unseal(&current.file).map_err(|failure| match failure {
+                hello::Failure::Cancelled => CANCELLED.to_string(),
+                hello::Failure::NotSealed => "Enter the master password".into(),
+                hello::Failure::Other(message) => message,
+            })?
+        }
+    };
+    let key = vault::key(password.as_deref().map(String::as_str).filter(|p| !p.is_empty()), current.key_file.as_deref())?;
+    if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
+        return Err("The master password is not right".into());
+    }
+    *app.state::<ExportAllowed>().0.lock().unwrap() = Some(std::time::Instant::now());
+    Ok(())
+}
+
+/// What an export wrote.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Exported {
+    file: String,
+    entries: usize,
+    /// What the format could not carry, one line each.
+    left_out: Vec<String>,
+}
+
+/// Writes the entries in use to a new file the user names (#240, see
+/// [file_export]), once [confirm_export] allowed it. `None` when no file was
+/// chosen. Never over a file that is there.
+#[tauri::command(async)]
+fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<Exported>, String> {
+    let allowed = app.state::<ExportAllowed>();
+    if !allowed.0.lock().unwrap().is_some_and(|at| at.elapsed() < EXPORT_WINDOW) {
+        return Err("Confirm with the master password or Windows Hello first".into());
+    }
+    let (name, export) = app.state::<Session>().read(|v| v.export_file(format))?;
+    let (filter, extensions): (&str, &[&str]) = match format {
+        file_export::Format::Csv => ("CSV", &["csv"]),
+        file_export::Format::Cxf => ("Credential Exchange (JSON)", &["json"]),
+    };
+    let dialog = window.dialog().file().set_parent(&window).add_filter(filter, extensions).set_file_name(&name);
+    let Some(path) = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(None) };
+    let shown = path.display().to_string();
+    // A new file only: never over one there, nor through a link to one.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { format!("{shown} is there already: choose another name") } else { format!("Cannot write {shown}: {e}") })?;
+    std::io::Write::write_all(&mut file, export.content.as_bytes()).map_err(|e| format!("Cannot write {shown}: {e}"))?;
+    // Used up by a file written: the next export is checked again.
+    allowed.0.lock().unwrap().take();
+    Ok(Some(Exported { file: shown, entries: export.entries, left_out: export.left_out }))
+}
+
 /// Merges entries into `keep`, moving them to the recycle bin; saves the file
 /// and returns the new listing.
 #[tauri::command(async)]
@@ -1465,6 +1540,7 @@ pub fn run() {
         .manage(Notice::default())
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
+        .manage(ExportAllowed::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -1497,6 +1573,8 @@ pub fn run() {
             unlock_with_hello,
             import_file,
             delete_imported_file,
+            confirm_export,
+            export_file,
             lock,
             listing,
             database_settings,
