@@ -8,7 +8,7 @@
 use crate::app::off_main;
 use crate::documents::Documents;
 use pswm_core::cxf::{self, Import, Skipped};
-use pswm_core::file_export::Format;
+use pswm_core::file_export::{self, Exported, Format};
 use pswm_core::file_import;
 use pswm_core::session::Session;
 use pswm_core::vault::Listing;
@@ -175,28 +175,19 @@ pub async fn delete_imported_file(app: AppHandle) -> Result<(), String> {
     .await
 }
 
-/// What an export wrote.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Exported {
-    file: String,
-    entries: usize,
-    /// What the format could not carry, one line each.
-    left_out: Vec<String>,
-}
-
 /// Writes the entries in use to a new file (#240) where Android's save picker
 /// puts it; `None` when none was chosen.
 #[tauri::command]
 pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported>, String> {
     off_main(move || {
         let session = app.state::<Session>();
-        let (name, export) = session.export(format)?;
+        let export = session.export(format)?;
         let documents = app.state::<Documents<Wry>>();
-        let Some(uri) = documents.pick_to_save(&name)? else { return Ok(None) };
-        documents.write(&uri, export.content.as_bytes()).map_err(|e| format!("Cannot write {name}: {e}"))?;
+        let Some(uri) = documents.pick_to_save(&export.name)? else { return Ok(None) };
+        documents.write(&uri, export.content.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", export.name))?;
         session.exported();
-        Ok(Some(Exported { file: name, entries: export.entries, left_out: export.left_out }))
+        let name = export.name.clone();
+        Ok(Some(export.written(name)))
     })
     .await
 }
@@ -207,23 +198,12 @@ pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported
 pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<Exported, String> {
     off_main(move || {
         let session = app.state::<Session>();
-        let (_, export) = session.export(format)?;
+        let export = session.export(format)?;
         let name = crate::phone_files::file_name(&name)?;
         let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
-        // A new file only: never over one there, nor through a link to one.
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { format!("{name} is there already: choose another name") } else { format!("Cannot write {name}: {e}") })?;
-        if let Err(e) = std::io::Write::write_all(&mut file, export.content.as_bytes()) {
-            // Not half a file of secrets left behind.
-            drop(file);
-            let _ = std::fs::remove_file(&path);
-            return Err(format!("Cannot write {name}: {e}"));
-        }
+        file_export::write_new(&path, &name, export.content.as_bytes())?;
         session.exported();
-        Ok(Exported { file: name, entries: export.entries, left_out: export.left_out })
+        Ok(export.written(name))
     })
     .await
 }

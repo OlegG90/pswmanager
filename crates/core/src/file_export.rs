@@ -7,7 +7,8 @@
 
 use crate::edit::{passkey, STANDARD};
 use keepass::db::{fields, EntryRef};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 use zeroize::Zeroizing;
 
 /// The formats a file is written in.
@@ -29,11 +30,44 @@ impl Format {
     }
 }
 
-/// A file's content, and what it could not carry (one line each, for people).
+/// A file's content, the name offered for it, and what it could not carry
+/// (one line each, for people).
 pub struct Export {
+    pub name: String,
     pub content: Zeroizing<String>,
     pub entries: usize,
     pub left_out: Vec<String>,
+}
+
+/// What an export wrote, for the window.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exported {
+    pub file: String,
+    pub entries: usize,
+    /// What the format could not carry, one line each.
+    pub left_out: Vec<String>,
+}
+
+impl Export {
+    /// Written to `file` (as the user sees it).
+    pub fn written(self, file: String) -> Exported {
+        Exported { file, entries: self.entries, left_out: self.left_out }
+    }
+}
+
+/// Writes `content` to a new file at `path` (`shown` in messages), never over
+/// a file there nor through a link to one; a file not written whole is removed,
+/// as no half a file of secrets is left behind.
+pub fn write_new(path: &Path, shown: &str, content: &[u8]) -> Result<(), String> {
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::AlreadyExists => format!("{shown} is there already: choose another name"),
+        _ => format!("Cannot write {shown}: {e}"),
+    })?;
+    std::io::Write::write_all(&mut file, content).map_err(|e| {
+        let _ = std::fs::remove_file(path);
+        format!("Cannot write {shown}: {e}")
+    })
 }
 
 /// The entries as CSV, the columns Google Password Manager and Chrome write
@@ -74,7 +108,7 @@ pub fn csv<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Export {
     left_out.extend(note(with_fields, "Additional fields"));
     left_out.extend(note(with_files, "Attachments"));
     left_out.push("Groups, tags, icons, expiry and history".into());
-    Export { content, entries: entries.len(), left_out }
+    Export { name: String::new(), content, entries: entries.len(), left_out }
 }
 
 /// A CSV cell, quoted when it holds a comma, a quote or a line break, or

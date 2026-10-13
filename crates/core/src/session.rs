@@ -77,7 +77,7 @@ impl Session {
 
     /// The export [Session::allow_export] allows, while it does: its content
     /// and the file name offered. A file written with it calls [Session::exported].
-    pub fn export(&self, format: crate::file_export::Format) -> Result<(String, crate::file_export::Export), String> {
+    pub fn export(&self, format: crate::file_export::Format) -> Result<crate::file_export::Export, String> {
         let unlocked = self.0.unlocked.lock().unwrap();
         let unlocked = unlocked.as_ref().ok_or("The database is locked")?;
         if !unlocked.export_checked.is_some_and(|at| at.elapsed() < EXPORT_WINDOW) {

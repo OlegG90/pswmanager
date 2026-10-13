@@ -1269,44 +1269,23 @@ fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String
     app.state::<Session>().allow_export()
 }
 
-/// What an export wrote.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Exported {
-    file: String,
-    entries: usize,
-    /// What the format could not carry, one line each.
-    left_out: Vec<String>,
-}
-
 /// Writes the entries in use to a new file the user names (#240, see
 /// [file_export]), once [confirm_export] allowed it. `None` when no file was
 /// chosen. Never over a file that is there.
 #[tauri::command(async)]
-fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<Exported>, String> {
+fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<file_export::Exported>, String> {
     let session = app.state::<Session>();
-    let (name, export) = session.export(format)?;
+    let export = session.export(format)?;
     let (filter, extensions): (&str, &[&str]) = match format {
         file_export::Format::Csv => ("CSV", &["csv"]),
         file_export::Format::Cxf => ("Credential Exchange (JSON)", &["json"]),
     };
-    let dialog = window.dialog().file().set_parent(&window).add_filter(filter, extensions).set_file_name(&name);
+    let dialog = window.dialog().file().set_parent(&window).add_filter(filter, extensions).set_file_name(&export.name);
     let Some(path) = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(None) };
     let shown = path.display().to_string();
-    // A new file only: never over one there, nor through a link to one.
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { format!("{shown} is there already: choose another name") } else { format!("Cannot write {shown}: {e}") })?;
-    if let Err(e) = std::io::Write::write_all(&mut file, export.content.as_bytes()) {
-        // Not half a file of secrets left behind.
-        drop(file);
-        let _ = std::fs::remove_file(&path);
-        return Err(format!("Cannot write {shown}: {e}"));
-    }
+    file_export::write_new(&path, &shown, export.content.as_bytes())?;
     session.exported();
-    Ok(Some(Exported { file: shown, entries: export.entries, left_out: export.left_out }))
+    Ok(Some(export.written(shown)))
 }
 
 /// Merges entries into `keep`, moving them to the recycle bin; saves the file
