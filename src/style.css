@@ -1697,6 +1697,15 @@ dialog.modal p {
   margin: 0 0 16px;
 }
 
+/* What an import could not bring over: it may be long, so it scrolls. */
+dialog.modal ul.skipped {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
 dialog.modal .buttons {
   display: flex;
   gap: 8px;

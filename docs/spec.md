@@ -29,10 +29,10 @@ stays out.
 
 Browser autofill and browser extensions (Android's autofill is a later stage of the Android app), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
-at once (one is open at a time; switching locks the other), importing from other
-password managers in the Windows app (on Android it imports through the system's Credential Transfer,
-`spec-android.md`; SafeInCloud migration stays with `sic2kdbx.py`), saving changes made to
-an opened attachment, sharing, KDBX 3 writing.
+at once (one is open at a time; switching locks the other), importing from other password managers
+other than from a file they exported (*Import from a file*; Android also imports through the system's
+Credential Transfer, `spec-android.md`; SafeInCloud migration stays with `sic2kdbx.py`), saving changes
+made to an opened attachment, sharing, KDBX 3 writing.
 
 ## Databases
 
@@ -447,6 +447,32 @@ while the database is locked):
   - **Leave as is**: the section leaves the report until it is opened again.
 - No delete here: merging is risky enough, and the merged entries go to the recycle bin anyway.
 - Worked out and applied in the backend, which gets only ids from the window.
+
+## Import from a file
+
+- *Tools → Import from a file…* (#238; on the phone a *Tools* item of its own): a file another password
+  manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). A
+  question says what it takes first; then the file is picked.
+  - **CSV**, its columns found by the names in its first line (any case): title (`name`, `title`), URL
+    (`url`, `login_uri`, `website`), user name, password, notes, TOTP (`totp`, `otpauth`), folder or
+    group (a path `Work/Mail`; KeePass's starts with its top group, which is left out), favourite
+    (the star), tags; Bitwarden's `fields` column as one field a line; what an app keeps for itself (ids,
+    times, Firefox's form origin, an icon) is left out, and any other column becomes an additional field.
+    So Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass and KeePassXC files
+    all read. A row with no title is titled after its URL's host. A file whose first line names no URL,
+    user name or password column is refused.
+  - **Bitwarden's JSON** (the unencrypted export; the encrypted one is refused with a word on why):
+    logins with their URLs (more as `KP2A_URL_n`), TOTP, custom fields (hidden ones protected; linked
+    ones left out), **passkeys** (as KeePassXC keeps them, a credential id Bitwarden made, a GUID, as its
+    bytes), notes, cards and identities as additional fields, SSH keys, folders as groups, the star, and
+    the times.
+  - A **CXF** JSON file reads as the phone's Credential Transfer does.
+- The entries are added as the phone's import adds them: each a **new entry** in the group *Imported
+  from <file name> <date>*, nothing changed or replaced, saved and synced as one change, all or nothing.
+  Then what came in and what did not (with the reason) is shown.
+- The file holds every password in clear text: its content is held in memory only and wiped once read,
+  never logged. Windows then offers to **delete the file** (*Delete the file* / *Keep it*); the phone
+  reminds the user to delete it, as the app may not delete another app's file.
 
 ## Saving and synchronisation
 

@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, dbfile, edit, encryption, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -1187,6 +1187,58 @@ fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> 
     Ok(listing)
 }
 
+/// What an import from a file brought in.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileImported {
+    /// The file's name, which the group is named after.
+    file: String,
+    group: String,
+    added: usize,
+    skipped: Vec<cxf::Skipped>,
+    listing: Listing,
+}
+
+/// The file the last import read: the window offers to delete it, as it holds
+/// every secret in clear.
+#[derive(Default)]
+struct ImportedFile(Mutex<Option<PathBuf>>);
+
+/// Imports a file another password manager exported (#238, see
+/// [file_import]): the user picks it, and everything in it is added as new
+/// entries in the group `Imported from <file> <date>`, saved and synced as
+/// one change. `None` when no file was picked.
+#[tauri::command(async)]
+fn import_file(app: AppHandle, window: Window) -> Result<Option<FileImported>, String> {
+    let session = app.state::<Session>();
+    if !session.is_unlocked() {
+        return Err("Unlock the database first".into());
+    }
+    let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
+    let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
+    let import = file_import::parse(&file, &content)?;
+    drop(content); // wiped now rather than at the end
+    let group = import.group_name_today();
+    let (added, listing) = session.with_mut(|v| {
+        let added = v.import(&import, &group)?;
+        Ok((added, v.listing()))
+    })?;
+    if added > 0 {
+        fetch_icons(&app, &listing);
+        sync::upload_soon(&app);
+    }
+    *app.state::<ImportedFile>().0.lock().unwrap() = Some(path);
+    Ok(Some(FileImported { file, group, added, skipped: import.skipped, listing }))
+}
+
+/// Deletes the file the last import read (the user confirmed): only that one.
+#[tauri::command(async)]
+fn delete_imported_file(app: AppHandle) -> Result<(), String> {
+    let path = app.state::<ImportedFile>().0.lock().unwrap().take().ok_or("No file was imported")?;
+    std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
+}
+
 /// Merges entries into `keep`, moving them to the recycle bin; saves the file
 /// and returns the new listing.
 #[tauri::command(async)]
@@ -1409,6 +1461,7 @@ pub fn run() {
         .manage(Activity::default())
         .manage(Notice::default())
         .manage(FileWatch::default())
+        .manage(ImportedFile::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -1439,6 +1492,8 @@ pub fn run() {
             unlock,
             hello_ready,
             unlock_with_hello,
+            import_file,
+            delete_imported_file,
             lock,
             listing,
             database_settings,

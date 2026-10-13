@@ -293,6 +293,17 @@ export interface Settings {
   windowsHello: boolean
 }
 
+/** What an import from a file brought in (#238). */
+export interface FileImported {
+  /** The file's name, which the group is named after. */
+  file: string
+  group: string
+  added: number
+  /** What could not be brought over, and why. */
+  skipped: { title: string; why: string }[]
+  listing: Listing
+}
+
 /** An entry the password health check lists, and why. */
 export interface Finding {
   id: string
@@ -380,6 +391,10 @@ export const api = {
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
+  /** Picks a file another password manager exported and imports it; null when none was picked. */
+  importFile: () => invoke<FileImported | null>('import_file'),
+  /** Deletes the file the last import read. */
+  deleteImportedFile: () => invoke<void>('delete_imported_file'),
   /** Whether the unlock screen offers Windows Hello for the current database. */
   helloReady: () => invoke<boolean>('hello_ready'),
   /** Fails with `cancelled` when the user closed Windows Hello's prompt. */

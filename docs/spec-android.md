@@ -168,7 +168,10 @@ As in the mockups `1e`–`1j`.
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
-  database: *Import from another app…* and *Find similar entries*.
+  database: *Import from another app…*, *Import from a file…* and *Find similar entries*.
+- **Import from a file** (#238): a sheet says what it takes, then Android's file picker; the file is read
+  and added as on Windows (`docs/spec.md`, *Import from a file*). The sheet after it says how many entries
+  came in, what did not, and to delete the file, which holds every password in clear text.
 - **Find similar entries** (#215): a screen of the entries that are for the same site and account, as on
   Windows (`docs/spec.md`, *Similar entries*; the grouping, the merge and its preview are the shared core's).
   Per section (a site and user name) the entries are listed most recently changed first, each with a tick

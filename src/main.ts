@@ -17,6 +17,7 @@ import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
+import { importFromFile } from './file-import'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
@@ -1205,6 +1206,8 @@ $('settings-button').addEventListener('click', openSettings)
 $('settings-button').before(menuButton('Tools for the whole database', [
   { label: 'Password health', title: 'Find reused, weak and old passwords', action: openHealth },
   { label: 'Similar entries', title: 'Find entries for the same site and user name, to merge them', action: openSimilar },
+  { label: 'Import from a file…', title: 'Add the entries another password manager exported (CSV, Bitwarden JSON)',
+    action: () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e))) },
 ], 'Tools'))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))

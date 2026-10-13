@@ -195,7 +195,7 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
 }
 
 /// Further URLs as Keepass2Android keeps them: `KP2A_URL_1`, `KP2A_URL_2`…
-const MORE_URLS: &str = "KP2A_URL";
+pub(crate) const MORE_URLS: &str = "KP2A_URL";
 /// An Android app among an entry's URLs, as Keepass2Android keeps it.
 const ANDROID_APP: &str = "androidapp://";
 
@@ -377,14 +377,26 @@ fn read_item(item: &Value, group: Vec<String>, import: &mut Import) {
     read_scope(item, &mut data, &mut fields);
     let mut why = Vec::new();
     let passkeys = read_credentials(item, &mut data, &mut fields, &mut why);
+    let times = (time(item, "creationAt"), time(item, "modifiedAt"));
+    finish(import, data, fields, passkeys, why, times);
+}
+
+/// Adds an item read from another app's export to `import`: its passkeys
+/// placed (see [place_passkeys]), and what was left out noted under its title.
+pub(crate) fn finish(
+    import: &mut Import,
+    mut data: EntryData,
+    mut fields: Fields,
+    passkeys: Vec<Passkey>,
+    mut why: Vec<String>,
+    (created, modified): (Option<NaiveDateTime>, Option<NaiveDateTime>),
+) {
+    let title = data.title.clone();
     let extra = place_passkeys(passkeys, &mut data, &mut fields);
     data.fields = fields.0;
     if data.title.is_empty() {
         data.title = crate::icons::host_of(&data.url).unwrap_or_else(|| "Untitled".into());
     }
-
-    let created = time(item, "creationAt");
-    let modified = time(item, "modifiedAt");
     let empty = data.username.is_empty() && data.password.is_empty() && data.otp.is_empty() && data.notes.is_empty() && data.fields.is_empty();
     // An item with nothing but a title or an address is kept as a bookmark.
     if !empty || extra.is_empty() && (!title.is_empty() || !data.url.is_empty()) {
@@ -543,7 +555,7 @@ fn other_fields(credential: &Value, kind: &str, known: &[&str], fields: &mut Fie
 }
 
 /// `credit-card` or `streetAddress` as words: `Credit card`, `Street address`.
-fn words(name: &str) -> String {
+pub(crate) fn words(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars() {
         match c {
@@ -590,7 +602,7 @@ fn totp_uri(credential: &Value, title: &str) -> Result<String, String> {
 
 /// A passkey: its relying party and user name, and the attributes KeePassXC
 /// keeps it in.
-struct Passkey {
+pub(crate) struct Passkey {
     rp: String,
     username: String,
     fields: Vec<FieldData>,
@@ -602,8 +614,13 @@ impl Passkey {
     fn read(credential: &Value) -> Result<Passkey, String> {
         let need = |key| text(credential, key).filter(|v| !v.is_empty()).ok_or_else(|| format!("its {key} is missing"));
         let (rp, credential_id, user_handle) = (need("rpId")?, need("credentialId")?, need("userHandle")?);
-        let username = text(credential, "username").unwrap_or("");
-        let key = pem(need("key")?)?;
+        Passkey::new(rp, text(credential, "username").unwrap_or(""), credential_id, user_handle, need("key")?)
+    }
+
+    /// A passkey from its parts: the ids as unpadded base64url, the PKCS#8
+    /// key (DER) as base64url.
+    pub(crate) fn new(rp: &str, username: &str, credential_id: &str, user_handle: &str, key: &str) -> Result<Passkey, String> {
+        let key = pem(key)?;
         Ok(Passkey { rp: rp.to_string(), username: username.to_string(), fields: passkey::fields(rp, username, credential_id, user_handle, &key) })
     }
 
@@ -628,11 +645,11 @@ fn pem(base64url: &str) -> Result<Zeroizing<String>, String> {
 /// Additional fields, each name used once: a taken name, a standard field's,
 /// or one a passkey's attributes use, gets a number (`Password (2)`).
 #[derive(Default)]
-struct Fields(Vec<FieldData>);
+pub(crate) struct Fields(Vec<FieldData>);
 
 impl Fields {
     /// Adds a field, unless `value` is empty.
-    fn add(&mut self, name: &str, value: &str, protected: bool) {
+    pub(crate) fn add(&mut self, name: &str, value: &str, protected: bool) {
         if value.is_empty() {
             return;
         }
@@ -698,7 +715,7 @@ fn time(value: &Value, key: &str) -> Option<NaiveDateTime> {
 }
 
 /// Overwrites every string in the JSON, secrets among them.
-fn wipe(value: &mut Value) {
+pub(crate) fn wipe(value: &mut Value) {
     match value {
         Value::String(s) => s.zeroize(),
         Value::Array(items) => items.iter_mut().for_each(wipe),
