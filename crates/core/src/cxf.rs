@@ -320,7 +320,7 @@ impl Collections {
 }
 
 /// The export's header: its version, who made it, and every account's items.
-fn read_header(root: &Value) -> Result<Import, String> {
+pub(crate) fn read_header(root: &Value) -> Result<Import, String> {
     let major = root.get("version").and_then(|v| v.get("major")).and_then(Value::as_u64);
     if major != Some(1) {
         return Err("This export is in a Credential Exchange version PswManager cannot read".into());
@@ -694,7 +694,7 @@ fn editable<'a>(credential: &'a Value, key: &str) -> Option<Editable<'a>> {
 }
 
 /// The string member `key`.
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
@@ -704,7 +704,7 @@ fn first_text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
 }
 
 /// The members of the array `key`; none when it is missing.
-fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+pub(crate) fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
     value.get(key).and_then(Value::as_array).into_iter().flatten()
 }
 

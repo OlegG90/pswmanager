@@ -10,6 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, 
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { FILE_IMPORT_ABOUT, FILE_IMPORT_CLEAR_TEXT } from '../../../../src/file-import-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
@@ -1028,12 +1029,13 @@ function importSheet() {
   ])
 }
 
-async function runImport(importing = api.importFromApp, fromFile = false) {
+/** Imports with `importing`; the sheet after it ends with `after`, if given. */
+async function runImport(importing = api.importFromApp, after?: string) {
   try {
     const imported = await importing()
     if (!imported) return
     if (imported.added) listScreen(imported.listing)
-    importedSheet(imported, fromFile)
+    importedSheet(imported, after)
   } catch (e) {
     snack(String(e))
   }
@@ -1043,23 +1045,24 @@ async function runImport(importing = api.importFromApp, fromFile = false) {
 function fileImportSheet() {
   sheet((close) => [
     el('b', {}, 'Import from a file'),
-    el('p', {}, 'Choose a file another password manager exported: CSV (Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass) or Bitwarden’s JSON, which brings passkeys too. Everything in it is added as new entries: nothing here is changed or replaced.'),
-    el('p', { className: 'muted' }, 'Such a file holds every password in clear text: delete it once the import is done.'),
-    button('Choose the file', 'Choose the file to import', () => (close(), void runImport(api.importFromFile, true)), 'primary'),
+    el('p', {}, FILE_IMPORT_ABOUT),
+    el('p', { className: 'muted' }, FILE_IMPORT_CLEAR_TEXT),
+    button('Choose the file', 'Choose the file to import', () => (close(), void runImport(api.importFromFile,
+      'The file holds every password in clear text: delete it now, in the app you keep it in.')), 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
   ])
 }
 
-/** What an import brought, and what it could not; after a file, a reminder
- *  to delete it (the app may not delete another app's file). */
-function importedSheet({ added, exporter, group, skipped }: Imported, fromFile: boolean) {
+/** What an import brought, and what it could not; then `after` (after a
+ *  file, a reminder to delete it: the app may not delete another app's file). */
+function importedSheet({ added, exporter, group, skipped }: Imported, after?: string) {
   sheet((close) => [
     el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
     el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
     ...(skipped.length
       ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
       : []),
-    ...(fromFile ? [el('p', { className: 'muted' }, `${exporter} holds every password in clear text: delete it now, in the app you keep it in.`)] : []),
+    ...(after ? [el('p', { className: 'muted' }, after)] : []),
     button('OK', 'OK', close, 'primary'),
   ])
 }

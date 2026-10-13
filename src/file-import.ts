@@ -1,13 +1,7 @@
 import { api, type Listing } from './api'
 import { button, el } from './dom'
+import { FILE_IMPORT_ABOUT, FILE_IMPORT_CLEAR_TEXT } from './file-import-parts'
 import { ask, dialog } from './modal'
-
-/** What the import is for, before the file is picked (#238). */
-const ABOUT =
-  'Choose a file another password manager exported: CSV (Google Password Manager, Chrome, Edge, Firefox, ' +
-  'Bitwarden, 1Password, KeePass) or Bitwarden’s JSON, which brings passkeys too. Everything in it is added ' +
-  'as new entries in a group of their own; nothing here is changed or replaced. Such a file holds every ' +
-  'password in clear text: delete it once the import is done (the app offers to).'
 
 /**
  * Tools › Import from a file…: says what it does, lets the user pick the file,
@@ -16,7 +10,7 @@ const ABOUT =
  * listing and the message to show.
  */
 export async function importFromFile(imported: (listing: Listing, message: string) => void) {
-  if (!(await ask(ABOUT, 'Choose the file'))) return
+  if (!(await ask(`${FILE_IMPORT_ABOUT} ${FILE_IMPORT_CLEAR_TEXT}`, 'Choose the file'))) return
   const result = await api.importFile()
   if (!result) return
   const { file, group, added, skipped, listing } = result

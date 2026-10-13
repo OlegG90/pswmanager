@@ -7,7 +7,7 @@
 //! Such a file holds every secret in clear: its content is wiped once read,
 //! and never logged.
 
-use crate::cxf::{self, Fields, Import, Passkey, MORE_URLS};
+use crate::cxf::{self, list, text, Fields, Import, Passkey, MORE_URLS};
 use crate::edit::{EntryData, FAVORITE};
 use base64::Engine;
 use chrono::{DateTime, NaiveDateTime};
@@ -33,8 +33,7 @@ fn json(text: &str) -> Result<Import, String> {
     } else if root.get("items").is_some_and(Value::is_array) {
         Ok(bitwarden(&root))
     } else if root.get("accounts").is_some() {
-        // A CXF file: parsed again by the CXF reader, which wipes its own copy.
-        cxf::parse(text)
+        cxf::read_header(&root)
     } else {
         Err("Not a JSON file PswManager knows (Bitwarden's export, or Credential Exchange)".into())
     };
@@ -159,14 +158,6 @@ fn time(value: &Value, key: &str) -> Option<NaiveDateTime> {
     DateTime::parse_from_rfc3339(text(value, key)?).ok().map(|t| t.naive_utc())
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-    value.get(key).and_then(Value::as_str)
-}
-
-fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
-    value.get(key).and_then(Value::as_array).into_iter().flatten()
-}
-
 /// A folder's path (`Work/Mail`, or LastPass's `Work\Mail`) as group names.
 fn path(name: &str) -> Vec<String> {
     name.split(['/', '\\']).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string).collect()
@@ -273,31 +264,50 @@ fn csv(text: &str) -> Result<Import, String> {
 }
 
 /// The rows of a CSV file (RFC 4180: quoted cells may hold commas, quotes
-/// doubled and line breaks). Each cell is wiped when dropped.
+/// doubled and line breaks). Each cell is copied once, at its size, and wiped
+/// when dropped: no copy of a secret is left behind as a cell grows.
 fn rows(text: &str) -> Vec<Vec<Zeroizing<String>>> {
-    let (mut rows, mut row, mut cell) = (Vec::new(), Vec::new(), Zeroizing::new(String::new()));
-    let (mut quoted, mut chars) = (false, text.chars().peekable());
-    while let Some(c) = chars.next() {
-        match (c, quoted) {
-            ('"', true) if chars.peek() == Some(&'"') => {
-                chars.next();
-                cell.push('"');
+    let bytes = text.as_bytes();
+    let next_break = |from: usize| text[from..].find([',', '\n', '\r']).map_or(text.len(), |n| from + n);
+    let (mut rows, mut row, mut at) = (Vec::new(), Vec::new(), 0);
+    while at < text.len() {
+        let cell = if bytes[at] == b'"' {
+            // Up to the closing quote; a doubled quote is one.
+            let mut end = at + 1;
+            while end < text.len() && !(bytes[end] == b'"' && bytes.get(end + 1) != Some(&b'"')) {
+                end += if bytes[end] == b'"' { 2 } else { 1 };
             }
-            ('"', true) => quoted = false,
-            ('"', false) if cell.is_empty() => quoted = true,
-            (',', false) => row.push(std::mem::replace(&mut cell, Zeroizing::new(String::new()))),
-            // A line break is `\n` in a cell too.
-            ('\r', _) if chars.peek() == Some(&'\n') => {}
-            ('\n', false) => {
-                row.push(std::mem::replace(&mut cell, Zeroizing::new(String::new())));
+            let raw = &text[at + 1..end.min(text.len())];
+            let mut cell = Zeroizing::new(String::with_capacity(raw.len()));
+            let mut chars = raw.chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => {
+                        chars.next();
+                        cell.push('"');
+                    }
+                    // A line break is `\n` in a cell too.
+                    '\r' if chars.peek() == Some(&'\n') => {}
+                    c => cell.push(c),
+                }
+            }
+            // Anything between the closing quote and the next comma is not the cell's.
+            at = next_break((end + 1).min(text.len()));
+            cell
+        } else {
+            let end = next_break(at);
+            let cell = Zeroizing::new(text[at..end].to_string());
+            at = end;
+            cell
+        };
+        row.push(cell);
+        match bytes.get(at) {
+            Some(b',') => at += 1,
+            _ => {
+                at += if text[at..].starts_with("\r\n") { 2 } else { 1 };
                 rows.push(std::mem::take(&mut row));
             }
-            (c, _) => cell.push(c),
         }
-    }
-    if !cell.is_empty() || !row.is_empty() {
-        row.push(cell);
-        rows.push(row);
     }
     rows
 }
