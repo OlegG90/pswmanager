@@ -1,7 +1,7 @@
 import { api, type Listing } from './api'
 import { button, el } from './dom'
-import { FILE_IMPORT_ABOUT, FILE_IMPORT_CLEAR_TEXT } from './file-import-parts'
-import { ask, dialog } from './modal'
+import { fileImportAbout } from './file-import-parts'
+import { dialog } from './modal'
 
 /**
  * Tools › Import from a file…: says what it does, lets the user pick the file,
@@ -10,7 +10,11 @@ import { ask, dialog } from './modal'
  * listing and the message to show.
  */
 export async function importFromFile(imported: (listing: Listing, message: string) => void) {
-  if (!(await ask(`${FILE_IMPORT_ABOUT} ${FILE_IMPORT_CLEAR_TEXT}`, 'Choose the file'))) return
+  const choosing = await dialog('Import from a file', false, (answer) => ({
+    body: fileImportAbout(),
+    buttons: [button('Choose the file', 'Choose the file to import', () => answer(true), 'primary')],
+  }))
+  if (!choosing) return
   const result = await api.importFile()
   if (!result) return
   const { file, group, added, skipped, listing } = result

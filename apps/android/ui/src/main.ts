@@ -10,7 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, 
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
-import { FILE_IMPORT_ABOUT, FILE_IMPORT_CLEAR_TEXT } from '../../../../src/file-import-parts'
+import { fileImportAbout } from '../../../../src/file-import-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
@@ -1045,8 +1045,7 @@ async function runImport(importing = api.importFromApp, after?: string) {
 function fileImportSheet() {
   sheet((close) => [
     el('b', {}, 'Import from a file'),
-    el('p', {}, FILE_IMPORT_ABOUT),
-    el('p', { className: 'muted' }, FILE_IMPORT_CLEAR_TEXT),
+    ...fileImportAbout(),
     button('Choose the file', 'Choose the file to import', () => (close(), void runImport(api.importFromFile,
       'The file holds every password in clear text: delete it now, in the app you keep it in.')), 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
