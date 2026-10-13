@@ -396,10 +396,8 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     }
     need_key(&app, |k| k.local = false); // the remote file's is the sync's
     let key_taken = session.read(|v| v.uses_key(&given))??;
-    if key_taken {
-        if let Some(file) = app.state::<Store>().read(|s| s.current().map(|d| d.file.clone())) {
-            hello::forget(&file);
-        }
+    if let Some(file) = current_file(&app.state()).filter(|_| key_taken) {
+        hello::forget(&file);
     }
     choose(app, |s| {
         if let Some(d) = s.current_mut().filter(|_| key_taken) {
@@ -635,6 +633,10 @@ fn key_needed(session: State<Session>) -> KeyNeeded {
 #[tauri::command(async)]
 fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
     let picked = pick(&window, "Key file", &[])?;
+    // The password Windows Hello kept went with the key file it had.
+    if let Some(file) = current_file(&app.state()).filter(|_| picked.is_some()) {
+        hello::forget(&file);
+    }
     choose(app, |s| {
         if let (Some(d), Some(picked)) = (s.current_mut(), picked) {
             d.key_file = Some(picked);
@@ -644,6 +646,9 @@ fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
 
 #[tauri::command(async)]
 fn clear_key_file(app: AppHandle) -> Result<Status, String> {
+    if let Some(file) = current_file(&app.state()) {
+        hello::forget(&file);
+    }
     choose(app, |s| {
         if let Some(d) = s.current_mut() {
             d.key_file = None;
@@ -663,9 +668,16 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let store = app.state::<Store>();
     let settings = Settings::of(&store);
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
-        let _ = hello::seal(&database, password);
+        // After the window has the database: Windows Hello's prompt waits for the user.
+        let password = password.map(|p| Zeroizing::new(p.to_string()));
+        std::thread::spawn(move || hello::seal(&database, password.as_deref().map(String::as_str)));
     }
     Ok(listing)
+}
+
+/// The current database's file.
+fn current_file(store: &Store) -> Option<PathBuf> {
+    store.read(|s| s.current().map(|d| d.file.clone()))
 }
 
 /// Whether the unlock screen offers Windows Hello: it is on, and a password
@@ -673,8 +685,9 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
 #[tauri::command(async)]
 fn hello_ready(store: State<Store>) -> bool {
     let settings = Settings::of(&store);
-    let current = store.read(|s| s.current().map(|d| d.file.clone()));
-    settings.biometric_unlock() && current.is_some_and(|file| hello::ready(&file, settings.password_every()))
+    settings.biometric_unlock()
+        && current_file(&store).is_some_and(|file| hello::ready(&file, settings.password_every()))
+        && hello::available()
 }
 
 /// The answer when the user closed Windows Hello's prompt.
@@ -689,7 +702,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
     if !hello_ready(app.state()) {
         return Err(MASTER.into());
     }
-    let database = app.state::<Store>().read(|s| s.current().map(|d| d.file.clone())).ok_or("Choose a database first")?;
+    let database = current_file(&app.state()).ok_or("Choose a database first")?;
     let password = hello::unseal(&database).map_err(|failure| match failure {
         hello::Failure::Cancelled => CANCELLED.to_string(),
         hello::Failure::NotSealed => MASTER.into(),
@@ -698,7 +711,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
     match open(&app, password.as_deref().map(String::as_str)) {
         Err(e) if e == dbfile::WRONG_KEY => {
             hello::forget(&database);
-            Err("The database's key has changed: unlock with the new master password".into())
+            Err("The password Windows Hello kept no longer opens the database: unlock with the master password".into())
         }
         opened => opened.map(|(listing, _)| listing),
     }

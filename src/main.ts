@@ -136,6 +136,7 @@ let helloOpen = false
 
 /** Shows Unlock with Windows Hello when it can unlock the current database. */
 async function offerHello() {
+  helloReady = false
   helloReady = await api.helloReady().catch(() => false)
   $('hello-button').hidden = !helloReady
 }
@@ -1357,8 +1358,10 @@ listen('window-shown', () => {
   else {
     passwordInput.focus()
     // Shown from the tray or the hotkey: Windows Hello asks at once, as the
-    // phone does coming back from another app.
-    if (!unlockForm.hidden && helloReady) unlockWithHello()
+    // phone does coming back from another app (not over a password being typed).
+    if (!unlockForm.hidden && !passwordInput.value) {
+      void offerHello().then(() => helloReady && !passwordInput.value && unlockWithHello())
+    }
   }
 })
 // A database named on the command line of a second launch was chosen.

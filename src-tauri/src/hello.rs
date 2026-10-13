@@ -71,29 +71,31 @@ pub fn ready(database: &Path, every: Duration) -> bool {
 
 /// Seals `password` for `database`; Windows Hello asks the user (the first
 /// time, to set up the app's key).
-pub fn seal(database: &Path, password: Option<&str>) -> Result<(), String> {
-    let key = open_key(true)?.ok_or("Windows Hello is not set up")?;
+pub fn seal(database: &Path, password: Option<&str>) -> Result<(), Failure> {
+    let key = open_key(true)?.ok_or(Failure::NotSealed)?;
     let mut challenge = [0u8; 32];
-    getrandom::fill(&mut challenge).map_err(|e| e.to_string())?;
-    let entropy = sign(&key, &challenge)?.ok_or("Cancelled")?;
+    getrandom::fill(&mut challenge).map_err(|e| Failure::Other(e.to_string()))?;
+    let entropy = sign(&key, &challenge)?;
     let password = match password {
-        Some(password) => B64.encode(protect(password.as_bytes(), &entropy)?),
+        Some(password) => B64.encode(protect(password.as_bytes(), &entropy).map_err(Failure::Other)?),
         None => String::new(),
     };
     let sealed = Sealed { challenge: B64.encode(challenge), password, sealed: now() };
-    crate::credentials::write(&name(database), &serde_json::to_string(&sealed).map_err(|e| e.to_string())?)
+    let sealed = serde_json::to_string(&sealed).map_err(|e| Failure::Other(e.to_string()))?;
+    crate::credentials::write(&name(database), &sealed).map_err(Failure::Other)
 }
 
 /// The password sealed for `database`, once Windows Hello confirms; `None`
 /// for a database without one (a key file only).
 pub fn unseal(database: &Path) -> Result<Option<Zeroizing<String>>, Failure> {
     let sealed = read(database).ok_or(Failure::NotSealed)?;
-    let Some(key) = open_key(false).map_err(Failure::Other)? else {
+    let Some(key) = open_key(false)? else {
+        // The key is gone (Windows Hello was set up again): this is no use.
         forget(database);
         return Err(Failure::NotSealed);
     };
     let challenge = B64.decode(&sealed.challenge).map_err(|e| Failure::Other(e.to_string()))?;
-    let entropy = sign(&key, &challenge).map_err(Failure::Other)?.ok_or(Failure::Cancelled)?;
+    let entropy = sign(&key, &challenge)?;
     if sealed.password.is_empty() {
         return Ok(None);
     }
@@ -103,7 +105,7 @@ pub fn unseal(database: &Path) -> Result<Option<Zeroizing<String>>, Failure> {
         forget(database);
         Failure::NotSealed
     })?;
-    String::from_utf8(password.to_vec()).map(|p| Some(Zeroizing::new(p))).map_err(|e| Failure::Other(e.to_string()))
+    std::str::from_utf8(&password).map(|p| Some(Zeroizing::new(p.to_string()))).map_err(|e| Failure::Other(e.to_string()))
 }
 
 /// What was sealed for `database` goes (a new key, or the database removed).
@@ -120,11 +122,14 @@ pub fn forget_all() {
     }
 }
 
+fn failed(e: windows::core::Error) -> Failure {
+    Failure::Other(format!("Windows Hello: {}", e.message()))
+}
+
 /// The app's Windows Hello key; with `create`, made when there is none (Windows
-/// Hello asks the user). `None` when there is none, or the user declined.
-fn open_key(create: bool) -> Result<Option<KeyCredential>, String> {
+/// Hello asks the user). `None` when there is none.
+fn open_key(create: bool) -> Result<Option<KeyCredential>, Failure> {
     let name = HSTRING::from(KEY_NAME);
-    let failed = |e: windows::core::Error| format!("Windows Hello: {}", e.message());
     let opened = KeyCredentialManager::OpenAsync(&name).and_then(|r| r.join()).map_err(failed)?;
     let result = match opened.Status().map_err(failed)? {
         KeyCredentialStatus::NotFound if create => {
@@ -136,15 +141,14 @@ fn open_key(create: bool) -> Result<Option<KeyCredential>, String> {
     };
     match result.Status().map_err(failed)? {
         KeyCredentialStatus::Success => result.Credential().map(Some).map_err(failed),
-        KeyCredentialStatus::NotFound | KeyCredentialStatus::UserCanceled => Ok(None),
-        status => Err(format!("Windows Hello did not open the key (status {})", status.0)),
+        KeyCredentialStatus::NotFound => Ok(None),
+        KeyCredentialStatus::UserCanceled => Err(Failure::Cancelled),
+        status => Err(Failure::Other(format!("Windows Hello did not open the key (status {})", status.0))),
     }
 }
 
-/// `data` signed with the key, once Windows Hello confirms; `None` when the
-/// user cancelled.
-fn sign(key: &KeyCredential, data: &[u8]) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
-    let failed = |e: windows::core::Error| format!("Windows Hello: {}", e.message());
+/// `data` signed with the key, once Windows Hello confirms.
+fn sign(key: &KeyCredential, data: &[u8]) -> Result<Zeroizing<Vec<u8>>, Failure> {
     let buffer = CryptographicBuffer::CreateFromByteArray(data).map_err(failed)?;
     let signing = key.RequestSignAsync(&buffer).map_err(failed)?;
     to_front();
@@ -153,10 +157,12 @@ fn sign(key: &KeyCredential, data: &[u8]) -> Result<Option<Zeroizing<Vec<u8>>>, 
         KeyCredentialStatus::Success => {
             let mut signature = Array::<u8>::new();
             CryptographicBuffer::CopyToByteArray(&result.Result().map_err(failed)?, &mut signature).map_err(failed)?;
-            Ok(Some(Zeroizing::new(signature.to_vec())))
+            let entropy = Zeroizing::new(signature.to_vec());
+            zeroize::Zeroize::zeroize(&mut *signature);
+            Ok(entropy)
         }
-        KeyCredentialStatus::UserCanceled => Ok(None),
-        status => Err(format!("Windows Hello did not sign (status {})", status.0)),
+        KeyCredentialStatus::UserCanceled => Err(Failure::Cancelled),
+        status => Err(Failure::Other(format!("Windows Hello did not sign (status {})", status.0))),
     }
 }
 

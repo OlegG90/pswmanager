@@ -62,14 +62,15 @@ uploads anything, and setting up sync never picks another database.
   *Settings → Database*.
 - **Windows Hello** (#235), as the phone's fingerprint: with *Unlock with Windows Hello* on (the default;
   offered only where Windows Hello is set up), an unlock with the master password seals it for that
-  database when none is sealed or it was due, and Windows Hello asks once (the first time, to make the
-  app's key). The unlock screen then shows **Unlock with Windows Hello** (face, fingerprint or PIN), and
+  database when none is sealed or it was due, once the window has the database: Windows Hello asks once
+  (the first time twice, to make the app's key first). The unlock screen then shows **Unlock with Windows Hello** (face, fingerprint or PIN), and
   *Unlock* with no password typed does the same; shown from the tray or the hotkey, the window asks at
   once. Closing Windows Hello's prompt goes back to the password field.
   - Sealed: the master password, encrypted with DPAPI for this Windows user with the signature of a random
     challenge by the user's Windows Hello key (`KeyCredentialManager`, in the TPM, signing only after Windows
     Hello asks) as the entropy, kept in the Credential Manager (`pswmanager:hello:<database file>`) with the
-    challenge and the time it was sealed. The key file stays where it is and is read as for any unlock.
+    challenge and the time it was sealed. The key file stays where it is and is read as for any unlock;
+    choosing another key file or none deletes what was sealed.
   - The **master password is asked again every 14 days** (*Master password*: 1–90 days), after the key
     changed (here: *Change…* or a key another device set), when the sealed one no longer opens the database
     (it is deleted), and after Windows Hello was set up again. Turning the setting off deletes every sealed
