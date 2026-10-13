@@ -8,6 +8,7 @@ mod clipboard;
 mod credentials;
 mod data_dir;
 mod file_watch;
+mod hello;
 mod session_watch;
 mod sync;
 mod tray;
@@ -195,6 +196,7 @@ fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
     let cloud = cloud_of(&store, Path::new(&file));
     let status = choose(app.clone(), |s| s.remove(Path::new(&file)))?;
     forget_if_unused(&app, cloud);
+    hello::forget(Path::new(&file));
     Ok(status)
 }
 
@@ -350,6 +352,8 @@ fn change_master_key(app: AppHandle, current: String, password: String, key_file
     // still on the old key, opens no more.
     sync::sync_first(&app).map_err(|e| format!("The database could not sync first ({e}); the key is unchanged"))?;
     app.state::<Session>().with_mut(|v| v.change_key(current, non_empty(&password), key_file.as_deref()))?;
+    // Sealed again at the next unlock with the new master password.
+    hello::forget(&known.file);
     let status = choose(app.clone(), |s| {
         if let Some(d) = s.current_mut() {
             d.key_file = key_file;
@@ -392,6 +396,11 @@ fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -
     }
     need_key(&app, |k| k.local = false); // the remote file's is the sync's
     let key_taken = session.read(|v| v.uses_key(&given))??;
+    if key_taken {
+        if let Some(file) = app.state::<Store>().read(|s| s.current().map(|d| d.file.clone())) {
+            hello::forget(&file);
+        }
+    }
     choose(app, |s| {
         if let Some(d) = s.current_mut().filter(|_| key_taken) {
             d.key_file = key_file;
@@ -509,6 +518,9 @@ fn stop_sync(app: AppHandle) -> Result<Status, String> {
         return Err("Lock the database first: its file moves out of the app's data folder".into());
     }
     let kept = if in_sync_folder { sync::keep_as_local(&store, &file)? } else { file.clone() };
+    if kept != file {
+        hello::forget(&file);
+    }
     let cloud = cloud_of(&store, &file);
     // The same entry, in place: its key file and position stay.
     let status = choose(app.clone(), |s| {
@@ -639,28 +651,81 @@ fn clear_key_file(app: AppHandle) -> Result<Status, String> {
     })
 }
 
+/// Unlocks with the master password and / or the key file. With Windows Hello
+/// unlock on and no password sealed for it, or the sealed one due, the
+/// password is then sealed (Windows Hello asks once; declining changes
+/// nothing else).
 #[tauri::command(async)]
-fn unlock(app: AppHandle, store: State<Store>, session: State<Session>, password: String) -> Result<Listing, String> {
+fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
+    let password = non_empty(&password);
+    let (listing, database) = open(&app, password)?;
+    let store = app.state::<Store>();
+    let settings = Settings::of(&store);
+    if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
+        let _ = hello::seal(&database, password);
+    }
+    Ok(listing)
+}
+
+/// Whether the unlock screen offers Windows Hello: it is on, and a password
+/// is sealed for the database that is not due.
+#[tauri::command(async)]
+fn hello_ready(store: State<Store>) -> bool {
+    let settings = Settings::of(&store);
+    let current = store.read(|s| s.current().map(|d| d.file.clone()));
+    settings.biometric_unlock() && current.is_some_and(|file| hello::ready(&file, settings.password_every()))
+}
+
+/// The answer when the user closed Windows Hello's prompt.
+const CANCELLED: &str = "cancelled";
+
+/// Unlocks with the password sealed for Windows Hello. One that no longer
+/// opens the database (its key changed elsewhere) goes: the master password
+/// is asked for, and the new one sealed.
+#[tauri::command(async)]
+fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
+    const MASTER: &str = "Unlock with the master password";
+    if !hello_ready(app.state()) {
+        return Err(MASTER.into());
+    }
+    let database = app.state::<Store>().read(|s| s.current().map(|d| d.file.clone())).ok_or("Choose a database first")?;
+    let password = hello::unseal(&database).map_err(|failure| match failure {
+        hello::Failure::Cancelled => CANCELLED.to_string(),
+        hello::Failure::NotSealed => MASTER.into(),
+        hello::Failure::Other(message) => message,
+    })?;
+    match open(&app, password.as_deref().map(String::as_str)) {
+        Err(e) if e == dbfile::WRONG_KEY => {
+            hello::forget(&database);
+            Err("The database's key has changed: unlock with the new master password".into())
+        }
+        opened => opened.map(|(listing, _)| listing),
+    }
+}
+
+/// Opens the current database with this password and its key file, and makes
+/// it the session's; returns its listing and file.
+fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), String> {
+    let (store, session) = (app.state::<Store>(), app.state::<Session>());
     sync::ensure_working_copy(&store)?;
     let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
     let (database, key_file, synced) = (current.file, current.key_file, current.remote.is_some());
-    let password = (!password.is_empty()).then_some(password.as_str());
     // Another device may have moved a synced database to a new key meanwhile (#203).
     let vault = Vault::open_current(&store, &database, vault::key(password, key_file.as_deref())?)?;
     let listing = vault.listing();
-    fetch_icons(&app, &listing);
-    show_database(&app, &listing.database);
+    fetch_icons(app, &listing);
+    show_database(app, &listing.database);
     // Touched first, so the inactivity check never sees a fresh vault as idle.
     app.state::<Activity>().touch();
     session.set(Some(vault));
     if synced {
         // Only this app writes the working copy; the remote file is what changes.
-        sync::request(&app);
+        sync::request(app);
     } else {
-        watch_database(&app, &database);
+        watch_database(app, &database);
     }
-    Ok(listing)
+    Ok((listing, database))
 }
 
 /// Picks up changes other devices make while the database is open. Without a
@@ -1180,10 +1245,16 @@ struct SettingsView {
     #[serde(flatten)]
     settings: settings::View,
     start_with_windows: bool,
+    /// Windows Hello is set up on this PC: unlocking with it is offered.
+    windows_hello: bool,
 }
 
 fn settings_view(app: &AppHandle) -> SettingsView {
-    SettingsView { settings: Settings::of(&app.state()).view(), start_with_windows: tray::autostart_enabled(app) }
+    SettingsView {
+        settings: Settings::of(&app.state()).view(),
+        start_with_windows: tray::autostart_enabled(app),
+        windows_hello: hello::available(),
+    }
 }
 
 #[tauri::command(async)]
@@ -1199,9 +1270,12 @@ fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result
     } else if name == "hotkey" {
         change_hotkey(&app, value.as_str().ok_or("A hotkey is a key combination")?)?;
     } else {
+        let off = value == false;
         Settings::of(&app.state()).set(&name, value)?;
         if name == "theme" {
             window::apply_theme(&app);
+        } else if name == "biometricUnlock" && off {
+            hello::forget_all();
         }
     }
     Ok(settings_view(&app))
@@ -1350,6 +1424,8 @@ pub fn run() {
             pick_key_file,
             clear_key_file,
             unlock,
+            hello_ready,
+            unlock_with_hello,
             lock,
             listing,
             database_settings,

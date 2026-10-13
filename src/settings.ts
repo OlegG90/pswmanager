@@ -14,6 +14,7 @@ const minutes = (never: string): Choice[] =>
 const LOCK_AFTER = minutes('Never')
 const SYNC_EVERY = minutes('Off')
 const CLEAR_AFTER: Choice[] = [5, 10, 20, 30, 60, 120].map((s) => [s, `${s} s`])
+const PASSWORD_EVERY: Choice[] = [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`])
 const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
 
 /** A switch: a button that is on or off. */
@@ -280,7 +281,13 @@ export async function renderSettings(
             select('Lock after inactivity', s.lockAfterMinutes, LOCK_AFTER, 'min', set('lockAfterMinutes'))),
           row('Lock when Windows locks', 'Also when the session is switched',
             toggle('Lock when Windows locks', s.lockOnSessionLock, set('lockOnSessionLock'))),
-          row('Lock when hidden to tray', '', toggle('Lock when hidden to tray', s.lockWhenHidden, set('lockWhenHidden')))),
+          row('Lock when hidden to tray', '', toggle('Lock when hidden to tray', s.lockWhenHidden, set('lockWhenHidden'))),
+          ...(s.windowsHello ? [
+            row('Unlock with Windows Hello', 'Face, fingerprint or PIN, once the master password was given',
+              toggle('Unlock with Windows Hello', s.biometricUnlock, set('biometricUnlock'))),
+            row('Master password', 'Asked for again after',
+              select('Master password asked for again after', s.passwordEveryDays, PASSWORD_EVERY, 'days', set('passwordEveryDays'))),
+          ] : [])),
         group('Clipboard',
           row('Clear clipboard after copying', 'Only if it still holds the copied value',
             select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),

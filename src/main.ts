@@ -126,6 +126,37 @@ function showUnlock(status: Status) {
   chooseView.replaceChildren()
   unlockForm.hidden = settingsOpen
   if (!settingsOpen) passwordInput.focus()
+  void offerHello()
+}
+
+/** Windows Hello is offered for the current database (#235). */
+let helloReady = false
+/** Windows Hello's prompt is open: another one waits for it. */
+let helloOpen = false
+
+/** Shows Unlock with Windows Hello when it can unlock the current database. */
+async function offerHello() {
+  helloReady = await api.helloReady().catch(() => false)
+  $('hello-button').hidden = !helloReady
+}
+
+/** Unlocks with Windows Hello; closing its prompt leaves the password field. */
+function unlockWithHello() {
+  if (helloOpen) return
+  helloOpen = true
+  run(async () => {
+    try {
+      showVault(await api.unlockWithHello())
+    } catch (e) {
+      if (String(e) !== 'cancelled') throw e
+    }
+  }).finally(() => {
+    helloOpen = false
+    if (!unlocked) {
+      void offerHello()
+      if (!unlockForm.hidden) passwordInput.focus()
+    }
+  })
 }
 
 function showChoose(status: Status) {
@@ -151,15 +182,19 @@ $('database-select').addEventListener('change', async (e) => {
   await run(async () => {
     showStatus(await api.selectDatabase((e.target as HTMLSelectElement).value))
     passwordInput.focus()
+    void offerHello()
   })
   // A refused switch: the list shows again what opens.
   if (!unlockError.hidden) showStatus(await api.status())
 })
 $('pick-key-file').addEventListener('click', () => run(async () => showStatus(await api.pickKeyFile())))
 $('clear-key-file').addEventListener('click', () => run(async () => showStatus(await api.clearKeyFile())))
+$('hello-button').addEventListener('click', unlockWithHello)
 
 unlockForm.addEventListener('submit', (e) => {
   e.preventDefault()
+  // Enter with no password typed: Windows Hello, as on the phone.
+  if (!passwordInput.value && helloReady) return unlockWithHello()
   const button = $<HTMLButtonElement>('unlock-button')
   button.disabled = true
   run(async () => {
@@ -1319,7 +1354,12 @@ listen('window-shown', () => {
   if (settingsOpen || reportOpen) return
   if (unlocked) searchInput.focus()
   else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
-  else passwordInput.focus()
+  else {
+    passwordInput.focus()
+    // Shown from the tray or the hotkey: Windows Hello asks at once, as the
+    // phone does coming back from another app.
+    if (!unlockForm.hidden && helloReady) unlockWithHello()
+  }
 })
 // A database named on the command line of a second launch was chosen.
 listen('status-changed', async () => {
