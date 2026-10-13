@@ -322,23 +322,6 @@ fn key_file_content(app: &AppHandle, store: &Store) -> Result<Option<Zeroizing<V
     Ok(Some(Zeroizing::new(content.ok_or(format!("Cannot read the key file {}: it is gone", picked.name))?)))
 }
 
-/// The user was checked again for an export (#240): when, so the export that
-/// follows is allowed, within a few minutes, until a file is written.
-#[derive(Default)]
-pub(crate) struct ExportAllowed(std::sync::Mutex<Option<std::time::Instant>>);
-
-impl ExportAllowed {
-    /// Whether a check allows an export now.
-    pub(crate) fn allows(&self) -> bool {
-        self.0.lock().unwrap().is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(5 * 60))
-    }
-
-    /// A file was written: the next export is checked again.
-    pub(crate) fn used(&self) {
-        self.0.lock().unwrap().take();
-    }
-}
-
 /// Checks the user again before an export: the master password (with the
 /// database's key file), or with none, the fingerprint. Every secret goes into
 /// the file in clear, so being unlocked is not enough.
@@ -367,8 +350,7 @@ async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), 
         if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
             return Err("The master password is not right".into());
         }
-        *app.state::<ExportAllowed>().0.lock().unwrap() = Some(std::time::Instant::now());
-        Ok(())
+        app.state::<Session>().allow_export()
     })
     .await
 }

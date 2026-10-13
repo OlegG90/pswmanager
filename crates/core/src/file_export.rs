@@ -39,12 +39,17 @@ pub struct Export {
 /// The entries as CSV, the columns Google Password Manager and Chrome write
 /// (browsers, Bitwarden and 1Password read them) and the TOTP.
 pub fn csv<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Export {
-    let mut content = Zeroizing::new(String::from("name,url,username,password,note,totp\r\n"));
-    let (mut count, mut passkeys, mut with_fields, mut with_files) = (0, 0, 0, 0);
-    for entry in entries {
-        count += 1;
-        let get = |name| entry.get(name).unwrap_or("");
-        let cells = [get(fields::TITLE), get(fields::URL), get(fields::USERNAME), get(fields::PASSWORD), get(fields::NOTES), get(fields::OTP)];
+    const HEADER: &str = "name,url,username,password,note,totp\r\n";
+    const COLUMNS: [&str; 6] = [fields::TITLE, fields::URL, fields::USERNAME, fields::PASSWORD, fields::NOTES, fields::OTP];
+    let entries: Vec<EntryRef<'a>> = entries.collect();
+    // At its full size at once: a string that grows leaves copies of the
+    // secrets it held behind, which nothing wipes.
+    let most = entries.iter().map(|e| COLUMNS.iter().map(|c| 2 * e.get(c).map_or(0, str::len) + 3).sum::<usize>() + 2).sum::<usize>();
+    let mut content = Zeroizing::new(String::with_capacity(HEADER.len() + most));
+    content.push_str(HEADER);
+    let (mut passkeys, mut with_fields, mut with_files) = (0, 0, 0);
+    for entry in &entries {
+        let cells = COLUMNS.map(|c| entry.get(c).unwrap_or(""));
         for (n, cell) in cells.iter().enumerate() {
             if n > 0 {
                 content.push(',');
@@ -69,12 +74,13 @@ pub fn csv<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Export {
     left_out.extend(note(with_fields, "Additional fields"));
     left_out.extend(note(with_files, "Attachments"));
     left_out.push("Groups, tags, icons, expiry and history".into());
-    Export { content, entries: count, left_out }
+    Export { content, entries: entries.len(), left_out }
 }
 
-/// A CSV cell, quoted when it holds a comma, a quote or a line break.
+/// A CSV cell, quoted when it holds a comma, a quote or a line break, or
+/// starts or ends with a space (which a reader may trim otherwise).
 fn push_cell(out: &mut String, cell: &str) {
-    if cell.contains([',', '"', '\n', '\r']) {
+    if cell.contains([',', '"', '\n', '\r']) || cell.trim() != cell {
         out.push('"');
         for c in cell.chars() {
             if c == '"' {
@@ -120,6 +126,7 @@ mod tests {
         entry.set_unprotected(fields::USERNAME, "alice@example.com");
         entry.set_protected(fields::PASSWORD, "pa\"ss");
         entry.set_unprotected(fields::NOTES, "two\nlines");
+        entry.set_protected(fields::OTP, "JBSWY3DPEHPK3PXP");
         entry.set_protected(passkey::PRIVATE_KEY, "key");
         let export = csv(db.iter_all_entries());
         assert_eq!(export.entries, 1);
@@ -129,6 +136,8 @@ mod tests {
         assert_eq!((data.title.as_str(), data.url.as_str()), ("Mail, personal", "https://mail.example.com"));
         assert_eq!((data.username.as_str(), data.password.as_str()), ("alice@example.com", "pa\"ss"));
         assert_eq!(data.notes, "two\nlines");
+        assert_eq!(data.otp, "JBSWY3DPEHPK3PXP");
+        assert!(export.content.len() <= export.content.capacity());
     }
 
     #[test]

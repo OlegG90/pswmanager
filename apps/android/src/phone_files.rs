@@ -122,11 +122,11 @@ pub(crate) fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
-/// A file's name as given for a key file: trimmed, and a name, not a path.
+/// A file's name as given (a key file, an export…): trimmed, and a name, not a path.
 pub(crate) fn file_name(name: &str) -> Result<String, String> {
     let name = name.trim();
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
-        return Err("Give the key file a name".into());
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
+        return Err("Give the file a name (without / or \\)".into());
     }
     Ok(name.to_string())
 }

@@ -1242,14 +1242,6 @@ fn delete_imported_file(app: AppHandle) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
 }
 
-/// The user was checked again for an export (#240): when, so the export
-/// that follows is allowed, within a few minutes, until a file is written.
-#[derive(Default)]
-struct ExportAllowed(Mutex<Option<std::time::Instant>>);
-
-/// How long a check allows the export that follows.
-const EXPORT_WINDOW: Duration = Duration::from_secs(5 * 60);
-
 /// Checks the user again before an export: the master password (with the
 /// database's key file), or with none, Windows Hello. Every secret goes into
 /// the file in clear, so being unlocked is not enough.
@@ -1274,8 +1266,7 @@ fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String
     if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
         return Err("The master password is not right".into());
     }
-    *app.state::<ExportAllowed>().0.lock().unwrap() = Some(std::time::Instant::now());
-    Ok(())
+    app.state::<Session>().allow_export()
 }
 
 /// What an export wrote.
@@ -1293,11 +1284,8 @@ struct Exported {
 /// chosen. Never over a file that is there.
 #[tauri::command(async)]
 fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<Exported>, String> {
-    let allowed = app.state::<ExportAllowed>();
-    if !allowed.0.lock().unwrap().is_some_and(|at| at.elapsed() < EXPORT_WINDOW) {
-        return Err("Confirm with the master password or Windows Hello first".into());
-    }
-    let (name, export) = app.state::<Session>().read(|v| v.export_file(format))?;
+    let session = app.state::<Session>();
+    let (name, export) = session.export(format)?;
     let (filter, extensions): (&str, &[&str]) = match format {
         file_export::Format::Csv => ("CSV", &["csv"]),
         file_export::Format::Cxf => ("Credential Exchange (JSON)", &["json"]),
@@ -1311,9 +1299,13 @@ fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> R
         .create_new(true)
         .open(&path)
         .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { format!("{shown} is there already: choose another name") } else { format!("Cannot write {shown}: {e}") })?;
-    std::io::Write::write_all(&mut file, export.content.as_bytes()).map_err(|e| format!("Cannot write {shown}: {e}"))?;
-    // Used up by a file written: the next export is checked again.
-    allowed.0.lock().unwrap().take();
+    if let Err(e) = std::io::Write::write_all(&mut file, export.content.as_bytes()) {
+        // Not half a file of secrets left behind.
+        drop(file);
+        let _ = std::fs::remove_file(&path);
+        return Err(format!("Cannot write {shown}: {e}"));
+    }
+    session.exported();
     Ok(Some(Exported { file: shown, entries: export.entries, left_out: export.left_out }))
 }
 
@@ -1540,7 +1532,6 @@ pub fn run() {
         .manage(Notice::default())
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
-        .manage(ExportAllowed::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,

@@ -8,7 +8,7 @@
 use crate::app::off_main;
 use crate::documents::Documents;
 use pswm_core::cxf::{self, Import, Skipped};
-use pswm_core::file_export::{Export, Format};
+use pswm_core::file_export::Format;
 use pswm_core::file_import;
 use pswm_core::session::Session;
 use pswm_core::vault::Listing;
@@ -31,7 +31,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .setup(|app, api| {
             app.manage(Transfer(api.register_android_plugin("io.github.olegg90.pswmanager", "TransferPlugin")?));
             app.manage(ImportedFile::default());
-            app.manage(crate::app::ExportAllowed::default());
             Ok(())
         })
         .build()
@@ -186,24 +185,17 @@ pub struct Exported {
     left_out: Vec<String>,
 }
 
-/// The export, once `confirm_export` allowed it.
-fn export(app: &AppHandle, format: Format) -> Result<(String, Export), String> {
-    if !app.state::<crate::app::ExportAllowed>().allows() {
-        return Err("Confirm with the fingerprint or the master password first".into());
-    }
-    app.state::<Session>().read(|v| v.export_file(format))
-}
-
 /// Writes the entries in use to a new file (#240) where Android's save picker
 /// puts it; `None` when none was chosen.
 #[tauri::command]
 pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported>, String> {
     off_main(move || {
-        let (name, export) = export(&app, format)?;
+        let session = app.state::<Session>();
+        let (name, export) = session.export(format)?;
         let documents = app.state::<Documents<Wry>>();
         let Some(uri) = documents.pick_to_save(&name)? else { return Ok(None) };
         documents.write(&uri, export.content.as_bytes()).map_err(|e| format!("Cannot write {name}: {e}"))?;
-        app.state::<crate::app::ExportAllowed>().used();
+        session.exported();
         Ok(Some(Exported { file: name, entries: export.entries, left_out: export.left_out }))
     })
     .await
@@ -214,7 +206,8 @@ pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<Exported
 #[tauri::command]
 pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<Exported, String> {
     off_main(move || {
-        let (_, export) = export(&app, format)?;
+        let session = app.state::<Session>();
+        let (_, export) = session.export(format)?;
         let name = crate::phone_files::file_name(&name)?;
         let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
         // A new file only: never over one there, nor through a link to one.
@@ -223,8 +216,13 @@ pub async fn export_at(app: AppHandle, format: Format, folder: String, name: Str
             .create_new(true)
             .open(&path)
             .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists { format!("{name} is there already: choose another name") } else { format!("Cannot write {name}: {e}") })?;
-        std::io::Write::write_all(&mut file, export.content.as_bytes()).map_err(|e| format!("Cannot write {name}: {e}"))?;
-        app.state::<crate::app::ExportAllowed>().used();
+        if let Err(e) = std::io::Write::write_all(&mut file, export.content.as_bytes()) {
+            // Not half a file of secrets left behind.
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err(format!("Cannot write {name}: {e}"));
+        }
+        session.exported();
         Ok(Exported { file: name, entries: export.entries, left_out: export.left_out })
     })
     .await
