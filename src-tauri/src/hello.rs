@@ -11,7 +11,9 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use pswm_core::backup::now;
+use std::sync::OnceLock;
+use std::time::Duration;
 use windows::core::{Array, HSTRING};
 use windows::Security::Credentials::{KeyCredential, KeyCredentialCreationOption, KeyCredentialManager, KeyCredentialStatus};
 use windows::Security::Cryptography::CryptographicBuffer;
@@ -51,17 +53,14 @@ fn name(database: &Path) -> String {
     format!("{PREFIX}{}", database.display())
 }
 
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
 fn read(database: &Path) -> Option<Sealed> {
     serde_json::from_str(&crate::credentials::read(&name(database))?).ok()
 }
 
-/// Whether this PC has Windows Hello set up for the user.
+/// Whether this PC has Windows Hello set up for the user; asked once a run.
 pub fn available() -> bool {
-    KeyCredentialManager::IsSupportedAsync().and_then(|r| r.join()).unwrap_or(false)
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| KeyCredentialManager::IsSupportedAsync().and_then(|r| r.join()).unwrap_or(false))
 }
 
 /// Whether a password is sealed for `database` that is not older than `every`.
@@ -74,14 +73,14 @@ pub fn ready(database: &Path, every: Duration) -> bool {
 pub fn seal(database: &Path, password: Option<&str>) -> Result<(), Failure> {
     let key = open_key(true)?.ok_or(Failure::NotSealed)?;
     let mut challenge = [0u8; 32];
-    getrandom::fill(&mut challenge).map_err(|e| Failure::Other(e.to_string()))?;
+    getrandom::fill(&mut challenge).map_err(other)?;
     let entropy = sign(&key, &challenge)?;
     let password = match password {
         Some(password) => B64.encode(protect(password.as_bytes(), &entropy).map_err(Failure::Other)?),
         None => String::new(),
     };
     let sealed = Sealed { challenge: B64.encode(challenge), password, sealed: now() };
-    let sealed = serde_json::to_string(&sealed).map_err(|e| Failure::Other(e.to_string()))?;
+    let sealed = serde_json::to_string(&sealed).map_err(other)?;
     crate::credentials::write(&name(database), &sealed).map_err(Failure::Other)
 }
 
@@ -94,18 +93,18 @@ pub fn unseal(database: &Path) -> Result<Option<Zeroizing<String>>, Failure> {
         forget(database);
         return Err(Failure::NotSealed);
     };
-    let challenge = B64.decode(&sealed.challenge).map_err(|e| Failure::Other(e.to_string()))?;
+    let challenge = B64.decode(&sealed.challenge).map_err(other)?;
     let entropy = sign(&key, &challenge)?;
     if sealed.password.is_empty() {
         return Ok(None);
     }
-    let encrypted = B64.decode(&sealed.password).map_err(|e| Failure::Other(e.to_string()))?;
+    let encrypted = B64.decode(&sealed.password).map_err(other)?;
     let password = unprotect(&encrypted, &entropy).map_err(|_| {
         // Another key now (Windows Hello was set up again): this one is no use.
         forget(database);
         Failure::NotSealed
     })?;
-    std::str::from_utf8(&password).map(|p| Some(Zeroizing::new(p.to_string()))).map_err(|e| Failure::Other(e.to_string()))
+    std::str::from_utf8(&password).map(|p| Some(Zeroizing::new(p.to_string()))).map_err(other)
 }
 
 /// What was sealed for `database` goes (a new key, or the database removed).
@@ -120,6 +119,10 @@ pub fn forget_all() {
     if let Ok(deleting) = KeyCredentialManager::DeleteAsync(&HSTRING::from(KEY_NAME)) {
         let _ = deleting.join();
     }
+}
+
+fn other(e: impl ToString) -> Failure {
+    Failure::Other(e.to_string())
 }
 
 fn failed(e: windows::core::Error) -> Failure {
