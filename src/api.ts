@@ -285,6 +285,12 @@ export interface Settings {
   /** The show / hide hotkey, e.g. `Ctrl+Alt+P`. */
   hotkey: string
   startWithWindows: boolean
+  /** Unlock with Windows Hello once the master password was given (#235). */
+  biometricUnlock: boolean
+  /** Days between asking for the master password when Windows Hello unlocks. */
+  passwordEveryDays: number
+  /** Windows Hello is set up on this PC (not a setting). */
+  windowsHello: boolean
 }
 
 /** An entry the password health check lists, and why. */
@@ -374,6 +380,10 @@ export const api = {
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
+  /** Whether the unlock screen offers Windows Hello for the current database. */
+  helloReady: () => invoke<boolean>('hello_ready'),
+  /** Fails with `cancelled` when the user closed Windows Hello's prompt. */
+  unlockWithHello: () => invoke<Listing>('unlock_with_hello'),
   lock: () => invoke<void>('lock'),
   listing: () => invoke<Listing>('listing'),
   databaseSettings: () => invoke<DatabaseSettings>('database_settings'),

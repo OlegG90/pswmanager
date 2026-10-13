@@ -376,6 +376,10 @@ input[type='range']:focus-visible {
   font-size: 17px;
 }
 
+#hello-button {
+  height: 38px;
+}
+
 #unlock-error {
   color: var(--color-danger);
   font-size: 13px;
