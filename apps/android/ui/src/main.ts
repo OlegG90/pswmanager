@@ -11,8 +11,9 @@ import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
+import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
-import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Exported, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -933,6 +934,7 @@ function toolsSheet(listing: Listing) {
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
     button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), fileImportSheet()), 'item'),
+    button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries for the same site and user name, to merge them', () => (close(), void similarScreen(listing)), 'item'),
   ])
 }
@@ -1056,6 +1058,59 @@ function fileImportSheet() {
     }, 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
   ])
+}
+
+/** Export to a file (#240): the format, the user checked again (the
+ *  fingerprint, or the master password), then where the file goes: the
+ *  phone's folders (All files access, #207) or Android's save picker. */
+function fileExportSheet() {
+  sheet((close) => [
+    el('b', {}, 'Export to a file'),
+    ...fileExportAbout(),
+    ...EXPORT_FORMATS.map(([format, name]) => button(name, `Export as ${name}`, () => (close(), void confirmExport(() => void exportAs(format))), 'item')),
+    button('Cancel', 'Cancel', close, 'link'),
+  ])
+}
+
+/** The fingerprint, or the master password; `then` once the export is allowed. */
+async function confirmExport(then: () => void) {
+  if (await api.biometricReady().catch(() => false)) {
+    try {
+      await api.confirmExport(null)
+      return then()
+    } catch (e) {
+      if (String(e) === 'cancelled') return
+      // The fingerprint could not: the master password instead.
+    }
+  }
+  sheet((close) => {
+    const password = el('input', { type: 'password', className: 'field', ariaLabel: 'Master password' })
+    const error = el('p', { className: 'error', hidden: true })
+    const ok = busyButton('Export', 'Export', async () => {
+      await api.confirmExport(password.value)
+      close()
+      then()
+    }, (message) => {
+      error.textContent = message
+      error.hidden = false
+    }, 'primary')
+    enterPresses(ok, password)
+    setTimeout(() => password.focus())
+    return [el('b', {}, 'Enter the master password to export'), password, error, ok, button('Cancel', 'Cancel', close, 'link')]
+  })
+}
+
+/** Where the file goes, then what was written. */
+async function exportAs(format: ExportFormat) {
+  try {
+    const name = await api.exportName(format)
+    const exported = await onPhone<Exported>('Where the file goes',
+      (done, picker) => browsePhone({ first: () => false, makeName: name, make: (folder, as) => api.exportAt(format, folder, as), done, picker }),
+      () => api.exportTo(format))
+    if (exported) sheet((close) => [el('b', {}, 'Exported'), ...exportedReport(exported), button('OK', 'OK', close, 'primary')])
+  } catch (e) {
+    snack(String(e))
+  }
 }
 
 /** What an import brought, and what it could not; after a file, deleting it

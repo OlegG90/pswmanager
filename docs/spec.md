@@ -480,6 +480,26 @@ while the database is locked):
   delete it the same way; through Android's picker, it reminds the user to delete it, as the app may not
   delete another app's file.
 
+## Export to a file
+
+- *Tools → Export to a file…* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
+  bin or templates) written to a file another password manager imports, the reverse of *Import from a
+  file*. A question offers the formats, each with what it carries:
+  - **CSV**: `name,url,username,password,note,totp`, the columns Google Password Manager and Chrome
+    write (browsers, Google Password Manager, Bitwarden and 1Password read them); logins only.
+  - **CXF JSON**: the Credential Exchange file the phone's Credential Transfer hands over
+    (`docs/cxp-research.md`): passwords, more URLs, TOTP, passkeys, notes, additional fields, groups as
+    collections; few managers read such a file yet.
+- The file holds every secret in clear, so being unlocked is not enough: the user is **checked again**
+  first, with Windows Hello (the phone: the fingerprint) where it unlocks, else the master password (with
+  the database's key file); that allows the export for 5 minutes, until a file is written. The file is
+  then named in the save dialog (the phone: in its folders with All files access, #207, or with
+  Android's save picker), `<database> export <date>.csv` / `.json` offered, and written **only as a new
+  file**, never over one there. Its content is built in memory that is wiped when dropped, never logged.
+- Afterwards the app says how many entries were written, what the format left out (CSV: passkeys,
+  additional fields, attachments, groups, tags, icons, expiry and history; CXF: attachments, icons,
+  expiry and history), and to delete the file once it is imported.
+
 ## Saving and synchronisation
 
 The app always works on the database's own file on this PC. Without sync the app keeps that file

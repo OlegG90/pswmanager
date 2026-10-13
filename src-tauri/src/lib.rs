@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -1242,6 +1242,52 @@ fn delete_imported_file(app: AppHandle) -> Result<(), String> {
     std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
 }
 
+/// Checks the user again before an export: the master password (with the
+/// database's key file), or with none, Windows Hello. Every secret goes into
+/// the file in clear, so being unlocked is not enough.
+#[tauri::command(async)]
+fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
+    let store = app.state::<Store>();
+    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
+    let password = match password.map(Zeroizing::new) {
+        Some(password) => Some(password),
+        None => {
+            if !hello_ready(app.state()) {
+                return Err("Enter the master password".into());
+            }
+            hello::unseal(&current.file).map_err(|failure| match failure {
+                hello::Failure::Cancelled => CANCELLED.to_string(),
+                hello::Failure::NotSealed => "Enter the master password".into(),
+                hello::Failure::Other(message) => message,
+            })?
+        }
+    };
+    let key = vault::key(password.as_deref().map(String::as_str).filter(|p| !p.is_empty()), current.key_file.as_deref())?;
+    if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
+        return Err("The master password is not right".into());
+    }
+    app.state::<Session>().allow_export()
+}
+
+/// Writes the entries in use to a new file the user names (#240, see
+/// [file_export]), once [confirm_export] allowed it. `None` when no file was
+/// chosen. Never over a file that is there.
+#[tauri::command(async)]
+fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<file_export::Exported>, String> {
+    let session = app.state::<Session>();
+    let export = session.export(format)?;
+    let (filter, extensions): (&str, &[&str]) = match format {
+        file_export::Format::Csv => ("CSV", &["csv"]),
+        file_export::Format::Cxf => ("Credential Exchange (JSON)", &["json"]),
+    };
+    let dialog = window.dialog().file().set_parent(&window).add_filter(filter, extensions).set_file_name(&export.name);
+    let Some(path) = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(None) };
+    let shown = path.display().to_string();
+    file_export::write_new(&path, &shown, export.content.as_bytes())?;
+    session.exported();
+    Ok(Some(export.written(shown)))
+}
+
 /// Merges entries into `keep`, moving them to the recycle bin; saves the file
 /// and returns the new listing.
 #[tauri::command(async)]
@@ -1497,6 +1543,8 @@ pub fn run() {
             unlock_with_hello,
             import_file,
             delete_imported_file,
+            confirm_export,
+            export_file,
             lock,
             listing,
             database_settings,

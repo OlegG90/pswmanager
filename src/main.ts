@@ -18,6 +18,7 @@ import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
 import { importFromFile } from './file-import'
+import { exportToFile } from './file-export'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
@@ -1208,6 +1209,8 @@ $('settings-button').before(menuButton('Tools for the whole database', [
   { label: 'Similar entries', title: 'Find entries for the same site and user name, to merge them', action: openSimilar },
   { label: 'Import from a file…', title: 'Add the entries another password manager exported (CSV, Bitwarden JSON)',
     action: () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e))) },
+  { label: 'Export to a file…', title: 'Write the entries to a file another password manager imports (CSV, CXF JSON)',
+    action: () => api.helloReady().then(exportToFile).catch((e) => notify(String(e))) },
 ], 'Tools'))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))

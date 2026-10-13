@@ -8,6 +8,8 @@
 use crate::app::off_main;
 use crate::documents::Documents;
 use pswm_core::cxf::{self, Import, Skipped};
+use pswm_core::documents::DocumentStore;
+use pswm_core::file_export::{self, Format};
 use pswm_core::file_import;
 use pswm_core::session::Session;
 use pswm_core::vault::Listing;
@@ -172,6 +174,46 @@ pub async fn delete_imported_file(app: AppHandle) -> Result<(), String> {
         std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
     })
     .await
+}
+
+/// Writes the entries in use to a new file (#240) where Android's save picker
+/// puts it; `None` when none was chosen.
+#[tauri::command]
+pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<file_export::Exported>, String> {
+    off_main(move || {
+        let session = app.state::<Session>();
+        let export = session.export(format)?;
+        let documents = app.state::<Documents<Wry>>();
+        let Some(uri) = documents.pick_to_save(&export.name)? else { return Ok(None) };
+        documents.write(&uri, export.content.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", export.name))?;
+        session.exported();
+        let name = export.name.clone();
+        Ok(Some(export.written(name)))
+    })
+    .await
+}
+
+/// Writes the entries in use to a new file `name` in a browsed folder (All
+/// files access), never over a file there.
+#[tauri::command]
+pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<file_export::Exported, String> {
+    off_main(move || {
+        let session = app.state::<Session>();
+        let export = session.export(format)?;
+        let name = crate::phone_files::file_name(&name)?;
+        let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
+        file_export::write_new(&path, &name, export.content.as_bytes())?;
+        session.exported();
+        Ok(export.written(name))
+    })
+    .await
+}
+
+/// The name an export's file is offered under.
+#[tauri::command]
+pub fn export_name(app: AppHandle, format: Format) -> Result<String, String> {
+    let name = app.state::<Session>().read(|v| v.database_name())?;
+    Ok(pswm_core::file_export::file_name(&name, format))
 }
 
 /// Adds what was read as new entries in the group `Imported from <exporter>
