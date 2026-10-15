@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Password health</title>
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#005FB8}a:hover{color:#003E92}
+.win{--bg:#F3F3F3;--layer:#F9F9F9;--card:#FFFFFF;--stroke:#E5E5E5;--text:#1B1B1B;--text2:#5D5D5D;--ctl:#FFFFFF;--ctlstroke:#E5E5E5;--ctlbottom:#C4C4C4;--subtle:rgba(0,0,0,.04);--subtle2:rgba(0,0,0,.06);--accent:#005FB8;--onaccent:#FFFFFF;--crit:#C42B1C;--critbg:#FDE7E9;--warn:#9D5D00;--warnbg:#FFF4CE;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg)}
+.win.dark{--bg:#202020;--layer:#272727;--card:#2B2B2B;--stroke:#1D1D1D;--text:#FFFFFF;--text2:#C5C5C5;--ctl:#2D2D2D;--ctlstroke:#353535;--ctlbottom:#2A2A2A;--subtle:rgba(255,255,255,.06);--subtle2:rgba(255,255,255,.08);--accent:#60CDFF;--onaccent:#000000;--crit:#FF99A4;--critbg:#442726;--warn:#FCE100;--warnbg:#433519}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-weight:600}
+.cap{font-size:12px;color:var(--text2)}
+.btn{font:inherit;font-size:14px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom-color:var(--ctlbottom);background:var(--ctl);color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.btn.subtle{background:transparent;border-color:transparent}
+.btn.icon{width:32px;padding:0}
+.capbtn{width:46px;height:48px;border:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center}
+.seg{font:inherit;height:36px;padding:0 4px;margin:0 10px;background:transparent;border:0;color:var(--text2);position:relative;display:flex;align-items:center;gap:8px}
+.seg.sel{color:var(--text);font-weight:600}
+.seg.sel::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:0;width:16px;height:3px;border-radius:2px;background:var(--accent)}
+.num{min-width:20px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:9px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;background:var(--subtle2);color:var(--text)}
+.stat{flex:1;display:flex;flex-direction:column;gap:4px;padding:16px 20px;background:var(--card);border:1px solid var(--stroke);border-radius:8px}
+.item{display:flex;align-items:center;gap:14px;padding:0 16px;height:64px}
+.item + .item{border-top:1px solid var(--stroke)}
+.mono{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#FFFFFF;font-weight:600;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:11px;font-size:12px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.c{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1}
+</style>
+</helmet>
+<div class="win {{themeClass}}" style="width: 1280px; height: 800px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="height: 48px; display: flex; align-items: center; gap: 8px; padding-left: 4px; flex: none">
+    <button class="btn subtle icon" style="width: 40px; height: 36px" aria-label="Back"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg></button>
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round" aria-hidden="true"><path d="M12 2.5l8 3v6c0 4.8-3.4 8.6-8 10-4.6-1.4-8-5.2-8-10v-6z"></path><circle cx="12" cy="11" r="2.5"></circle><path d="M12 13.5V17"></path></svg>
+    <span style="font-size: 12px; margin-left: 4px">PswManager — Password health</span>
+    <div style="margin-left: auto; display: flex">
+      <button class="capbtn" aria-label="Minimize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10"></path></svg></button>
+      <button class="capbtn" aria-label="Maximize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1"></rect></svg></button>
+      <button class="capbtn" aria-label="Close"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button>
+    </div>
+  </div>
+
+  <main style="flex: 1; min-height: 0; background: var(--layer); border-top: 1px solid var(--stroke); overflow: hidden; padding: 28px 0 0">
+    <div style="width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+      <div>
+        <h1 class="disp" style="margin: 0 0 4px; font-size: 28px; line-height: 36px">Password health</h1>
+        <div class="cap" style="font-size: 14px">Passwords worth changing among the 128 entries in use. Worked out on this PC; nothing is sent anywhere.</div>
+      </div>
+
+      <div style="display: flex; gap: 12px">
+        <div class="stat"><span class="disp" style="font-size: 28px; color: var(--crit)">4</span><span>Reused</span><span class="cap">The same password in more than one entry</span></div>
+        <div class="stat"><span class="disp" style="font-size: 28px; color: var(--crit)">3</span><span>Weak</span><span class="cap">Easy to guess</span></div>
+        <div class="stat"><span class="disp" style="font-size: 28px; color: var(--warn)">6</span><span>Unchanged for over a year</span><span class="cap">Counted from when the password was last set</span></div>
+      </div>
+
+      <div role="tablist" aria-label="Category" style="display: flex; margin-left: -10px">
+        <button class="seg sel" role="tab" aria-selected="true">Reused <span class="num">4</span></button>
+        <button class="seg" role="tab" aria-selected="false">Weak <span class="num">3</span></button>
+        <button class="seg" role="tab" aria-selected="false">Old <span class="num">6</span></button>
+      </div>
+
+      <div style="background: var(--card); border: 1px solid var(--stroke); border-radius: 8px">
+        <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+          <div class="item">
+            <div class="mono" style="background: {{it.color}}">{{it.letter}}</div>
+            <div style="flex: 1; display: flex; flex-direction: column; min-width: 0"><span>{{it.title}}</span><span class="cap">{{it.user}}</span></div>
+            <span class="pill" style="background: var(--critbg); color: var(--crit)"><svg class="i" viewBox="0 0 24 24" style="width: 12px; height: 12px" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>{{it.reason}}</span>
+            <button class="btn">Change password</button>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const items = [
+      ['Contoso Mail', 'alex.morgan@example.com', '#C239B3', 'Same as Tailspin Toys'],
+      ['Tailspin Toys', 'alex.morgan@example.com', '#D13438', 'Same as Contoso Mail'],
+      ['Litware Forum', 'amorgan', '#8764B8', 'Same as Wide World Travel'],
+      ['Wide World Travel', 'alexm', '#0078D4', 'Same as Litware Forum']
+    ].map(([title, user, color, reason]) => ({ title, user, color, reason, letter: title[0] }));
+    return { themeClass: (this.props.dark ?? false) ? 'dark' : '', items };
+  }
+}
+</script>
+</body>
+</html>

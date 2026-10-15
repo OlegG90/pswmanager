@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edit entry</title>
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#005FB8}a:hover{color:#003E92}
+.win{--bg:#F3F3F3;--layer:#F9F9F9;--card:#FFFFFF;--stroke:#E5E5E5;--text:#1B1B1B;--text2:#5D5D5D;--ctl:#FFFFFF;--ctlstroke:#E5E5E5;--ctlbottom:#C4C4C4;--tbline:#868686;--subtle:rgba(0,0,0,.04);--subtle2:rgba(0,0,0,.06);--accent:#005FB8;--onaccent:#FFFFFF;--flyout:#FCFCFC;--chip:#FFF4CE;--chiptext:#5C4400;--good:#0F7B0F;--track:#C4C4C4;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg)}
+.win.dark{--bg:#202020;--layer:#272727;--card:#2B2B2B;--stroke:#1D1D1D;--text:#FFFFFF;--text2:#C5C5C5;--ctl:#2D2D2D;--ctlstroke:#353535;--ctlbottom:#2A2A2A;--tbline:#9A9A9A;--subtle:rgba(255,255,255,.06);--subtle2:rgba(255,255,255,.08);--accent:#60CDFF;--onaccent:#000000;--flyout:#2C2C2C;--chip:#4A3B12;--chiptext:#F7D98A;--good:#6CCB5F;--track:#5A5A5A}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-weight:600}
+.cap{font-size:12px;color:var(--text2)}
+.btn{font:inherit;font-size:14px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom-color:var(--ctlbottom);background:var(--ctl);color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.btn.accent{background:var(--accent);color:var(--onaccent);border-color:transparent}
+.btn.subtle{background:transparent;border-color:transparent}
+.btn.icon{width:32px;padding:0}
+.tb{display:flex;align-items:center;min-height:32px;box-sizing:border-box;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom:1px solid var(--tbline);background:var(--ctl);overflow:hidden}
+.tb.focus{border-bottom:2px solid var(--accent)}
+.tb input,.tb textarea{flex:1;min-width:0;border:0;background:transparent;font:inherit;color:var(--text);padding:0 11px;outline:none;height:30px}
+.tb textarea{height:64px;padding:6px 11px;resize:none}
+.lbl{display:block;margin-bottom:6px}
+.capbtn{width:46px;height:32px;border:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center}
+.nav{display:flex;align-items:center;justify-content:center;height:36px;width:40px;border-radius:4px;color:var(--text);position:relative;background:transparent;border:0}
+.nav.sel{background:var(--subtle2)}
+.nav.sel::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 4px 0 10px;border-radius:12px;background:var(--chip);color:var(--chiptext);font-size:12px}
+.chip button{width:18px;height:18px;border:0;border-radius:9px;background:transparent;color:inherit;display:flex;align-items:center;justify-content:center;padding:0}
+.tg{width:40px;height:20px;border-radius:10px;box-sizing:border-box;position:relative;flex:none;padding:0;border:1px solid var(--tbline);background:transparent}
+.tg::after{content:"";position:absolute;top:4px;left:4px;width:10px;height:10px;border-radius:5px;background:var(--text2)}
+.tg.on{background:var(--accent);border-color:var(--accent)}
+.tg.on::after{left:23px;background:var(--onaccent)}
+.cb{width:20px;height:20px;border-radius:4px;box-sizing:border-box;border:1px solid var(--tbline);background:transparent;padding:0;display:flex;align-items:center;justify-content:center;color:var(--onaccent)}
+.cb.on{background:var(--accent);border-color:var(--accent)}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.c{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1}
+</style>
+</helmet>
+<div class="win {{themeClass}}" style="width: 1280px; height: 800px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="height: 32px; display: flex; align-items: center; gap: 10px; padding-left: 16px; flex: none">
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round" aria-hidden="true"><path d="M12 2.5l8 3v6c0 4.8-3.4 8.6-8 10-4.6-1.4-8-5.2-8-10v-6z"></path><circle cx="12" cy="11" r="2.5"></circle><path d="M12 13.5V17"></path></svg>
+    <span style="font-size: 12px">PswManager</span>
+    <div style="margin-left: auto; display: flex">
+      <button class="capbtn" aria-label="Minimize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10"></path></svg></button>
+      <button class="capbtn" aria-label="Maximize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1"></rect></svg></button>
+      <button class="capbtn" aria-label="Close"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; min-height: 0">
+    <nav aria-label="Groups" style="width: 48px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 8px">
+      <button class="nav" aria-label="Back"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg></button>
+      <button class="nav sel" aria-label="All"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+      <button class="nav" aria-label="Favorites"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg></button>
+      <button class="nav" aria-label="2FA"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6zM9 12l2 2 4-4"></path></svg></button>
+      <button class="nav" aria-label="Trash"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 3h4M6 7l1 13h10l1-13M10 11v6M14 11v6"></path></svg></button>
+    </nav>
+
+    <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--layer); border-top: 1px solid var(--stroke); border-left: 1px solid var(--stroke); border-top-left-radius: 8px; position: relative">
+      <div style="flex: 1; min-height: 0; overflow: hidden; padding: 24px 40px 0">
+        <div style="font-size: 12px; color: var(--text2); margin-bottom: 4px">All › Northwind Bank</div>
+        <h1 class="disp" style="margin: 0 0 20px; font-size: 28px; line-height: 36px">Edit entry</h1>
+
+        <div style="width: 640px; display: flex; flex-direction: column; gap: 16px">
+          <div style="display: flex; gap: 16px; align-items: flex-end">
+            <div>
+              <span class="lbl">Icon</span>
+              <button class="btn" style="height: 32px; padding: 0 8px 0 4px" aria-label="Icon: Auto">
+                <span style="width: 24px; height: 24px; border-radius: 5px; background: #0E7C86; color: #FFFFFF; font-weight: 600; font-size: 12px; display: flex; align-items: center; justify-content: center">N</span>
+                Auto
+                <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+              </button>
+            </div>
+            <div style="flex: 1">
+              <label class="lbl" for="t">Title</label>
+              <div class="tb"><input id="t" value="Northwind Bank"></div>
+            </div>
+          </div>
+
+          <div>
+            <label class="lbl" for="u">User name</label>
+            <div class="tb"><input id="u" value="alex.morgan@example.com"></div>
+          </div>
+
+          <div>
+            <label class="lbl" for="p">Password</label>
+            <div style="display: flex; gap: 8px">
+              <div class="tb focus" style="flex: 1">
+                <input id="p" value="v7#Qm2!rTz9kLp4@xWe8" style="font-family: Consolas, 'Cascadia Mono', monospace; letter-spacing: .5px">
+                <button class="btn subtle icon" style="width: 28px; height: 28px; margin-right: 2px" aria-label="Hide password"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5c1.6 0 3 .5 4.2 1.1M21.5 12S18 18.5 12 18.5c-1.6 0-3-.5-4.2-1.1M4 20L20 4"></path></svg></button>
+              </div>
+              <button class="btn" style="background: var(--subtle2)" aria-expanded="true"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M9 9h.01M15 9h.01M12 12h.01M9 15h.01M15 15h.01" stroke-width="2.4"></path></svg>Generate</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px">
+              <div style="display: flex; gap: 3px">
+                <span style="width: 44px; height: 4px; border-radius: 2px; background: var(--good)"></span>
+                <span style="width: 44px; height: 4px; border-radius: 2px; background: var(--good)"></span>
+                <span style="width: 44px; height: 4px; border-radius: 2px; background: var(--good)"></span>
+                <span style="width: 44px; height: 4px; border-radius: 2px; background: var(--good)"></span>
+              </div>
+              <span class="cap" style="color: var(--good)">Very strong</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="lbl" for="w">Website</label>
+            <div class="tb"><input id="w" value="https://bank.example.com/login"></div>
+          </div>
+
+          <div>
+            <label class="lbl" for="tg">Tags</label>
+            <div class="tb" style="padding: 3px 4px; gap: 6px">
+              <span class="chip">finance<button aria-label="Remove tag finance"><svg class="c" viewBox="0 0 10 10" style="width: 8px; height: 8px" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button></span>
+              <span class="chip">personal<button aria-label="Remove tag personal"><svg class="c" viewBox="0 0 10 10" style="width: 8px; height: 8px" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button></span>
+              <input id="tg" placeholder="Add a tag" style="padding: 0 6px; height: 24px">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 16px">
+            <div style="flex: 1">
+              <label class="lbl" for="otp">TOTP secret</label>
+              <div class="tb"><input id="otp" type="password" value="JBSWY3DPEHPK3PXP"></div>
+            </div>
+            <div style="width: 220px">
+              <span class="lbl">Expires</span>
+              <button class="btn" style="width: 100%; justify-content: space-between"><span style="color: var(--text2)">Never</span><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16M8 3v4M16 3v4"></path></svg></button>
+            </div>
+          </div>
+
+          <div>
+            <label class="lbl" for="n">Notes</label>
+            <div class="tb" style="align-items: flex-start"><textarea id="n">Customer number on the card statement. Security questions are in the attached file.</textarea></div>
+          </div>
+        </div>
+      </div>
+
+      <div role="dialog" aria-label="Password generator" style="position: absolute; left: 696px; top: 236px; width: 340px; box-sizing: border-box; padding: 16px; background: var(--flyout); border: 1px solid var(--stroke); border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 14px">
+        <div style="font-weight: 600">Password generator</div>
+        <div style="display: flex; align-items: center; gap: 4px; padding: 8px 4px 8px 12px; border-radius: 4px; background: var(--subtle); border: 1px solid var(--stroke)">
+          <span style="flex: 1; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 14px; letter-spacing: .5px">v7#Qm2!rTz9kLp4@xWe8</span>
+          <button class="btn subtle icon" style="width: 28px; height: 28px" aria-label="Generate another"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3M18 3v4h-4M6 21v-4h4"></path></svg></button>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px"><span>Length</span><span style="font-variant-numeric: tabular-nums">20</span></div>
+          <div style="position: relative; height: 20px; display: flex; align-items: center" role="slider" aria-label="Length" aria-valuemin="8" aria-valuemax="64" aria-valuenow="20" tabindex="0">
+            <div style="position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--track)"></div>
+            <div style="position: absolute; left: 0; width: 21%; height: 4px; border-radius: 2px; background: var(--accent)"></div>
+            <div style="position: absolute; left: calc(21% - 10px); width: 20px; height: 20px; border-radius: 10px; background: var(--ctl); border: 1px solid var(--ctlstroke); box-sizing: border-box; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,.2)"><div style="width: 12px; height: 12px; border-radius: 6px; background: var(--accent)"></div></div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px">
+          <div style="display: flex; align-items: center; gap: 10px"><button class="tg on" role="switch" aria-checked="true" aria-label="Upper case"></button><span>A–Z</span></div>
+          <div style="display: flex; align-items: center; gap: 10px"><button class="tg on" role="switch" aria-checked="true" aria-label="Lower case"></button><span>a–z</span></div>
+          <div style="display: flex; align-items: center; gap: 10px"><button class="tg on" role="switch" aria-checked="true" aria-label="Digits"></button><span>0–9</span></div>
+          <div style="display: flex; align-items: center; gap: 10px"><button class="tg on" role="switch" aria-checked="true" aria-label="Symbols"></button><span>!@#$%</span></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px">
+          <button class="cb" role="checkbox" aria-checked="false" aria-label="Exclude look-alike characters"></button>
+          <span>Exclude look-alike characters (l, 1, O, 0)</span>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button class="btn accent" style="flex: 1">Use password</button>
+          <button class="btn" style="flex: 1">Cancel</button>
+        </div>
+      </div>
+
+      <div style="flex: none; display: flex; align-items: center; gap: 8px; padding: 14px 40px; border-top: 1px solid var(--stroke); background: var(--layer)">
+        <span class="cap">Additional attributes (1) · Files (1) — below</span>
+        <div style="margin-left: auto; display: flex; gap: 8px">
+          <button class="btn accent" style="width: 120px">Save</button>
+          <button class="btn" style="width: 120px">Cancel</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.dark ?? false) ? 'dark' : '' };
+  }
+}
+</script>
+</body>
+</html>
