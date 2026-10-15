@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vault</title>
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#005FB8}a:hover{color:#003E92}
+.win{--bg:#F3F3F3;--layer:#F9F9F9;--card:#FFFFFF;--stroke:#E5E5E5;--text:#1B1B1B;--text2:#5D5D5D;--ctl:#FFFFFF;--ctlstroke:#E5E5E5;--ctlbottom:#C4C4C4;--tbline:#868686;--subtle:rgba(0,0,0,.04);--subtle2:rgba(0,0,0,.06);--accent:#005FB8;--onaccent:#FFFFFF;--infobg:#DFF6DD;--infoicon:#0F7B0F;--chip:#FFF4CE;--chiptext:#5C4400;--star:#B57300;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg)}
+.win.dark{--bg:#202020;--layer:#272727;--card:#2B2B2B;--stroke:#1D1D1D;--text:#FFFFFF;--text2:#C5C5C5;--ctl:#2D2D2D;--ctlstroke:#353535;--ctlbottom:#2A2A2A;--tbline:#9A9A9A;--subtle:rgba(255,255,255,.06);--subtle2:rgba(255,255,255,.08);--accent:#60CDFF;--onaccent:#000000;--infobg:#393D1B;--infoicon:#6CCB5F;--chip:#4A3B12;--chiptext:#F7D98A;--star:#FCE100}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-weight:600}
+.cap{font-size:12px;color:var(--text2)}
+.btn{font:inherit;font-size:14px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom-color:var(--ctlbottom);background:var(--ctl);color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.btn.accent{background:var(--accent);color:var(--onaccent);border-color:transparent}
+.btn.subtle{background:transparent;border-color:transparent}
+.btn.subtle:hover{background:var(--subtle)}
+.btn.icon{width:32px;padding:0}
+.tb{display:flex;align-items:center;height:32px;box-sizing:border-box;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom:1px solid var(--tbline);background:var(--ctl);overflow:hidden}
+.tb input{flex:1;min-width:0;height:100%;border:0;background:transparent;font:inherit;color:var(--text);padding:0 11px;outline:none}
+.capbtn{width:46px;height:48px;border:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center}
+.nav{display:flex;align-items:center;gap:14px;height:36px;padding:0 12px;border-radius:4px;color:var(--text);position:relative;background:transparent;border:0;font:inherit;width:100%;text-align:left;box-sizing:border-box}
+.nav.sel{background:var(--subtle2)}
+.nav.sel::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--accent)}
+.count{margin-left:auto;font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums;min-width:24px;text-align:right}
+.navh{font-size:12px;font-weight:600;color:var(--text2);padding:14px 12px 6px}
+.row{display:flex;align-items:center;gap:12px;padding:0 12px;height:56px;border-radius:4px;position:relative;margin:0 4px}
+.row.sel{background:var(--subtle2)}
+.row.sel::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:2px;background:var(--accent)}
+.mono{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#FFFFFF;font-weight:600;font-size:14px;flex:none}
+.field{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px;min-height:44px}
+.field + .field{border-top:1px solid var(--stroke)}
+.fl{font-size:12px;color:var(--text2);margin-bottom:2px}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;background:var(--chip);color:var(--chiptext);font-size:12px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.c{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1}
+</style>
+</helmet>
+<div class="win {{themeClass}}" style="width: 1280px; height: 800px; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 48px; display: flex; align-items: center; gap: 12px; padding-left: 16px; flex: none">
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round" aria-hidden="true"><path d="M12 2.5l8 3v6c0 4.8-3.4 8.6-8 10-4.6-1.4-8-5.2-8-10v-6z"></path><circle cx="12" cy="11" r="2.5"></circle><path d="M12 13.5V17"></path></svg>
+    <span style="font-size: 12px; width: 200px">PswManager</span>
+    <div style="flex: 1; display: flex; justify-content: center; gap: 4px">
+      <button class="btn subtle icon" aria-label="Keyboard shortcuts (F1)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"></rect><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"></path></svg></button>
+      <div class="tb" style="width: 440px; background: var(--subtle); border-bottom-color: var(--ctlstroke)">
+        <input type="search" aria-label="Search" placeholder="Search title, user name, URL, tags, notes">
+        <svg class="i" viewBox="0 0 24 24" style="margin-right: 10px; color: var(--text2)" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"></circle><path d="M15 15l5 5"></path></svg>
+      </div>
+    </div>
+    <div style="width: 200px; display: flex; justify-content: flex-end">
+      <button class="capbtn" aria-label="Minimize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10"></path></svg></button>
+      <button class="capbtn" aria-label="Maximize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1"></rect></svg></button>
+      <button class="capbtn" aria-label="Close"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; min-height: 0">
+
+    <nav aria-label="Groups and tags" style="width: 248px; flex: none; display: flex; flex-direction: column; padding: 4px 4px 8px 4px; box-sizing: border-box">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="7">
+          <button class="{{g.cls}}">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="{{g.icon}}"></path></svg>
+            <span>{{g.name}}</span>
+            <span class="count">{{g.count}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div class="navh">Tags</div>
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{tags}}" as="t" hint-placeholder-count="5">
+          <button class="nav">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12.5v-8a1 1 0 0 1 1-1h8l8 8-9 9z"></path><circle cx="8" cy="8" r="1.2"></circle></svg>
+            <span>{{t.name}}</span>
+            <span class="count">{{t.count}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--stroke); padding-top: 6px">
+        <div style="display: flex; align-items: center; gap: 14px; padding: 8px 12px">
+          <svg class="i" viewBox="0 0 24 24" style="color: var(--infoicon)" aria-hidden="true"><path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.5 1.5A4 4 0 0 1 17 18.5z"></path><path d="M9.5 13.5l2 2 3.5-3.5"></path></svg>
+          <span style="display: flex; flex-direction: column"><span>Personal</span><span class="cap">Synced with OneDrive · 2 min ago</span></span>
+        </div>
+        <button class="nav"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg><span>Settings</span></button>
+      </div>
+    </nav>
+
+    <main style="flex: 1; min-width: 0; display: flex; background: var(--layer); border-top: 1px solid var(--stroke); border-left: 1px solid var(--stroke); border-top-left-radius: 8px">
+
+      <section aria-label="Entries" style="width: 340px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--stroke)">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 16px 16px 12px 20px">
+          <div style="display: flex; flex-direction: column">
+            <h2 class="disp" style="margin: 0; font-size: 20px; line-height: 28px">All</h2>
+            <span class="cap">128 entries</span>
+          </div>
+          <button class="btn accent" style="margin-left: auto"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New entry</button>
+        </div>
+        <div role="listbox" aria-label="Entries" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px">
+          <sc-for list="{{entries}}" as="e" hint-placeholder-count="10">
+            <div class="{{e.cls}}" role="option">
+              <div class="mono" style="background: {{e.color}}">{{e.letter}}</div>
+              <div style="display: flex; flex-direction: column; min-width: 0; flex: 1">
+                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{e.title}}</span>
+                <span class="cap" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{e.user}}</span>
+              </div>
+              <sc-if value="{{e.fav}}" hint-placeholder-val="{{ false }}">
+                <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: var(--star); flex: none" role="img" aria-label="Favorite"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section aria-label="Entry" style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 20px 28px 16px; gap: 16px; position: relative">
+        <div style="display: flex; align-items: center; gap: 16px">
+          <div class="mono" style="width: 52px; height: 52px; border-radius: 10px; font-size: 22px; background: #0E7C86">N</div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <h1 class="disp" style="margin: 0; font-size: 28px; line-height: 34px">Northwind Bank</h1>
+            <div style="display: flex; gap: 6px"><span class="chip">finance</span><span class="chip">personal</span></div>
+          </div>
+          <div style="margin-left: auto; display: flex; gap: 4px; align-self: flex-start">
+            <button class="btn subtle icon" aria-label="Remove from favorites" style="color: var(--star)"><svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"></path></svg></button>
+            <button class="btn"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg>Edit</button>
+            <button class="btn subtle icon" aria-label="More"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="2.6"></path></svg></button>
+          </div>
+        </div>
+
+        <div style="background: var(--card); border: 1px solid var(--stroke); border-radius: 8px; display: flex; flex-direction: column">
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">User name</div><div>alex.morgan@example.com</div></div>
+            <button class="btn subtle icon" aria-label="Copy user name"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          </div>
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">Password</div><div style="letter-spacing: 2px">●●●●●●●●●●●●●●</div></div>
+            <button class="btn subtle icon" aria-label="Show password"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            <button class="btn subtle icon" aria-label="Copy password"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          </div>
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">Website</div><div><a href="https://bank.example.com">https://bank.example.com/login</a></div></div>
+            <button class="btn subtle icon" aria-label="Open in browser"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg></button>
+            <button class="btn subtle icon" aria-label="Copy URL"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          </div>
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">One-time code</div><div class="disp" style="font-size: 20px; letter-spacing: 2px; font-variant-numeric: tabular-nums">481 920</div></div>
+            <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; transform: rotate(-90deg)" role="img" aria-label="18 seconds left"><circle cx="12" cy="12" r="9" fill="none" stroke="var(--stroke)" stroke-width="2.5"></circle><circle cx="12" cy="12" r="9" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="34 57" stroke-linecap="round"></circle></svg>
+            <span class="cap" style="width: 24px">18 s</span>
+            <button class="btn subtle icon" aria-label="Copy code"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          </div>
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">PIN</div><div style="letter-spacing: 2px">●●●●</div></div>
+            <button class="btn subtle icon" aria-label="Show PIN"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            <button class="btn subtle icon" aria-label="Copy PIN"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          </div>
+          <div class="field">
+            <div style="flex: 1; min-width: 0"><div class="fl">Notes</div><div style="line-height: 20px">Customer number on the card statement. Security questions are in the attached file.</div></div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-weight: 600">Files</span>
+          <div style="background: var(--card); border: 1px solid var(--stroke); border-radius: 8px" class="field">
+            <svg class="i" viewBox="0 0 24 24" style="width: 20px; height: 20px; color: var(--text2)" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg>
+            <div style="flex: 1"><div>security-questions.pdf</div><div class="cap">84 KB</div></div>
+            <button class="btn">Open</button>
+            <button class="btn subtle icon" aria-label="Save as"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg></button>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 12px; margin-top: auto">
+          <span class="cap">Modified 12 September 2026, 14:32</span>
+          <button class="btn subtle" style="height: 28px; color: var(--accent)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4v4h4M12 8v4l3 2"></path></svg>History (3)</button>
+        </div>
+
+        <div role="status" style="position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 16px; border-radius: 6px; background: var(--infobg); border: 1px solid var(--stroke); box-shadow: 0 8px 16px rgba(0,0,0,.14); white-space: nowrap">
+          <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; flex: none" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="var(--infoicon)"></circle><path d="M8 12.5l2.5 2.5 5-5" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <span><b style="font-weight: 600">Password copied.</b> The clipboard clears in 20 s.</span>
+          <button class="btn subtle icon" style="width: 28px; height: 28px" aria-label="Dismiss"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? false;
+    const icons = {
+      all: 'M4 6h16M4 12h16M4 18h16',
+      fav: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+      exp: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 7.5V12l3 2',
+      otp: 'M12 3l7.5 3v5.5c0 4.5-3.2 8-7.5 9.5-4.3-1.5-7.5-5-7.5-9.5V6zM9 12l2 2 4-4',
+      pk: 'M9 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM3 20c0-3.3 2.7-6 6-6 1.3 0 2.5.4 3.5 1.1M17.5 13a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM17.5 18v3M17.5 19.5h1.5',
+      tpl: 'M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6',
+      trash: 'M4 7h16M10 3h4M6 7l1 13h10l1-13M10 11v6M14 11v6'
+    };
+    const groups = [
+      ['All', 'all', 128, true], ['Favorites', 'fav', 12], ['Expired', 'exp', 2], ['2FA', 'otp', 9],
+      ['Passkey', 'pk', 1], ['Templates', 'tpl', 3], ['Trash', 'trash', 4]
+    ].map(([name, icon, count, sel]) => ({ name, count, icon: icons[icon], cls: sel ? 'nav sel' : 'nav' }));
+    const tags = [['Untagged', 41], ['#finance', 8], ['#home', 14], ['#personal', 19], ['#shopping', 11], ['#work', 23]]
+      .map(([name, count]) => ({ name, count }));
+    const entries = [
+      ['Adatum Router', 'admin', '#6B4FBB'],
+      ['Contoso Mail', 'alex.morgan@example.com', '#C239B3', true],
+      ['Fabrikam Cloud', 'alex.morgan', '#CA5010'],
+      ['Home Wi-Fi', 'Morgan-5G', '#498205'],
+      ['Litware Forum', 'amorgan', '#8764B8'],
+      ['Northwind Bank', 'alex.morgan@example.com', '#0E7C86', true, true],
+      ['Proseware Tax', 'AM-204-117', '#986F0B'],
+      ['Tailspin Toys', 'alex.morgan@example.com', '#D13438'],
+      ['Wide World Travel', 'alexm', '#0078D4', true],
+      ['Woodgrove VPN', 'a.morgan', '#4F6BED'],
+      ['Wingtip Insurance', 'POL-88213', '#567C73']
+    ].map(([title, user, color, fav, sel]) => ({ title, user, color, fav: !!fav, letter: title[0], cls: sel ? 'row sel' : 'row' }));
+    return { themeClass: dark ? 'dark' : '', groups, tags, entries };
+  }
+}
+</script>
+</body>
+</html>

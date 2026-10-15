@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="../support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#005FB8}a:hover{color:#003E92}
+.win{--bg:#F3F3F3;--layer:#F9F9F9;--card:#FFFFFF;--stroke:#E5E5E5;--text:#1B1B1B;--text2:#5D5D5D;--ctl:#FFFFFF;--ctlstroke:#E5E5E5;--ctlbottom:#C4C4C4;--tbline:#868686;--subtle:rgba(0,0,0,.04);--subtle2:rgba(0,0,0,.06);--accent:#005FB8;--onaccent:#FFFFFF;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg)}
+.win.dark{--bg:#202020;--layer:#272727;--card:#2B2B2B;--stroke:#1D1D1D;--text:#FFFFFF;--text2:#C5C5C5;--ctl:#2D2D2D;--ctlstroke:#353535;--ctlbottom:#2A2A2A;--tbline:#9A9A9A;--subtle:rgba(255,255,255,.06);--subtle2:rgba(255,255,255,.08);--accent:#60CDFF;--onaccent:#000000}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-weight:600}
+.cap{font-size:12px;color:var(--text2)}
+.btn{font:inherit;font-size:14px;height:32px;box-sizing:border-box;padding:0 12px;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom-color:var(--ctlbottom);background:var(--ctl);color:var(--text);display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}
+.btn.subtle{background:transparent;border-color:transparent}
+.btn.icon{width:32px;padding:0}
+.capbtn{width:46px;height:48px;border:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center}
+.nav{display:flex;align-items:center;gap:14px;height:36px;padding:0 12px;border-radius:4px;color:var(--text);position:relative;background:transparent;border:0;font:inherit;width:100%;text-align:left;box-sizing:border-box}
+.nav.sel{background:var(--subtle2)}
+.nav.sel::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--accent)}
+.nav[disabled]{color:var(--text2)}
+.sc{display:flex;align-items:center;gap:16px;min-height:68px;box-sizing:border-box;padding:12px 16px;background:var(--card);border:1px solid var(--stroke);border-radius:6px}
+.sc .ic{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.sc .tx{flex:1;display:flex;flex-direction:column;gap:2px}
+.sub{border-top-left-radius:0;border-top-right-radius:0;margin-top:-1px;padding-left:52px;min-height:52px}
+.hasub{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.tg{width:40px;height:20px;border-radius:10px;box-sizing:border-box;position:relative;flex:none;padding:0;border:1px solid var(--tbline);background:transparent}
+.tg::after{content:"";position:absolute;top:4px;left:4px;width:10px;height:10px;border-radius:5px;background:var(--text2)}
+.tg.on{background:var(--accent);border-color:var(--accent)}
+.tg.on::after{left:23px;background:var(--onaccent)}
+.state{width:24px;text-align:right;font-size:14px}
+.nb{display:flex;align-items:center;height:32px;width:132px;box-sizing:border-box;border-radius:4px;border:1px solid var(--ctlstroke);border-bottom:1px solid var(--tbline);background:var(--ctl)}
+.nb input{flex:1;min-width:0;border:0;background:transparent;font:inherit;color:var(--text);padding:0 10px;outline:none}
+.grp{font-weight:600;margin:20px 0 8px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.c{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1}
+</style>
+</helmet>
+<div class="win {{themeClass}}" style="width: 1280px; height: 800px; display: flex; flex-direction: column; overflow: hidden">
+  <div style="height: 48px; display: flex; align-items: center; gap: 8px; padding-left: 4px; flex: none">
+    <button class="btn subtle icon" style="width: 40px; height: 36px" aria-label="Back"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg></button>
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round" aria-hidden="true"><path d="M12 2.5l8 3v6c0 4.8-3.4 8.6-8 10-4.6-1.4-8-5.2-8-10v-6z"></path><circle cx="12" cy="11" r="2.5"></circle><path d="M12 13.5V17"></path></svg>
+    <span style="font-size: 12px; margin-left: 4px">PswManager — Settings</span>
+    <div style="margin-left: auto; display: flex">
+      <button class="capbtn" aria-label="Minimize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10"></path></svg></button>
+      <button class="capbtn" aria-label="Maximize"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1"></rect></svg></button>
+      <button class="capbtn" aria-label="Close"><svg class="c" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10"></path></svg></button>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; min-height: 0">
+    <nav aria-label="Settings" style="width: 280px; flex: none; padding: 4px 4px 0 4px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 8px 12px 16px">
+        <div style="width: 40px; height: 40px; border-radius: 8px; background: var(--subtle2); display: flex; align-items: center; justify-content: center"><svg class="i" viewBox="0 0 24 24" style="width: 20px; height: 20px" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.5"></ellipse><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></div>
+        <div style="display: flex; flex-direction: column"><span style="font-weight: 600">Personal</span><span class="cap">Personal.kdbx · unlocked</span></div>
+      </div>
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="6">
+        <button class="{{t.cls}}"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="{{t.icon}}"></path></svg><span>{{t.name}}</span></button>
+      </sc-for>
+    </nav>
+
+    <main style="flex: 1; min-width: 0; background: var(--layer); border-top: 1px solid var(--stroke); border-left: 1px solid var(--stroke); border-top-left-radius: 8px; overflow: hidden; padding: 28px 56px 0">
+      <h1 class="disp" style="margin: 0 0 4px; font-size: 28px; line-height: 36px">General</h1>
+      <div class="cap" style="font-size: 14px">Every change is saved at once.</div>
+
+      <div style="max-width: 860px">
+        <div class="grp">Locking</div>
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div class="sc">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>
+            <div class="tx"><span>Lock after inactivity</span><span class="cap">The key and all decrypted data are dropped</span></div>
+            <button class="btn" style="width: 160px; justify-content: space-between">5 minutes<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+          </div>
+          <div class="sc">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>
+            <div class="tx"><span>Lock when Windows locks or the session is switched</span></div>
+            <span class="state">On</span><button class="tg on" role="switch" aria-checked="true" aria-label="Lock when Windows locks"></button>
+          </div>
+          <div class="sc">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16M7 13l5-5 5 5"></path></svg>
+            <div class="tx"><span>Lock when hidden to tray</span></div>
+            <span class="state">Off</span><button class="tg" role="switch" aria-checked="false" aria-label="Lock when hidden to tray"></button>
+          </div>
+          <div style="display: flex; flex-direction: column">
+            <div class="sc hasub">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M9 10v1M15 10v1M9.5 15c1.4.9 3.6.9 5 0"></path></svg>
+              <div class="tx"><span>Unlock with Windows Hello</span><span class="cap">Face, fingerprint or PIN, where it is set up</span></div>
+              <span class="state">On</span><button class="tg on" role="switch" aria-checked="true" aria-label="Unlock with Windows Hello"></button>
+            </div>
+            <div class="sc sub">
+              <div class="tx"><label for="hello-days">Ask for the master password every</label></div>
+              <div class="nb"><input id="hello-days" value="14"><span class="cap" style="padding-right: 10px">days</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grp">Clipboard</div>
+        <div class="sc">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2"></rect><path d="M9 4V3h6v1M9 11h6M9 15h4"></path></svg>
+          <div class="tx"><label for="clip">Clear the clipboard after copying</label><span class="cap">Only when it still holds the copied value; never in clipboard history</span></div>
+          <div class="nb"><input id="clip" value="20"><span class="cap" style="padding-right: 10px">seconds</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":false},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const tabs = [
+      ['General', 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4', true],
+      ['Window', 'M3 5h18v14H3zM3 9h18'],
+      ['Database', 'M5 6c0-1.4 3.1-2.5 7-2.5s7 1.1 7 2.5-3.1 2.5-7 2.5S5 7.4 5 6zM5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5'],
+      ['Sync', 'M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3M18 3v4h-4M6 21v-4h4'],
+      ['Backup', 'M12 4v11M7 10l5 5 5-5M5 20h14'],
+      ['About', 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 11v5M12 8h.01']
+    ].map(([name, icon, sel]) => ({ name, icon, cls: sel ? 'nav sel' : 'nav' }));
+    return { themeClass: (this.props.dark ?? false) ? 'dark' : '', tabs };
+  }
+}
+</script>
+</body>
+</html>

@@ -10,6 +10,10 @@ prototypes, not app code: nothing here is built or shipped.
 - `_ds/classical-…/` — the Classical design system: tokens and component classes (`styles.css`) and its
   guide (`readme.md`). `src/style.css` takes its colours from here.
 - `github.md` — the design tool's map of screens to files in this repository.
+- `winui3/` — static mockups of the window in the WinUI 3 (Fluent) style, light and dark: unlock, vault,
+  editor with the generator, settings and password health. A proposal, not what the app follows yet: they
+  put the search box into the title bar, while `docs/spec.md` keeps the standard Windows frame. Open them
+  in a browser like the prototype (they load `../support.js`); all data in them is made up.
 - `android/` — the Android mockups in the same design system, for the phone app (see its README).
 
 What the app takes from it so far: the look of the unlock screen, vault, entry view, editor and
