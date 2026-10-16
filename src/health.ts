@@ -20,20 +20,20 @@ function item(finding: Finding, options: HealthOptions): HTMLButtonElement {
 export async function renderHealth(container: HTMLElement, options: HealthOptions) {
   const health = await api.passwordHealth()
   // The count is in red for reused and weak passwords, in amber for old ones, while there are any.
-  const groups: [string, string, Finding[], string][] = [
-    ['Reused', 'Reused passwords', health.reused, 'crit'],
-    ['Weak', 'Weak passwords', health.weak, 'crit'],
-    ['Old', 'Unchanged for over a year', health.old, 'warn'],
+  const groups: { title: string; label: string; findings: Finding[]; severity: 'crit' | 'warn' }[] = [
+    { title: 'Reused', label: 'Reused passwords', findings: health.reused, severity: 'crit' },
+    { title: 'Weak', label: 'Weak passwords', findings: health.weak, severity: 'crit' },
+    { title: 'Old', label: 'Unchanged for over a year', findings: health.old, severity: 'warn' },
   ]
-  const stat = ([, label, findings, severity]: (typeof groups)[number]) =>
+  const stat = ({ label, findings, severity }: (typeof groups)[number]) =>
     el('div', { className: findings.length ? `stat ${severity}` : 'stat' }, el('span', { className: 'count' }, String(findings.length)), el('span', { className: 'hint' }, label))
-  const shown = groups.filter(([, , findings]) => findings.length)
+  const shown = groups.filter(({ findings }) => findings.length)
   container.replaceChildren(
     el('header', {}, el('h1', {}, 'Password health'), button('Done', 'Back (Esc)', options.done)),
     el('p', { className: 'muted intro' }, 'Checked on this PC only. Nothing about your entries leaves the device.'),
     el('div', { className: 'stats' }, ...groups.map(stat)),
     ...(shown.length
-      ? shown.map(([title, , findings]) => el('section', {}, el('h3', {}, title), el('div', { className: 'card' }, ...findings.map((f) => item(f, options)))))
+      ? shown.map(({ title, findings }) => el('section', {}, el('h3', {}, title), el('div', { className: 'card' }, ...findings.map((f) => item(f, options)))))
       : [el('p', { className: 'muted' }, 'No reused, weak or old passwords.')]),
   )
 }

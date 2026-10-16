@@ -136,17 +136,28 @@ a {
   color: var(--color-text-2);
 }
 
-/* A card: white on the layer, a hairline around it. */
-.card {
-  display: flex;
-  flex-direction: column;
+/* A card: white on the layer, a hairline around it. The panels drawn the
+   same way share the look. */
+.card,
+.versions,
+.icon-choices,
+.fields,
+.files,
+#report .stat,
+.merge-card {
   background: var(--color-card);
   border: 1px solid var(--color-stroke);
   border-radius: var(--radius-card);
 }
 
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Buttons: the standard one is the secondary action, the accent one the
-   main action, the ghost one has no frame until the pointer is on it. */
+   main action, the ghost one has no frame until the pointer is on it. What a
+   password health finding does is drawn as a standard button inside it. */
 
 button,
 input,
@@ -156,7 +167,8 @@ textarea {
   color: inherit;
 }
 
-button {
+button,
+button.finding .action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -251,7 +263,8 @@ button:focus-visible,
    the accent while the field has the focus. */
 input,
 select,
-textarea {
+textarea,
+.tag-input {
   min-height: 32px;
   padding: 0 11px;
   border: 1px solid var(--color-control-stroke);
@@ -279,7 +292,8 @@ textarea {
 
 input:focus,
 select:focus,
-textarea:focus {
+textarea:focus,
+.tag-input:focus-within {
   outline: none;
   background: var(--color-field-focus);
   box-shadow: inset 0 -2px 0 var(--color-accent);
@@ -1233,9 +1247,6 @@ button.star[aria-pressed='true'] {
   margin: 0;
   padding: 0;
   list-style: none;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 .versions li + li {
@@ -1460,9 +1471,6 @@ button.star[aria-pressed='true'] {
   gap: 4px;
   align-items: center;
   padding: 8px;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 .icon-tile {
@@ -1484,7 +1492,8 @@ button.star[aria-pressed='true'] {
   background: var(--color-subtle-2);
 }
 
-/* Tags as chips, with the input for a new one after them. */
+/* Tags as chips, with the input for a new one after them, in a box drawn as
+   a field (above). */
 .tag-input {
   flex: 1;
   display: flex;
@@ -1492,18 +1501,8 @@ button.star[aria-pressed='true'] {
   gap: 6px;
   align-items: center;
   min-width: 0;
-  min-height: 32px;
   padding: 3px 4px;
-  border: 1px solid var(--color-control-stroke);
-  border-radius: var(--radius-control);
-  background: var(--color-control);
-  box-shadow: inset 0 -1px 0 var(--color-field-line);
   cursor: text;
-}
-
-.tag-input:focus-within {
-  background: var(--color-field-focus);
-  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 .tag-chips {
@@ -1650,9 +1649,6 @@ input::-ms-reveal {
 .fields {
   display: flex;
   flex-direction: column;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 .fields:empty {
@@ -1734,9 +1730,6 @@ button.icon.state svg {
 .files {
   display: flex;
   flex-direction: column;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 .files:empty {
@@ -1951,12 +1944,13 @@ dialog.modal.shortcuts {
    settings on the layer, each in a card of its own. */
 
 #settings {
+  --tabs-width: 240px;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: var(--tabs-width) minmax(0, 1fr);
   grid-template-rows: auto auto 1fr;
   height: 100%;
   overflow-y: auto;
-  background: linear-gradient(90deg, var(--color-bg) 240px, var(--color-layer) 240px);
+  background: linear-gradient(90deg, var(--color-bg) var(--tabs-width), var(--color-layer) var(--tabs-width));
 }
 
 #settings > :not(.tabs) {
@@ -2168,9 +2162,6 @@ button.switch[aria-checked='true'] .knob {
   flex-direction: column;
   gap: 4px;
   padding: 16px 20px;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 #report .count {
@@ -2255,18 +2246,6 @@ button.finding .text {
   min-width: 0;
 }
 
-/* What the row does, drawn as a standard button. */
-button.finding .action {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--color-control-stroke);
-  border-bottom-color: var(--color-control-bottom);
-  border-radius: var(--radius-control);
-  background: var(--color-control);
-}
-
 button.finding:focus-visible {
   outline-offset: -2px;
 }
@@ -2340,9 +2319,6 @@ input[type='radio']:focus-visible {
 .merge-card {
   margin-top: 16px;
   padding: 0 16px 8px;
-  background: var(--color-card);
-  border: 1px solid var(--color-stroke);
-  border-radius: var(--radius-card);
 }
 
 .merge-head {

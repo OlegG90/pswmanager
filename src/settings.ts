@@ -71,8 +71,7 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
     button.setAttribute('aria-controls', 'settings-panel')
     return button
   })
-  const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
-  bar.setAttribute('aria-orientation', 'vertical')
+  const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings', ariaOrientation: 'vertical' }, ...tabs)
   bar.addEventListener('keydown', (e) => {
     const usable = TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
     const step = ({ ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 } as Record<string, number>)[e.key]
