@@ -1188,7 +1188,7 @@ const openExport = () =>
   openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
 const openSimilar = () =>
-  openReport('similar', () =>
+  openReport('similar', async () =>
     renderSimilar(reportView, {
       entry: (id) => listing.entries.find((e) => e.id === id),
       icon: iconOf,

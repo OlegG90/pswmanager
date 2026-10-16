@@ -435,9 +435,9 @@ while the database is locked):
 
 ## Similar entries
 
-- A report, shown beside the sidebar from its *Tools* (*Similar entries*; a group or a tag, or Esc, goes
-  back), of entries in use (not the
-  recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+- A page beside the sidebar, from its *Tools* (*Similar entries*; a group or a tag, or Esc, goes back): it
+  says what it looks for, and nothing is looked for until **Scan**, which lists under it, on the same page,
+  the entries in use (not the recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
   URL are not listed.
