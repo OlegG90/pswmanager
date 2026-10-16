@@ -640,12 +640,7 @@ input[type='range']:focus-visible {
   padding: 8px 12px 8px 8px;
 }
 
-/* The search box in the middle, the keyboard button before it: the free
-   room is shared out on both sides of the two. */
-#toolbar #shortcuts-button {
-  margin-left: auto;
-}
-
+/* The keyboard button and the search box at the left, the rest at the right. */
 #search {
   flex: 0 1 440px;
   min-width: 0;
@@ -702,16 +697,19 @@ input[type='range']:focus-visible {
   color: var(--color-danger);
 }
 
-/* Sidebar: the fixed groups, then the tags */
+/* Sidebar: the fixed groups, the tags, the tools and the settings, each
+   section folding away under its heading (src/sidebar-sections.ts) */
 
-/* The groups stay in place; a long list of tags scrolls on its own below a
-   rule, so the two never run together. */
+/* The groups stay in place; a long list of tags scrolls on its own between
+   rules, and the tools and the settings keep to the bottom. When even that
+   does not fit, the whole sidebar scrolls. */
 #sidebar {
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: hidden auto;
+  scrollbar-width: thin;
   padding: 0 0 8px;
 }
 
@@ -733,7 +731,9 @@ input[type='range']:focus-visible {
   outline: none;
 }
 
-#groups {
+#groups,
+#tools,
+#settings-tabs {
   flex: none;
   padding-bottom: 8px;
   overflow-y: hidden; /* for the gutter below; it never scrolls */
@@ -742,21 +742,22 @@ input[type='range']:focus-visible {
 /* Both lists keep room for a scrollbar, so the counts stay in one column
    when the tags scroll. */
 #groups,
-#tags {
+#tags,
+#tools,
+#settings-tabs {
   scrollbar-gutter: stable;
 }
 
-#tags-heading {
-  flex: none;
-  margin: 0 0 4px;
-  padding: 14px 12px 0;
-  border-top: 1px solid var(--color-stroke); /* across the whole sidebar */
+#tags {
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding-bottom: 8px;
+  overflow-y: auto;
 }
 
-#tags {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+/* With the tags folded, the tools still keep to the bottom. */
+#tools-heading {
+  margin-top: auto;
 }
 
 /* A tag reads as one: #work, not a group called work. */
@@ -780,9 +781,57 @@ input[type='range']:focus-visible {
 }
 
 #sidebar h3 {
-  margin: 4px 12px 6px;
+  flex: none;
+  margin: 0;
+  padding: 4px 4px 2px;
   font: 600 12px/16px var(--font-body);
+}
+
+/* A rule across the whole sidebar between the groups and the tags, and
+   between the tags and the tools. */
+#tags-heading,
+#tools-heading {
+  border-top: 1px solid var(--color-stroke);
+}
+
+/* A section's heading: its icon, its name, and a chevron that turns aside
+   while the section is folded. */
+.section-head {
+  justify-content: flex-start;
+  gap: 14px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
   color: var(--color-text-2);
+  font-weight: 600;
+}
+
+.section-head:hover {
+  background: var(--color-subtle);
+}
+
+.section-head svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.section-head svg:last-child {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+
+.section-head[aria-expanded='false'] svg:last-child {
+  transform: rotate(-90deg);
 }
 
 .side-item {
@@ -861,9 +910,12 @@ button.icon.state svg {
 
 /* A tag's ⋯ menu (rename, remove) shows where the pointer or the focus is,
    in a column of its own: a long name is cut short instead of pushing the
-   menu out. The groups keep that column empty, so every count lines up. */
+   menu out. The groups, tools and settings keep that column empty, so every
+   count and every highlight lines up. */
 #groups li,
-#tags li {
+#tags li,
+#tools li,
+#settings-tabs li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;

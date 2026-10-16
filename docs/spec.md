@@ -164,8 +164,11 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
   keyboard shortcuts (see *Keyboard shortcuts*).
 - Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
-  `#work`), the **list** of entries the sidebar's choice shows, and the selected **entry** (see *Groups and
-  tags*). There is no filter menu. The sidebar's width is changed by dragging its edge (140 to 420 px, the
+  `#work`, the **Tools** and the **Settings** tabs), the **list** of entries the sidebar's choice shows, and the
+  selected **entry** (see *Groups and tags*). There is no filter menu. Each of the sidebar's four sections
+  has a heading with its icon that folds the section away and back; which ones are folded is kept on this
+  PC. The tools and the settings keep to the sidebar's bottom; when everything does not fit, the
+  sidebar scrolls. The sidebar's width is changed by dragging its edge (140 to 420 px, the
   list and the entry keeping their room; ← / →, Home and End on the edge too; a double click puts the
   usual width back) and is kept on this PC. A long tag name is cut short with
   an ellipsis; its ⋯ menu and count stay in place, the counts in one column.
@@ -315,7 +318,7 @@ same table the dialog shows.
 
 ### Settings
 
-*Settings* (`Ctrl+,`, or the button) shows its groups in tabs down its left side, one tab at a time:
+*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups in tabs down its left side, one tab at a time:
 **General** (locking and the clipboard), **Window** (theme, global hotkey, start with Windows, site
 icons), **Database** (the open database's own settings, see *Database settings*; disabled while locked),
 **Sync**, **Backup** (see *Backup*) and **About**. ↑/↓ (and ←/→) move between the tabs, Home and End to
@@ -370,6 +373,10 @@ while the database is locked):
 
 ## Editing
 
+- While the editor is open, choosing something outside it (an entry in the list or its star, a group, a
+  tag or its menu, a tool, a settings tab, **New entry**, **Empty trash**) first asks *Leave editing?*:
+  **Yes** drops the changes, shows the entry as it was and then does what was chosen; **No** (or Esc)
+  goes back into the editor where it was. Sync, Lock and the search field do not ask.
 - Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
   the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused:
   entries are removed for good only from the trash.
@@ -407,7 +414,7 @@ while the database is locked):
 
 ## Password health
 
-- A report, opened from the toolbar's *Tools* menu, of passwords worth changing among the entries in
+- A report, opened from the sidebar's *Tools*, of passwords worth changing among the entries in
   use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
@@ -419,7 +426,7 @@ while the database is locked):
 
 ## Similar entries
 
-- A report, opened from the toolbar's *Tools* menu (*Similar entries*), of entries in use (not the
+- A report, opened from the sidebar's *Tools* (*Similar entries*), of entries in use (not the
   recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a

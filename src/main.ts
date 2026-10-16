@@ -4,15 +4,16 @@ import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
-import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { menuButton } from './menu'
+import { foldingSections, sidebarIcon, type SidebarIcon } from './sidebar-sections'
 import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
 import { sidebarResizer } from './sidebar-resize'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
-import { renderSettings } from './settings'
+import { renderSettings, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -264,7 +265,7 @@ function fillSidebar() {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
     if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
-    b.addEventListener('click', () => showFilter(choice))
+    b.addEventListener('click', outside(() => showFilter(choice)))
     return el('li', {}, b)
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => {
@@ -276,8 +277,8 @@ function fillSidebar() {
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
-        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag) },
-        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag), danger: true },
+        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: outside(() => renameTag(tag)) },
+        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: outside(() => removeTag(tag)), danger: true },
       ]))
       return li
     }),
@@ -359,7 +360,11 @@ function listItem(entry: Entry): HTMLLIElement {
   )
   if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
-  li.addEventListener('mousedown', (e) => pick(entry.id, e))
+  li.addEventListener('mousedown', (e) => {
+    if (!isEditing()) return pick(entry.id, e)
+    e.preventDefault() // the focus stays in the editor until it is left
+    void leaveEditor().then((left) => left && pick(entry.id, e))
+  })
   return li
 }
 
@@ -404,7 +409,7 @@ const isFavorite = (entry: Entry) => entry.tags.includes(FAVORITE)
  *  star off, as a tag (no sync until the next sync moment). */
 function starButton(entry: Entry): HTMLButtonElement {
   const on = isFavorite(entry)
-  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', () => toggleFavorite(entry), 'ghost star')
+  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', outside(() => toggleFavorite(entry)), 'ghost star')
   star.setAttribute('aria-pressed', String(on))
   // Clicking the star in the list does not select the entry.
   star.addEventListener('mousedown', (e) => e.stopPropagation())
@@ -1097,6 +1102,34 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
+// ---------------------------------------------------------------- tools and settings in the sidebar
+
+/** Makes `action` wait for the editor to be left (Yes) or do nothing (No),
+ *  when it is open: for what is chosen outside it. */
+function outside(action: () => unknown): () => void {
+  return () => void leaveEditor().then((left) => left && action())
+}
+
+/** A command in the sidebar: an icon and its name, no count. */
+function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown): HTMLLIElement {
+  return el('li', {}, el('button', { type: 'button', className: 'side-item', title, onclick: outside(action) },
+    sidebarIcon(picture), el('span', { className: 'name' }, label)))
+}
+
+/** The tools that work on the whole database, and the settings' tabs. */
+function fillTools() {
+  $('tools').replaceChildren(
+    sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth),
+    sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar),
+    sideCommand('Import from a file…', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import',
+      () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e)))),
+    sideCommand('Export to a file…', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export',
+      () => api.helloReady().then(exportToFile).catch((e) => notify(String(e)))),
+  )
+  $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
+    sideCommand(label, `Settings: ${label} (Ctrl+,)`, tab, () => openSettings(tab))))
+}
+
 // ---------------------------------------------------------------- reports
 
 /** Shows the report `draw` fills the report view with, over the vault. */
@@ -1165,7 +1198,9 @@ const drawSettings = () =>
     current = null
   })
 
-async function openSettings() {
+/** The settings, at `tab` when given (the sidebar's list of them). */
+async function openSettings(tab?: SettingsTab) {
+  if (tab) showSettingsTab(tab)
   if (settingsOpen) return
   try {
     await drawSettings()
@@ -1205,18 +1240,8 @@ function closeSettings() {
 
 searchInput.addEventListener('input', refresh)
 $('lock-button').addEventListener('click', lock)
-$('new-entry').addEventListener('click', newEntry)
-$('empty-trash').addEventListener('click', () => deleteForGood())
-$('settings-button').addEventListener('click', openSettings)
-// The tools that work on the whole database.
-$('settings-button').before(menuButton('Tools for the whole database', [
-  { label: 'Password health', title: 'Find reused, weak and old passwords', action: openHealth },
-  { label: 'Similar entries', title: 'Find entries for the same site and user name, to merge them', action: openSimilar },
-  { label: 'Import from a file…', title: 'Add the entries another password manager exported (CSV, Bitwarden JSON)',
-    action: () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e))) },
-  { label: 'Export to a file…', title: 'Write the entries to a file another password manager imports (CSV, CXF JSON)',
-    action: () => api.helloReady().then(exportToFile).catch((e) => notify(String(e))) },
-], 'Tools'))
+$('new-entry').addEventListener('click', outside(newEntry))
+$('empty-trash').addEventListener('click', outside(() => deleteForGood()))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
@@ -1399,6 +1424,8 @@ listen<string>('icon-ready', (e) => {
 })
 
 sidebarResizer($('vault'), $('sidebar-resizer'))
+fillTools()
+foldingSections($('sidebar'))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})

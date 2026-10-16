@@ -48,18 +48,23 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
-type Tab = (typeof TABS)[number][0]
+export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
+export type SettingsTab = (typeof SETTINGS_TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
-let shownTab: Tab = 'general'
+let shownTab: SettingsTab = 'general'
+
+/** The tab the settings open at next (one that cannot be opened now falls back to General). */
+export function showSettingsTab(tab: SettingsTab) {
+  shownTab = tab
+}
 
 /**
  * The column of tabs: `open(tab)` shows one. ↑/↓ (and ←/→) move to the next or
  * previous one (wrapping), Home and End to the first and last. `off(tab)` says why a
  * tab cannot be opened now: it is then disabled, with that as its title, and skipped.
  */
-function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTMLElement {
-  const tabs = TABS.map(([tab, label]) => {
+function tabBar(off: (tab: SettingsTab) => string | null, open: (tab: SettingsTab) => void): HTMLElement {
+  const tabs = SETTINGS_TABS.map(([tab, label]) => {
     const on = tab === shownTab
     const why = off(tab)
     const button = el('button', {
@@ -73,7 +78,7 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
   })
   const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings', ariaOrientation: 'vertical' }, ...tabs)
   bar.addEventListener('keydown', (e) => {
-    const usable = TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
+    const usable = SETTINGS_TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
     const step = ({ ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 } as Record<string, number>)[e.key]
     const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
       : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
@@ -264,17 +269,17 @@ export async function renderSettings(
     const focusedLabel = focused?.getAttribute('aria-label')
     const onTab = focused?.getAttribute('role') === 'tab'
     // The database's own settings while it is unlocked; its backup while there is one.
-    const off = (tab: Tab) =>
+    const off = (tab: SettingsTab) =>
       tab === 'database' && !database ? 'Unlock the database to change its settings'
         : tab === 'backup' && !backup ? 'Choose a database first'
         : null
     if (off(shownTab)) shownTab = 'general'
     // Chosen by click or key on a tab: the redraw keeps the focus on the tabs.
-    const open = (tab: Tab) => {
+    const open = (tab: SettingsTab) => {
       shownTab = tab
       draw(s, status)
     }
-    const groups: Record<Tab, () => HTMLElement[]> = {
+    const groups: Record<SettingsTab, () => HTMLElement[]> = {
       general: () => [
         group('Security',
           row('Lock after inactivity', '1–60 minutes, or never',

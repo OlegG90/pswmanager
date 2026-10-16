@@ -58,14 +58,17 @@
         <span id="sync-status" class="muted" role="status" hidden></span>
         <button id="key-button" title="Enter the master password or key file another device changed to" hidden>Enter key…</button>
         <button id="sync-button" title="Sync now" disabled>Sync</button>
-        <button id="settings-button" title="Settings (Ctrl+,)">Settings</button>
         <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
       </header>
-      <nav id="sidebar" aria-label="Groups and tags">
-        <h3 id="groups-heading">Groups</h3>
+      <nav id="sidebar" aria-label="Groups, tags, tools and settings">
+        <h3><button type="button" class="section-head" data-section="groups" aria-expanded="true" aria-controls="groups">Groups</button></h3>
         <ul id="groups"></ul>
-        <h3 id="tags-heading">Tags</h3>
+        <h3 id="tags-heading"><button type="button" class="section-head" data-section="tags" aria-expanded="true" aria-controls="tags">Tags</button></h3>
         <ul id="tags"></ul>
+        <h3 id="tools-heading"><button type="button" class="section-head" data-section="tools" aria-expanded="true" aria-controls="tools">Tools</button></h3>
+        <ul id="tools"></ul>
+        <h3><button type="button" class="section-head" data-section="settings" aria-expanded="true" aria-controls="settings-tabs" title="Settings (Ctrl+,)">Settings</button></h3>
+        <ul id="settings-tabs"></ul>
         <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-controls="sidebar" aria-label="Sidebar width" title="Drag to change the sidebar's width; double-click for the usual one" tabindex="0"></div>
       </nav>
       <div id="list-pane">
