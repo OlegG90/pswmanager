@@ -320,7 +320,11 @@ export async function renderSettings(
       backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
       about: () => [
         group('About',
-          row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
+          row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),
+          row('Database format', 'KDBX 4.1: every save writes it, so a 4.0 file becomes 4.1. KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android open it',
+            el('span', { className: 'value' }, 'KDBX 4.1')),
+          row('Source code', 'github.com/OlegG90/pswmanager',
+            button('Open on GitHub', 'The repository of PswManager, in the browser', () => api.openRepository().catch((e) => onError(String(e)))))),
       ],
     }
     const panel = el('div', { id: 'settings-panel', role: 'tabpanel' }, ...groups[shownTab]())

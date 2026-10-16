@@ -434,6 +434,8 @@ export const api = {
   /** Makes an older version the entry's current content; the replaced one goes to history. */
   restoreVersion: (id: string, index: number, saved: string | null) => invoke<Listing>('restore_version', { id, index, saved }),
   openUrl: (id: string) => invoke<void>('open_url', { id }),
+  /** Opens the app's repository on GitHub in the browser. */
+  openRepository: () => invoke<void>('open_repository'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   /** Tells the backend the window is in use, which postpones the auto-lock. */
   touch: () => invoke<void>('touch'),
