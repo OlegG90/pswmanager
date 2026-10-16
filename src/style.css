@@ -1,71 +1,99 @@
-/* The Classical look: a quiet paper ground, serif headings, hairline rules,
-   and colour drawn as outlines rather than fills. System fonts only: the app
-   never fetches anything to draw itself. */
+/* The WinUI 3 (Fluent) look of docs/design/winui3: a light grey window
+   ground, the content on a lighter layer with a rounded corner, white cards
+   with hairline strokes, and the Windows accent blue. System fonts only: the
+   app never fetches anything to draw itself. */
 :root {
-  --color-bg: #f3f2f2;
-  --color-surface: #eae9e9;
-  --color-field: #ffffff;
-  --color-text: #201f1d;
-  --color-accent: #b68235;
-  --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
-  --color-danger: #9b3b2a;
-  --color-danger-100: #f6e6e2;
+  --color-bg: #f3f3f3;
+  --color-layer: #f9f9f9;
+  --color-card: #ffffff;
+  --color-flyout: #fcfcfc;
+  --color-stroke: #e5e5e5;
+  --color-text: #1b1b1b;
+  --color-text-2: #5d5d5d;
+  --color-text-3: #8a8a8a;
 
-  --color-neutral-100: #f8f4f4;
-  --color-neutral-200: #eae7e7;
-  --color-neutral-300: #d7d3d3;
-  --color-neutral-400: #bab6b6;
-  --color-neutral-500: #9b9797;
-  --color-neutral-600: #7d7979;
-  --color-neutral-700: #605d5d;
+  /* Controls: a button's or field's fill, its stroke, the darker stroke at
+     its bottom, and a field's underline. */
+  --color-control: #ffffff;
+  --color-control-hover: #f6f6f6;
+  --color-control-pressed: #f0f0f0;
+  --color-control-stroke: #e5e5e5;
+  --color-control-bottom: #c4c4c4;
+  --color-field-line: #868686;
+  --color-field-focus: #ffffff;
+  /* Fills of quiet buttons and list rows: on hover, and pressed or chosen. */
+  --color-subtle: rgb(0 0 0 / 4%);
+  --color-subtle-2: rgb(0 0 0 / 6%);
 
-  --color-accent-100: #fff3e4;
-  --color-accent-200: #ffe3bf;
-  --color-accent-600: #a06f24;
-  --color-accent-700: #7d5411;
-  --color-accent-800: #5a3b0a;
+  --color-accent: #005fb8;
+  --color-accent-hover: #196ebf;
+  --color-accent-pressed: #3381cc;
+  --color-on-accent: #ffffff;
+  --color-focus: #1b1b1b;
 
-  --font-heading: Georgia, 'Times New Roman', serif;
-  --font-body: 'Segoe UI', system-ui, sans-serif;
-  --font-mono: Consolas, ui-monospace, monospace;
+  --color-chip: #fff4ce;
+  --color-chip-text: #5c4400;
+  --color-star: #b57300;
+  --color-good: #0f7b0f;
+  --color-danger: #c42b1c;
+  --color-danger-bg: #fde7e9;
+  --color-warn: #9d5d00;
+  --color-warn-bg: #fff4ce;
+  --color-track: #c4c4c4;
 
-  --radius-md: 4px;
-  --radius-lg: 7px;
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+  --font-body: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  --radius-control: 4px;
+  --radius-card: 8px;
+  --shadow-flyout: 0 8px 16px rgb(0 0 0 / 14%);
+  --shadow-dialog: 0 32px 64px rgb(0 0 0 / 19%), 0 2px 21px rgb(0 0 0 / 15%);
 
   color-scheme: light;
-  font: 14px/1.45 var(--font-body);
+  font: 14px/20px var(--font-body);
 }
 
-/* The same system on a warm near-black: paper-coloured text, the gold kept. */
+/* The same system in Windows' dark theme: the accent turns light blue. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #1d1b19;
-    --color-surface: #262320;
-    --color-field: #151311;
-    --color-text: #ebe5da;
-    --color-accent: #d3a35c;
-    --color-divider: color-mix(in srgb, #ebe5da 16%, transparent);
-    --color-danger: #e08a78;
-    --color-danger-100: #3d2420;
+    --color-bg: #202020;
+    --color-layer: #272727;
+    --color-card: #2b2b2b;
+    --color-flyout: #2c2c2c;
+    --color-stroke: #1d1d1d;
+    --color-text: #ffffff;
+    --color-text-2: #c5c5c5;
+    --color-text-3: #8b8b8b;
 
-    --color-neutral-100: #24211f;
-    --color-neutral-200: #2e2b28;
-    --color-neutral-300: #3a3633;
-    --color-neutral-400: #56514c;
-    --color-neutral-500: #75706a;
-    --color-neutral-600: #948e87;
-    --color-neutral-700: #b3ada5;
+    --color-control: #2d2d2d;
+    --color-control-hover: #323232;
+    --color-control-pressed: #272727;
+    --color-control-stroke: #353535;
+    --color-control-bottom: #2a2a2a;
+    --color-field-line: #9a9a9a;
+    --color-field-focus: #1f1f1f;
+    --color-subtle: rgb(255 255 255 / 6%);
+    --color-subtle-2: rgb(255 255 255 / 8%);
 
-    --color-accent-100: #33281a;
-    --color-accent-200: #4a3920;
-    --color-accent-600: #c28d41;
-    --color-accent-700: #e1ad66;
-    --color-accent-800: #facb8d;
+    --color-accent: #60cdff;
+    --color-accent-hover: #5cbdec;
+    --color-accent-pressed: #56a8d5;
+    --color-on-accent: #000000;
+    --color-focus: #ffffff;
 
-    --shadow-md: 0 3px 10px rgb(0 0 0 / 40%);
-    --shadow-lg: 0 0 0 1px var(--color-divider), 0 12px 32px rgb(0 0 0 / 55%);
+    --color-chip: #4a3b12;
+    --color-chip-text: #f7d98a;
+    --color-star: #fce100;
+    --color-good: #6ccb5f;
+    --color-danger: #ff99a4;
+    --color-danger-bg: #442726;
+    --color-warn: #fce100;
+    --color-warn-bg: #433519;
+    --color-track: #5a5a5a;
+
+    --shadow-flyout: 0 8px 16px rgb(0 0 0 / 26%);
+    --shadow-dialog: 0 32px 64px rgb(0 0 0 / 37%), 0 2px 21px rgb(0 0 0 / 37%);
 
     color-scheme: dark;
   }
@@ -91,25 +119,34 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-heading);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+  font-family: var(--font-display);
+  font-weight: 600;
 }
 
 a {
-  color: var(--color-accent-700);
+  color: var(--color-accent);
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .muted {
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
-/* Buttons: outlined, never filled. The plain one is the secondary action. */
+/* A card: white on the layer, a hairline around it. */
+.card {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+}
+
+/* Buttons: the standard one is the secondary action, the accent one the
+   main action, the ghost one has no frame until the pointer is on it. */
 
 button,
 input,
@@ -120,100 +157,123 @@ textarea {
 }
 
 button {
-  font-family: var(--font-heading);
-  line-height: 1.2;
-  background: transparent;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-control-stroke);
+  border-bottom-color: var(--color-control-bottom);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
+  white-space: nowrap;
   cursor: pointer;
 }
 
 button:hover {
-  background: var(--color-neutral-200);
+  background: var(--color-control-hover);
 }
 
 button:active {
-  background: var(--color-neutral-300);
+  background: var(--color-control-pressed);
+  color: var(--color-text-2);
 }
 
 button:disabled {
-  opacity: 0.45;
+  background: var(--color-control);
+  color: var(--color-text-3);
   cursor: not-allowed;
 }
 
 button.primary {
-  border-color: var(--color-accent);
-  color: var(--color-accent-700);
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
-button.primary:hover,
-button.ghost:hover {
-  background: var(--color-accent-100);
+button.primary:hover {
+  background: var(--color-accent-hover);
 }
 
-button.primary:active,
-button.ghost:active {
-  background: var(--color-accent-200);
+button.primary:active {
+  background: var(--color-accent-pressed);
+  color: var(--color-on-accent);
+}
+
+button.primary:disabled {
+  background: var(--color-subtle-2);
+  color: var(--color-text-3);
 }
 
 button.ghost {
   border-color: transparent;
-  color: var(--color-accent-700);
-  padding-inline: 10px;
+  background: transparent;
+  color: var(--color-accent);
+}
+
+button.ghost:hover {
+  background: var(--color-subtle);
+}
+
+button.ghost:active {
+  background: var(--color-subtle-2);
 }
 
 button.ghost.icon {
-  color: var(--color-neutral-700);
-  width: 28px;
-  height: 28px;
+  color: var(--color-text);
+  width: 32px;
   padding: 0;
 }
 
-button.ghost.icon:hover {
-  background: var(--color-neutral-200);
-}
-
 button.danger {
-  border-color: var(--color-danger);
   color: var(--color-danger);
 }
 
-button.danger:hover {
-  background: var(--color-danger-100);
-}
-
-/* A toggle: the generator's options, Protected. */
+/* A toggle: the generator's options, Protected. On, it takes the accent. */
 button.chip[aria-pressed='true'] {
-  border-color: var(--color-accent);
-  background: var(--color-accent-100);
-  color: var(--color-accent-800);
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 button:focus-visible,
 #list:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
 }
 
 #list:focus-visible {
   outline-offset: -2px;
 }
 
+/* Fields: a filled box with an underline, which turns into a thicker line in
+   the accent while the field has the focus. */
 input,
 select,
 textarea {
-  background: var(--color-field);
-  border: 1px solid var(--color-neutral-400);
-  border-radius: var(--radius-md);
-  padding: 0 10px;
-  height: 34px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--color-control-stroke);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
+  box-shadow: inset 0 -1px 0 var(--color-field-line);
   caret-color: var(--color-accent);
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-2);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  background: var(--color-control-hover);
+}
+
 textarea {
-  height: auto;
-  padding: 7px 10px;
+  padding: 5px 11px;
   resize: vertical;
 }
 
@@ -221,79 +281,95 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-200);
+  background: var(--color-field-focus);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
-/* A hairline track, gold up to the value, with an outlined knob. */
+/* A track in the accent up to the value, with a round knob. */
 input[type='range'] {
   appearance: none;
-  height: 18px;
+  height: 20px;
+  min-height: 0;
   padding: 0;
   border: 0;
   background: transparent;
+  box-shadow: none;
   cursor: pointer;
 }
 
 input[type='range']::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--color-accent) var(--fill, 50%), var(--color-neutral-300) var(--fill, 50%));
+  background: linear-gradient(90deg, var(--color-accent) var(--fill, 50%), var(--color-track) var(--fill, 50%));
 }
 
 input[type='range']::-webkit-slider-thumb {
   appearance: none;
-  width: 16px;
-  height: 16px;
-  margin-top: -6px;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
   border-radius: 50%;
-  border: 1px solid var(--color-accent);
-  background: var(--color-bg);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-control-stroke);
+  background: radial-gradient(circle, var(--color-accent) 0 6px, var(--color-control) 6.5px);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
 }
 
 input[type='range']:hover::-webkit-slider-thumb {
-  background: var(--color-accent-100);
+  background: radial-gradient(circle, var(--color-accent) 0 7px, var(--color-control) 7.5px);
 }
 
 input[type='range']:active::-webkit-slider-thumb {
-  background: var(--color-accent-200);
+  background: radial-gradient(circle, var(--color-accent) 0 5px, var(--color-control) 5.5px);
 }
 
+input[type='range']:hover,
 input[type='range']:focus {
+  background: transparent;
   box-shadow: none;
 }
 
 input[type='range']:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
-/* Unlock */
+/* Unlock: a card in the middle of the window. */
 
 #unlock {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  width: min(420px, 90vw);
-  margin: 0 auto;
-  padding-top: min(88px, 10vh);
+  gap: 16px;
+  width: min(420px, calc(100% - 32px));
+  height: fit-content;
+  max-height: calc(100% - 32px);
+  margin: auto;
+  padding: 32px;
+  overflow-y: auto;
+  background: var(--color-layer);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-flyout);
 }
 
 #unlock .logo {
-  width: 40px;
-  height: 40px;
-  margin-bottom: 6px;
+  align-self: center;
+  width: 64px;
+  height: 64px;
 }
 
 #unlock h1 {
-  font-size: 30px;
-  margin: 0;
+  align-self: center;
+  font-size: 28px;
+  line-height: 36px;
+  margin: -4px 0 0;
 }
 
 /* The version, close under the name. */
 #app-version {
-  margin: -12px 0 0;
+  align-self: center;
+  margin: -14px 0 4px;
   font-size: 12px;
 }
 
@@ -302,18 +378,19 @@ input[type='range']:focus-visible {
   flex-wrap: wrap;
   gap: 6px 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.file-row.database {
-  padding: 10px 0;
-  border-top: 1px solid var(--color-divider);
-  border-bottom: 1px solid var(--color-divider);
-}
-
+/* The database: a box like a drop-down, its name over where it lives. */
 .file-row.database {
   flex-wrap: nowrap;
   gap: 10px;
+  padding: 8px 8px 8px 12px;
+  font-size: 14px;
+  background: var(--color-control);
+  border: 1px solid var(--color-control-stroke);
+  border-bottom-color: var(--color-control-bottom);
+  border-radius: var(--radius-control);
 }
 
 .file-row .where {
@@ -325,11 +402,11 @@ input[type='range']:focus-visible {
 
 .file-row .where .muted {
   font-size: 12px;
+  line-height: 16px;
 }
 
 .file-row button {
-  font-size: 13px;
-  padding: 4px 10px;
+  font-size: 14px;
 }
 
 .path {
@@ -348,47 +425,44 @@ input[type='range']:focus-visible {
   gap: 6px;
 }
 
-.field > span {
-  font-size: 13px;
-  color: var(--color-neutral-700);
-}
-
 #password {
-  height: 40px;
-  padding: 0 12px;
+  height: 36px;
   font-family: var(--font-mono);
-  font-size: 15px;
 }
 
 /* Without a key file: a quiet link at the fields' edge, and what it is for
    close under it. */
 #pick-key-file.ghost {
+  min-height: 24px;
   padding-inline: 0;
-}
-
-#key-file-hint {
-  margin: -10px 0 0;
   font-size: 12px;
 }
 
-#unlock-button {
-  height: 42px;
-  font-size: 17px;
+#pick-key-file.ghost:hover {
+  background: none;
+  text-decoration: underline;
 }
 
+#key-file-hint {
+  margin: -12px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#unlock-button,
 #hello-button {
-  height: 38px;
+  height: 36px;
 }
 
 #unlock-error {
   color: var(--color-danger);
-  font-size: 13px;
+  font-size: 12px;
   margin: 0;
 }
 
 #notice,
 #signing-in {
-  font-size: 13px;
+  font-size: 12px;
   margin: 0;
 }
 
@@ -400,7 +474,7 @@ input[type='range']:focus-visible {
 }
 
 #choose > * {
-  width: min(520px, 90vw);
+  width: min(560px, 90vw);
   margin-inline: auto;
 }
 
@@ -413,13 +487,13 @@ input[type='range']:focus-visible {
 
 #choose .kicker {
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent-700);
+  font-weight: 600;
+  color: var(--color-text-2);
 }
 
 #choose h1 {
-  font-size: 32px;
+  font-size: 28px;
+  line-height: 36px;
   margin: 0;
 }
 
@@ -431,25 +505,23 @@ input[type='range']:focus-visible {
 #choose .sources {
   display: flex;
   flex-direction: column;
+  gap: 4px;
   margin-top: 24px;
-  border-top: 1px solid var(--color-divider);
 }
 
 .source {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-start;
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--color-divider);
+  padding: 14px 16px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .source:hover {
-  background: var(--color-neutral-200);
-}
-
-.source:has(input:checked) {
-  background: var(--color-accent-100);
+  background: var(--color-control-hover);
 }
 
 /* The radio itself is hidden; .dot draws it. */
@@ -462,21 +534,21 @@ input[type='range']:focus-visible {
 
 .source .dot {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  margin-top: 3px;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
   border-radius: 50%;
-  border: 1px solid var(--color-neutral-500);
+  border: 1px solid var(--color-field-line);
+  background: var(--color-subtle);
 }
 
 .source input:checked + .dot {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  box-shadow: inset 0 0 0 4px var(--color-accent-100);
+  border: 5px solid var(--color-accent);
+  background: var(--color-on-accent);
 }
 
 .source input:focus-visible + .dot {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -487,27 +559,25 @@ input[type='range']:focus-visible {
 }
 
 .source .title {
-  font-family: var(--font-heading);
-  font-size: 17px;
+  font-weight: 600;
 }
 
 .source .hint {
-  font-size: 13px;
-  color: var(--color-neutral-700);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-2);
 }
 
 #choose .stop,
 #choose .error,
 #choose > p.muted {
   margin: 14px auto 0;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 #choose .stop button,
 #choose > p.muted button {
   margin-left: 6px;
-  font-size: 13px;
-  padding: 3px 10px;
 }
 
 #choose .error {
@@ -525,6 +595,7 @@ input[type='range']:focus-visible {
 
 #choose .footer > span {
   font-size: 12px;
+  line-height: 16px;
   max-width: 320px;
 }
 
@@ -535,15 +606,15 @@ input[type='range']:focus-visible {
 }
 
 #choose .footer button {
-  padding: 8px 22px;
-  font-size: 16px;
+  min-width: 120px;
 }
 
-/* Vault */
+/* Vault: the toolbar and the sidebar on the window's ground, the list and the
+   entry on a lighter layer with a rounded corner. */
 
 #vault {
   display: grid;
-  grid-template: auto 1fr / var(--sidebar-width, 180px) minmax(220px, 30%) 1fr;
+  grid-template: auto 1fr / var(--sidebar-width, 240px) minmax(260px, 30%) 1fr;
   height: 100%;
 }
 
@@ -551,19 +622,27 @@ input[type='range']:focus-visible {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-divider);
+  gap: 4px;
+  padding: 8px 12px 8px 8px;
+}
+
+/* The search box in the middle, the keyboard button before it: the free
+   room is shared out on both sides of the two. */
+#toolbar #shortcuts-button {
+  margin-left: auto;
 }
 
 #search {
-  flex: 1;
+  flex: 0 1 440px;
   min-width: 0;
-  padding: 0 12px;
+  margin-right: auto;
+  background: var(--color-subtle);
+  box-shadow: none;
 }
 
-#toolbar button {
-  height: 34px;
+#search:focus {
+  background: var(--color-field-focus);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 #database-select {
@@ -620,8 +699,6 @@ input[type='range']:focus-visible {
   min-height: 0;
   overflow: hidden;
   padding: 0 0 8px;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-divider);
 }
 
 /* The sidebar's edge: dragged to change its width (src/sidebar-resize.ts). */
@@ -658,8 +735,8 @@ input[type='range']:focus-visible {
 #tags-heading {
   flex: none;
   margin: 0 0 4px;
-  padding: 12px 14px 0;
-  border-top: 1px solid var(--color-divider); /* across the whole sidebar */
+  padding: 14px 12px 0;
+  border-top: 1px solid var(--color-stroke); /* across the whole sidebar */
 }
 
 #tags {
@@ -672,7 +749,7 @@ input[type='range']:focus-visible {
 #tags .side-item.tag .name::before {
   content: '#';
   margin-right: 1px;
-  color: var(--color-neutral-500);
+  color: var(--color-text-2);
 }
 
 #tags .side-item.tag[aria-current='true'] .name::before {
@@ -680,40 +757,59 @@ input[type='range']:focus-visible {
 }
 
 #sidebar ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 #sidebar h3 {
-  margin: 12px 14px 4px;
-  font: 600 11px var(--font-body);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-neutral-700);
+  margin: 4px 12px 6px;
+  font: 600 12px/16px var(--font-body);
+  color: var(--color-text-2);
 }
 
 .side-item {
+  position: relative;
   display: flex;
-  gap: 8px;
-  align-items: baseline;
+  gap: 14px;
+  align-items: center;
+  justify-content: flex-start;
   width: 100%;
-  padding: 5px 14px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 0;
-  border-left: 3px solid transparent;
-  border-radius: 0;
   background: none;
   text-align: left;
 }
 
 .side-item:hover {
-  background: var(--color-neutral-200);
+  background: var(--color-subtle);
 }
 
+.side-item:active {
+  background: var(--color-subtle-2);
+  color: inherit;
+}
+
+/* The chosen one: a tint and a short bar in the accent at its start. */
 .side-item[aria-current='true'] {
-  border-left-color: var(--color-accent);
-  background: var(--color-accent-100);
-  color: var(--color-accent-800);
+  background: var(--color-subtle-2);
+}
+
+.side-item[aria-current='true']::before,
+#list li[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--color-accent);
 }
 
 /* The shared icons (src/icons.ts) are strokes in the text's colour. */
@@ -723,22 +819,16 @@ button.icon.action svg,
 button.icon.state svg {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 /* The groups' icons. */
 .side-item svg {
-  align-self: center;
   width: 16px;
   height: 16px;
   flex: none;
-  color: var(--color-neutral-700);
-}
-
-.side-item[aria-current='true'] svg {
-  color: inherit;
 }
 
 .side-item .name {
@@ -757,26 +847,23 @@ button.icon.state svg {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
-  padding-right: 6px;
-}
-
-#tags .side-item .name {
-  font-size: 13px;
+  padding: 0 0 0 4px;
 }
 
 #tags li .more {
   visibility: hidden;
+  min-height: 28px;
   padding: 0 6px;
   border-color: transparent;
   background: none;
 }
 
-#tags .menu {
-  min-width: 120px;
+#tags li .more:hover {
+  background: var(--color-subtle);
 }
 
-#tags .menu button {
-  border-color: transparent;
+#tags .menu {
+  min-width: 120px;
 }
 
 #tags li:hover .more,
@@ -791,58 +878,62 @@ button.icon.state svg {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-size: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 #list-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--color-divider);
+  background: var(--color-layer);
+  border-top: 1px solid var(--color-stroke);
+  border-left: 1px solid var(--color-stroke);
+  border-right: 1px solid var(--color-stroke);
+  border-top-left-radius: var(--radius-card);
 }
 
 #list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 14px;
-  font-size: 12px;
-  color: var(--color-neutral-700);
-  border-bottom: 1px solid var(--color-divider);
+  gap: 8px;
+  padding: 14px 16px 10px 20px;
+  color: var(--color-text-2);
 }
 
 #entry-count {
   flex: 1;
 }
 
-#list-header button + button {
-  margin-left: 6px;
-}
-
-#list-header button {
-  padding: 2px 10px;
-  font-size: 14px;
-}
-
 #list {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
-  padding: 0;
+  padding: 0 4px 8px;
   list-style: none;
   overflow-y: auto;
 }
 
 #list li {
+  position: relative;
   display: grid;
-  grid-template: auto auto / 28px 1fr auto;
+  grid-template: auto auto / 32px 1fr auto;
   column-gap: 12px;
-  padding: 9px 14px;
+  align-content: center;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
   cursor: default;
-  border-bottom: 1px solid var(--color-divider);
+}
+
+#list li:hover {
+  background: var(--color-subtle);
 }
 
 #list li[aria-selected='true'] {
-  background: var(--color-accent-100);
+  background: var(--color-subtle-2);
 }
 
 #list .icon {
@@ -850,25 +941,21 @@ button.icon.state svg {
   align-self: center;
 }
 
-/* Entry icons sit on a small matted tile, like the plates in a book. */
+/* Entry icons sit on a small rounded tile. */
 .icon {
-  width: 28px;
-  height: 28px;
-  padding: 3px;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
   object-fit: contain;
-  border: 1px solid var(--color-neutral-400);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-}
-
-#list li[aria-selected='true'] .icon {
-  border-color: var(--color-accent);
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-card);
 }
 
 /* Site icons are drawn for light pages; a light tile keeps dark ones visible. */
 @media (prefers-color-scheme: dark) {
   .icon.site {
-    background: #f3f2f2;
+    background: #f3f3f3;
   }
 }
 
@@ -880,40 +967,48 @@ button.icon.state svg {
 }
 
 .subtitle {
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
   font-size: 12px;
+  line-height: 16px;
 }
 
 /* An entry that expired, or expires within 14 days. */
 .badge {
   margin-left: 6px;
-  padding: 0 5px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-md);
+  padding: 1px 8px;
+  border-radius: 10px;
   font-size: 11px;
+  line-height: 16px;
   vertical-align: 1px;
 }
 
 .badge.expired {
+  background: var(--color-danger-bg);
   color: var(--color-danger);
 }
 
 .badge.soon {
-  color: var(--color-accent-700);
+  background: var(--color-warn-bg);
+  color: var(--color-warn);
 }
 
 #list .empty {
   display: block;
-  padding: 24px 14px;
-  color: var(--color-neutral-700);
-  border: 0;
+  padding: 24px 16px;
+  color: var(--color-text-2);
+}
+
+#list .empty:hover {
+  background: none;
 }
 
 #detail {
   overflow-y: auto;
-  padding: 24px 32px;
+  padding: 20px 28px 16px;
   display: flex;
   flex-direction: column;
+  background: var(--color-layer);
+  border-top: 1px solid var(--color-stroke);
 }
 
 /* The entry's and the editor's buttons stay at the bottom of the column:
@@ -921,17 +1016,12 @@ button.icon.state svg {
 #detail > .buttons,
 #detail > .editor > .buttons {
   position: sticky;
-  bottom: -24px; /* over the column's bottom padding */
+  bottom: -16px; /* over the column's bottom padding */
   z-index: 1;
   margin-top: auto;
-  padding: 12px 0 24px;
-  background: var(--color-bg);
-  border-top: 1px solid var(--color-divider);
-}
-
-#detail > .editor > .buttons {
-  margin-left: 0;
-  padding-left: 120px; /* in line with the fields, the strip covered too */
+  padding: 14px 0 16px;
+  background: var(--color-layer);
+  border-top: 1px solid var(--color-stroke);
 }
 
 #detail > .editor {
@@ -943,23 +1033,23 @@ button.icon.state svg {
 /* The icon keeps to the top, level with the title, whatever lines follow it. */
 #detail > header {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-start;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 #detail > header .icon {
-  width: 44px;
-  height: 44px;
-  padding: 5px;
-  border-color: var(--color-accent);
+  width: 52px;
+  height: 52px;
+  padding: 6px;
+  border-radius: 10px;
 }
 
 /* The title and the small lines under it, at fixed heights so the room they
    take can be counted below. */
 #detail .heading {
-  --title-line: 30px;
-  --small-line: 17px;
+  --title-line: 34px;
+  --small-line: 24px;
   --small-gap: 2px;
   flex: 1;
   display: flex;
@@ -979,7 +1069,7 @@ button.icon.state svg {
 
 #detail h2 {
   margin: 0;
-  font-size: 26px;
+  font-size: 28px;
   overflow-wrap: anywhere;
 }
 
@@ -991,22 +1081,22 @@ button.icon.state svg {
 #detail .expiry {
   font-size: 12px;
   line-height: var(--small-line);
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 #detail .detail-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* Tags as yellow chips. */
 #detail .tag-chip {
   max-width: 100%;
-  padding: 1px 8px;
-  border: 1px solid var(--color-accent-200);
-  border-radius: 999px;
-  background: var(--color-accent-100);
-  color: var(--color-accent-700);
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--color-chip);
+  color: var(--color-chip-text);
   font-size: 12px;
   line-height: var(--small-line);
   overflow-wrap: anywhere;
@@ -1017,25 +1107,33 @@ button.icon.state svg {
 }
 
 #detail .expiry.soon {
-  color: var(--color-accent-700);
+  color: var(--color-warn);
 }
 
-/* The favorite star: an outline until the entry is starred, then gold. */
+/* The favorite star: grey until the entry is starred, then gold. */
 button.star {
-  padding: 0 4px;
+  min-height: 28px;
+  padding: 0 6px;
   border: 0;
   background: none;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
-  color: var(--color-neutral-500);
+  color: var(--color-text-3);
+}
+
+button.star:hover {
+  background: var(--color-subtle);
 }
 
 button.star[aria-pressed='true'] {
-  color: var(--color-accent);
+  color: var(--color-star);
 }
 
 #detail > header button.star {
-  font-size: 24px;
+  min-height: 32px;
+  width: 32px;
+  padding: 0;
+  font-size: 20px;
 }
 
 #list .title,
@@ -1049,23 +1147,26 @@ button.star[aria-pressed='true'] {
   align-self: center;
 }
 
-#detail > header + .row {
-  border-top: 1px solid var(--color-divider);
-}
-
+/* An entry's values: rows in one card, a hairline between them. */
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  column-gap: 8px;
   align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-divider);
+  min-height: 44px;
+  padding: 8px 8px 8px 16px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-stroke);
 }
 
 .row:not(.file) .label {
   grid-column: 1 / -1;
   grid-row: 1;
-  color: var(--color-neutral-700);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-2);
   overflow-wrap: anywhere;
 }
 
@@ -1076,7 +1177,7 @@ button.star[aria-pressed='true'] {
 
 .row:not(.file) .actions {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1 / 3;
 }
 
 .row .value {
@@ -1090,7 +1191,7 @@ button.star[aria-pressed='true'] {
 }
 
 .row .value.copyable:hover {
-  color: var(--color-accent-700);
+  color: var(--color-accent);
 }
 
 /* A revealed secret is copied with a click, Copy or Ctrl+C only, so it is
@@ -1105,88 +1206,86 @@ button.star[aria-pressed='true'] {
   gap: 2px;
 }
 
-/* Actions inside a row are quiet: text in the accent, a tint on hover. */
-.row .actions button {
-  border-color: transparent;
-  color: var(--color-accent-700);
-  padding: 3px 10px;
-}
-
-.row .actions button:hover {
-  background: var(--color-accent-100);
-}
-
-.row .actions button:active {
-  background: var(--color-accent-200);
-}
-
-/* Attachments: the file name, its size, Save…. */
 /* History: a quiet link under the title, the versions as a list. */
 #detail .heading button.history {
   align-self: flex-start;
-  margin-top: var(--small-gap);
-  padding: 0;
+  min-height: 0;
+  margin: var(--small-gap) 0 0 -8px;
+  padding: 0 8px;
   border: 0;
   background: none;
   font-size: 12px;
   line-height: var(--small-line);
-  color: var(--color-accent-700);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  color: var(--color-accent);
+}
+
+#detail .heading button.history:hover {
+  background: var(--color-subtle);
 }
 
 .versions {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--color-divider);
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+}
+
+.versions li + li {
+  border-top: 1px solid var(--color-stroke);
 }
 
 .versions button.version {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
   width: 100%;
-  padding: 10px 4px;
+  padding: 10px 16px;
   border: 0;
-  border-bottom: 1px solid var(--color-divider);
   border-radius: 0;
   background: none;
   text-align: left;
+  white-space: normal;
+}
+
+.versions li:first-child button.version {
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+.versions li:last-child button.version {
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
 }
 
 .versions button.version:hover {
-  background: var(--color-accent-100);
+  background: var(--color-subtle);
 }
 
 .versions .what {
   font-size: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 /* How the entry differs now, under an older version. */
 .row.now .value {
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
+/* Attachments: the file name, its size, Open and Save. */
 .row.file {
   grid-template-columns: 1fr auto auto;
 }
 
 .row.file .size {
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
-/* "⋯": a short list of actions under a quiet button. */
+/* "⋯": a short list of actions in a flyout. */
 .menu-wrap {
   position: relative;
-}
-
-.row .actions button.more {
-  font-family: var(--font-body);
-  letter-spacing: 0.05em;
 }
 
 .menu {
@@ -1196,12 +1295,13 @@ button.star[aria-pressed='true'] {
   z-index: 10;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 150px;
   padding: 4px;
-  background: var(--color-field);
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  background: var(--color-flyout);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-flyout);
 }
 
 .menu.up {
@@ -1210,15 +1310,16 @@ button.star[aria-pressed='true'] {
 }
 
 .menu-wrap .menu button {
-  text-align: left;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: none;
   color: var(--color-text);
-  padding: 6px 12px;
-  white-space: nowrap;
+  text-align: left;
 }
 
 .menu-wrap .menu button:hover,
 .menu-wrap .menu button:focus-visible {
-  background: var(--color-accent-100);
+  background: var(--color-subtle);
   outline: none;
 }
 
@@ -1226,45 +1327,47 @@ button.star[aria-pressed='true'] {
   color: var(--color-danger);
 }
 
-.menu-wrap .menu button.danger:hover,
-.menu-wrap .menu button.danger:focus-visible {
-  background: var(--color-danger-100);
+/* The notes: a value of their own in the card, selectable as text. */
+.row.notes .value {
+  user-select: text;
 }
 
-.notes {
-  white-space: pre-wrap;
-  text-align: justify;
-  max-width: 560px;
-  user-select: text;
-  margin: 18px 0 0;
+/* The entry view's sections: a heading over a card. */
+#detail > h3 {
+  margin: 20px 0 8px;
+  font: 600 14px/20px var(--font-body);
 }
 
 #toast {
   position: fixed;
-  bottom: 16px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   max-width: 90vw;
-  background: var(--color-text);
-  color: var(--color-bg);
-  padding: 7px 16px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  box-shadow: var(--shadow-md);
+  padding: 10px 16px;
+  background: var(--color-flyout);
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  box-shadow: var(--shadow-flyout);
 }
 
 /* TOTP */
 
-.totp {
-  font-size: 17px;
+.row .value.totp {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
   letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
 }
 
 .countdown {
   margin-left: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
   font-family: var(--font-body);
   font-size: 12px;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -1272,69 +1375,56 @@ button.star[aria-pressed='true'] {
 #detail .buttons,
 .editor .buttons {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
 #detail .buttons button,
 .editor .buttons button {
-  padding: 7px 16px;
-  font-size: 15px;
+  min-width: 120px;
 }
 
-/* Editor */
+/* Editor: the labels over the fields, as in a WinUI form. */
 
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+}
+
+.editor > *:not(.buttons) {
+  max-width: 640px;
 }
 
 .editor h2 {
-  font-size: 24px;
   margin: 0 0 4px;
 }
 
-/* Section headings: small capitals in the accent, over a hairline. */
+/* Section headings: a heading in the text's colour over its fields. */
 #detail h3 {
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent-700);
-  margin: 6px 0 0;
-}
-
-/* The entry view's attachments heading, over the file rows. */
-#detail > h3 {
-  margin: 24px 0 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--color-divider);
+  font: 600 14px/20px var(--font-body);
+  margin: 8px 0 0;
 }
 
 .edit-row {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 10px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.edit-row .label {
-  color: var(--color-neutral-700);
+/* A row without a label (the strength, the star) keeps close to the one before. */
+.edit-row .label:empty {
+  display: none;
 }
 
-.edit-row:has(textarea) {
-  align-items: start;
-}
-
-.edit-row:has(textarea) .label {
-  padding-top: 7px;
+.edit-row:has(.label:empty) {
+  margin-top: -8px;
 }
 
 .edit-row .controls {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   min-width: 0;
 }
@@ -1343,10 +1433,6 @@ button.star[aria-pressed='true'] {
 .edit-row .controls > textarea {
   flex: 1;
   min-width: 0;
-}
-
-.edit-row .controls > button {
-  height: 34px;
 }
 
 /* The entry's icon: its preview, and the choices under it. */
@@ -1367,38 +1453,34 @@ button.star[aria-pressed='true'] {
   background: transparent;
 }
 
-.icon-picker .icon {
-  width: 28px;
-  height: 28px;
-}
-
 .icon-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
-  padding: 6px;
-  background: var(--color-surface);
+  padding: 8px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
 }
 
 .icon-tile {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   padding: 3px;
   border-color: transparent;
   background: transparent;
 }
 
 .icon-tile img {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--radius-md);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
 }
 
 .icon-tile[aria-pressed='true'] {
   border-color: var(--color-accent);
-  background: var(--color-accent-100);
+  background: var(--color-subtle-2);
 }
 
 /* Tags as chips, with the input for a new one after them. */
@@ -1406,17 +1488,21 @@ button.star[aria-pressed='true'] {
   flex: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   align-items: center;
   min-width: 0;
+  min-height: 32px;
   padding: 3px 4px;
-  background: var(--color-field);
+  border: 1px solid var(--color-control-stroke);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
+  box-shadow: inset 0 -1px 0 var(--color-field-line);
   cursor: text;
 }
 
 .tag-input:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  background: var(--color-field-focus);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 .tag-chips {
@@ -1428,26 +1514,38 @@ button.star[aria-pressed='true'] {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 1px 2px 1px 8px;
-  border-color: var(--color-accent-200);
-  background: var(--color-accent-100);
-  border-radius: 999px;
+  height: 24px;
+  padding: 0 2px 0 10px;
+  border-radius: 12px;
+  background: var(--color-chip);
+  color: var(--color-chip-text);
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .tag-input .tag button {
-  padding: 0 6px;
+  min-height: 20px;
+  width: 20px;
+  padding: 0;
   border: 0;
+  border-radius: 10px;
   background: transparent;
-  line-height: 1.2;
+  color: inherit;
+}
+
+.tag-input .tag button:hover {
+  background: rgb(0 0 0 / 8%);
 }
 
 .tag-input input {
   flex: 1;
   min-width: 90px;
+  min-height: 24px;
+  padding: 0 6px;
   border: 0;
   outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 input.secret {
@@ -1463,7 +1561,7 @@ input::-ms-reveal {
   display: flex;
   gap: 10px;
   align-items: center;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
   font-size: 12px;
 }
 
@@ -1473,14 +1571,18 @@ input::-ms-reveal {
 }
 
 .strength .bar {
-  width: 22px;
+  width: 44px;
   height: 4px;
   border-radius: 2px;
-  background: var(--color-neutral-300);
+  background: var(--color-track);
 }
 
 .strength .bar.on {
-  background: var(--color-accent-600);
+  background: var(--color-good);
+}
+
+.strength[data-score='2'] .bar.on {
+  background: var(--color-warn);
 }
 
 .strength[data-score='0'] .bar.on,
@@ -1488,15 +1590,16 @@ input::-ms-reveal {
   background: var(--color-danger);
 }
 
+/* The generator: a panel like a flyout, under the password. */
 .generator {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-left: 120px;
-  padding: 14px 16px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  background: var(--color-neutral-100);
+  gap: 14px;
+  padding: 16px;
+  background: var(--color-flyout);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-flyout);
 }
 
 .generator .result,
@@ -1506,19 +1609,24 @@ input::-ms-reveal {
   gap: 12px;
 }
 
+.generator .result {
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-control);
+  background: var(--color-subtle);
+}
+
 .generator .preview {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: 15px;
+  letter-spacing: 0.03em;
   user-select: none;
 }
 
 .generator .length .label {
   width: 56px;
-  font-size: 13px;
-  color: var(--color-neutral-700);
 }
 
 .generator .length input {
@@ -1528,7 +1636,7 @@ input::-ms-reveal {
 .generator .length-value {
   width: 24px;
   text-align: right;
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .generator .options {
@@ -1537,31 +1645,38 @@ input::-ms-reveal {
   gap: 6px;
 }
 
+/* Additional fields: rows in a card. */
 .fields {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-divider);
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+}
+
+.fields:empty {
+  display: none;
 }
 
 .field-row {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--color-divider);
+  padding: 8px;
+}
+
+.field-row + .field-row {
+  border-top: 1px solid var(--color-stroke);
 }
 
 .field-row .name {
   width: 150px;
   flex-shrink: 0;
-  height: 32px;
 }
 
 .field-row textarea {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
-  padding: 5px 10px;
   resize: none;
   overflow: hidden;
   font-family: var(--font-mono);
@@ -1571,36 +1686,31 @@ input::-ms-reveal {
   -webkit-text-security: disc;
 }
 
-.field-row .chip {
-  font-size: 12px;
-  padding: 3px 8px;
-}
-
 /* An entry's commands (copy, show / hide, open) and the editor's two-state
-   icons (show / hide, protected): icons without a frame; the accent when on. */
+   icons (show / hide, protected): icons without a frame, a tint under the
+   pointer; the accent when on. */
 button.icon.action,
 button.icon.state {
-  border: 0;
+  width: 32px;
+  padding: 0;
+  border-color: transparent;
   background: none;
-  padding: 4px 6px;
-  color: var(--color-neutral-700);
+  color: var(--color-text);
   line-height: 0;
 }
 
 button.icon.action:hover,
 button.icon.state:hover {
-  color: var(--color-accent);
+  background: var(--color-subtle);
+}
+
+button.icon.action:active,
+button.icon.state:active {
+  background: var(--color-subtle-2);
 }
 
 button.icon.action.danger:hover {
   color: var(--color-danger);
-}
-
-/* Add file…: the paperclip before the words. */
-button.add-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 button.add-file svg {
@@ -1615,23 +1725,32 @@ button.chip.icon.state[aria-pressed='true'] {
 
 button.icon.action svg,
 button.icon.state svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 /* The entry's files in the editor: the name with what Save will do to it, the size, rename and remove. */
 .files {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-divider);
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+}
+
+.files:empty {
+  display: none;
 }
 
 .attachment-row {
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--color-divider);
+  padding: 8px 8px 8px 16px;
+}
+
+.attachment-row + .attachment-row {
+  border-top: 1px solid var(--color-stroke);
 }
 
 .attachment-row .what {
@@ -1644,7 +1763,7 @@ button.icon.state svg {
 
 .attachment-row .note {
   font-size: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 .attachment-row .note:empty {
@@ -1654,22 +1773,29 @@ button.icon.state svg {
 .attachment-row .size {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
+}
+
+.files-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.files-editor > .files {
+  align-self: stretch;
 }
 
 .editor .add-field {
   align-self: flex-start;
-  margin-top: -6px;
-}
-
-.editor .buttons {
-  margin: 6px 0 0 120px;
+  margin-top: -8px;
 }
 
 .editor .hint {
   margin-left: 8px;
   font-size: 12px;
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 .editor .error {
@@ -1677,20 +1803,20 @@ button.icon.state svg {
   margin: 0;
 }
 
-/* Questions */
+/* Questions: a content dialog, its buttons on the window's ground below. */
 
 dialog.modal {
-  width: min(440px, 90vw);
-  padding: 18px 20px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
+  width: min(448px, 90vw);
+  padding: 24px 24px 0;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
   color: var(--color-text);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-dialog);
 }
 
 dialog.modal::backdrop {
-  background: color-mix(in srgb, #2d2b2b 50%, transparent);
+  background: rgb(0 0 0 / 30%);
 }
 
 dialog.modal p {
@@ -1703,7 +1829,7 @@ dialog.modal ul.skipped {
   overflow-y: auto;
   margin: 0 0 12px;
   padding-left: 20px;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 dialog.modal ul.formats {
@@ -1715,6 +1841,14 @@ dialog.modal .buttons {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  margin: 8px -24px 0;
+  padding: 24px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-stroke);
+}
+
+dialog.modal .buttons button {
+  min-width: 96px;
 }
 
 .modal input.text {
@@ -1730,25 +1864,28 @@ dialog.modal .buttons {
   max-height: 180px;
   overflow-y: auto;
   margin-bottom: 16px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  background: var(--color-field);
+  padding: 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+  background: var(--color-flyout);
+  box-shadow: var(--shadow-flyout);
 }
 
 .modal .suggestions .suggestion {
   display: block;
   width: 100%;
   padding: 6px 10px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .modal .suggestions .suggestion:hover,
 .modal .suggestions .suggestion[aria-selected='true'] {
-  background: var(--color-accent-100);
+  background: var(--color-subtle);
 }
 
 dialog.modal.form {
-  width: min(520px, 92vw);
+  width: min(540px, 92vw);
 }
 
 .modal.form .field,
@@ -1758,23 +1895,20 @@ dialog.modal.form {
 
 /* Keyboard shortcuts: by group, the keys in a column beside what they do. */
 dialog.modal.shortcuts {
-  width: min(560px, 92vw);
-  padding: 26px 24px 18px;
+  width: min(580px, 92vw);
 }
 
-/* Its message is the title: room above it, as the panels have. */
+/* Its message is the title. */
 .modal.shortcuts > p {
-  margin-top: 4px;
-  font-family: var(--font-heading);
+  font-family: var(--font-display);
   font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
 }
 
 .modal.shortcuts h3 {
-  margin: 0 0 6px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-accent-700);
+  margin: 0 0 8px;
+  font: 600 14px/20px var(--font-body);
 }
 
 .modal.shortcuts dl {
@@ -1783,87 +1917,111 @@ dialog.modal.shortcuts {
   grid-template-columns: 15em 1fr;
   gap: 6px 16px;
   margin: 0 0 16px;
-  font-size: 13px;
 }
 
 .modal.shortcuts dd {
   margin: 0;
 }
 
+/* A key as a keycap. */
 .modal.shortcuts kbd {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 12px;
   padding: 1px 6px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-}
-
-/* The shortcuts button, square beside the search field. */
-#toolbar #shortcuts-button {
-  width: 34px;
-  padding: 0;
+  border: 1px solid var(--color-control-stroke);
+  border-bottom-color: var(--color-control-bottom);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
 }
 
 .modal .choices {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .modal .choices button {
+  justify-content: flex-start;
   text-align: left;
 }
 
-/* Settings */
+/* Settings: the tabs down the side on the window's ground, the chosen one's
+   settings on the layer, each in a card of its own. */
 
 #settings {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
   height: 100%;
   overflow-y: auto;
+  background: linear-gradient(90deg, var(--color-bg) 240px, var(--color-layer) 240px);
 }
 
-#settings > * {
-  width: min(640px, 92vw);
-  margin-inline: auto;
+#settings > :not(.tabs) {
+  grid-column: 2;
+  width: 100%;
+  max-width: 972px; /* 860px of settings in their padding */
+  padding-inline: 56px;
 }
 
 #settings > header {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  padding: 32px 0 4px;
+  align-items: center;
+  padding-top: 28px;
 }
 
 #settings h1 {
-  font-size: 30px;
+  font-size: 28px;
+  line-height: 36px;
   margin: 0;
 }
 
 /* The settings' tabs: one group of settings at a time. */
 #settings .tabs {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  position: sticky;
+  top: 0;
+  align-self: start;
   display: flex;
-  gap: 4px;
-  margin-top: 16px;
-  border-bottom: 1px solid var(--color-divider);
+  flex-direction: column;
+  gap: 2px;
+  padding: 24px 4px 4px;
 }
 
 #settings .tab {
-  margin-bottom: -1px;
-  padding: 8px 14px;
+  position: relative;
+  justify-content: flex-start;
+  min-height: 36px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
   background: none;
-  color: var(--color-neutral-700);
-}
-
-#settings .tab[aria-selected='true'] {
-  border-bottom-color: var(--color-accent);
   color: var(--color-text);
 }
 
+#settings .tab:hover {
+  background: var(--color-subtle);
+}
+
+#settings .tab[aria-selected='true'] {
+  background: var(--color-subtle-2);
+}
+
+#settings .tab[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
 #settings .tab:disabled {
-  opacity: 0.45;
+  background: none;
+  color: var(--color-text-3);
 }
 
 #settings .locked-note {
@@ -1876,17 +2034,15 @@ dialog.modal.shortcuts {
 }
 
 #settings section {
-  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 20px;
 }
 
 #settings h3 {
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent-700);
-  margin: 0 0 6px;
+  font: 600 14px/20px var(--font-body);
+  margin: 0 0 4px;
 }
 
 .setting {
@@ -1894,24 +2050,29 @@ dialog.modal.shortcuts {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--color-divider);
+  min-height: 68px;
+  padding: 12px 16px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
 }
 
 .setting > div {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .setting .hint {
   font-size: 12px;
-  color: var(--color-neutral-700);
+  line-height: 16px;
+  color: var(--color-text-2);
   overflow-wrap: anywhere;
 }
 
 .setting select {
-  height: 32px;
+  min-width: 160px;
   padding: 0 8px;
 }
 
@@ -1924,43 +2085,54 @@ dialog.modal.shortcuts {
 
 .setting .value {
   flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 4px 10px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
+  color: var(--color-text-2);
 }
 
-/* An on / off switch, drawn in outline like the buttons. */
+/* An on / off switch: an outline with a dot, filled with the accent when on. */
 button.switch {
   position: relative;
   flex-shrink: 0;
-  width: 38px;
-  height: 22px;
+  width: 40px;
+  min-height: 0;
+  height: 20px;
   padding: 0;
-  border: 1px solid var(--color-neutral-400);
-  border-radius: 11px;
+  border: 1px solid var(--color-text-2);
+  border-radius: 10px;
+  background: var(--color-subtle);
+}
+
+button.switch:hover {
+  background: var(--color-subtle-2);
 }
 
 button.switch .knob {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--color-neutral-500);
+  background: var(--color-text-2);
   transition: left 0.15s;
+}
+
+button.switch:hover .knob {
+  transform: scale(1.15);
 }
 
 button.switch[aria-checked='true'] {
   border-color: var(--color-accent);
-  background: var(--color-accent-100);
+  background: var(--color-accent);
+}
+
+button.switch[aria-checked='true']:hover {
+  border-color: var(--color-accent-hover);
+  background: var(--color-accent-hover);
 }
 
 button.switch[aria-checked='true'] .knob {
-  left: 19px;
-  background: var(--color-accent);
+  left: 23px;
+  background: var(--color-on-accent);
 }
 
 /* Reports over the vault: password health, similar entries */
@@ -1968,59 +2140,73 @@ button.switch[aria-checked='true'] .knob {
 #report {
   height: 100%;
   overflow-y: auto;
+  background: var(--color-layer);
 }
 
 #report > * {
-  width: min(720px, 92vw);
+  width: min(960px, 92vw);
   margin-inline: auto;
 }
 
 #report > header {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  padding: 32px 0 4px;
+  align-items: center;
+  padding: 28px 0 4px;
 }
 
 #report h1 {
-  font-size: 30px;
+  font-size: 28px;
+  line-height: 36px;
   margin: 0;
 }
 
 #report .intro {
-  margin-top: 12px;
+  margin-top: 4px;
   margin-bottom: 0;
 }
 
 #report .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin-top: 24px;
-  border-top: 1px solid var(--color-divider);
-  border-bottom: 1px solid var(--color-divider);
+  gap: 12px;
+  margin-top: 20px;
 }
 
 #report .stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 16px 0;
+  gap: 4px;
+  padding: 16px 20px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
 }
 
 #report .count {
-  font-family: var(--font-heading);
-  font-size: 40px;
-  line-height: 1;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 36px;
   font-variant-numeric: tabular-nums;
 }
 
+#report .stat.crit .count {
+  color: var(--color-danger);
+}
+
+#report .stat.warn .count {
+  color: var(--color-warn);
+}
+
 #report .hint {
-  font-size: 13px;
-  color: var(--color-neutral-700);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-text-2);
 }
 
 #report section {
-  margin-top: 24px;
+  margin-top: 20px;
 }
 
 #report section:last-child,
@@ -2029,28 +2215,48 @@ button.switch[aria-checked='true'] .knob {
 }
 
 #report h3 {
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent-700);
-  margin: 0 0 6px;
+  font: 600 14px/20px var(--font-body);
+  margin: 0 0 8px;
 }
 
 /* A listed entry: the whole row opens its editor. */
 button.finding {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
-  gap: 12px;
+  grid-template-columns: 32px 1fr auto;
+  gap: 14px;
   align-items: center;
   width: 100%;
-  padding: 10px 4px;
-  font-family: var(--font-body);
+  min-height: 64px;
+  padding: 0 16px;
   text-align: left;
+  white-space: normal;
   border: 0;
-  border-top: 1px solid var(--color-divider);
   border-radius: 0;
+  background: none;
+}
+
+button.finding + button.finding {
+  border-top: 1px solid var(--color-stroke);
+}
+
+button.finding:first-child {
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+button.finding:last-child {
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+
+button.finding:only-child {
+  border-radius: var(--radius-card);
+}
+
+button.finding:hover {
+  background: var(--color-subtle);
+}
+
+button.finding:active {
+  color: inherit;
 }
 
 button.finding .text {
@@ -2059,13 +2265,16 @@ button.finding .text {
   min-width: 0;
 }
 
-button.finding .hint {
-  font-size: 12px;
-}
-
+/* What the row does, drawn as a standard button. */
 button.finding .action {
-  font-family: var(--font-heading);
-  color: var(--color-accent-700);
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-control-stroke);
+  border-bottom-color: var(--color-control-bottom);
+  border-radius: var(--radius-control);
+  background: var(--color-control);
 }
 
 button.finding:focus-visible {
@@ -2075,12 +2284,33 @@ button.finding:focus-visible {
 /* An entry among similar ones: ticked to merge or delete, or the one kept. */
 label.similar {
   display: grid;
-  grid-template-columns: auto 28px 1fr auto;
+  grid-template-columns: auto 32px 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 10px 4px;
-  border-top: 1px solid var(--color-divider);
+  padding: 10px 16px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
   cursor: pointer;
+}
+
+label.similar + label.similar {
+  border-top: 0;
+}
+
+label.similar:first-of-type {
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+
+label.similar:last-of-type {
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+
+label.similar:only-of-type {
+  border-radius: var(--radius-card);
+}
+
+label.similar:hover {
+  background: var(--color-control-hover);
 }
 
 label.similar .text {
@@ -2090,7 +2320,6 @@ label.similar .text {
 }
 
 label.similar .hint {
-  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2100,33 +2329,46 @@ label.similar .keep {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  min-height: 0;
+  box-shadow: none;
+  accent-color: var(--color-accent);
 }
 
 /* The kept entry as a merge would leave it: what the merge adds in the
    accent colour, starred (src/similar-parts.ts mergedCard). */
 .merge-card {
   margin-top: 16px;
+  padding: 0 16px 8px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
 }
 
 .merge-head {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 0 12px;
-  font-size: 18px;
+  padding: 12px 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 28px;
 }
 
 .merge-line {
   display: grid;
   grid-template-columns: minmax(8em, 30%) 1fr;
   gap: 12px;
-  padding: 8px 4px;
-  border-top: 1px solid var(--color-divider);
+  margin-inline: -16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-stroke);
 }
 
 .merge-line .name {
-  color: var(--color-neutral-700);
+  color: var(--color-text-2);
 }
 
 .merge-line .value {
@@ -2140,12 +2382,12 @@ label.similar .keep {
 
 .merge-card .new,
 .merge-line.new .name {
-  color: var(--color-accent-700);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
 .merge-line.new {
-  background: var(--color-accent-100);
+  background: var(--color-subtle);
 }
 
 .merge-line.new .merge-tag:not(.new) {
@@ -2155,16 +2397,15 @@ label.similar .keep {
 
 .merge-card .merge-warning {
   color: var(--color-danger);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .merge-legend {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .similar-actions {
   display: flex;
   gap: 8px;
-  padding: 10px 0 0;
-  border-top: 1px solid var(--color-divider);
+  padding: 16px 0 0;
 }

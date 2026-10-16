@@ -54,8 +54,8 @@ type Tab = (typeof TABS)[number][0]
 let shownTab: Tab = 'general'
 
 /**
- * The row of tabs: `open(tab)` shows one. ←/→ move to the next or previous
- * one (wrapping), Home and End to the first and last. `off(tab)` says why a
+ * The column of tabs: `open(tab)` shows one. ↑/↓ (and ←/→) move to the next or
+ * previous one (wrapping), Home and End to the first and last. `off(tab)` says why a
  * tab cannot be opened now: it is then disabled, with that as its title, and skipped.
  */
 function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTMLElement {
@@ -72,9 +72,10 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
     return button
   })
   const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
+  bar.setAttribute('aria-orientation', 'vertical')
   bar.addEventListener('keydown', (e) => {
     const usable = TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
-    const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key]
+    const step = ({ ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 } as Record<string, number>)[e.key]
     const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
       : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
     if (!next) return

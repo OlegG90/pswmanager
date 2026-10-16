@@ -184,6 +184,9 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
+- The look follows WinUI 3 (Fluent), as in `docs/design/winui3`: the toolbar and the sidebar on the
+  window's ground, the list and the entry on a lighter layer, an entry's values in one card, the accent
+  blue of Windows.
 - Theme: light or dark, or as Windows is set (the default); a setting.
 
 ### Groups and tags
@@ -312,10 +315,10 @@ same table the dialog shows.
 
 ### Settings
 
-*Settings* (`Ctrl+,`, or the button) shows its groups in tabs, one tab at a time: **General** (locking and the
+*Settings* (`Ctrl+,`, or the button) shows its groups in tabs down its left side, one tab at a time: **General** (locking and the
 clipboard), **Window** (theme, global hotkey, start with Windows, site icons), **Database** (the open
 database's own settings, see *Database settings*; disabled while locked), **Sync**, **Backup** (see
-*Backup*) and **About**. ←/→ move
+*Backup*) and **About**. ↑/↓ (and ←/→) move
 between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
 redraw after each change (every change is saved at once). Esc closes the settings.
 

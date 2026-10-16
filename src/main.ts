@@ -531,34 +531,39 @@ function renderDetail() {
   const header = el('header', { className: 'entry' }, iconImage(entry), heading)
   if (!version && editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
+  // The values in one card, a hairline between them.
+  const values: Node[] = []
   if (entry.username) {
-    rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
+    values.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
-  if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
+  if (entry.hasPassword) values.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
     // The entry's own address: not offered for an older version.
     const actions = entry.host && !version ? [iconAction('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
-    rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
+    values.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   // An older version's TOTP secret is shown as a secret, not as codes.
-  if (hasTotp(entry)) rows.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
+  if (hasTotp(entry)) values.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
-      rows.push(secretRow(labelOf(field.name), field.name))
+      values.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
-      rows.push(row(field.name, field.value, () => copy(field.name, field.name)))
+      values.push(row(field.name, field.value, () => copy(field.name, field.name)))
     }
   }
-  if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
+  if (entry.notes) {
+    values.push(el('div', { className: 'row notes' }, el('span', { className: 'label' }, 'Notes'), el('span', { className: 'value' }, entry.notes)))
+  }
+  if (values.length) rows.push(el('div', { className: 'card' }, ...values))
   if (entry.attachments.length) {
-    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
+    rows.push(el('h3', {}, 'Attachments'), el('div', { className: 'card' }, ...entry.attachments.map(fileRow)))
   }
   if (version) {
     if (version.at.differs.length) {
-      rows.push(el('h3', {}, 'The entry now'), ...version.at.differs.map((d) =>
+      rows.push(el('h3', {}, 'The entry now'), el('div', { className: 'card' }, ...version.at.differs.map((d) =>
         el('div', { className: 'row now' },
           el('span', { className: 'label' }, labelOf(d.name)),
-          el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now'))))
+          el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now')))))
     }
     const restorable = editable(shown) || isTemplate(shown)
     rows.push(el('div', { className: 'buttons' },

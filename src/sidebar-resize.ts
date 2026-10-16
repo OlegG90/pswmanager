@@ -5,10 +5,10 @@
 const KEY = 'sidebar-width'
 const MIN = 140
 const MAX = 420
-const DEFAULT = 180
+const DEFAULT = 240
 const STEP = 10
 /** The list's least width (`#vault`'s grid) and the entry's least room. */
-const OTHERS = 220 + 160
+const OTHERS = 260 + 160
 
 /** Makes `handle` (inside the sidebar) resize it within `layout`, which reads `--sidebar-width`. */
 export function sidebarResizer(layout: HTMLElement, handle: HTMLElement) {
