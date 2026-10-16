@@ -1,6 +1,6 @@
 import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
-import { button, el } from './dom'
+import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
 import { shownCombo } from './keys'
 import { ask } from './modal'
@@ -90,6 +90,22 @@ function tabBar(off: (tab: SettingsTab) => string | null, open: (tab: SettingsTa
     open(next)
   })
   return bar
+}
+
+/** Check for updates, then what it found: up to date, or the newer version with
+ *  its release page. */
+function updateControl(version: string, onError: (message: string) => void): HTMLElement {
+  const control = el('div', { className: 'sync-control' })
+  const check = busyButton('Check for updates', 'Ask GitHub for the latest release', async () => {
+    const found = await api.checkForUpdate()
+    control.replaceChildren(found.newer
+      ? el('span', { className: 'value' }, `Version ${found.latest} is out`)
+      : el('span', { className: 'value' }, `Up to date (${version})`),
+    ...(found.newer ? [button('Open the release', 'The release page, with its files, in the browser', () => api.openLatestRelease().catch((e) => onError(String(e))), 'primary')] : []),
+    check)
+  }, onError)
+  control.append(check)
+  return control
 }
 
 /** A text field saved when it changes (Enter, or leaving it); a textarea for several lines. */
@@ -326,6 +342,7 @@ export async function renderSettings(
           row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),
           row('Database format', 'KDBX 4.1: every save writes it, so a 4.0 file becomes 4.1. KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android open it',
             el('span', { className: 'value' }, 'KDBX 4.1')),
+          row('Updates', 'Asks GitHub for the latest release; nothing is downloaded or installed', updateControl(version, onError)),
           row('Source code', 'github.com/OlegG90/pswmanager',
             button('Open on GitHub', 'The repository of PswManager, in the browser', () => api.openRepository().catch((e) => onError(String(e)))))),
       ],

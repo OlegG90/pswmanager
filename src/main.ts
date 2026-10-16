@@ -1486,6 +1486,13 @@ listen<string>('icon-ready', (e) => {
   siteIcons.refresh(e.payload)
 })
 
+// The webview's own menu (Refresh, Save as, Print, Share) has nothing for this
+// app; text fields keep theirs, for cut, copy and paste.
+document.addEventListener('contextmenu', (e) => {
+  const target = e.target as HTMLElement
+  if (!target.closest('input, textarea, [contenteditable="true"]')) e.preventDefault()
+})
+
 sidebarResizer($('vault'), $('sidebar-resizer'))
 fillTools()
 const sidebarSections = foldingSections($('sidebar'))

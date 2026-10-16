@@ -316,6 +316,13 @@ export interface Exported {
 }
 
 /** An entry the password health check lists, and why. */
+/** The latest release, as GitHub has it. */
+export interface UpdateCheck {
+  latest: string
+  /** Newer than this copy. */
+  newer: boolean
+}
+
 export interface Finding {
   id: string
   title: string
@@ -436,6 +443,10 @@ export const api = {
   openUrl: (id: string) => invoke<void>('open_url', { id }),
   /** Opens the app's repository on GitHub in the browser. */
   openRepository: () => invoke<void>('open_repository'),
+  /** Asks GitHub for the latest release (only when the user asks). */
+  checkForUpdate: () => invoke<UpdateCheck>('check_for_update'),
+  /** Opens the latest release's page in the browser. */
+  openLatestRelease: () => invoke<void>('open_latest_release'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   /** Tells the backend the window is in use, which postpones the auto-lock. */
   touch: () => invoke<void>('touch'),

@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, updates, vault};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
@@ -964,6 +964,18 @@ fn open_repository(app: AppHandle) -> Result<(), String> {
     app.opener().open_url(REPOSITORY, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Asks GitHub for the latest release and compares it with this copy.
+#[tauri::command(async)]
+fn check_for_update() -> Result<updates::UpdateCheck, String> {
+    updates::check(REPOSITORY, env!("CARGO_PKG_VERSION"))
+}
+
+/// Opens the latest release's page, where its files are, in the default browser.
+#[tauri::command(async)]
+fn open_latest_release(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(format!("{REPOSITORY}/releases/latest"), None::<&str>).map_err(|e| e.to_string())
+}
+
 /// The entry with every value, secrets included, for the editor.
 #[tauri::command(async)]
 fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> {
@@ -1576,6 +1588,8 @@ pub fn run() {
             copy_field,
             open_url,
             open_repository,
+            check_for_update,
+            open_latest_release,
             icon,
             touch,
             hide_window,

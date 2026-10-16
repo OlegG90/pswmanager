@@ -193,6 +193,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
+- The webview's own right-click menu (Refresh, Save as, Print, Share) is off; text fields keep theirs,
+  for cut, copy and paste.
 - The look follows WinUI 3 (Fluent), as in `docs/design/winui3`: the toolbar and the sidebar on the
   window's ground, the list and the entry on a lighter layer, an entry's values in one card, the accent
   blue of Windows.
@@ -330,9 +332,13 @@ tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unloc
 tabs down their left side and **Done**. The tabs: **General** (locking and the clipboard), **Window** (theme, global
 hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
 settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
-database format, KDBX 4.1, with what reads it, and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
+database format, KDBX 4.1, with what reads it, **Check for updates** and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
 between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
 redraw after each change (every change is saved at once). Esc closes the settings.
+
+About's **Check for updates** asks GitHub's API for the repository's latest release, only when pressed
+(the request carries nothing but the app's name), and says whether this copy is up to date; for a newer
+one, **Open the release** opens its page in the browser. The app itself downloads and installs nothing.
 
 ### Backup
 
