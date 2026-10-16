@@ -756,7 +756,7 @@ input[type='range']:focus-visible {
 }
 
 /* With the tags folded, the tools still keep to the bottom. */
-#tools-heading {
+#sidebar #tools-heading {
   margin-top: auto;
 }
 
@@ -794,35 +794,7 @@ input[type='range']:focus-visible {
   border-top: 1px solid var(--color-stroke);
 }
 
-/* A section's heading: its icon, its name, and a chevron that turns aside
-   while the section is folded. */
-.section-head {
-  justify-content: flex-start;
-  gap: 14px;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  background: none;
-  color: var(--color-text-2);
-  font-weight: 600;
-}
-
-.section-head:hover {
-  background: var(--color-subtle);
-}
-
-.section-head svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
+/* A section's chevron turns aside while the section is folded. */
 .section-head svg:last-child {
   width: 12px;
   height: 12px;
@@ -834,7 +806,10 @@ input[type='range']:focus-visible {
   transform: rotate(-90deg);
 }
 
-.side-item {
+/* A sidebar row, and a section's heading over its rows (its icon, its name,
+   its chevron). */
+.side-item,
+.section-head {
   position: relative;
   display: flex;
   gap: 14px;
@@ -848,13 +823,20 @@ input[type='range']:focus-visible {
   text-align: left;
 }
 
-.side-item:hover {
+.side-item:hover,
+.section-head:hover {
   background: var(--color-subtle);
 }
 
 .side-item:active {
   background: var(--color-subtle-2);
   color: inherit;
+}
+
+.section-head {
+  min-height: 32px;
+  color: var(--color-text-2);
+  font-weight: 600;
 }
 
 /* The chosen one: a tint and a short bar in the accent at its start, half
@@ -883,6 +865,7 @@ input[type='range']:focus-visible {
 
 /* The shared icons (src/icons.ts) are strokes in the text's colour. */
 .side-item svg,
+.section-head svg,
 button.add-file svg,
 button.icon.action svg,
 button.icon.state svg {
@@ -893,8 +876,9 @@ button.icon.state svg {
   stroke-linejoin: round;
 }
 
-/* The groups' icons. */
-.side-item svg {
+/* The icons of the sidebar's rows and headings. */
+.side-item svg,
+.section-head svg {
   width: 16px;
   height: 16px;
   flex: none;
