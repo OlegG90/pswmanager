@@ -2,6 +2,7 @@ package io.github.olegg90.pswmanager
 
 import android.content.Context
 import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
@@ -54,4 +55,24 @@ fun verifyUser(activity: FragmentActivity, title: String, subtitle: String, veri
     .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)
     .build()
   BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), callback).authenticate(info)
+}
+
+/**
+ * Asks the user to confirm the app before a login (`entry` names it) is used or changed for it,
+ * when the entry is for the app's package but keeps no certificate (made in Keepass2Android, say).
+ * Any app can take a package name; only its signing certificate tells the real one apart, so it is
+ * shown, and the entry keeps it once confirmed: an app signed otherwise does not get the login then.
+ */
+fun confirmApp(activity: FragmentActivity, packageName: String, entry: String, certificate: String, confirmed: () -> Unit, cancelled: () -> Unit) {
+  AlertDialog.Builder(activity)
+    .setTitle("Trust this app?")
+    .setMessage(
+      "${entry.ifEmpty { "This login" }} is for $packageName, but PswManager does not know this app's signing certificate yet. " +
+        "Any app can take that name; only the certificate tells them apart:\n\n$certificate\n\n" +
+        "Go on only if this is the app you meant, from a store you trust. The entry then keeps this certificate, and an app signed otherwise will not get or change this login.",
+    )
+    .setPositiveButton("Trust") { _, _ -> confirmed() }
+    .setNegativeButton("Cancel") { _, _ -> cancelled() }
+    .setOnCancelListener { cancelled() }
+    .show()
 }

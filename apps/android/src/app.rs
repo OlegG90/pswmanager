@@ -526,11 +526,19 @@ struct LockLater(Latest);
 /// Locks after the setting's time in the background unless the app comes
 /// back first (`stay_unlocked`); tells the page (`locked`). The page also
 /// checks the time itself when it comes back, in case Android kept this from
-/// running on time.
+/// running on time. `unlocked` is whether the page was: it reports going to
+/// the background while locked too, so that the credential provider knows the
+/// app is no longer in front.
 #[tauri::command]
-fn lock_later(app: AppHandle) {
+fn lock_later(app: AppHandle, unlocked: bool) {
     crate::provider::app_in_front(false);
     let wait = app.state::<LockLater>().0.next();
+    // Hidden while locked, there is nothing to lock: an unlock by the credential
+    // provider meanwhile keeps to its own timer (never under a minute, provider.rs),
+    // which this one would cut short.
+    if !unlocked && !app.state::<Session>().is_unlocked() {
+        return;
+    }
     let Some(after) = Settings::of(&app.state()).lock_in_background() else { return };
     std::thread::spawn(move || {
         std::thread::sleep(after);

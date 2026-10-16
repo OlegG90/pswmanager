@@ -25,7 +25,9 @@ import kotlin.concurrent.thread
  * user picked PswManager: unlocked first if need be, then who asks and where
  * it goes (a new entry for the app or site, or one of its entries, whose
  * password it replaces; the old version goes to history). It goes up with
- * the next sync.
+ * the next sync. An app's entry keeps its signing certificate; one for its
+ * package that keeps none yet is changed only once the user confirmed the
+ * app ([confirmApp]).
  */
 @RequiresApi(34)
 class CreatePasswordActivity : AppCompatActivity() {
@@ -56,7 +58,7 @@ class CreatePasswordActivity : AppCompatActivity() {
 
   /** Where the login goes: a new entry, or one of the app's or site's. */
   private fun choose() {
-    val answer = ProviderBridge.loginChoices(ProviderBridge.state(this), caller.origin, caller.packageName)
+    val answer = ProviderBridge.loginChoices(ProviderBridge.state(this), caller.origin, caller.packageName, caller.certificate)
     if (answer.startsWith(ProviderBridge.FAILED)) return fail(answer.removePrefix(ProviderBridge.FAILED))
     val choices = JSONObject(answer)
     cloud = choices.getBoolean("cloud")
@@ -84,14 +86,24 @@ class CreatePasswordActivity : AppCompatActivity() {
     if (busy) return
     if (request.password.isEmpty()) return fail("There is no password to save")
     busy = true
+    verifyUser(this, "Save the password", entry, { store(id, entry, false) }, { busy = false; cancel() }, ::fail)
+  }
+
+  /** Saves, the user verified; asks to confirm the app first when the entry needs it. */
+  private fun store(id: String?, entry: String, confirmed: Boolean) {
     val title = caller.origin?.let { Uri.parse(it).host } ?: appName(caller.packageName)
-    verifyUser(this, "Save the password", entry, {
-      thread {
-        val answer = ProviderBridge.saveLogin(id, caller.origin, caller.packageName, title, request.id, request.password)
-        if (answer.isEmpty()) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
-        runOnUiThread { if (answer.isEmpty()) saved() else fail(answer.removePrefix(ProviderBridge.FAILED)) }
+    thread {
+      val answer = ProviderBridge.saveLogin(id, caller.origin, caller.packageName, caller.certificate, title, request.id, request.password, confirmed)
+      if (answer.isEmpty()) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
+      runOnUiThread {
+        when {
+          answer.isEmpty() -> saved()
+          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
+            confirmApp(this, caller.packageName, entry, answer.removePrefix(ProviderBridge.UNCONFIRMED), { store(id, entry, true) }, ::cancel)
+          else -> fail(answer.removePrefix(ProviderBridge.FAILED))
+        }
       }
-    }, { busy = false; cancel() }, ::fail)
+    }
   }
 
   /** The app's name as the phone shows it, else its package (Android may hide other apps). */

@@ -16,7 +16,9 @@ import kotlin.concurrent.thread
 /**
  * Handing a login to an app that asked through Credential Manager (#164),
  * when the user picked one of PswManager's: the user is verified, then the
- * entry's user name and password go to the app.
+ * entry's user name and password go to the app, if the entry is for it (its
+ * package and signing certificate). An entry for its package that keeps no
+ * certificate goes only once the user confirmed the app ([confirmApp]).
  */
 @RequiresApi(34)
 class PasswordActivity : AppCompatActivity() {
@@ -26,14 +28,29 @@ class PasswordActivity : AppCompatActivity() {
     // Made again (the prompt is gone with the old one): Android hears it was cancelled.
     if (savedInstanceState != null) return cancel()
     val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return fail("No login chosen")
-    verifyUser(this, "Use your password", intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", {
-      thread {
-        val login = ProviderBridge.login(id)?.let { JSONObject(it) }
-        runOnUiThread {
-          if (login == null) fail("The database is locked or the entry is gone") else handOver(login.getString("username"), login.getString("password"))
+    val request = PendingIntentHandler.retrieveProviderGetCredentialRequest(intent) ?: return fail("Cannot tell who asks")
+    val caller = try {
+      Caller.of(this, request.callingAppInfo)
+    } catch (e: Exception) {
+      return fail("Cannot tell who asks: ${e.message}")
+    }
+    val title = intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: ""
+    verifyUser(this, "Use your password", title, { release(id, title, caller, false) }, ::cancel, ::fail)
+  }
+
+  /** Hands entry `id`'s login over, the user verified; asks to confirm the app first when the entry needs it. */
+  private fun release(id: String, title: String, caller: Caller, confirmed: Boolean) {
+    thread {
+      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed)
+      runOnUiThread {
+        when {
+          answer == null -> fail("The database is locked, or the login is gone or not for this app")
+          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
+            confirmApp(this, caller.packageName, title, answer.removePrefix(ProviderBridge.UNCONFIRMED), { release(id, title, caller, true) }, ::cancel)
+          else -> JSONObject(answer).let { handOver(it.getString("username"), it.getString("password")) }
         }
       }
-    }, ::cancel, ::fail)
+    }
   }
 
   private fun handOver(username: String, password: String) {

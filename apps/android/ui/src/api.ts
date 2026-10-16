@@ -156,7 +156,8 @@ export const api = {
   openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
   /** False when the user cancelled Android's save picker. */
   saveAttachment: (id: string, name: string, version: number | null = null) => invoke<boolean>('save_attachment', { id, name, version }),
-  lockLater: () => invoke<void>('lock_later'),
+  /** The app went to the background; `unlocked` is whether the page was (app.rs). */
+  lockLater: (unlocked: boolean) => invoke<void>('lock_later', { unlocked }),
   screenOff: () => invoke<boolean>('screen_off'),
   settings: () => invoke<Settings>('settings'),
   setSetting: (name: string, value: unknown) => invoke<Settings>('set_setting', { name, value }),

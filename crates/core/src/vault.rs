@@ -37,36 +37,74 @@ impl EntryChoice {
     }
 }
 
-/// Where a login is for: an Android app (its package), or a site (the host
-/// of the page a browser speaks for).
+/// Where a login is for: an Android app (its package, and its signing
+/// certificate as [crate::webauthn::app_origin] writes it), or a site (the
+/// host of the page a browser speaks for).
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoginPlace {
-    App(String),
+    App { package: String, certificate: String },
     Site(String),
 }
 
+/// The attribute, followed by the app's package, in which an entry keeps the
+/// signing certificate of the app it is for. Any app can take any package
+/// name; only the app's own signing key gives its certificate.
+pub const APP_CERTIFICATE: &str = "PSWM_APP_CERT_";
+
+/// Why an entry for an app's package that keeps no certificate for it (one
+/// made in Keepass2Android, say) is not used yet: the user must first confirm
+/// the app ([Vault::confirm_app]).
+pub const UNCONFIRMED: &str = "PswManager has not given this login to this app before";
+
+/// Whether an entry is for a place (see [LoginPlace::fit]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fit {
+    /// Another app or site, or the app's package with another certificate.
+    No,
+    /// For the app's package, but no certificate is kept for it.
+    Unconfirmed,
+    Yes,
+}
+
 impl LoginPlace {
-    /// The site a browser speaks for (its page's `origin`), else the app (`package`).
-    pub fn of(origin: Option<&str>, package: &str) -> Result<LoginPlace, String> {
+    /// The site a browser speaks for (its page's `origin`), else the app
+    /// (`package`, with its signing `certificate`, without which it is unknown).
+    pub fn of(origin: Option<&str>, package: &str, certificate: Option<&[u8]>) -> Result<LoginPlace, String> {
         match origin {
             Some(origin) => crate::webauthn::origin_host(origin).map(LoginPlace::Site).ok_or_else(|| "The browser's page is not a site".into()),
-            None => Ok(LoginPlace::App(package.to_string())),
+            None => {
+                let certificate = certificate.ok_or("The app asking is unknown")?;
+                Ok(LoginPlace::App { package: package.to_string(), certificate: crate::webauthn::app_origin(certificate) })
+            }
         }
     }
 
     /// Whether the entry is for this place: an app named among its URLs
     /// (`androidapp://<package>`, as Keepass2Android keeps it; packages are
-    /// case-sensitive), or a site whose host is the entry's (a `www.` aside).
-    /// Not a site's other hosts: a password goes to its own host only.
-    fn matches(&self, entry: &EntryRef<'_>) -> bool {
+    /// case-sensitive) whose certificate is the one the entry keeps for it
+    /// ([Fit::Unconfirmed] while it keeps none), or a site whose host is the
+    /// entry's (a `www.` aside). Not a site's other hosts: a password goes to
+    /// its own host only.
+    fn fit(&self, entry: &EntryRef<'_>) -> Fit {
         match self {
-            LoginPlace::App(package) => {
+            LoginPlace::App { package, certificate } => {
                 let wanted = format!("androidapp://{package}");
-                entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim() == wanted)
+                if !entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim() == wanted) {
+                    return Fit::No;
+                }
+                match entry.get(&certificate_field(package)).map(str::trim) {
+                    None | Some("") => Fit::Unconfirmed,
+                    Some(kept) if kept == certificate => Fit::Yes,
+                    Some(_) => Fit::No,
+                }
             }
             LoginPlace::Site(host) => {
                 let bare = |h: &str| h.trim_start_matches("www.").to_ascii_lowercase();
-                entry.get(fields::URL).and_then(icons::host_of).is_some_and(|site| bare(&site) == bare(host))
+                if entry.get(fields::URL).and_then(icons::host_of).is_some_and(|site| bare(&site) == bare(host)) {
+                    Fit::Yes
+                } else {
+                    Fit::No
+                }
             }
         }
     }
@@ -74,10 +112,27 @@ impl LoginPlace {
     /// The URL a new entry for this place gets.
     fn url(&self) -> String {
         match self {
-            LoginPlace::App(package) => format!("androidapp://{package}"),
+            LoginPlace::App { package, .. } => format!("androidapp://{package}"),
             LoginPlace::Site(host) => format!("https://{host}"),
         }
     }
+
+    /// Keeps an app's certificate in the entry for it, when it keeps none yet
+    /// (only for an entry that is for the app, or that the user confirmed it for).
+    fn keep_certificate(&self, data: &mut EntryData) {
+        let LoginPlace::App { package, certificate } = self else { return };
+        let name = certificate_field(package);
+        if data.fields.iter().any(|f| f.name == name && !f.value.trim().is_empty()) {
+            return;
+        }
+        data.fields.retain(|f| f.name != name);
+        data.fields.push(edit::FieldData { name, value: certificate.clone(), protected: false });
+    }
+}
+
+/// The attribute an entry keeps the certificate of the app `package` in.
+fn certificate_field(package: &str) -> String {
+    format!("{APP_CERTIFICATE}{package}")
 }
 
 pub struct Vault {
@@ -571,19 +626,51 @@ impl Vault {
     }
 
     /// The entries with a login for `place` (an app or a site), as Credential
-    /// Manager offers them to the app asking.
+    /// Manager offers them to the app asking: an app's own, and those for its
+    /// package that keep no certificate yet (used only once the user confirms
+    /// the app); not those that keep another certificate.
     pub fn logins_for(&self, place: &LoginPlace) -> Vec<EntryChoice> {
         self.places_entries(place, true)
     }
 
-    /// Entry `id`'s user name and password, to hand to the app asking.
-    pub fn login(&self, id: &str) -> Option<(Zeroizing<String>, Zeroizing<String>)> {
-        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry)?;
+    /// Entry `id`'s user name and password, to hand to the app or site
+    /// asking: only when the entry is for it; [UNCONFIRMED] while it is for
+    /// the app's package and the user has not confirmed the app.
+    pub fn login(&self, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), String> {
+        let entry = self.entry_for(id, place, false)?;
         let text = |name: &str| Zeroizing::new(entry.get(name).unwrap_or_default().to_string());
-        Some((text(fields::USERNAME), text(fields::PASSWORD)))
+        Ok((text(fields::USERNAME), text(fields::PASSWORD)))
     }
 
-    /// The entries a login an app offers to save can update: those for `place`.
+    /// The user confirmed that the app asking is the one entry `id` (for its
+    /// package) is for: the entry keeps the app's certificate, so only this
+    /// app gets it from now on; the file is saved (the old version goes to
+    /// history). Nothing changes for an entry that keeps it already, or a site.
+    pub fn confirm_app(&mut self, id: &str, place: &LoginPlace) -> Result<(), String> {
+        self.entry_for(id, place, true)?;
+        let base = self.edit_data(id).ok_or(NOT_FOUND)?;
+        let mut data = base.clone();
+        place.keep_certificate(&mut data);
+        if data == base {
+            return Ok(());
+        }
+        self.save_entry(Some(id), Some(&base), &data, false, &[]).map(|_| ())
+    }
+
+    /// Entry `id`, an entry in use for `place`; [UNCONFIRMED] for one for the
+    /// app's package that keeps no certificate, unless the user `confirmed` the app.
+    fn entry_for(&self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<EntryRef<'_>, String> {
+        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
+        match place.fit(&entry) {
+            Fit::Yes => Ok(entry),
+            Fit::Unconfirmed if confirmed => Ok(entry),
+            Fit::Unconfirmed => Err(UNCONFIRMED.into()),
+            Fit::No => Err("This login is not for the app asking".into()),
+        }
+    }
+
+    /// The entries a login an app offers to save can update: those for
+    /// `place`, as [Vault::logins_for] has them.
     pub fn entries_for_login(&self, place: &LoginPlace) -> Vec<EntryChoice> {
         self.places_entries(place, false)
     }
@@ -591,21 +678,24 @@ impl Vault {
     /// The user's entries for `place`; only those with a password when `with_password`.
     fn places_entries(&self, place: &LoginPlace, with_password: bool) -> Vec<EntryChoice> {
         self.visible_entries()
-            .filter(|e| place.matches(e) && (!with_password || e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty())))
+            .filter(|e| place.fit(e) != Fit::No && (!with_password || e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty())))
             .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
             .collect()
     }
 
     /// Keeps a login an app offers to save: the password (and the user name
-    /// when the entry has none) of entry `id`, or a new entry titled `title`
-    /// for `place`; the file is saved (the old version goes to history).
-    /// Returns the entry's id.
-    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace, title: &str, username: &str, password: &str) -> Result<String, String> {
+    /// when the entry has none) of entry `id`, which must be for `place` (as
+    /// [Vault::login] checks, the user having `confirmed` the app for an entry
+    /// that keeps no certificate), or a new entry titled `title` for `place`.
+    /// An app's entry keeps its certificate. The file is saved (the old
+    /// version goes to history). Returns the entry's id.
+    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, String> {
         if password.is_empty() {
             return Err("There is no password to save".into());
         }
         let (base, mut data) = match id {
             Some(id) => {
+                self.entry_for(id, place, confirmed)?;
                 let data = self.edit_data(id).ok_or(NOT_FOUND)?;
                 (Some(data.clone()), data)
             }
@@ -620,6 +710,7 @@ impl Vault {
             data.username = username.to_string();
         }
         data.password = password.to_string();
+        place.keep_certificate(&mut data);
         self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
     }
 
@@ -1589,32 +1680,94 @@ pub mod tests {
     fn logins_are_offered_to_their_app_or_site_and_saved() {
         let dir = tempfile::tempdir().unwrap();
         let mut vault = fixture("sic2kdbx.kdbx", dir.path());
-        let app = LoginPlace::App("com.example.mail".into());
+        let app = LoginPlace::of(None, "com.example.mail", Some(b"mail's certificate")).unwrap();
         let site = LoginPlace::Site("www.mail.example".into());
         assert!(vault.logins_for(&app).is_empty());
 
         // A new login for the app, then offered to it (and not to others).
-        let id = vault.save_login(None, &app, "Mail", "alice", "pw-1").unwrap();
+        let id = vault.save_login(None, &app, false, "Mail", "alice", "pw-1").unwrap();
         let offered = vault.logins_for(&app);
         assert_eq!((offered[0].id.as_str(), offered[0].username.as_str()), (id.as_str(), "alice"));
-        assert!(vault.logins_for(&LoginPlace::App("com.example.other".into())).is_empty());
-        assert!(vault.logins_for(&LoginPlace::App("com.example.MAIL".into())).is_empty());
-        let (user, password) = vault.login(&id).unwrap();
+        let other_app = |package: &str| LoginPlace::of(None, package, Some(b"mail's certificate")).unwrap();
+        assert!(vault.logins_for(&other_app("com.example.other")).is_empty());
+        assert!(vault.logins_for(&other_app("com.example.MAIL")).is_empty());
+        let (user, password) = vault.login(&id, &app).unwrap();
         assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-1"));
 
         // An app's changed password updates the entry; the user name stays.
         assert_eq!(vault.entries_for_login(&app).len(), 1);
-        vault.save_login(Some(&id), &app, "", "someone", "pw-2").unwrap();
-        let (user, password) = vault.login(&id).unwrap();
+        vault.save_login(Some(&id), &app, false, "", "someone", "pw-2").unwrap();
+        let (user, password) = vault.login(&id, &app).unwrap();
         assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-2"));
 
         // A site's login is offered to its own host (a www. aside), not to the site's other hosts.
-        let web = vault.save_login(None, &LoginPlace::Site("mail.example".into()), "Mail web", "bob", "pw-3").unwrap();
-        assert_eq!(vault.logins_for(&site).iter().map(|c| c.id.clone()).collect::<Vec<_>>(), [web]);
+        let web = vault.save_login(None, &LoginPlace::Site("mail.example".into()), false, "Mail web", "bob", "pw-3").unwrap();
+        assert_eq!(vault.logins_for(&site).iter().map(|c| c.id.clone()).collect::<Vec<_>>(), std::slice::from_ref(&web));
         assert!(vault.logins_for(&LoginPlace::Site("evil.mail.example".into())).is_empty());
-        assert!(vault.save_login(None, &app, "Mail", "alice", "").is_err());
-        assert_eq!(LoginPlace::of(Some("https://www.mail.example"), "com.android.chrome").unwrap(), LoginPlace::Site("www.mail.example".into()));
-        assert_eq!(LoginPlace::of(None, "com.example.mail").unwrap(), app);
+        assert!(vault.login(&web, &LoginPlace::Site("evil.mail.example".into())).is_err());
+        assert!(vault.login(&web, &app).is_err());
+        assert!(vault.login(&id, &site).is_err());
+        assert!(vault.save_login(Some(&web), &app, true, "", "", "pw-4").is_err());
+        assert!(vault.save_login(None, &app, false, "Mail", "alice", "").is_err());
+        assert_eq!(LoginPlace::of(Some("https://www.mail.example"), "com.android.chrome", None).unwrap(), LoginPlace::Site("www.mail.example".into()));
+        let mail = LoginPlace::App { package: "com.example.mail".into(), certificate: crate::webauthn::app_origin(b"mail's certificate") };
+        assert_eq!(app, mail);
+        assert!(LoginPlace::of(None, "com.example.mail", None).is_err());
+    }
+
+    #[test]
+    fn an_app_gets_a_login_only_with_the_certificate_the_entry_keeps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let bank = LoginPlace::of(None, "com.example.bank", Some(b"the bank's certificate")).unwrap();
+        let impostor = LoginPlace::of(None, "com.example.bank", Some(b"another certificate")).unwrap();
+        // An entry for the app made elsewhere, as Keepass2Android keeps it: no certificate.
+        let mut data = EntryData::default();
+        data.title = "Bank".into();
+        data.username = "alice".into();
+        data.password = "pw-1".into();
+        data.fields = vec![edit::FieldData { name: "KP2A_URL_1".into(), value: "androidapp://com.example.bank".into(), protected: false }];
+        let (id, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+
+        // Offered to any app by that name, but nothing is handed over or
+        // replaced until the user confirms the app.
+        assert_eq!(vault.logins_for(&bank).len(), 1);
+        assert_eq!(vault.logins_for(&impostor).len(), 1);
+        assert_eq!(vault.login(&id, &impostor).unwrap_err(), UNCONFIRMED);
+        assert_eq!(vault.save_login(Some(&id), &impostor, false, "", "", "pw-x").unwrap_err(), UNCONFIRMED);
+        assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "pw-1");
+
+        // Confirmed, the entry keeps the bank app's certificate: from then on
+        // only that app gets the login or can change it.
+        vault.confirm_app(&id, &bank).unwrap();
+        let (user, password) = vault.login(&id, &bank).unwrap();
+        assert_eq!((user.as_str(), password.as_str()), ("alice", "pw-1"));
+        assert!(vault.logins_for(&impostor).is_empty());
+        assert!(vault.entries_for_login(&impostor).is_empty());
+        assert!(vault.login(&id, &impostor).is_err());
+        assert!(vault.confirm_app(&id, &impostor).is_err());
+        assert!(vault.save_login(Some(&id), &impostor, true, "", "", "pw-x").is_err());
+        vault.save_login(Some(&id), &bank, false, "", "", "pw-2").unwrap();
+        assert_eq!(vault.login(&id, &bank).unwrap().1.as_str(), "pw-2");
+
+        // The certificate is an ordinary attribute in the file; confirming again changes nothing.
+        let name = format!("{APP_CERTIFICATE}com.example.bank");
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.field(&id, &name).unwrap().as_str(), crate::webauthn::app_origin(b"the bank's certificate"));
+        let versions = vault.history(&id).unwrap().len();
+        vault.confirm_app(&id, &bank).unwrap();
+        assert_eq!(vault.history(&id).unwrap().len(), versions);
+
+        // Saving into such an entry once the user confirmed the app keeps its certificate too.
+        let mut data = EntryData::default();
+        data.title = "Shop".into();
+        data.password = "pw-3".into();
+        data.url = "androidapp://com.example.shop".into();
+        let (shop, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        let shop_app = LoginPlace::of(None, "com.example.shop", Some(b"the shop's certificate")).unwrap();
+        vault.save_login(Some(&shop), &shop_app, true, "", "bob", "pw-4").unwrap();
+        assert_eq!(vault.login(&shop, &shop_app).unwrap().1.as_str(), "pw-4");
+        assert!(vault.logins_for(&LoginPlace::of(None, "com.example.shop", Some(b"x")).unwrap()).is_empty());
     }
 
     #[test]
@@ -2017,6 +2170,49 @@ pub mod tests {
         db.config.version = keepass::config::DatabaseVersion::KDB4(1);
         db.save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("other")).unwrap();
         assert!(matches!(vault.save_pending(), Err(OpenError::OtherKey(_))));
+    }
+
+    #[test]
+    fn a_copy_moved_back_to_the_replaced_key_waits_until_that_key_is_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let old = || DatabaseKey::new().with_password("test");
+        vault.change_key((Some("test"), None), Some("new"), None).unwrap();
+        // Someone who knows the old key writes the file on it, saying it changed to it later.
+        let mut db = vault.db.clone();
+        db.meta.master_key_changed = Some(keepass::db::Times::now() + chrono::Duration::days(1));
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&path).unwrap(), old()).unwrap();
+        let theirs = std::fs::read(&path).unwrap();
+
+        assert!(matches!(vault.reload(), Err(OpenError::OtherKey(_))));
+        assert!(vault.set_setting(edit::Setting::Name, "Named here").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), theirs, "nothing is written over it");
+        assert!(vault.uses_key(&DatabaseKey::new().with_password("new")).unwrap());
+
+        // The user gives that key: the file follows it.
+        vault.remember_key(old()).unwrap();
+        vault.reload().unwrap();
+        assert!(vault.uses_key(&old()).unwrap());
+    }
+
+    #[test]
+    fn the_replaced_key_given_for_a_copy_it_did_not_open_is_let_go_of() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sic2kdbx.kdbx");
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let older = std::fs::read(&path).unwrap();
+        let old = DatabaseKey::new().with_password("test");
+        vault.change_key((Some("test"), None), Some("new"), None).unwrap();
+        // The old key, given for a copy it did not open, is not kept.
+        vault.remember_key(old.clone()).unwrap();
+        vault.forget_key(&old).unwrap();
+
+        // An older copy on it is then asked for, as one on a key not known.
+        std::fs::write(&path, &older).unwrap();
+        assert!(matches!(vault.reload(), Err(OpenError::OtherKey(_))));
+        assert!(vault.uses_key(&DatabaseKey::new().with_password("new")).unwrap());
     }
 
     #[test]
