@@ -18,8 +18,8 @@ import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
-import { importFromFile } from './file-import'
-import { exportToFile } from './file-export'
+import { renderImport } from './file-import'
+import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
@@ -52,8 +52,8 @@ let unlocked = false
 let settingsOpen = false
 /** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
-/** The tools whose reports show beside the sidebar. */
-type Tool = 'health' | 'similar'
+/** The tools, each shown beside the sidebar. */
+type Tool = 'health' | 'similar' | 'import' | 'export'
 /** The tool whose report is shown, marked in the sidebar. */
 let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
@@ -1150,10 +1150,8 @@ function fillTools() {
   $('tools').replaceChildren(
     sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
     sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
-    sideCommand('Import from a file…', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import',
-      () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e)))),
-    sideCommand('Export to a file…', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export',
-      () => api.helloReady().then(exportToFile).catch((e) => notify(String(e)))),
+    sideCommand('Import from a file', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import', openImport, 'tool:import'),
+    sideCommand('Export to a file', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export', openExport, 'tool:export'),
   )
   // Each tab's icon has the tab's name.
   $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
@@ -1179,6 +1177,13 @@ async function openReport(tool: Tool, draw: () => Promise<void>) {
 }
 
 const openHealth = () => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf }))
+
+const openImport = () =>
+  openReport('import', async () =>
+    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
+
+const openExport = () =>
+  openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
 const openSimilar = () =>
   openReport('similar', () =>

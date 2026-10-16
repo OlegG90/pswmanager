@@ -1855,7 +1855,7 @@ dialog.modal p {
 }
 
 /* What an import could not bring over: it may be long, so it scrolls. */
-dialog.modal ul.skipped {
+ul.skipped {
   max-height: 40vh;
   overflow-y: auto;
   margin: 0 0 12px;
@@ -1863,7 +1863,7 @@ dialog.modal ul.skipped {
   font-size: 12px;
 }
 
-dialog.modal ul.formats {
+ul.formats {
   margin: 0 0 12px;
   padding-left: 20px;
 }
@@ -2183,7 +2183,7 @@ button.switch[aria-checked='true'] .knob {
   grid-column: 1;
 }
 
-/* Reports: password health, similar entries */
+/* Reports and tools: password health, similar entries, import, export */
 
 #report {
   height: 100%;
@@ -2252,6 +2252,42 @@ button.switch[aria-checked='true'] .knob {
 
 #report section {
   margin-top: 20px;
+}
+
+/* An import's or an export's step, in a card; its buttons in a row under it. */
+#report section.tool {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  background: var(--color-card);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-card);
+}
+
+#report section.tool > p {
+  margin: 0 0 8px;
+}
+
+#report section.tool input.text {
+  width: min(320px, 100%);
+  margin-bottom: 8px;
+}
+
+#report section.tool .error {
+  color: var(--color-danger);
+}
+
+.tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tool-actions button {
+  min-width: 120px;
 }
 
 #report section:last-child,

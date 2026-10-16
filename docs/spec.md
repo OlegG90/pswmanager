@@ -164,14 +164,14 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
   keyboard shortcuts (see *Keyboard shortcuts*); the field takes the toolbar's room up to Sync and Lock.
 - The **sidebar** is always shown; beside it is what its choice shows. It holds three sections:
-  **Records** (two sections of its own: the fixed **Groups**, each with its icon as on the phone, and the
-  **Tags** as `#work`), **Tools** and **Settings** (its tabs). Every heading has its icon, in bold, and
+  **Records** (the fixed **Groups**, each with its icon as on the phone, and under them **Tags**, a
+  section of its own with the tags as `#work`), **Tools** and **Settings** (its tabs). Every heading has its icon, in bold, and
   folds what it holds away and back, downwards; what a heading holds is indented under it. Every section
   is folded when the app starts; two buttons at the sidebar's top right fold and unfold them all. When
   the open sections do not fit, the sidebar scrolls.
 - Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
-  *Groups and tags*); for a tool, its report or its question (*Password health*, *Similar entries*,
-  *Import from a file*, *Export to a file*); for a settings tab, the settings at that tab (see
+  *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
+  *Export to a file*); for a settings tab, the settings at that tab (see
   *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
   menu.
 - The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
@@ -470,9 +470,10 @@ while the database is locked):
 
 ## Import from a file
 
-- *Tools → Import from a file…* (#238; on the phone a *Tools* item of its own): a file another password
-  manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). A
-  question says what it takes first; then the file is picked.
+- *Tools → Import from a file* (#238; on the phone a *Tools* item of its own): a file another password
+  manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). Its
+  page beside the sidebar says what it takes first; then the file is picked, and the page says what came
+  over and what did not, and offers to delete the file (or import another).
   - **CSV**, its columns found by the names in its first line (any case; the usual names, e.g. title
     `name` or `title`, URL `url`, `login_uri` or `website`, TOTP `totp` or `otpauth`): title, URL (one a
     line in the cell: more go to `KP2A_URL_n`), user name, password, notes, TOTP, folder or group (a path
@@ -502,9 +503,10 @@ while the database is locked):
 
 ## Export to a file
 
-- *Tools → Export to a file…* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
+- *Tools → Export to a file* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
   bin or templates) written to a file another password manager imports, the reverse of *Import from a
-  file*. A question offers the formats, each with what it carries:
+  file*. Its page beside the sidebar offers the formats, each with what it carries (the master password,
+  when asked for, is typed there too; then the page says what was written):
   - **CSV**: `name,url,username,password,note,totp`, the columns Google Password Manager and Chrome
     write (browsers, Google Password Manager, Bitwarden and 1Password read them); logins only.
   - **CXF JSON**: the Credential Exchange file the phone's Credential Transfer hands over

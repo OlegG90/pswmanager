@@ -1,49 +1,59 @@
 import { api, type ExportFormat } from './api'
-import { button, el, enterPresses } from './dom'
+import { busyButton, button, el, enterPresses } from './dom'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from './file-export-parts'
-import { dialog } from './modal'
 
 /**
- * Tools › Export to a file… (#240): the format, the user checked again
- * (Windows Hello, or the master password), the file named in the save dialog,
- * then what was written and what was left out.
+ * Tools › Export to a file (#240), beside the sidebar: the format, the user
+ * checked again (Windows Hello, or the master password typed here), the file
+ * named in the save dialog, then what was written and what was left out.
  */
-export async function exportToFile(helloReady: boolean) {
-  const format = await dialog<ExportFormat | null>('Export to a file', null, (answer) => ({
-    body: fileExportAbout(),
-    buttons: EXPORT_FORMATS.map(([format, name]) => button(name, `Export as ${name}`, () => answer(format), 'primary')),
-  }))
-  if (!format) return
-  if (!(await confirm(helloReady))) return
-  const exported = await api.exportFile(format)
-  if (!exported) return
-  await dialog('Exported', null, () => ({ body: exportedReport(exported) }), 'OK')
-}
+export function renderExport(container: HTMLElement, helloReady: boolean, fail: (message: string) => void) {
+  const show = (...body: Node[]) => {
+    container.replaceChildren(el('header', {}, el('h1', {}, 'Export to a file')), el('section', { className: 'tool' }, ...body))
+    container.querySelector<HTMLElement>('section input, section button')?.focus()
+  }
+  const actions = (...buttons: HTMLElement[]) => el('div', { className: 'tool-actions' }, ...buttons)
 
-/** Windows Hello, or the master password: true once the backend allows the export. */
-async function confirm(helloReady: boolean): Promise<boolean> {
-  if (helloReady) {
-    try {
-      await api.confirmExport(null)
-      return true
-    } catch (e) {
-      if (String(e) === 'cancelled') return false
-      // Windows Hello could not: the master password instead.
+  const start = (): void =>
+    show(...fileExportAbout(), actions(...EXPORT_FORMATS.map(([format, name]) =>
+      busyButton(name, `Export as ${name}`, () => chosen(format), fail, 'primary'))))
+
+  // Windows Hello first; when it cannot, the master password.
+  const chosen = async (format: ExportFormat): Promise<void> => {
+    let confirmed = false
+    if (helloReady) {
+      try {
+        await api.confirmExport(null)
+        confirmed = true
+      } catch (e) {
+        if (String(e) === 'cancelled') return
+      }
     }
+    if (confirmed) await write(format)
+    else askPassword(format, '')
   }
-  for (let wrong = ''; ;) {
-    const password = await dialog<string | null>('Enter the master password to export', null, (answer) => {
-      const input = el('input', { type: 'password', className: 'text', ariaLabel: 'Master password' })
-      const ok = button('Export', 'Export', () => answer(input.value), 'primary')
-      enterPresses(ok, input)
-      return { body: [input, ...(wrong ? [el('p', { className: 'error' }, wrong)] : [])], buttons: [ok], focus: input }
-    })
-    if (password === null) return false
-    try {
-      await api.confirmExport(password)
-      return true
-    } catch (e) {
-      wrong = String(e)
-    }
+
+  const askPassword = (format: ExportFormat, wrong: string): void => {
+    const input = el('input', { type: 'password', className: 'text', ariaLabel: 'Master password' })
+    const ok = busyButton('Export', 'Export', async () => {
+      try {
+        await api.confirmExport(input.value)
+      } catch (e) {
+        return askPassword(format, String(e))
+      }
+      await write(format)
+    }, fail, 'primary')
+    enterPresses(ok, input)
+    show(el('p', {}, 'Enter the master password to export:'), input,
+      ...(wrong ? [el('p', { className: 'error' }, wrong)] : []),
+      actions(ok, button('Back', 'Choose another format', start)))
   }
+
+  const write = async (format: ExportFormat): Promise<void> => {
+    const exported = await api.exportFile(format)
+    if (!exported) return start()
+    show(...exportedReport(exported), actions(button('Export again', 'Choose a format again', start)))
+  }
+
+  start()
 }
