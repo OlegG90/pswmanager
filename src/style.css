@@ -794,22 +794,28 @@ input[type='range']:focus-visible {
   color: inherit;
 }
 
-/* The chosen one: a tint and a short bar in the accent at its start. */
+/* The chosen one: a tint and a short bar in the accent at its start, half
+   the row's height. */
 .side-item[aria-current='true'] {
   background: var(--color-subtle-2);
 }
 
 .side-item[aria-current='true']::before,
-#list li[aria-selected='true']::before {
+#list li[aria-selected='true']::before,
+#settings .tab[aria-selected='true']::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 50%;
+  top: 9px;
+  bottom: 9px;
   width: 3px;
-  height: 16px;
-  margin-top: -8px;
   border-radius: 2px;
   background: var(--color-accent);
+}
+
+#list li[aria-selected='true']::before {
+  top: 18px;
+  bottom: 18px;
 }
 
 /* The shared icons (src/icons.ts) are strokes in the text's colour. */
@@ -1327,11 +1333,6 @@ button.star[aria-pressed='true'] {
   color: var(--color-danger);
 }
 
-/* The notes: a value of their own in the card, selectable as text. */
-.row.notes .value {
-  user-select: text;
-}
-
 /* The entry view's sections: a heading over a card. */
 #detail > h3 {
   margin: 20px 0 8px;
@@ -1402,7 +1403,7 @@ button.star[aria-pressed='true'] {
 }
 
 /* Section headings: a heading in the text's colour over its fields. */
-#detail h3 {
+#detail .editor h3 {
   font: 600 14px/20px var(--font-body);
   margin: 8px 0 0;
 }
@@ -1534,7 +1535,7 @@ button.star[aria-pressed='true'] {
 }
 
 .tag-input .tag button:hover {
-  background: rgb(0 0 0 / 8%);
+  background: color-mix(in srgb, currentColor 15%, transparent);
 }
 
 .tag-input input {
@@ -2008,17 +2009,6 @@ dialog.modal.shortcuts {
   background: var(--color-subtle-2);
 }
 
-#settings .tab[aria-selected='true']::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--color-accent);
-}
-
 #settings .tab:disabled {
   background: none;
   color: var(--color-text-3);
@@ -2096,21 +2086,21 @@ button.switch {
   min-height: 0;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--color-text-2);
+  border: 1px solid var(--color-field-line);
   border-radius: 10px;
-  background: var(--color-subtle);
+  background: transparent;
 }
 
 button.switch:hover {
-  background: var(--color-subtle-2);
+  background: var(--color-subtle);
 }
 
 button.switch .knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
+  top: 4px;
+  left: 4px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--color-text-2);
   transition: left 0.15s;
@@ -2131,7 +2121,7 @@ button.switch[aria-checked='true']:hover {
 }
 
 button.switch[aria-checked='true'] .knob {
-  left: 23px;
+  left: 24px;
   background: var(--color-on-accent);
 }
 
@@ -2336,6 +2326,13 @@ input[type='radio'] {
   min-height: 0;
   box-shadow: none;
   accent-color: var(--color-accent);
+}
+
+/* The fields' focus is their underline; these have none, so they get the ring. */
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
 }
 
 /* The kept entry as a merge would leave it: what the merge adds in the
