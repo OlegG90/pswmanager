@@ -72,7 +72,8 @@ export async function leaveEditor(): Promise<boolean> {
   if (!open) return true
   if (isAsking()) return false
   const leave = await ask('Leave editing? The changes are not saved.', 'Yes', 'No')
-  if (active !== open) return active === null // saved, cancelled or locked meanwhile
+  // Saved, cancelled or locked while asking: what was chosen is not done.
+  if (active !== open) return false
   if (leave) open.discard()
   else open.focus()
   return leave

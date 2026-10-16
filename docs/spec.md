@@ -318,12 +318,12 @@ same table the dialog shows.
 
 ### Settings
 
-*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups in tabs down its left side, one tab at a time:
-**General** (locking and the clipboard), **Window** (theme, global hotkey, start with Windows, site
-icons), **Database** (the open database's own settings, see *Database settings*; disabled while locked),
-**Sync**, **Backup** (see *Backup*) and **About**. ↑/↓ (and ←/→) move between the tabs, Home and End to
-the first and last. The tab shown stays while the app runs, through the redraw after each change (every
-change is saved at once). Esc closes the settings.
+*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups in tabs
+down its left side, one tab at a time: **General** (locking and the clipboard), **Window** (theme, global
+hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
+settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About**. ↑/↓ (and ←/→) move
+between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
+redraw after each change (every change is saved at once). Esc closes the settings.
 
 ### Backup
 

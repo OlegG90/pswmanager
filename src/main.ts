@@ -265,7 +265,7 @@ function fillSidebar() {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
     if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
-    b.addEventListener('click', outside(() => showFilter(choice)))
+    b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => {
@@ -277,8 +277,8 @@ function fillSidebar() {
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
-        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: outside(() => renameTag(tag)) },
-        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: outside(() => removeTag(tag)), danger: true },
+        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: afterLeavingEditor(() => renameTag(tag)) },
+        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: afterLeavingEditor(() => removeTag(tag)), danger: true },
       ]))
       return li
     }),
@@ -409,7 +409,7 @@ const isFavorite = (entry: Entry) => entry.tags.includes(FAVORITE)
  *  star off, as a tag (no sync until the next sync moment). */
 function starButton(entry: Entry): HTMLButtonElement {
   const on = isFavorite(entry)
-  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', outside(() => toggleFavorite(entry)), 'ghost star')
+  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', afterLeavingEditor(() => toggleFavorite(entry)), 'ghost star')
   star.setAttribute('aria-pressed', String(on))
   // Clicking the star in the list does not select the entry.
   star.addEventListener('mousedown', (e) => e.stopPropagation())
@@ -1106,13 +1106,13 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
 
 /** Makes `action` wait for the editor to be left (Yes) or do nothing (No),
  *  when it is open: for what is chosen outside it. */
-function outside(action: () => unknown): () => void {
+function afterLeavingEditor(action: () => unknown): () => void {
   return () => void leaveEditor().then((left) => left && action())
 }
 
 /** A command in the sidebar: an icon and its name, no count. */
 function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown): HTMLLIElement {
-  return el('li', {}, el('button', { type: 'button', className: 'side-item', title, onclick: outside(action) },
+  return el('li', {}, el('button', { type: 'button', className: 'side-item', title, onclick: afterLeavingEditor(action) },
     sidebarIcon(picture), el('span', { className: 'name' }, label)))
 }
 
@@ -1126,6 +1126,7 @@ function fillTools() {
     sideCommand('Export to a file…', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export',
       () => api.helloReady().then(exportToFile).catch((e) => notify(String(e)))),
   )
+  // Each tab's icon has the tab's name.
   $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
     sideCommand(label, `Settings: ${label} (Ctrl+,)`, tab, () => openSettings(tab))))
 }
@@ -1240,8 +1241,8 @@ function closeSettings() {
 
 searchInput.addEventListener('input', refresh)
 $('lock-button').addEventListener('click', lock)
-$('new-entry').addEventListener('click', outside(newEntry))
-$('empty-trash').addEventListener('click', outside(() => deleteForGood()))
+$('new-entry').addEventListener('click', afterLeavingEditor(newEntry))
+$('empty-trash').addEventListener('click', afterLeavingEditor(() => deleteForGood()))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
