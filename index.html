@@ -58,14 +58,23 @@
         <span id="sync-status" class="muted" role="status" hidden></span>
         <button id="key-button" title="Enter the master password or key file another device changed to" hidden>Enter key…</button>
         <button id="sync-button" title="Sync now" disabled>Sync</button>
-        <button id="settings-button" title="Settings (Ctrl+,)">Settings</button>
         <button id="lock-button" title="Lock (Ctrl+L)">Lock</button>
       </header>
-      <nav id="sidebar" aria-label="Groups and tags">
-        <h3 id="groups-heading">Groups</h3>
-        <ul id="groups"></ul>
-        <h3 id="tags-heading">Tags</h3>
-        <ul id="tags"></ul>
+      <nav id="sidebar" aria-label="Records, tools and settings">
+        <div id="sidebar-actions">
+          <button type="button" id="fold-all" class="ghost icon" title="Fold every section" aria-label="Fold every section"></button>
+          <button type="button" id="unfold-all" class="ghost icon" title="Unfold every section" aria-label="Unfold every section"></button>
+        </div>
+        <h3><button type="button" class="section-head" data-section="records" aria-expanded="false" aria-controls="records">Records</button></h3>
+        <div id="records" class="section">
+          <ul id="groups" aria-label="Groups"></ul>
+          <h4><button type="button" class="section-head" data-section="tags" aria-expanded="false" aria-controls="tags">Tags</button></h4>
+          <ul id="tags" class="section"></ul>
+        </div>
+        <h3><button type="button" class="section-head" data-section="tools" aria-expanded="false" aria-controls="tools">Tools</button></h3>
+        <ul id="tools" class="section"></ul>
+        <h3><button type="button" class="section-head" data-section="settings" aria-expanded="false" aria-controls="settings-tabs" title="Settings (Ctrl+,)">Settings</button></h3>
+        <ul id="settings-tabs" class="section"></ul>
         <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-controls="sidebar" aria-label="Sidebar width" title="Drag to change the sidebar's width; double-click for the usual one" tabindex="0"></div>
       </nav>
       <div id="list-pane">
@@ -77,9 +86,9 @@
         <ul id="list" role="listbox" aria-label="Entries" tabindex="0"></ul>
       </div>
       <section id="detail" aria-label="Entry"></section>
+      <div id="report" hidden></div>
     </div>
 
-    <div id="report" hidden></div>
     <div id="settings" hidden></div>
     <div id="toast" role="status" hidden></div>
   </body>

@@ -4,21 +4,22 @@ import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
-import { changedElsewhere, closeEditor, editorKey, isEditing, openEditor } from './editor'
+import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { menuButton } from './menu'
+import { foldingSections, sidebarIcon, type SidebarIcon } from './sidebar-sections'
 import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
 import { sidebarResizer } from './sidebar-resize'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
-import { renderSettings } from './settings'
+import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
-import { importFromFile } from './file-import'
-import { exportToFile } from './file-export'
+import { renderImport } from './file-import'
+import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
 
@@ -36,6 +37,7 @@ const detail = $('detail')
 const settingsView = $('settings')
 const chooseView = $('choose')
 const reportView = $('report')
+const listPane = $('list-pane')
 const toast = $('toast')
 
 
@@ -48,8 +50,12 @@ const EMPTY: Listing = {
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
-/** A report (password health, similar entries) is over the vault. */
+/** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
+/** The tools, each shown beside the sidebar. */
+type Tool = 'health' | 'similar' | 'import' | 'export'
+/** The tool whose report is shown, marked in the sidebar. */
+let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
 let listing = EMPTY
@@ -224,7 +230,15 @@ function showVault(next: Listing) {
   filter = ALL
   fillSidebar()
   refresh()
-  searchInput.focus()
+  // Settings opened over the unlock screen move beside the sidebar, drawn
+  // again for an unlocked database (its own tab, no Done).
+  if (settingsOpen) {
+    showSettingsView()
+    drawSettings().catch((e) => notify(String(e)))
+  } else {
+    showContent()
+    searchInput.focus()
+  }
 }
 
 /** Asks the backend to lock; it answers with the `locked` event. */
@@ -248,6 +262,7 @@ async function showLocked() {
   detail.replaceChildren()
   // Open settings no longer have a database to show; closed meanwhile, they stay empty.
   if (settingsOpen) {
+    showSettingsView()
     drawSettings().then(() => settingsOpen || settingsView.replaceChildren(), (e) => notify(String(e)))
   }
   showUnlock(await api.status())
@@ -263,8 +278,8 @@ function fillSidebar() {
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
-    b.addEventListener('click', () => showFilter(choice))
+    if (!settingsOpen && !reportOpen && sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
+    b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
   groupsList.replaceChildren(...GROUPS.map(({ group, label }) => {
@@ -276,8 +291,8 @@ function fillSidebar() {
     ...tags.map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
-        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: () => renameTag(tag) },
-        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: () => removeTag(tag), danger: true },
+        { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: afterLeavingEditor(() => renameTag(tag)) },
+        { label: 'Remove…', title: 'Take the tag off every entry; the entries stay', action: afterLeavingEditor(() => removeTag(tag)), danger: true },
       ]))
       return li
     }),
@@ -285,6 +300,8 @@ function fillSidebar() {
 }
 
 function showFilter(choice: Filter) {
+  closeSettings()
+  closeReport()
   filter = choice
   fillSidebar()
   refresh()
@@ -359,7 +376,11 @@ function listItem(entry: Entry): HTMLLIElement {
   )
   if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
-  li.addEventListener('mousedown', (e) => pick(entry.id, e))
+  li.addEventListener('mousedown', (e) => {
+    if (!isEditing()) return pick(entry.id, e)
+    e.preventDefault() // the focus stays in the editor until it is left
+    void leaveEditor().then((left) => left && pick(entry.id, e))
+  })
   return li
 }
 
@@ -404,7 +425,7 @@ const isFavorite = (entry: Entry) => entry.tags.includes(FAVORITE)
  *  star off, as a tag (no sync until the next sync moment). */
 function starButton(entry: Entry): HTMLButtonElement {
   const on = isFavorite(entry)
-  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', () => toggleFavorite(entry), 'ghost star')
+  const star = button(on ? '★' : '☆', on ? 'Remove from Favorites' : 'Add to Favorites', afterLeavingEditor(() => toggleFavorite(entry)), 'ghost star')
   star.setAttribute('aria-pressed', String(on))
   // Clicking the star in the list does not select the entry.
   star.addEventListener('mousedown', (e) => e.stopPropagation())
@@ -531,34 +552,39 @@ function renderDetail() {
   const header = el('header', { className: 'entry' }, iconImage(entry), heading)
   if (!version && editable(entry)) header.append(starButton(entry))
   const rows: Node[] = [header]
+  // The values in one card, a hairline between them.
+  const values: Node[] = []
   if (entry.username) {
-    rows.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
+    values.push(row('User name', entry.username, () => copy(USERNAME, 'User name'), { copyKey: 'Ctrl+B' }))
   }
-  if (entry.hasPassword) rows.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
+  if (entry.hasPassword) values.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
     // The entry's own address: not offered for an older version.
     const actions = entry.host && !version ? [iconAction('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
-    rows.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
+    values.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   // An older version's TOTP secret is shown as a secret, not as codes.
-  if (hasTotp(entry)) rows.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
+  if (hasTotp(entry)) values.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
-      rows.push(secretRow(labelOf(field.name), field.name))
+      values.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
-      rows.push(row(field.name, field.value, () => copy(field.name, field.name)))
+      values.push(row(field.name, field.value, () => copy(field.name, field.name)))
     }
   }
-  if (entry.notes) rows.push(el('p', { className: 'notes' }, entry.notes))
+  if (entry.notes) {
+    values.push(el('div', { className: 'row notes' }, el('span', { className: 'label' }, 'Notes'), el('span', { className: 'value' }, entry.notes)))
+  }
+  if (values.length) rows.push(el('div', { className: 'card' }, ...values))
   if (entry.attachments.length) {
-    rows.push(el('h3', {}, 'Attachments'), ...entry.attachments.map(fileRow))
+    rows.push(el('h3', {}, 'Attachments'), el('div', { className: 'card' }, ...entry.attachments.map(fileRow)))
   }
   if (version) {
     if (version.at.differs.length) {
-      rows.push(el('h3', {}, 'The entry now'), ...version.at.differs.map((d) =>
+      rows.push(el('h3', {}, 'The entry now'), el('div', { className: 'card' }, ...version.at.differs.map((d) =>
         el('div', { className: 'row now' },
           el('span', { className: 'label' }, labelOf(d.name)),
-          el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now'))))
+          el('span', { className: 'value' }, d.protected ? 'differs (not shown)' : d.current ?? 'not in the entry now')))))
     }
     const restorable = editable(shown) || isTemplate(shown)
     rows.push(el('div', { className: 'buttons' },
@@ -1092,29 +1118,78 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
+// ---------------------------------------------------------------- tools and settings in the sidebar
+
+/** Makes `action` wait for the editor to be left (Yes) or do nothing (No),
+ *  when it is open: for what is chosen outside it. */
+function afterLeavingEditor(action: () => unknown): () => void {
+  return () => void leaveEditor().then((left) => left && action())
+}
+
+/** A command in the sidebar: an icon and its name, no count. `choice` names
+ *  what it shows beside the sidebar, for marking it while shown. */
+function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown, choice = ''): HTMLLIElement {
+  const b = el('button', { type: 'button', className: 'side-item', title, onclick: afterLeavingEditor(action) },
+    sidebarIcon(picture), el('span', { className: 'name' }, label))
+  if (choice) b.dataset.choice = choice
+  return el('li', {}, b)
+}
+
+/** Marks in the sidebar what is shown beside it: a group or tag, a tool's report or a settings tab. */
+function markSidebar() {
+  const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${reportTool}` : null
+  for (const b of document.querySelectorAll<HTMLElement>('#tools .side-item, #settings-tabs .side-item')) {
+    if (shown && b.dataset.choice === shown) b.setAttribute('aria-current', 'true')
+    else b.removeAttribute('aria-current')
+  }
+  if (unlocked) fillSidebar()
+}
+
+/** The tools that work on the whole database, and the settings' tabs. */
+function fillTools() {
+  $('tools').replaceChildren(
+    sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
+    sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
+    sideCommand('Import from a file', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import', openImport, 'tool:import'),
+    sideCommand('Export to a file', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export', openExport, 'tool:export'),
+  )
+  // Each tab's icon has the tab's name.
+  $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
+    sideCommand(label, `Settings: ${label} (Ctrl+,)`, tab, () => openSettings(tab), `settings:${tab}`)))
+}
+
 // ---------------------------------------------------------------- reports
 
 /** Shows the report `draw` fills the report view with, over the vault. */
-async function openReport(draw: () => Promise<void>) {
-  if (reportOpen || !unlocked || isEditing()) return
+async function openReport(tool: Tool, draw: () => Promise<void>) {
+  // Chosen again while open, a tool starts over (an import, an export from its first step).
+  if (!unlocked || isEditing()) return
   try {
     await draw()
   } catch (e) {
     return notify(String(e))
   }
   if (!unlocked) return // locked while checking
+  closeSettings()
   reportOpen = true
-  vault.hidden = true
-  reportView.hidden = false
-  reportView.querySelector('button')?.focus()
+  reportTool = tool
+  showContent()
+  reportView.querySelector<HTMLElement>('button, input')?.focus()
 }
 
-const openHealth = () => openReport(() => renderHealth(reportView, { done: closeReport, fix: changePassword, icon: iconOf }))
+const openHealth = () => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf }))
+
+const openImport = () =>
+  openReport('import', async () =>
+    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
+
+const openExport = () =>
+  // Without an answer about Windows Hello, the master password is asked for instead.
+  openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
 const openSimilar = () =>
-  openReport(() =>
+  openReport('similar', async () =>
     renderSimilar(reportView, {
-      done: closeReport,
       entry: (id) => listing.entries.find((e) => e.id === id),
       icon: iconOf,
       changed: (next, message) => applyListing(next, message, false),
@@ -1125,11 +1200,31 @@ const openSimilar = () =>
 function closeReport() {
   if (!reportOpen) return
   reportOpen = false
-  reportView.hidden = true
+  reportTool = null
   reportView.replaceChildren()
-  if (unlocked && !settingsOpen) {
-    vault.hidden = false
-    searchInput.focus()
+  showContent()
+  if (unlocked && !settingsOpen) searchInput.focus()
+}
+
+/** Shows beside the sidebar what is open (the settings, a report, else the
+ *  list and the entry), so the sidebar never leaves the screen, and marks it there. */
+function showContent() {
+  const records = !settingsOpen && !reportOpen
+  listPane.hidden = !records
+  detail.hidden = !records
+  reportView.hidden = !reportOpen
+  if (unlocked) settingsView.hidden = !settingsOpen
+  markSidebar()
+}
+
+/** The settings beside the sidebar while unlocked, over the whole window while locked. */
+function showSettingsView() {
+  if (unlocked) {
+    vault.append(settingsView)
+    showContent()
+  } else {
+    document.body.append(settingsView)
+    settingsView.hidden = false
   }
 }
 
@@ -1160,20 +1255,23 @@ const drawSettings = () =>
     current = null
   })
 
-async function openSettings() {
-  if (settingsOpen) return
+/** The settings, at `tab` when given (the sidebar's list of them). */
+async function openSettings(tab?: SettingsTab) {
+  if (tab) showSettingsTab(tab)
   try {
     await drawSettings()
   } catch (e) {
     return notify(String(e))
   }
+  if (settingsOpen) return markSidebar() // another tab of the open settings
   closeReport()
   settingsOpen = true
-  unlockForm.hidden = true
-  chooseView.hidden = true
-  vault.hidden = true
-  settingsView.hidden = false
-  settingsView.querySelector('button')?.focus()
+  if (!unlocked) {
+    unlockForm.hidden = true
+    chooseView.hidden = true
+  }
+  showSettingsView()
+  settingsView.querySelector<HTMLElement>('select, button, input')?.focus()
 }
 
 /** Back to the vault, or to the unlock screen when locked meanwhile. */
@@ -1183,7 +1281,7 @@ function closeSettings() {
   settingsView.hidden = true
   settingsView.replaceChildren()
   if (unlocked) {
-    vault.hidden = false
+    showContent()
     searchInput.focus()
     if (!current) select(selectedId)
   } else if (chooseView.childElementCount) {
@@ -1198,20 +1296,15 @@ function closeSettings() {
 
 // ---------------------------------------------------------------- keys
 
-searchInput.addEventListener('input', refresh)
+// A search is in the records: typed over the settings or a report, it shows them.
+searchInput.addEventListener('input', () => {
+  closeSettings()
+  closeReport()
+  refresh()
+})
 $('lock-button').addEventListener('click', lock)
-$('new-entry').addEventListener('click', newEntry)
-$('empty-trash').addEventListener('click', () => deleteForGood())
-$('settings-button').addEventListener('click', openSettings)
-// The tools that work on the whole database.
-$('settings-button').before(menuButton('Tools for the whole database', [
-  { label: 'Password health', title: 'Find reused, weak and old passwords', action: openHealth },
-  { label: 'Similar entries', title: 'Find entries for the same site and user name, to merge them', action: openSimilar },
-  { label: 'Import from a file…', title: 'Add the entries another password manager exported (CSV, Bitwarden JSON)',
-    action: () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e))) },
-  { label: 'Export to a file…', title: 'Write the entries to a file another password manager imports (CSV, CXF JSON)',
-    action: () => api.helloReady().then(exportToFile).catch((e) => notify(String(e))) },
-], 'Tools'))
+$('new-entry').addEventListener('click', afterLeavingEditor(newEntry))
+$('empty-trash').addEventListener('click', afterLeavingEditor(() => deleteForGood()))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
@@ -1382,7 +1475,7 @@ listen<string>('notice', (e) => {
   }
 })
 listen('open-settings', () => {
-  if (!isAsking()) openSettings()
+  if (!isAsking()) afterLeavingEditor(() => openSettings())()
 })
 // Changed from the tray while the screen is open.
 listen('settings-changed', () => {
@@ -1393,7 +1486,21 @@ listen<string>('icon-ready', (e) => {
   siteIcons.refresh(e.payload)
 })
 
+// The webview's own menu (Refresh, Save as, Print, Share) has nothing for this
+// app; text fields keep theirs, for cut, copy and paste.
+const TEXT_FIELD = 'input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [type=file]), textarea'
+document.addEventListener('contextmenu', (e) => {
+  const field = e.target instanceof Element ? e.target.closest<HTMLInputElement | HTMLTextAreaElement>(TEXT_FIELD) : null
+  if (!field || field.readOnly || field.disabled) e.preventDefault()
+})
+
 sidebarResizer($('vault'), $('sidebar-resizer'))
+fillTools()
+const sidebarSections = foldingSections($('sidebar'))
+$('fold-all').append(sidebarIcon('foldAll'))
+$('unfold-all').append(sidebarIcon('unfoldAll'))
+$('fold-all').addEventListener('click', () => sidebarSections.foldAll(true))
+$('unfold-all').addEventListener('click', () => sidebarSections.foldAll(false))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})

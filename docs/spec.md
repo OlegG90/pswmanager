@@ -168,13 +168,22 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
-  keyboard shortcuts (see *Keyboard shortcuts*).
-- Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
-  `#work`), the **list** of entries the sidebar's choice shows, and the selected **entry** (see *Groups and
-  tags*). There is no filter menu. The sidebar's width is changed by dragging its edge (140 to 420 px, the
-  list and the entry keeping their room; ← / →, Home and End on the edge too; a double click puts the
-  usual width back) and is kept on this PC. A long tag name is cut short with
-  an ellipsis; its ⋯ menu and count stay in place, the counts in one column.
+  keyboard shortcuts (see *Keyboard shortcuts*); the field takes the toolbar's room up to Sync and Lock.
+- The **sidebar** is always shown; beside it is what its choice shows. It holds three sections:
+  **Records** (the fixed **Groups**, each with its icon as on the phone, and under them **Tags**, a
+  section of its own with the tags as `#work`), **Tools** and **Settings** (its tabs). Every heading has
+  its icon, in bold, and folds what it holds away and back, downwards; what a heading holds is indented
+  under it. Every section is folded when the app starts; two buttons at the sidebar's top right fold and
+  unfold them all. When the open sections do not fit, the sidebar scrolls.
+- Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
+  *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
+  *Export to a file*; chosen again, a tool starts over); for a settings tab, the settings at that tab (see
+  *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
+  menu.
+- The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
+  room; ← / →, Home and End on the edge too; a double click puts the usual width back) and is kept on this
+  PC. A long tag name is cut short with an ellipsis; its ⋯ menu and count stay in place, the counts in
+  one column.
 - The entry view shows title, tags as yellow chips (the Favorite star stays separate), user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes, attached files (name and size) and when the entry was last changed
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
@@ -190,6 +199,11 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
 - Standard Windows frame. Closing the window hides it to the tray; the app keeps running.
+- The webview's own right-click menu (Refresh, Save as, Print, Share) is off; text fields keep theirs,
+  for cut, copy and paste.
+- The look follows WinUI 3 (Fluent), as in `docs/design/winui3`: the toolbar and the sidebar on the
+  window's ground, the list and the entry on a lighter layer, an entry's values in one card, the accent
+  blue of Windows.
 - Theme: light or dark, or as Windows is set (the default); a setting.
 
 ### Groups and tags
@@ -320,12 +334,20 @@ same table the dialog shows.
 
 ### Settings
 
-*Settings* (`Ctrl+,`, or the button) shows its groups in tabs, one tab at a time: **General** (locking and the
-clipboard), **Window** (theme, global hotkey, start with Windows, site icons), **Database** (the open
-database's own settings, see *Database settings*; disabled while locked), **Sync**, **Backup** (see
-*Backup*) and **About**. ←/→ move
+*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups one tab at
+a time, titled with the tab's name. Unlocked, they are beside the sidebar, whose *Settings* list is their
+tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unlock screen), they have their
+tabs down their left side and **Done**. The tabs: **General** (locking and the clipboard), **Window** (theme, global
+hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
+settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
+database format, KDBX 4.1, with what reads it, **Check for updates** and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
 between the tabs, Home and End to the first and last. The tab shown stays while the app runs, through the
 redraw after each change (every change is saved at once). Esc closes the settings.
+
+About's **Check for updates** asks GitHub's API for the repository's latest release, only when pressed
+(GitHub sees the PC's address and the app's name, `PswManager`, and nothing else), and says whether
+this copy is up to date; for a newer one, **Open the release** opens its page in the browser. The app
+itself downloads and installs nothing.
 
 ### Backup
 
@@ -375,6 +397,10 @@ while the database is locked):
 
 ## Editing
 
+- While the editor is open, choosing something outside it (an entry in the list or its star, a group, a
+  tag or its menu, a tool, a settings tab, **New entry**, **Empty trash**) first asks *Leave editing?*:
+  **Yes** drops the changes, shows the entry as it was and then does what was chosen; **No** (or Esc)
+  goes back into the editor where it was. Sync, Lock and the search field do not ask.
 - Create, edit and delete entries. Delete asks for confirmation in the entry view, then moves the entry to
   the recycle bin (as KeePass does; created if missing). A database with the bin turned off is refused:
   entries are removed for good only from the trash.
@@ -412,7 +438,7 @@ while the database is locked):
 
 ## Password health
 
-- A report, opened from the toolbar's *Tools* menu, of passwords worth changing among the entries in
+- A report, shown beside the sidebar from its *Tools* (a group or a tag, or Esc, goes back), of passwords worth changing among the entries in
   use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
@@ -424,8 +450,9 @@ while the database is locked):
 
 ## Similar entries
 
-- A report, opened from the toolbar's *Tools* menu (*Similar entries*), of entries in use (not the
-  recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+- A page beside the sidebar, from its *Tools* (*Similar entries*; a group or a tag, or Esc, goes back): it
+  says what it looks for, and nothing is looked for until **Scan**, which lists under it, on the same page,
+  the entries in use (not the recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
   URL are not listed.
@@ -458,9 +485,10 @@ while the database is locked):
 
 ## Import from a file
 
-- *Tools → Import from a file…* (#238; on the phone a *Tools* item of its own): a file another password
-  manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). A
-  question says what it takes first; then the file is picked.
+- *Tools → Import from a file* (#238; on the phone a *Tools* item of its own): a file another password
+  manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). Its
+  page beside the sidebar says what it takes first; then the file is picked, and the page says what came
+  over and what did not, and offers to delete the file (or import another).
   - **CSV**, its columns found by the names in its first line (any case; the usual names, e.g. title
     `name` or `title`, URL `url`, `login_uri` or `website`, TOTP `totp` or `otpauth`): title, URL (one a
     line in the cell: more go to `KP2A_URL_n`), user name, password, notes, TOTP, folder or group (a path
@@ -490,9 +518,10 @@ while the database is locked):
 
 ## Export to a file
 
-- *Tools → Export to a file…* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
+- *Tools → Export to a file* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
   bin or templates) written to a file another password manager imports, the reverse of *Import from a
-  file*. A question offers the formats, each with what it carries:
+  file*. Its page beside the sidebar offers the formats, each with what it carries (the master password,
+  when asked for, is typed there too; then the page says what was written):
   - **CSV**: `name,url,username,password,note,totp`, the columns Google Password Manager and Chrome
     write (browsers, Google Password Manager, Bitwarden and 1Password read them); logins only.
   - **CXF JSON**: the Credential Exchange file the phone's Credential Transfer hands over

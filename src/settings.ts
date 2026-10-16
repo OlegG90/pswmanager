@@ -1,6 +1,6 @@
 import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
-import { button, el } from './dom'
+import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
 import { shownCombo } from './keys'
 import { ask } from './modal'
@@ -48,18 +48,26 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-const TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
-type Tab = (typeof TABS)[number][0]
+export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
+export type SettingsTab = (typeof SETTINGS_TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
-let shownTab: Tab = 'general'
+let shownTab: SettingsTab = 'general'
+
+/** The tab the settings open at next (one that cannot be opened now falls back to General). */
+export function showSettingsTab(tab: SettingsTab) {
+  shownTab = tab
+}
+
+/** The tab shown, or shown last. */
+export const settingsTab = () => shownTab
 
 /**
- * The row of tabs: `open(tab)` shows one. ←/→ move to the next or previous
- * one (wrapping), Home and End to the first and last. `off(tab)` says why a
+ * The column of tabs: `open(tab)` shows one. ↑/↓ (and ←/→) move to the next or
+ * previous one (wrapping), Home and End to the first and last. `off(tab)` says why a
  * tab cannot be opened now: it is then disabled, with that as its title, and skipped.
  */
-function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTMLElement {
-  const tabs = TABS.map(([tab, label]) => {
+function tabBar(off: (tab: SettingsTab) => string | null, open: (tab: SettingsTab) => void): HTMLElement {
+  const tabs = SETTINGS_TABS.map(([tab, label]) => {
     const on = tab === shownTab
     const why = off(tab)
     const button = el('button', {
@@ -71,10 +79,10 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
     button.setAttribute('aria-controls', 'settings-panel')
     return button
   })
-  const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings' }, ...tabs)
+  const bar = el('div', { className: 'tabs', role: 'tablist', ariaLabel: 'Settings', ariaOrientation: 'vertical' }, ...tabs)
   bar.addEventListener('keydown', (e) => {
-    const usable = TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
-    const step = ({ ArrowRight: 1, ArrowLeft: -1 } as Record<string, number>)[e.key]
+    const usable = SETTINGS_TABS.map(([tab]) => tab).filter((tab) => off(tab) === null)
+    const step = ({ ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 } as Record<string, number>)[e.key]
     const next = step ? usable[(usable.indexOf(shownTab) + step + usable.length) % usable.length]
       : e.key === 'Home' ? usable[0] : e.key === 'End' ? usable[usable.length - 1] : undefined
     if (!next) return
@@ -82,6 +90,23 @@ function tabBar(off: (tab: Tab) => string | null, open: (tab: Tab) => void): HTM
     open(next)
   })
   return bar
+}
+
+/** Check for updates, then what it found: up to date, or the newer version with
+ *  its release page. */
+function updateControl(version: string, onError: (message: string) => void): HTMLElement {
+  const control = el('div', { className: 'sync-control' })
+  const check = busyButton('Check for updates', 'Ask GitHub for the latest release', async () => {
+    const found = await api.checkForUpdate()
+    const open = button('Open the release', 'The release page, with its files, in the browser',
+      () => api.openLatestRelease().catch((e) => onError(String(e))), 'primary')
+    const said = el('span', { className: 'value' }, found.newer ? `Version ${found.latest} is out` : `Up to date (${version})`)
+    control.replaceChildren(said, ...(found.newer ? [open] : []), check)
+    // Put back in the row, the button would lose the keyboard.
+    ;(found.newer ? open : check).focus()
+  }, onError)
+  control.append(check)
+  return control
 }
 
 /** A text field saved when it changes (Enter, or leaving it); a textarea for several lines. */
@@ -264,17 +289,17 @@ export async function renderSettings(
     const focusedLabel = focused?.getAttribute('aria-label')
     const onTab = focused?.getAttribute('role') === 'tab'
     // The database's own settings while it is unlocked; its backup while there is one.
-    const off = (tab: Tab) =>
+    const off = (tab: SettingsTab) =>
       tab === 'database' && !database ? 'Unlock the database to change its settings'
         : tab === 'backup' && !backup ? 'Choose a database first'
         : null
     if (off(shownTab)) shownTab = 'general'
     // Chosen by click or key on a tab: the redraw keeps the focus on the tabs.
-    const open = (tab: Tab) => {
+    const open = (tab: SettingsTab) => {
       shownTab = tab
       draw(s, status)
     }
-    const groups: Record<Tab, () => HTMLElement[]> = {
+    const groups: Record<SettingsTab, () => HTMLElement[]> = {
       general: () => [
         group('Security',
           row('Lock after inactivity', '1–60 minutes, or never',
@@ -315,7 +340,12 @@ export async function renderSettings(
       backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
       about: () => [
         group('About',
-          row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version))),
+          row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),
+          row('Database format', 'KDBX 4.1: every save writes it, so a 4.0 file becomes 4.1. KeePassXC 2.7+, KeePass 2.48+ and Keepass2Android open it',
+            el('span', { className: 'value' }, 'KDBX 4.1')),
+          row('Updates', 'Asks GitHub for the latest release; nothing is downloaded or installed', updateControl(version, onError)),
+          row('Source code', 'github.com/OlegG90/pswmanager',
+            button('Open on GitHub', 'The repository of PswManager, in the browser', () => api.openRepository().catch((e) => onError(String(e)))))),
       ],
     }
     const panel = el('div', { id: 'settings-panel', role: 'tabpanel' }, ...groups[shownTab]())
@@ -323,7 +353,9 @@ export async function renderSettings(
     // A disabled tab's title is not read out or shown from the keyboard: said here.
     const locked = database ? [] : [el('p', { className: 'muted locked-note' }, 'Unlock the database to change its own settings.')]
     container.replaceChildren(
-      el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
+      // Unlocked, the sidebar beside them leaves the settings; locked, Done does.
+      el('header', {}, el('h1', {}, SETTINGS_TABS.find(([tab]) => tab === shownTab)?.[1] ?? 'Settings'),
+        ...(status.unlocked ? [] : [button('Done', 'Back (Esc)', onDone)])),
       tabBar(off, open),
       ...locked,
       panel,

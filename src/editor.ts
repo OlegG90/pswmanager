@@ -2,7 +2,7 @@ import { api, type Attachment, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf } from './entry-text'
-import { ask, askText, beforeExtension } from './modal'
+import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
 import { FAVORITE } from './search'
@@ -32,6 +32,10 @@ export interface EditorOptions {
 let active: {
   save: () => void
   close: () => void | Promise<void>
+  /** Closes without saving or asking: nothing of the edit is kept. */
+  discard: () => void
+  /** Puts the keyboard back where it was in the form. */
+  focus: () => void
   /** The entries another device just changed. */
   changedElsewhere?: (ids: string[]) => void
 } | null = null
@@ -58,6 +62,23 @@ export function closeEditor() {
   active = null
 }
 
+/**
+ * Something outside the editor was chosen while it is open: asks whether to
+ * leave it. Yes closes it without saving (the entry shows as it was), No keeps
+ * the user in it. True when there is no editor any more.
+ */
+export async function leaveEditor(): Promise<boolean> {
+  const open = active
+  if (!open) return true
+  if (isAsking()) return false
+  const leave = await ask('Leave editing? The changes are not saved.', 'Yes', 'No')
+  // Saved, cancelled or locked while asking: what was chosen is not done.
+  if (active !== open) return false
+  if (leave) open.discard()
+  else open.focus()
+  return leave
+}
+
 /** Tells the editor that another device changed these entries. */
 export function changedElsewhere(ids: string[]) {
   active?.changedElsewhere?.(ids)
@@ -72,7 +93,7 @@ function fromTemplate(template?: EntryData): Partial<EntryData> {
 /** Shows the editor in `container`. */
 export async function openEditor(container: HTMLElement, options: EditorOptions) {
   // Counts as open while loading, so a second Ctrl+E or a click in the list waits.
-  const loading = { save: () => {}, close: () => {} }
+  const loading = { save: () => {}, close: () => {}, discard: () => {}, focus: () => {} }
   active = loading
   let data: EntryData
   let attachments: Attachment[] = []
@@ -146,14 +167,17 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       saving = false
     }
   }
-  const close = async () => {
-    if (JSON.stringify(collect()) !== untouched || files.changes().length) {
-      const discard = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
-      if (!discard || active !== self) return
-    }
+  const discard = () => {
     active = null
     files.release()
     options.onClose()
+  }
+  const close = async () => {
+    if (JSON.stringify(collect()) !== untouched || files.changes().length) {
+      const yes = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
+      if (!yes || active !== self) return
+    }
+    discard()
   }
   // Saving still works: this edit is applied to the file as it is now, wins
   // where both changed the entry, and the other version goes to its history.
@@ -162,7 +186,10 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       showError('This entry was just changed on another device. Saving keeps your version; the other one goes to the entry\'s history.')
     }
   }
-  const self = { save, close, changedElsewhere: changed }
+  // The field last used, for the way back into the form.
+  let lastField: HTMLElement = title
+  const focus = () => lastField.focus()
+  const self = { save, close, discard, focus, changedElsewhere: changed }
   active = self
 
   const row = (label: string, ...controls: Node[]) =>
@@ -193,6 +220,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       button('Cancel', 'Cancel (Esc)', close),
       ...(options.id ? [el('span', { className: 'hint' }, 'Saving keeps the previous version in history.')] : [])),
   )
+  form.addEventListener('focusin', (e) => (lastField = e.target as HTMLElement))
   container.replaceChildren(form)
   const untouched = JSON.stringify(collect())
   ;(options.focusPassword ? password : title).focus()

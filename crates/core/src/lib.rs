@@ -29,5 +29,6 @@ pub mod similar;
 pub mod staged;
 pub mod store;
 pub mod sync;
+pub mod updates;
 pub mod vault;
 pub mod webauthn;

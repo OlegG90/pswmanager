@@ -4,7 +4,6 @@ import { describeEntries, titleOf } from './entry-text'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
 
 export interface SimilarOptions {
-  done: () => void
   /** The entry as the list has it. */
   entry: (id: string) => Entry | undefined
   /** Draws an entry's icon. */
@@ -64,29 +63,40 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
   return section
 }
 
-/** Fills `container` with the entries that are for the same site and account. */
-export async function renderSimilar(container: HTMLElement, options: SimilarOptions) {
-  /** Sites left as they are, while the report is open. */
+/**
+ * Fills `container` with the Similar entries page: what it looks for and Scan,
+ * which lists under it the entries that are for the same site and account
+ * (nothing is looked for until then).
+ */
+export function renderSimilar(container: HTMLElement, options: SimilarOptions) {
+  /** Sites left as they are, until the next Scan. */
   const left = new Set<string>()
+  const results = el('div', { className: 'results' })
+  const page = [
+    el('header', {}, el('h1', {}, 'Similar entries')),
+    el('section', { className: 'tool' }, el('p', {}, SIMILAR_INTRO),
+      el('div', { className: 'tool-actions' }, busyButton('Scan', 'Look for entries for the same site and user name', () => {
+        left.clear()
+        return draw()
+      }, options.fail, 'primary'))),
+    results,
+  ]
   const replace = (nodes: Node[]) => {
-    const report = [...container.childNodes]
     container.replaceChildren(...nodes)
     container.querySelector('button')?.focus()
-    return () => container.replaceChildren(...report)
+    return () => container.replaceChildren(...page)
   }
+  // Also after a merge: the page comes back with the sites as they are now.
   async function draw() {
     const sites = similarSites(await api.similarEntries(), options.entry, left)
     const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
     const leave = (name: string) => (section: HTMLElement) => {
       left.add(name)
-      leaveSite(container, section, none)
+      leaveSite(results, section, none)
     }
     const report: Report = { options, redraw: draw, replace }
-    container.replaceChildren(
-      el('header', {}, el('h1', {}, 'Similar entries'), button('Done', 'Back (Esc)', options.done)),
-      el('p', { className: 'muted intro' }, SIMILAR_INTRO),
-      ...(sites.length ? sites.map((s) => siteSection(s, report, leave(s.name))) : [none()]),
-    )
+    container.replaceChildren(...page)
+    results.replaceChildren(...(sites.length ? sites.map((s) => siteSection(s, report, leave(s.name))) : [none()]))
   }
-  await draw()
+  container.replaceChildren(...page)
 }
