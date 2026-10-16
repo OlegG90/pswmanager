@@ -14,13 +14,17 @@ export interface ImportOptions {
  * offers to delete the file, which holds every password in clear text.
  */
 export function renderImport(container: HTMLElement, options: ImportOptions) {
+  // The page's own element: an import that ends after the page was left is
+  // still applied, but draws nothing.
+  const page = el('div')
+  container.replaceChildren(page)
   const header = () => el('header', {}, el('h1', {}, 'Import from a file'))
 
   const start = () => {
-    container.replaceChildren(header(), el('section', { className: 'tool' }, ...fileImportAbout(),
+    page.replaceChildren(header(), el('section', { className: 'tool' }, ...fileImportAbout(),
       el('div', { className: 'tool-actions' },
         busyButton('Choose the file…', 'Choose the file to import', choose, options.fail, 'primary'))))
-    container.querySelector('button')?.focus()
+    page.querySelector('button')?.focus()
   }
 
   const choose = async () => {
@@ -29,7 +33,8 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
     const { file, group, added, skipped, listing } = result
     const message = added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported into “${group}”` : 'Nothing was imported'
     options.imported(listing, message)
-    // Kept unless deleted here: leaving the panel keeps it, as before.
+    if (!page.isConnected) return
+    // The file goes only when the user says so here: it may be wanted again.
     const actions = el('div', { className: 'tool-actions' })
     actions.append(
       busyButton('Delete the file', `Delete ${file}`, async () => {
@@ -38,7 +43,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
       }, options.fail, 'danger'),
       button('Import another file', 'Keep this file and choose another one', start),
     )
-    container.replaceChildren(header(), el('section', { className: 'tool' },
+    page.replaceChildren(header(), el('section', { className: 'tool' },
       el('p', {}, `${message}.`),
       ...(skipped.length
         ? [el('p', {}, `Not brought over (${skipped.length}):`),

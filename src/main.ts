@@ -1162,7 +1162,8 @@ function fillTools() {
 
 /** Shows the report `draw` fills the report view with, over the vault. */
 async function openReport(tool: Tool, draw: () => Promise<void>) {
-  if ((reportOpen && reportTool === tool) || !unlocked || isEditing()) return
+  // Chosen again while open, a tool starts over (an import, an export from its first step).
+  if (!unlocked || isEditing()) return
   try {
     await draw()
   } catch (e) {
@@ -1183,6 +1184,7 @@ const openImport = () =>
     renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
 
 const openExport = () =>
+  // Without an answer about Windows Hello, the master password is asked for instead.
   openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
 const openSimilar = () =>
