@@ -315,7 +315,6 @@ export interface Exported {
   leftOut: string[]
 }
 
-/** An entry the password health check lists, and why. */
 /** The latest release, as GitHub has it. */
 export interface UpdateCheck {
   latest: string
@@ -323,6 +322,7 @@ export interface UpdateCheck {
   newer: boolean
 }
 
+/** An entry the password health check lists, and why. */
 export interface Finding {
   id: string
   title: string

@@ -337,8 +337,9 @@ between the tabs, Home and End to the first and last. The tab shown stays while 
 redraw after each change (every change is saved at once). Esc closes the settings.
 
 About's **Check for updates** asks GitHub's API for the repository's latest release, only when pressed
-(the request carries nothing but the app's name), and says whether this copy is up to date; for a newer
-one, **Open the release** opens its page in the browser. The app itself downloads and installs nothing.
+(GitHub sees the PC's address and the app's name, `PswManager`, and nothing else), and says whether
+this copy is up to date; for a newer one, **Open the release** opens its page in the browser. The app
+itself downloads and installs nothing.
 
 ### Backup
 

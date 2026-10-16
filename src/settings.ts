@@ -98,11 +98,12 @@ function updateControl(version: string, onError: (message: string) => void): HTM
   const control = el('div', { className: 'sync-control' })
   const check = busyButton('Check for updates', 'Ask GitHub for the latest release', async () => {
     const found = await api.checkForUpdate()
-    control.replaceChildren(found.newer
-      ? el('span', { className: 'value' }, `Version ${found.latest} is out`)
-      : el('span', { className: 'value' }, `Up to date (${version})`),
-    ...(found.newer ? [button('Open the release', 'The release page, with its files, in the browser', () => api.openLatestRelease().catch((e) => onError(String(e))), 'primary')] : []),
-    check)
+    const open = button('Open the release', 'The release page, with its files, in the browser',
+      () => api.openLatestRelease().catch((e) => onError(String(e))), 'primary')
+    const said = el('span', { className: 'value' }, found.newer ? `Version ${found.latest} is out` : `Up to date (${version})`)
+    control.replaceChildren(said, ...(found.newer ? [open] : []), check)
+    // Put back in the row, the button would lose the keyboard.
+    ;(found.newer ? open : check).focus()
   }, onError)
   control.append(check)
   return control

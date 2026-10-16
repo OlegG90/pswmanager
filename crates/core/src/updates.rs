@@ -26,15 +26,23 @@ struct Release {
 /// `https://github.com/owner/name` address) and compares it with `current`.
 pub fn check(repository: &str, current: &str) -> Result<UpdateCheck, String> {
     let path = repository.strip_prefix("https://github.com/").ok_or("The repository is not on GitHub")?;
-    let url = format!("https://api.github.com/repos/{}/releases/latest", path.trim_end_matches('/'));
+    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let url = format!("https://api.github.com/repos/{path}/releases/latest");
     let mut response = icons::http_agent(Duration::from_secs(15), true)
         .get(&url)
         // GitHub refuses requests without a User-Agent.
         .header("User-Agent", "PswManager")
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("Cannot check for updates: {e}"))?;
-    let body = response.body_mut().read_to_string().map_err(|e| format!("Cannot check for updates: {e}"))?;
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(404) => "There is no release yet".to_string(),
+            ureq::Error::StatusCode(403 | 429) => "GitHub is not answering just now: try again later".to_string(),
+            ureq::Error::StatusCode(code) => format!("GitHub answered {code}: try again later"),
+            _ => "Cannot reach GitHub: check the connection".to_string(),
+        })?;
+    // The release's description comes along; far less than this is enough.
+    let body = response.body_mut().with_config().limit(1024 * 1024).read_to_string()
+        .map_err(|_| "GitHub's answer could not be read".to_string())?;
     let release: Release = serde_json::from_str(&body).map_err(|_| "GitHub's answer could not be read".to_string())?;
     let latest = release.tag_name.trim_start_matches('v').to_string();
     Ok(UpdateCheck { newer: is_newer(&latest, current), latest })

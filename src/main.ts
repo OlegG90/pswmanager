@@ -1488,9 +1488,10 @@ listen<string>('icon-ready', (e) => {
 
 // The webview's own menu (Refresh, Save as, Print, Share) has nothing for this
 // app; text fields keep theirs, for cut, copy and paste.
+const TEXT_FIELD = 'input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [type=file]), textarea'
 document.addEventListener('contextmenu', (e) => {
-  const target = e.target as HTMLElement
-  if (!target.closest('input, textarea, [contenteditable="true"]')) e.preventDefault()
+  const field = e.target instanceof Element ? e.target.closest<HTMLInputElement | HTMLTextAreaElement>(TEXT_FIELD) : null
+  if (!field || field.readOnly || field.disabled) e.preventDefault()
 })
 
 sidebarResizer($('vault'), $('sidebar-resizer'))
