@@ -70,6 +70,13 @@ fn java_text(env: &mut Env, text: impl AsRef<str>) -> jstring {
     env.new_string(text.as_ref()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
+/// Sends a change made here up with the next sync, once the app has started.
+fn upload_soon() {
+    if let Some(app) = APP.get() {
+        crate::editing::upload_soon(app);
+    }
+}
+
 /// Whether the database syncs with a cloud store (an upload then waits for a network).
 fn syncs_with_cloud(env: &mut Env, state: &JString) -> Result<bool, String> {
     with_store(env, state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))
@@ -331,9 +338,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePass
             let caller = caller(env, &origin, &client_data_hash, &package, &certificate)?;
             let made = webauthn::make(&request, &caller)?;
             session().with_mut(|v| v.add_passkey(id.as_deref(), &made))?;
-            if let Some(app) = APP.get() {
-                crate::editing::upload_soon(app);
-            }
+            upload_soon();
             Ok(made.response)
         }))
         .unwrap_or_else(|_| Err("PswManager could not make the passkey".into()));
@@ -429,9 +434,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
             let place = login_place(env, &origin, &package, &certificate)?;
             if confirmed == JNI_TRUE {
                 session().with_mut(|v| v.confirm_app(&id, &place))?;
-                if let Some(app) = APP.get() {
-                    crate::editing::upload_soon(app);
-                }
+                upload_soon();
             }
             let (username, password) = session().read(|v| v.login(&id, &place))?.map_err(|why| unconfirmed_or(why, &place))?;
             // One string, wiped once Java has its own copy.
@@ -497,9 +500,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
             session()
                 .with_mut(|v| v.save_login(id.as_deref(), &place, confirmed == JNI_TRUE, &title, &username, &password))
                 .map_err(|why| unconfirmed_or(why, &place))?;
-            if let Some(app) = APP.get() {
-                crate::editing::upload_soon(app);
-            }
+            upload_soon();
             Ok(())
         }))
         .unwrap_or_else(|_| Err("PswManager could not save the password".into()));

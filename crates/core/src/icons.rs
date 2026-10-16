@@ -430,7 +430,7 @@ fn fetch(agent: &ureq::Agent, url: &Url, limit: u64, allowed: impl Fn(&Url) -> b
         // not let a caller do, so here a body sent as gzip is unpacked on the
         // way, and one that is not gzip fails the address too.
         if hop == MAX_REDIRECTS {
-            break;
+            return None;
         }
         std::io::copy(&mut response.body_mut().as_reader(), &mut std::io::sink()).ok()?;
         // Of several, ureq follows the last one.
