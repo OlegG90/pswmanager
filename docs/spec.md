@@ -138,7 +138,12 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   *Merge* below): when this device changed its key later, the result goes up with it; when another device
   did (the password was changed in Keepass2Android, say), the app takes that key — the working copy is saved
   with it, the result goes up with it, and the next unlock asks for it — so a key change is never undone
-  silently. A working copy another program replaced with a file that no longer opens asks for its key the
+  silently. Nor is it undone by a copy on a key the database was moved off while unlocked (the old key, or
+  the one it had before taking another device's) that says it changed to that key later, which anyone who
+  knows the old key could write: such a copy is reported and asked for like one on a key not known, nothing
+  goes up over it (changes here wait), and the database goes back to that key only once the user gives it
+  (when another device really changed back to it, say). A copy on such a key that changed earlier is merged
+  as above. A working copy another program replaced with a file that no longer opens asks for its key the
   same way. It is asked in a dialog once per unlock (*Not now* leaves an *Enter key…* button beside the
   sync status); a key given is kept in memory only, and when the database takes it, the list takes its key
   file.
@@ -154,7 +159,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   key, and is written again with this device's key (a remote one kept as `.remote.bak` first).
 - **Merge:** each setting is matched by its own time (`DatabaseNameChanged`, `DatabaseDescriptionChanged`,
   `DefaultUserNameChanged`, `SettingsChanged` for the history limits); the newer wins. The key follows
-  `MasterKeyChanged` the same way, and the encryption goes with the key; with equal times, or none on the
+  `MasterKeyChanged` the same way (back to a key the database was moved off only once the user gives it,
+  above), and the encryption goes with the key; with equal times, or none on the
   other side, the key and the encryption stay this device's. A file on this PC that another program changed on
   the same key is taken as it is now, its encryption too.
 
@@ -274,8 +280,10 @@ kept, not even in history.
 - The site's icon is downloaded **the way a browser opening the site gets it**: the start page (following
   its redirects, also to another domain), the icons its `<link rel="icon">` declares (wherever the site keeps
   them, e.g. its CDN), then `/favicon.ico`. Only https addresses on named hosts are fetched (no plain http,
-  no IP addresses). Never through a third-party favicon service, so no one else learns the list of sites.
-  Only the host goes over the network — never the path, query, user name or anything from the entry.
+  no IP addresses), each redirect checked before it is followed, so not even a redirect makes the app
+  contact a plain-http or IP address. Never through a third-party favicon service, so no one else learns
+  the list of sites. Only the host goes over the network — never the path, query, user name or anything
+  from the entry.
 - Certificates are checked against the Windows trust store. Sites behind a bot check (a "Just a moment…"
   page) answer no program but a browser and keep the default icon.
 - Downloads run in the background after unlock and never delay the window; a site that fails is retried
@@ -543,6 +551,15 @@ with a phone. Saving, change detection and the per-change merge below apply eith
 - A file that cannot be read (wrong key, corrupt, mid-sync) is never overwritten; the app shows the error
   and keeps the in-memory data; saving works again once the file can be read (the next change is read
   when the sync client finishes).
+- **A key derivation no KeePass app sets is refused** before the key is derived with it: nothing in the
+  header is checked until then, so a replaced file (on this PC or the remote store) could otherwise make
+  every unlock or sync run out of memory or never finish. A database file (opened, read again, or
+  downloaded) is refused, with the reason, when it asks for Argon2 memory above 4 GiB, more than 256
+  threads, more work than 100 iterations of 4 GiB, or more than 2^20 iterations times threads, or for more
+  than 1,000,000,000 AES-KDF rounds (KDBX 4, KDBX 3 and KeePass 1 alike). These are this app's own
+  strongest settings, with room for what KeePass, Keepass2Android and KeePassXC make (their benchmarks
+  give little memory thousands of iterations). A refused remote revision is not downloaded again while
+  the database stays unlocked, until it changes.
 - Saving checks that the new file reads back with the same content before it replaces the old one. (Old
   versions in history are compared by what the file keeps of them: keepass-rs also remembers in memory
   which group each was made in, which the file does not store.)
@@ -607,7 +624,9 @@ working copy has changed since that sync.
 **Connecting a cloud account:**
 
 - OAuth 2 with PKCE in the system browser and a loopback redirect (`http://localhost:53134/<store>`). The
-  app has no client secret; its public app ids are in the source.
+  app has no client secret; its public app ids are in the source. Any program on the computer can connect
+  there, so the app reads at most 8 KiB of a request line and gives a connection 5 seconds to send it; a
+  connection past either limit is dropped and the app goes on waiting for the browser.
 - The refresh token is kept in the Windows Credential Manager (protected for the Windows user), never in
   the state file or logs. **Disconnect** removes it; the database's local file stays.
 - Each store gets the narrowest access that still reaches a file Keepass2Android can open: Dropbox — its

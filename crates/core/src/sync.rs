@@ -3,6 +3,7 @@
 //! the other's file, and when both changed they are merged.
 
 use crate::dbfile::{hash_hex, same_file, sibling, OpenError, BAK, REMOTE_BAK};
+use crate::encryption::{check_header, TOO_COSTLY};
 use crate::remote::{Remote, RemoteError};
 use crate::session::Session;
 use crate::store::{self, Store};
@@ -85,6 +86,10 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
             if revision.as_deref().is_some_and(|r| since.known_unopened(r)) {
                 return Err(SyncError::OtherKey);
             }
+            // Nor one refused unopened, whatever the key.
+            if revision.as_deref().is_some_and(|r| since.known_refused(r)) {
+                return Err(failed(format!("The remote copy cannot be opened: {TOO_COSTLY}")));
+            }
             let changed_here = unsaved || Some(working_hash(&working)?) != state.synced;
             let (bytes, revision) = remote.download()?;
             // Deriving the key takes a while: done without holding the database.
@@ -94,7 +99,12 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
                     since.note_unopened(&revision);
                     return Err(SyncError::OtherKey);
                 }
-                Err(OpenError::Other(message)) => return Err(failed(format!("The remote copy cannot be opened: {message}"))),
+                Err(OpenError::Other(message)) => {
+                    if message == TOO_COSTLY {
+                        since.note_refused(&revision);
+                    }
+                    return Err(failed(format!("The remote copy cannot be opened: {message}")));
+                }
             };
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, key_change, &bytes, changed_here)) {
                 Ok(Some(taken)) => taken,
@@ -330,7 +340,7 @@ pub fn take_remote_with_key(store: &Store, working: &Path, key: &keepass::Databa
         return Ok(RemoteKey::NotThere);
     }
     let Ok((bytes, revision)) = remote.download() else { return Ok(RemoteKey::NotThere) };
-    if keepass::Database::parse(&bytes, key.clone()).is_err() {
+    if check_header(&bytes).is_err() || keepass::Database::parse(&bytes, key.clone()).is_err() {
         return Ok(RemoteKey::NotThere);
     }
     if store.read(|s| s.current().is_some_and(is_pending)) {
@@ -483,6 +493,21 @@ mod tests {
                 })
                 .unwrap()
         }
+
+        /// Another device syncing with the same remote file, unlocked.
+        fn other_device(&self) -> Setup {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Store::load(dir.path().join("pswm.json"));
+            start(&store, Location::Folder { path: self.remote.path.clone() }, dir.path().join("base.kdbx")).unwrap();
+            let session = Session::default();
+            let working = store.read(|s| s.current.clone()).unwrap();
+            session.set(Some(Vault::open(&working, Some("test"), None).unwrap()));
+            Setup { _dir: dir, store, session, remote: Folder { path: self.remote.path.clone() } }
+        }
+
+        fn uses_key(&self, password: &str) -> bool {
+            self.session.read(|v| v.uses_key(&DatabaseKey::new().with_password(password))).unwrap().unwrap()
+        }
     }
 
     #[test]
@@ -608,6 +633,64 @@ mod tests {
     }
 
     #[test]
+    fn a_remote_file_moved_back_to_the_replaced_key_is_asked_for_not_followed() {
+        let s = setup();
+        let old_copy = fs::read(&s.remote.path).unwrap();
+        s.session.with_mut(|v| v.change_key((Some("test"), None), Some("new"), None)).unwrap();
+        assert_eq!(s.sync(), Ok(Outcome::Uploaded));
+        // Someone with a copy on the old key writes it back, saying it changed to that key later.
+        let mut db = Database::parse(&old_copy, key()).unwrap();
+        db.meta.master_key_changed = Some(keepass::db::Times::now() + chrono::Duration::days(1));
+        db.config.version = keepass::config::DatabaseVersion::KDB4(1);
+        db.save(&mut File::create(&s.remote.path).unwrap(), key()).unwrap();
+        let theirs = fs::read(&s.remote.path).unwrap();
+        s.edit_here("Mail", "from the PC");
+
+        assert_eq!(s.sync(), Err(SyncError::OtherKey));
+        assert_eq!(s.sync(), Err(SyncError::OtherKey));
+        assert_eq!(fs::read(&s.remote.path).unwrap(), theirs, "nothing goes up over it");
+        assert!(s.uses_key("new"));
+        assert_eq!(s.password_here("Mail"), "from the PC");
+    }
+
+    #[test]
+    fn a_key_changed_back_on_another_device_waits_for_it_and_both_end_on_it() {
+        let s = setup();
+        let phone = s.other_device();
+        // This PC changes the key, and the phone takes it when given.
+        s.session.with_mut(|v| v.change_key((Some("test"), None), Some("new"), None)).unwrap();
+        assert_eq!(s.sync(), Ok(Outcome::Uploaded));
+        assert_eq!(phone.sync(), Err(SyncError::OtherKey));
+        phone.session.with_mut(|v| v.remember_key(DatabaseKey::new().with_password("new"))).unwrap();
+        assert!(phone.sync().is_ok());
+        assert!(phone.uses_key("new"));
+        assert!(s.sync().is_ok());
+        // Later (`MasterKeyChanged` is kept to the second), the phone changes it back.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        phone.session.with_mut(|v| v.change_key((Some("new"), None), Some("test"), None)).unwrap();
+        assert_eq!(phone.sync(), Ok(Outcome::Uploaded));
+        let reverted = fs::read(&s.remote.path).unwrap();
+
+        // The PC neither follows the key it left nor writes over the file with its own.
+        s.edit_here("Mail", "from the PC");
+        assert_eq!(s.sync(), Err(SyncError::OtherKey));
+        assert_eq!(s.sync(), Err(SyncError::OtherKey));
+        assert_eq!(phone.sync(), Ok(Outcome::UpToDate));
+        assert_eq!(fs::read(&s.remote.path).unwrap(), reverted, "nothing goes up on the key the phone left");
+        assert!(s.uses_key("new"));
+
+        // Given that key, the PC takes it with its change, and both stay in step.
+        s.session.with_mut(|v| v.remember_key(key())).unwrap();
+        assert!(matches!(s.sync(), Ok(Outcome::Merged(_))));
+        assert!(s.uses_key("test"));
+        assert_eq!(s.remote_password("Mail"), "from the PC");
+        assert!(matches!(phone.sync(), Ok(Outcome::Downloaded(_))));
+        assert_eq!(phone.password_here("Mail"), "from the PC");
+        assert_eq!(s.sync(), Ok(Outcome::UpToDate));
+        assert_eq!(phone.sync(), Ok(Outcome::UpToDate));
+    }
+
+    #[test]
     fn a_remote_file_no_key_opens_is_downloaded_again_only_when_it_changes_or_a_key_is_added() {
         /// Counts the downloads.
         struct Counting<'a>(&'a Folder, Mutex<usize>);
@@ -643,6 +726,36 @@ mod tests {
         s.session.with_mut(|v| v.remember_key(phone.clone())).unwrap();
         assert!(sync(&counting, &s.store, &s.session).is_ok());
         assert_eq!(downloads(), 3);
+    }
+
+    #[test]
+    fn a_remote_file_asking_for_too_costly_a_key_derivation_is_refused_and_not_downloaded_again() {
+        /// Counts the downloads.
+        struct Counting<'a>(&'a Folder, Mutex<usize>);
+        impl Remote for Counting<'_> {
+            fn revision(&self) -> Result<Option<String>, RemoteError> {
+                self.0.revision()
+            }
+            fn download(&self) -> Result<(Vec<u8>, String), RemoteError> {
+                *self.1.lock().unwrap() += 1;
+                self.0.download()
+            }
+            fn upload(&self, bytes: &[u8], expected: Option<&str>) -> Result<String, RemoteError> {
+                self.0.upload(bytes, expected)
+            }
+        }
+        let s = setup();
+        s.elsewhere(|db| db.config.kdf_config = keepass::config::DatabaseConfig::default().kdf_config);
+        let planted = crate::encryption::tests::too_costly(&fs::read(&s.remote.path).unwrap());
+        fs::write(&s.remote.path, &planted).unwrap();
+        let counting = Counting(&s.remote, Mutex::new(0));
+        let refused = || Err(SyncError::Failed(format!("The remote copy cannot be opened: {TOO_COSTLY}")));
+
+        assert_eq!(sync(&counting, &s.store, &s.session), refused());
+        assert_eq!(sync(&counting, &s.store, &s.session), refused());
+        assert_eq!(*counting.1.lock().unwrap(), 1, "the same revision is not downloaded again");
+        assert_eq!(fs::read(&s.remote.path).unwrap(), planted, "nor overwritten");
+        assert!(!s.password_here("Mail").is_empty(), "the working copy stays");
     }
 
     #[test]

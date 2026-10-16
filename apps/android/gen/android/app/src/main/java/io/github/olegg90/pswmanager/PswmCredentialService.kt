@@ -66,17 +66,27 @@ object ProviderBridge {
   /** Makes a passkey into entry `id` (a new one when null) and saves: the answer's JSON, or [FAILED] and why. */
   external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
 
-  /** The logins for the app (or the site a browser speaks for), as JSON (`[{id, title, username}]`); null while locked. */
-  external fun logins(origin: String?, packageName: String): String?
+  /**
+   * The logins for the app (by its package and signing certificate; or the site a browser speaks
+   * for), as JSON (`[{id, title, username}]`); null while locked.
+   */
+  external fun logins(origin: String?, packageName: String, certificate: ByteArray?): String?
 
-  /** Entry `id`'s login as JSON (`{username, password}`); null while locked or when gone. */
-  external fun login(id: String): String?
+  /**
+   * Entry `id`'s login as JSON (`{username, password}`), when it is for who asks; [UNCONFIRMED] and
+   * the app's certificate while the user has not confirmed the app for the entry (`confirmed`: the
+   * entry keeps it); null while locked, when gone or not for who asks.
+   */
+  external fun login(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String?
 
   /** The entries a login offered can update, as JSON (`{entries, cloud}`), or [FAILED] and why. */
-  external fun loginChoices(state: String, origin: String?, packageName: String): String
+  external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String
 
-  /** Saves a login into entry `id` (a new one titled `title` when null): empty, or [FAILED] and why. */
-  external fun saveLogin(id: String?, origin: String?, packageName: String, title: String, username: String, password: String): String
+  /**
+   * Saves a login into entry `id` (a new one titled `title` when null): empty, [UNCONFIRMED] and the
+   * app's certificate as for [login], or [FAILED] and why.
+   */
+  external fun saveLogin(id: String?, origin: String?, packageName: String, certificate: ByteArray?, title: String, username: String, password: String, confirmed: Boolean): String
 
   /**
    * The database's entries in use as CXF JSON for another password manager
@@ -86,6 +96,7 @@ object ProviderBridge {
   external fun export(context: Context, state: String, password: String?, sealed: String?): String?
 
   const val STALE = "stale:"
+  const val UNCONFIRMED = "unconfirmed:"
 
   /** The entry (and its title) a picked passkey or login is for, in the activity's intent. */
   const val EXTRA_ENTRY = "entry"
@@ -176,7 +187,7 @@ class PswmCredentialService : CredentialProviderService() {
           null
         }
       }
-      val found = JSONArray(caller?.let { ProviderBridge.logins(it.origin, it.packageName) } ?: "[]")
+      val found = JSONArray(caller?.let { ProviderBridge.logins(it.origin, it.packageName, it.certificate) } ?: "[]")
       val logins = passwordOptions.flatMap { option ->
         (0 until found.length()).map { i ->
           val login = found.getJSONObject(i)

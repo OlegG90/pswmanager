@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
+use ureq::http::Uri;
 use url::Url;
 use zeroize::Zeroizing;
 
@@ -18,6 +19,8 @@ const PAGE_LIMIT: u64 = 512 * 1024;
 const ICON_LIMIT: u64 = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
 const PARALLEL_FETCHES: usize = 6;
+/// Redirects followed for one address, as many as ureq follows by default.
+const MAX_REDIRECTS: usize = 10;
 
 /// An entry's URL as a web address on a named site. A URL without a scheme
 /// (`example.com/login`, as SafeInCloud stores them) counts as https. Bare
@@ -44,8 +47,9 @@ pub fn host_of(url: &str) -> Option<String> {
 
 /// True for an https address on a named host: where a site may send the app
 /// for its page or icon (its own domain, another domain it moved to, the CDN
-/// it keeps its icons on). Never plain http or an IP address, so a page
-/// cannot point the app at a device on the local network.
+/// it keeps its icons on). Never plain http or an IP address: neither a page
+/// nor its redirects can make the app contact one, though a name the DNS
+/// resolves to the local network still passes.
 fn fetchable(url: &Url) -> bool {
     url.scheme() == "https" && matches!(url.host(), Some(url::Host::Domain(d)) if d.trim_end_matches('.').contains('.'))
 }
@@ -282,7 +286,7 @@ impl Cache {
     pub fn fetch_missing(&self, hosts: Vec<String>, ready: impl Fn(&str) + Sync) {
         let now = SystemTime::now();
         let queue = Mutex::new(hosts.into_iter().filter(|h| is_safe_host(h) && !self.is_settled(h, now)));
-        let agent = http_agent(TIMEOUT, true);
+        let agent = icon_agent(TIMEOUT);
         std::thread::scope(|scope| {
             for _ in 0..PARALLEL_FETCHES {
                 scope.spawn(|| {
@@ -326,12 +330,23 @@ fn parse_key(stored: &str) -> Option<Zeroizing<[u8; 32]>> {
 /// An HTTP client with the platform's TLS (see [tls]).
 /// With `status_as_error`, an answer that is not 2xx is an error.
 pub fn http_agent(timeout: Duration, status_as_error: bool) -> ureq::Agent {
+    http_config(timeout, status_as_error).build().into()
+}
+
+/// [http_agent]'s settings, for a client that needs one more.
+fn http_config(timeout: Duration, status_as_error: bool) -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(status_as_error)
         .tls_config(tls())
-        .build()
-        .into()
+}
+
+/// The client icons are fetched with. It follows no redirect by itself: ureq
+/// would send each hop before the app could see where it leads, so [fetch]
+/// follows them and checks each one first. `timeout` covers an address with
+/// all its redirects.
+fn icon_agent(timeout: Duration) -> ureq::Agent {
+    http_config(timeout, true).max_redirects(0).build().into()
 }
 
 /// The OS's TLS with Windows' own trust store (no `ring`, which needs clang
@@ -359,14 +374,7 @@ fn tls() -> ureq::tls::TlsConfig {
 /// This is what a browser opening the site fetches; only the host is sent —
 /// nothing from the entry — and no third-party icon service is asked.
 fn fetch_icon(agent: &ureq::Agent, host: &str) -> Option<Vec<u8>> {
-    let get = |url: &Url, limit: u64| -> Option<(Url, Vec<u8>)> {
-        let mut response = agent.get(url.as_str()).call().ok()?;
-        let landed = Url::parse(&ureq::ResponseExt::get_uri(&response).to_string()).ok()?;
-        if !fetchable(&landed) {
-            return None;
-        }
-        Some((landed, response.body_mut().with_config().limit(limit).read_to_vec().ok()?))
-    };
+    let get = |url: &Url, limit: u64| fetch(agent, url, limit, fetchable);
     let start = Url::parse(&format!("https://{host}/")).ok()?;
     let mut candidates = Vec::new();
     if let Some((landed, html)) = get(&start, PAGE_LIMIT) {
@@ -376,6 +384,98 @@ fn fetch_icon(agent: &ureq::Agent, host: &str) -> Option<Vec<u8>> {
     candidates.extend(start.join("/favicon.ico"));
     candidates.dedup();
     candidates.into_iter().find_map(|url| get(&url, ICON_LIMIT).map(|(_, bytes)| bytes).filter(|b| sniff(b).is_some()))
+}
+
+/// GETs `url` with the [icon_agent], following its redirects here as ureq
+/// would: each address, the first one included, must pass `allowed`
+/// ([fetchable]) before anything is sent to it, so not even a redirect makes
+/// the app contact a plain-http or IP address. The agent's timeout covers the
+/// whole chain, as it does when ureq follows the redirects itself. Gives where
+/// the request ended up and the body, up to `limit`.
+fn fetch(agent: &ureq::Agent, url: &Url, limit: u64, allowed: impl Fn(&Url) -> bool) -> Option<(Url, Vec<u8>)> {
+    let deadline = agent.config().timeouts().global.map(|timeout| Instant::now() + timeout);
+    let mut uri: Uri = url.as_str().parse().ok()?;
+    for hop in 0..=MAX_REDIRECTS {
+        let url = Url::parse(&uri.to_string()).ok()?;
+        if !allowed(&url) {
+            return None;
+        }
+        // The first request has all of the time, which is the agent's own
+        // timeout, so it goes with the agent's settings: ureq keeps the TLS
+        // setup only for those. The ones after it get what is left as settings
+        // of their own, and reuse that setup.
+        let request = agent.get(&uri);
+        let response = if hop == 0 {
+            request.call()
+        } else {
+            let left = deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            if left.is_some_and(|left| left.is_zero()) {
+                return None;
+            }
+            request.config().timeout_global(left).build().call()
+        };
+        // ureq takes a redirect whose headers break off before the blank line
+        // after them only while it follows redirects itself, so here such an
+        // answer fails the address.
+        let mut response = response.ok()?;
+        // 304 has no Location, and ureq does not take it for a redirect either.
+        let status = response.status();
+        if !status.is_redirection() || status == ureq::http::StatusCode::NOT_MODIFIED {
+            return Some((url, response.body_mut().with_config().limit(limit).read_to_vec().ok()?));
+        }
+        // As ureq does, one redirect too many is given up on unread, and any
+        // other's body is read to its end, with no limit, before it is followed:
+        // a body that breaks off fails the address, and a whole one lets the
+        // connection be used again. ureq reads it as it came, which its API does
+        // not let a caller do, so here a body sent as gzip is unpacked on the
+        // way, and one that is not gzip fails the address too.
+        if hop == MAX_REDIRECTS {
+            break;
+        }
+        std::io::copy(&mut response.body_mut().as_reader(), &mut std::io::sink()).ok()?;
+        // Of several, ureq follows the last one.
+        let location = response.headers().get_all(ureq::http::header::LOCATION).iter().next_back()?.to_str().ok()?;
+        uri = redirect_target(&uri, location)?;
+    }
+    None
+}
+
+/// Where a redirect's `location` leads from `base`, worked out as ureq does
+/// when it follows redirects itself (ureq-proto's `join`), so that what ureq
+/// refuses (`..` above the root, a path a URI cannot hold) is refused here too.
+fn redirect_target(base: &Uri, location: &str) -> Option<Uri> {
+    if let Ok(uri) = location.parse::<Uri>() {
+        if uri.scheme().is_some() {
+            return Some(uri);
+        }
+    }
+    let mut parts = base.clone().into_parts();
+    if location.starts_with("//") {
+        // A network-path reference keeps only the scheme.
+        return format!("{}:{location}", parts.scheme.as_ref()?).parse().ok();
+    }
+    let path = if location.starts_with('/') {
+        location.to_string()
+    } else {
+        // Relative to the base's last directory, with `.` and `..` resolved.
+        let mut segments: Vec<&str> = parts.path_and_query.as_ref().map_or("/", |p| p.path()).split('/').collect();
+        if segments.len() > 1 {
+            segments.pop();
+        }
+        for segment in location.split('/') {
+            match segment {
+                "." => {}
+                ".." if segments.len() == 1 => return None,
+                ".." => {
+                    segments.pop();
+                }
+                _ => segments.push(segment),
+            }
+        }
+        segments.join("/")
+    };
+    parts.path_and_query = Some(path.parse().ok()?);
+    Uri::from_parts(parts).ok()
 }
 
 #[cfg(test)]
@@ -412,6 +512,131 @@ mod tests {
         assert!(!ok("https://[::1]/i.png"));
         assert!(!ok("https://router/i.png"));
         assert!(!ok("file:///C:/i.png"));
+    }
+
+    /// A plain-http server on the loopback for the redirect tests: `answer`
+    /// gives each path its status and `Location` headers, the body (a
+    /// redirect's too) is the path, and the paths asked for are kept.
+    fn serve(answer: fn(&str) -> (u16, &'static [&'static str])) -> (Url, std::sync::Arc<Mutex<Vec<String>>>) {
+        listen(move |path| {
+            let (status, locations) = answer(path);
+            let location: String = locations.iter().map(|l| format!("Location: {l}\r\n")).collect();
+            format!("HTTP/1.1 {status} X\r\n{location}Content-Length: {}\r\nConnection: close\r\n\r\n{path}", path.len())
+        })
+    }
+
+    /// [serve], with `reply` giving the whole answer to each path.
+    fn listen(reply: impl Fn(&str) -> String + Send + 'static) -> (Url, std::sync::Arc<Mutex<Vec<String>>>) {
+        use std::io::{BufRead, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let base = Url::parse(&format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port())).unwrap();
+        let asked = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let log = asked.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = std::io::BufReader::new(&stream);
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                // The whole request is read, so closing the connection does not reset it.
+                let mut header = String::new();
+                while reader.read_line(&mut header).unwrap_or(0) > 2 {
+                    header.clear();
+                }
+                let path = line.split_whitespace().nth(1).unwrap_or_default().to_string();
+                let reply = reply(&path);
+                log.lock().unwrap().push(path);
+                let _ = (&stream).write_all(reply.as_bytes());
+            }
+        });
+        (base, asked)
+    }
+
+    #[test]
+    fn redirects_are_followed_only_where_the_app_may_go() {
+        let (base, asked) = serve(|path| match path {
+            "/start" => (302, &["/moved"]),
+            "/moved" => (301, &["page"]),
+            "/away" => (302, &["/router"]),
+            "/nowhere" => (302, &[]),
+            // ureq follows the last of several.
+            "/twice" => (302, &["/router", "/page"]),
+            "/loop" => (307, &["/loop"]),
+            _ => (200, &[]),
+        });
+        let agent = icon_agent(TIMEOUT);
+        let allowed = |url: &Url| url.path() != "/router";
+        let get = |path: &str| fetch(&agent, &base.join(path).unwrap(), PAGE_LIMIT, allowed);
+        let (landed, page) = get("/start").unwrap();
+        assert_eq!((landed.as_str(), page.as_slice()), (base.join("/page").unwrap().as_str(), b"/page".as_slice()));
+        assert!(get("/away").is_none());
+        assert!(get("/nowhere").is_none());
+        assert_eq!(get("/twice").unwrap().0, base.join("/page").unwrap());
+        assert!(get("/loop").is_none());
+        // The hop the app may not go to was never asked, not even by ureq itself.
+        let asked = asked.lock().unwrap();
+        assert_eq!(asked[..7], ["/start", "/moved", "/page", "/away", "/nowhere", "/twice", "/page"]);
+        assert!(!asked.iter().any(|path| path == "/router"));
+        assert_eq!(asked[7..], vec!["/loop"; MAX_REDIRECTS + 1]);
+    }
+
+    #[test]
+    fn a_redirect_is_followed_only_once_its_body_has_come_whole() {
+        // ureq reads a redirect's body to its end before it follows it, and
+        // gives up when the body breaks off.
+        let (base, asked) = listen(|path| {
+            let (head, body) = match path {
+                "/whole" => ("302 X\r\nLocation: /page\r\nContent-Length: 100", "-".repeat(100)),
+                "/cut" => ("302 X\r\nLocation: /page\r\nContent-Length: 100", "-".repeat(3)),
+                _ => ("200 X\r\nContent-Length: 5", "/page".to_string()),
+            };
+            format!("HTTP/1.1 {head}\r\nConnection: close\r\n\r\n{body}")
+        });
+        let agent = icon_agent(TIMEOUT);
+        let get = |path: &str| fetch(&agent, &base.join(path).unwrap(), PAGE_LIMIT, |_| true);
+        assert_eq!(get("/whole").unwrap().1, b"/page");
+        assert!(get("/cut").is_none());
+        assert_eq!(*asked.lock().unwrap(), ["/whole", "/page", "/cut"]);
+    }
+
+    #[test]
+    fn nothing_is_sent_to_an_address_that_is_not_fetchable() {
+        let (base, asked) = serve(|_| (200, &[]));
+        assert!(fetch(&icon_agent(TIMEOUT), &base, PAGE_LIMIT, fetchable).is_none());
+        assert!(asked.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_timeout_covers_an_address_with_all_its_redirects() {
+        // Every hop takes well under the timeout, and two of them do too; four do not.
+        let (base, _) = serve(|path| {
+            std::thread::sleep(Duration::from_millis(300));
+            match path {
+                "/1" => (302, &["/2"]),
+                "/2" => (302, &["/3"]),
+                "/3" => (302, &["/4"]),
+                _ => (200, &[]),
+            }
+        });
+        let agent = icon_agent(Duration::from_secs(1));
+        let get = |path: &str| fetch(&agent, &base.join(path).unwrap(), PAGE_LIMIT, |_| true);
+        assert!(get("/3").is_some());
+        assert!(get("/1").is_none());
+    }
+
+    #[test]
+    fn redirects_lead_where_ureq_would_take_them() {
+        let base: Uri = "https://example.com/a/b".parse().unwrap();
+        let target = |location: &str| redirect_target(&base, location).map(|uri| uri.to_string());
+        assert_eq!(target("c/d").as_deref(), Some("https://example.com/a/c/d"));
+        assert_eq!(target("./c").as_deref(), Some("https://example.com/a/c"));
+        assert_eq!(target("../c?x=1").as_deref(), Some("https://example.com/c?x=1"));
+        assert_eq!(target("/c").as_deref(), Some("https://example.com/c"));
+        assert_eq!(target("//cdn.example.net/c").as_deref(), Some("https://cdn.example.net/c"));
+        assert_eq!(target("https://www.example.org/").as_deref(), Some("https://www.example.org/"));
+        // What ureq refuses: above the root, a space in the path.
+        assert_eq!(target("../../c"), None);
+        assert_eq!(target("/page 2"), None);
+        assert_eq!(target("page 2"), None);
     }
 
     #[test]

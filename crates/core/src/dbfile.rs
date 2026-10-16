@@ -38,10 +38,17 @@ pub struct DbFile {
     /// When `key` was set (the file's `MasterKeyChanged`): a copy on another
     /// key is weighed against it.
     key_changed: Option<NaiveDateTime>,
-    /// Other keys a copy of the database may have, tried after `key`: the one
-    /// before a change of key, and ones the user gave for a copy that did not
-    /// open. Kept in memory only, while the database is unlocked.
+    /// Other keys a copy of the database may have, tried after `key`: ones
+    /// the user gave for a copy that did not open. Kept in memory only, while
+    /// the database is unlocked.
     other_keys: Vec<DatabaseKey>,
+    /// Keys the file was moved off while unlocked (a change of key here, or
+    /// another device's later one taken), tried last: a copy still on one is
+    /// from before that change. Anyone who knows such a key can write a copy
+    /// on it that says it changed to it later, so the file is not moved back
+    /// onto one unless the user gives it again ([DbFile::remember_key]). Kept
+    /// in memory only, as `other_keys`.
+    replaced: Vec<DatabaseKey>,
     /// Which key did not open which copy, shared with each [Snapshot].
     failed: Failed,
     hash: [u8; 32],
@@ -51,8 +58,11 @@ pub struct DbFile {
 /// are not tried with the same key again: each key derivation takes a second
 /// or more, and a copy on another device's key is read on every sync and
 /// every change on disk. A key added later is tried at once. Also the remote
-/// file's revisions no key opened, so they are not downloaded again
-/// ([Snapshot::known_unopened]). Kept while the database is unlocked.
+/// file's revisions no key opened, or that were refused unopened, so they are
+/// not downloaded again ([Snapshot::known_unopened], [Snapshot::known_refused]).
+/// And a key the file was moved off that opened a copy but was not followed
+/// onto it ([Snapshot::parse]), kept apart ([Snapshot::not_followed]). Kept
+/// while the database is unlocked.
 #[derive(Clone, Default)]
 struct Failed(Arc<Mutex<Vec<Attempt>>>);
 
@@ -63,6 +73,12 @@ type Attempt = (DatabaseKey, [u8; 32]);
 /// A remote file's revision as [Failed] keeps it, apart from any copy's hash.
 fn revision_id(revision: &str) -> [u8; 32] {
     hash(format!("remote revision {revision}").as_bytes())
+}
+
+/// A remote file's revision refused before any key was tried, as [Failed]
+/// keeps it, apart from [revision_id].
+fn refused_id(revision: &str) -> [u8; 32] {
+    hash(format!("refused remote revision {revision}").as_bytes())
 }
 
 impl Failed {
@@ -88,7 +104,8 @@ impl Failed {
 
 /// Which key a copy of the database leaves the file on. The key follows the
 /// newer `MasterKeyChanged`: a key another device changed later is taken, and
-/// one it changed earlier (an older copy) gives way to this device's.
+/// one it changed earlier (an older copy) gives way to this device's. A key
+/// the file was moved off is not taken back that way ([Snapshot::parse]).
 #[derive(Debug)]
 pub enum KeyChange {
     /// The copy is on the file's own key.
@@ -176,6 +193,7 @@ pub fn replace_file(path: &Path, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
 impl DbFile {
     pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), String> {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
+        crate::encryption::check_header(&bytes)?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
         let key_changed = db.meta.master_key_changed;
         let file = DbFile {
@@ -183,6 +201,7 @@ impl DbFile {
             key,
             key_changed,
             other_keys: Vec::new(),
+            replaced: Vec::new(),
             failed: Failed::default(),
             hash: hash(&bytes),
         };
@@ -200,10 +219,13 @@ impl DbFile {
     /// What reading the file again needs, so the slow part (deriving the key)
     /// can run without holding anything; see [Snapshot::read_changed].
     pub fn snapshot(&self) -> Snapshot {
-        let keys = std::iter::once(&self.key).chain(&self.other_keys).cloned().collect();
+        // A replaced key the user gave again counts as given: it is followed.
+        let replaced = self.replaced.iter().filter(|k| !self.other_keys.contains(k));
+        let keys = std::iter::once(&self.key).chain(&self.other_keys).chain(replaced).cloned().collect();
         Snapshot {
             path: self.path.clone(),
             keys,
+            followed: 1 + self.other_keys.len(),
             key_changed: self.key_changed,
             failed: self.failed.clone(),
             hash: self.hash,
@@ -233,24 +255,31 @@ impl DbFile {
         })
     }
 
-    /// Keeps `key` among the other keys a copy may have (see [DbFile::snapshot]).
+    /// Keeps `key`, which the user gave, among the other keys a copy may have
+    /// (see [DbFile::snapshot]). Given, a key the file was moved off may be
+    /// followed again: the user confirmed it.
     pub fn remember_key(&mut self, key: DatabaseKey) {
         if key != self.key && !self.other_keys.contains(&key) {
             self.other_keys.push(key);
         }
     }
 
-    /// Lets go of a key [DbFile::remember_key] kept (one that opened nothing).
+    /// Lets go of a key [DbFile::remember_key] kept (one that opened nothing),
+    /// also when the file was moved off it: a copy on it is then asked for as
+    /// one on a key not known.
     pub fn forget_key(&mut self, key: &DatabaseKey) {
         self.other_keys.retain(|k| k != key);
+        self.replaced.retain(|k| k != key);
     }
 
     /// Writes the file with `key` from now on (another device's newer one),
-    /// keeping the one it had among the others.
+    /// keeping the one it had among the replaced ones.
     fn use_key(&mut self, key: DatabaseKey) {
         self.forget_key(&key);
         let old = std::mem::replace(&mut self.key, key);
-        self.remember_key(old);
+        if old != self.key {
+            self.replaced.push(old);
+        }
     }
 
     /// Writes `db` over the file. Refuses when the file changed since it was
@@ -266,7 +295,7 @@ impl DbFile {
 
     /// Like [DbFile::save], with `key` in place of the file's key from now on
     /// (kept only when the file was written).
-    /// The key it had is kept among the others, for a copy still on it.
+    /// The key it had is kept among the replaced ones, for a copy still on it.
     pub fn save_with_key(&mut self, db: &mut Database, key: DatabaseKey) -> Result<(), SaveError> {
         self.save_as(db, &key)?;
         self.use_key(key);
@@ -422,6 +451,9 @@ pub fn rename(from: &Path, to: &Path) -> Result<(), String> {
 pub struct Snapshot {
     path: PathBuf,
     keys: Vec<DatabaseKey>,
+    /// How many of `keys`, from the first, a copy may move the file onto:
+    /// its own and the ones the user gave. The rest are ones it was moved off.
+    followed: usize,
     key_changed: Option<NaiveDateTime>,
     failed: Failed,
     hash: [u8; 32],
@@ -453,33 +485,82 @@ impl Snapshot {
     /// it changes or a key is added.
     pub fn known_unopened(&self, revision: &str) -> bool {
         let id = revision_id(revision);
-        self.keys.iter().all(|key| self.failed.contains(key, &id))
+        (0..self.keys.len()).all(|i| self.passed_over(i, &id))
     }
 
-    /// Keeps that none of the keys opened the remote file at `revision`.
+    /// Keeps that none of the keys opened the remote file at `revision`. For
+    /// a key the file was moved off, which may have opened it and not been
+    /// followed onto it, only that is kept.
     pub fn note_unopened(&self, revision: &str) {
         let id = revision_id(revision);
-        for key in &self.keys {
-            self.failed.add(key, id);
+        for (i, key) in self.keys.iter().enumerate() {
+            self.failed.add(key, if i < self.followed { id } else { self.not_followed(&id) });
+        }
+    }
+
+    /// What [Failed] keeps when a key the file was moved off opened `copy` (a
+    /// copy's hash or a [revision_id]) but was not followed onto it: apart
+    /// from a key not opening it, so that it counts only while the key is
+    /// still one the file was moved off (given again, it is tried at once,
+    /// whatever a sync that took its snapshot before kept), and with the time
+    /// the file's key was set, which that depends on.
+    fn not_followed(&self, copy: &[u8; 32]) -> [u8; 32] {
+        hash(format!("not followed onto {copy:?} since {:?}", self.key_changed).as_bytes())
+    }
+
+    /// True when the `i`th key is known not to open `copy`, or, one the file
+    /// was moved off, not to be followed onto it ([Snapshot::not_followed]).
+    fn passed_over(&self, i: usize, copy: &[u8; 32]) -> bool {
+        let key = &self.keys[i];
+        self.failed.contains(key, copy) || i >= self.followed && self.failed.contains(key, &self.not_followed(copy))
+    }
+
+    /// True when the remote file at `revision` was refused before any key was
+    /// tried ([Snapshot::note_refused]): it need not be downloaded again
+    /// until it changes.
+    pub fn known_refused(&self, revision: &str) -> bool {
+        let id = refused_id(revision);
+        self.keys.iter().any(|key| self.failed.contains(key, &id))
+    }
+
+    /// Keeps that the remote file at `revision` was refused as
+    /// [crate::encryption::TOO_COSTLY]. That does not depend on the key, so
+    /// it is kept with the file's own.
+    pub fn note_refused(&self, revision: &str) {
+        if let Some(key) = self.keys.first() {
+            self.failed.add(key, refused_id(revision));
         }
     }
 
     /// Opens another copy of the database (a downloaded one) with the first
     /// key that opens it, and says which key that leaves the file on. None
-    /// opening it is [OpenError::OtherKey]. A key is not tried again on bytes
-    /// it did not open ([Failed]).
+    /// opening it is [OpenError::OtherKey], and so is a copy that would move
+    /// the file back onto a key it was moved off. A key is not tried again on
+    /// bytes it did not open ([Failed]). A copy whose header asks for too
+    /// costly a key derivation is refused before any key is tried
+    /// ([crate::encryption::check_header]).
     pub fn parse(&self, bytes: &[u8]) -> Result<(Database, KeyChange), OpenError> {
+        crate::encryption::check_header(bytes)?;
         let copy = hash(bytes);
         for (i, key) in self.keys.iter().enumerate() {
-            if self.failed.contains(key, &copy) {
+            if self.passed_over(i, &copy) {
                 continue;
             }
             match Database::parse(bytes, key.clone()) {
                 Ok(db) => {
                     let key_change = match i {
                         0 => KeyChange::Same,
-                        _ if db.meta.master_key_changed > self.key_changed => KeyChange::Newer(key.clone()),
-                        _ => KeyChange::Older,
+                        _ if db.meta.master_key_changed <= self.key_changed => KeyChange::Older,
+                        _ if i < self.followed => KeyChange::Newer(key.clone()),
+                        // A key the file was moved off, on a copy that says it
+                        // changed to it later: anyone who knows that key can
+                        // write that. Until the user gives the key again, the
+                        // copy is reported as one no key opens, and nothing
+                        // is merged into it or written over it.
+                        _ => {
+                            self.failed.add(key, self.not_followed(&copy));
+                            continue;
+                        }
                     };
                     return Ok((db, key_change));
                 }
@@ -760,6 +841,76 @@ pub mod tests {
         file.remember_key(other.clone());
         assert!(file.snapshot().parse(&copy).is_ok());
         assert!(!since.failed.contains(&other, &hash(&copy)));
+    }
+
+    #[test]
+    fn a_replaced_key_taken_again_is_tried_at_once_on_a_copy_it_was_not_followed_onto() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut db, mut file) = saved(dir.path(), &Database::new());
+        db.meta.master_key_changed = Some(keepass::db::Times::now());
+        file.save_with_key(&mut db, DatabaseKey::new().with_password("new")).unwrap();
+        // A copy on the old key that says it changed to it later is not followed.
+        let mut theirs = db.clone();
+        theirs.meta.master_key_changed = Some(keepass::db::Times::now() + chrono::Duration::days(1));
+        let mut copy = Vec::new();
+        theirs.save(&mut copy, key()).unwrap();
+        assert!(matches!(file.snapshot().parse(&copy), Err(OpenError::OtherKey(_))));
+
+        // Changed back to the old key here, the file reads that copy as on its own key.
+        file.save_with_key(&mut db, key()).unwrap();
+        assert!(matches!(file.snapshot().parse(&copy), Ok((_, KeyChange::Same))));
+    }
+
+    #[test]
+    fn a_replaced_key_given_is_followed_whatever_a_sync_from_before_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut db, mut file) = saved(dir.path(), &Database::new());
+        db.meta.master_key_changed = Some(keepass::db::Times::now());
+        file.save_with_key(&mut db, DatabaseKey::new().with_password("new")).unwrap();
+        // Another device changed back to the old key later.
+        let mut theirs = db.clone();
+        theirs.meta.master_key_changed = Some(keepass::db::Times::now() + chrono::Duration::days(1));
+        let mut copy = Vec::new();
+        theirs.save(&mut copy, key()).unwrap();
+
+        // A sync that took its snapshot before the user gave the old key does
+        // not follow the copy, and keeps that, after the key was given.
+        let before = file.snapshot();
+        file.remember_key(key());
+        assert!(matches!(before.parse(&copy), Err(OpenError::OtherKey(_))));
+        before.note_unopened("2");
+        assert!(before.known_unopened("2"));
+        assert!(!file.snapshot().known_unopened("2"));
+        assert!(matches!(file.snapshot().parse(&copy), Ok((_, KeyChange::Newer(k))) if k == key()));
+
+        // Let go of (its first try failed, say) and given again, it still opens the copy.
+        file.forget_key(&key());
+        assert!(file.snapshot().known_unopened("2"));
+        file.remember_key(key());
+        assert!(!file.snapshot().known_unopened("2"));
+        assert!(matches!(file.snapshot().parse(&copy), Ok((_, KeyChange::Newer(k))) if k == key()));
+    }
+
+    #[test]
+    fn a_file_saved_with_its_own_key_is_moved_off_no_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut db, mut file) = saved(dir.path(), &Database::new());
+        file.save_with_key(&mut db, key()).unwrap();
+        assert!(file.replaced.is_empty());
+        assert_eq!(file.snapshot().keys.len(), 1);
+    }
+
+    #[test]
+    fn a_copy_asking_for_too_costly_a_key_derivation_is_refused_before_any_key_is_tried() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, file) = saved(dir.path(), &Database::new());
+        let costly = crate::encryption::tests::too_costly(&fs::read(dir.path().join("t.kdbx")).unwrap());
+        let since = file.snapshot();
+        assert_eq!(since.parse(&costly).err(), Some(OpenError::Other(crate::encryption::TOO_COSTLY.into())));
+        assert!(!since.failed.contains(&key(), &hash(&costly)), "no key was tried");
+
+        fs::write(dir.path().join("t.kdbx"), &costly).unwrap();
+        assert_eq!(DbFile::open(&dir.path().join("t.kdbx"), key()).err().unwrap(), crate::encryption::TOO_COSTLY);
     }
 
     #[test]

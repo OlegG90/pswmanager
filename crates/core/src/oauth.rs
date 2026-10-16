@@ -8,7 +8,7 @@ use crate::secrets;
 use base64::Engine;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -20,6 +20,15 @@ use zeroize::Zeroizing;
 const PORT: u16 = 53134;
 const SIGN_IN_WAIT: Duration = Duration::from_secs(300);
 const TIMEOUT: Duration = Duration::from_secs(60);
+/// The most of a request line read on the loopback address. A store's answer
+/// (a code, the state and, from Google, the scope) is far shorter; any other
+/// program on the computer can connect, so it must not fill the memory.
+const REQUEST_LINE: u64 = 8 * 1024;
+/// How long one connection on the loopback address may take to send its
+/// request line, however it spreads the bytes out. A browser sends it at once;
+/// a connection that trickles must not hold off the browser, Cancel or the end
+/// of [SIGN_IN_WAIT].
+const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
 /// Set to give up waiting for the browser.
 static CANCEL: AtomicBool = AtomicBool::new(false);
@@ -274,13 +283,36 @@ fn code_in(url: &Url, provider: &Provider, state: &str) -> Result<Zeroizing<Stri
     }
 }
 
+/// Reads from a connection until a fixed moment: the timeout before each read
+/// is the time left, so bytes sent one at a time do not stretch it.
+struct Timed<'a> {
+    stream: &'a TcpStream,
+    until: Instant,
+}
+
+impl Read for Timed<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        self.stream.read(buf)
+    }
+}
+
 /// Reads one browser request. `None` for anything but the sign-in's answer
 /// (a favicon request, say).
 fn answer(mut stream: TcpStream, provider: &Provider, state: &str) -> Option<Result<Zeroizing<String>, String>> {
     let _ = stream.set_nonblocking(false);
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let mut line = String::new();
-    BufReader::new(&stream).read_line(&mut line).ok()?;
+    let request = Timed { stream: &stream, until: Instant::now() + REQUEST_WAIT };
+    let read = BufReader::new(request.take(REQUEST_LINE)).read_line(&mut line).ok()?;
+    // Cut off at the limit, the line is not a store's answer, and what was
+    // read of it must not pass for one.
+    if read as u64 == REQUEST_LINE && !line.ends_with('\n') {
+        return None;
+    }
     let target = line.split_whitespace().nth(1)?;
     let url = Url::parse(&format!("http://localhost{target}")).ok()?;
     if url.path() != provider.path {
@@ -342,6 +374,47 @@ mod tests {
         let client = ask("/favicon.ico");
         let (stream, _) = listener.accept().unwrap();
         assert!(answer(stream, &TEST, "s1").is_none());
+        client.join().unwrap();
+    }
+
+    #[test]
+    fn a_request_line_longer_than_the_limit_is_not_an_answer() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // The right code and state first, so a line read only up to the limit
+        // would pass for the answer.
+        let padding = "a".repeat(REQUEST_LINE as usize);
+        let client = std::thread::spawn(move || {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = write!(s, "GET /test?code=abc&state=s1&pad={padding} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            let mut reply = String::new();
+            let _ = std::io::Read::read_to_string(&mut s, &mut reply);
+            reply
+        });
+        let (stream, _) = listener.accept().unwrap();
+        assert!(answer(stream, &TEST, "s1").is_none());
+        assert!(client.join().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_connection_that_trickles_is_given_up_on_in_time() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // One byte at a time, each well within a single read's timeout, and
+        // never the end of the line.
+        let client = std::thread::spawn(move || {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            for _ in 0..40 {
+                if s.write_all(b"a").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
+        let (stream, _) = listener.accept().unwrap();
+        let started = Instant::now();
+        assert!(answer(stream, &TEST, "s1").is_none());
+        assert!(started.elapsed() < REQUEST_WAIT + Duration::from_secs(2));
         client.join().unwrap();
     }
 

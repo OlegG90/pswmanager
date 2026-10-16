@@ -131,7 +131,8 @@ async function start() {
   database = status.database
   unlocked = status.unlocked
   // In front now: a lock the credential provider set waits no longer (provider.rs).
-  void api.stayUnlocked()
+  // Hidden meanwhile, the page has told the backend so already, and must not undo that.
+  if (!document.hidden) void api.stayUnlocked()
   if (!database) chooseScreen()
   else if (status.unlocked) listScreen(await api.listing())
   else unlockScreen()
@@ -2032,11 +2033,15 @@ const syncIfOlder = (age: number) => {
   if (unlocked && !document.hidden && age > 0 && Date.now() - lastSynced >= age) void api.syncNow()
 }
 document.addEventListener('visibilitychange', () => {
-  if (unlocked && document.hidden) {
-    hiddenAt = Date.now()
-    void api.syncIfPending()
-    void api.lockLater()
-  } else if (!document.hidden) {
+  if (document.hidden) {
+    if (unlocked) {
+      hiddenAt = Date.now()
+      void api.syncIfPending()
+    }
+    // Locked too: the backend must know the app is no longer in front, or an unlock
+    // by the credential provider meanwhile would never lock again (provider.rs).
+    void api.lockLater(unlocked)
+  } else {
     returnedAt = Date.now()
     // Unlocked meanwhile for a passkey (the credential provider shares the session).
     if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : onReturn()), onReturn)

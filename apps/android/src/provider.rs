@@ -356,6 +356,30 @@ fn caller(env: &mut Env, origin: &JString, client_data_hash: &JByteArray, packag
     })
 }
 
+/// Where a login is for: the site a browser speaks for (its `origin`), or the
+/// app asking (its package and signing certificate).
+fn login_place(env: &mut Env, origin: &JString, package: &JString, certificate: &JByteArray) -> Result<LoginPlace, String> {
+    let origin = optional_text(env, origin)?;
+    let package = optional_text(env, package)?.ok_or("The app asking is unknown")?;
+    let certificate = optional_bytes(env, certificate)?;
+    LoginPlace::of(origin.as_deref(), &package, certificate.as_deref())
+}
+
+/// What `login` and `saveLogin` answer, followed by the app's certificate for
+/// the user to see, when the entry is for the app's package but keeps no
+/// certificate ([pswm_core::vault::UNCONFIRMED]): asked again with
+/// `confirmed` once the user confirmed the app, the entry keeps it.
+const UNCONFIRMED: &str = "unconfirmed:";
+
+/// `why` for Kotlin: [UNCONFIRMED] and the app's certificate when the app is
+/// not confirmed for the entry yet.
+fn unconfirmed_or(why: String, place: &LoginPlace) -> String {
+    match place {
+        LoginPlace::App { certificate, .. } if why == pswm_core::vault::UNCONFIRMED => format!("{UNCONFIRMED}{certificate}"),
+        _ => why,
+    }
+}
+
 /// The logins for the app or site asking, as JSON (`[{id, title, username}]`);
 /// null while locked.
 #[no_mangle]
@@ -364,12 +388,11 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_logins<'
     _this: JObject<'local>,
     origin: JString<'local>,
     package: JString<'local>,
+    certificate: JByteArray<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
-            let origin = optional_text(env, &origin).ok()?;
-            let package = optional_text(env, &package).ok()??;
-            let place = LoginPlace::of(origin.as_deref(), &package).ok()?;
+            let place = login_place(env, &origin, &package, &certificate).ok()?;
             let offered = session().read(|v| v.logins_for(&place)).ok()?;
             serde_json::to_string(&offered).ok()
         }));
@@ -381,12 +404,19 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_logins<'
 }
 
 /// Entry `id`'s login, as JSON (`{username, password}`), after the user was
-/// verified; null while locked or when the entry is gone.
+/// verified, when the entry is for the app or site asking; [UNCONFIRMED] and
+/// the app's certificate while the user has not confirmed the app for it
+/// (`confirmed`: the entry keeps the certificate first, and is saved); null
+/// while locked, when the entry is gone or is not for who asks.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'local>(
     mut env: EnvUnowned<'local>,
     _this: JObject<'local>,
     id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    confirmed: jboolean,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         #[derive(serde::Serialize)]
@@ -394,14 +424,22 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
             username: &'a str,
             password: &'a str,
         }
-        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Zeroizing<String>> {
-            let id = optional_text(env, &id).ok()??;
-            let (username, password) = session().with(|v| v.login(&id)).ok()?;
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Zeroizing<String>, String> {
+            let id = optional_text(env, &id)?.ok_or("No login chosen")?;
+            let place = login_place(env, &origin, &package, &certificate)?;
+            if confirmed == JNI_TRUE {
+                session().with_mut(|v| v.confirm_app(&id, &place))?;
+                if let Some(app) = APP.get() {
+                    crate::editing::upload_soon(app);
+                }
+            }
+            let (username, password) = session().read(|v| v.login(&id, &place))?.map_err(|why| unconfirmed_or(why, &place))?;
             // One string, wiped once Java has its own copy.
-            serde_json::to_string(&Login { username: &username, password: &password }).ok().map(Zeroizing::new)
+            serde_json::to_string(&Login { username: &username, password: &password }).map(Zeroizing::new).map_err(|e| e.to_string())
         }));
         match found {
-            Ok(Some(json)) => java_text(env, json.as_str()),
+            Ok(Ok(json)) => java_text(env, json.as_str()),
+            Ok(Err(why)) if why.starts_with(UNCONFIRMED) => java_text(env, why),
             _ => std::ptr::null_mut(),
         }
     })
@@ -416,12 +454,11 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginCho
     state: JString<'local>,
     origin: JString<'local>,
     package: JString<'local>,
+    certificate: JByteArray<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, String> {
-            let origin = optional_text(env, &origin)?;
-            let package = optional_text(env, &package)?.ok_or("The app asking is unknown")?;
-            let place = LoginPlace::of(origin.as_deref(), &package)?;
+            let place = login_place(env, &origin, &package, &certificate)?;
             let entries = session().read(|v| v.entries_for_login(&place))?;
             let cloud = syncs_with_cloud(env, &state)?;
             Ok(serde_json::json!({ "entries": entries, "cloud": cloud }).to_string())
@@ -432,9 +469,11 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginCho
     })
 }
 
-/// Saves a login an app offers: into entry `id`, or a new entry titled
-/// `title`; the database goes up with the next sync. Empty when saved, else
-/// `FAILED` and why.
+/// Saves a login an app offers: into entry `id` (which must be for who asks,
+/// as for `login`; `confirmed` once the user confirmed the app), or a new
+/// entry titled `title`; the database goes up with the next sync. Empty when
+/// saved, [UNCONFIRMED] and the app's certificate while the user has not
+/// confirmed the app for the entry, else `FAILED` and why.
 #[no_mangle]
 pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogin<'local>(
     mut env: EnvUnowned<'local>,
@@ -442,20 +481,22 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
     id: JString<'local>,
     origin: JString<'local>,
     package: JString<'local>,
+    certificate: JByteArray<'local>,
     title: JString<'local>,
     username: JString<'local>,
     password: JString<'local>,
+    confirmed: jboolean,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
             let id = optional_text(env, &id)?;
-            let origin = optional_text(env, &origin)?;
-            let package = optional_text(env, &package)?.ok_or("The app asking is unknown")?;
             let title = optional_text(env, &title)?.unwrap_or_default();
             let username = Zeroizing::new(optional_text(env, &username)?.unwrap_or_default());
             let password = Zeroizing::new(optional_text(env, &password)?.ok_or("No password")?);
-            let place = LoginPlace::of(origin.as_deref(), &package)?;
-            session().with_mut(|v| v.save_login(id.as_deref(), &place, &title, &username, &password))?;
+            let place = login_place(env, &origin, &package, &certificate)?;
+            session()
+                .with_mut(|v| v.save_login(id.as_deref(), &place, confirmed == JNI_TRUE, &title, &username, &password))
+                .map_err(|why| unconfirmed_or(why, &place))?;
             if let Some(app) = APP.get() {
                 crate::editing::upload_soon(app);
             }
@@ -464,6 +505,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
         .unwrap_or_else(|_| Err("PswManager could not save the password".into()));
         let text = match answer {
             Ok(()) => String::new(),
+            Err(why) if why.starts_with(UNCONFIRMED) => why,
             Err(why) => format!("{FAILED}{why}"),
         };
         java_text(env, text)
