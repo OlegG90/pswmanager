@@ -164,18 +164,20 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
   keyboard shortcuts (see *Keyboard shortcuts*); the field takes the toolbar's room up to Sync and Lock.
 - The **sidebar** is always shown; beside it is what its choice shows. It holds three sections:
-  **Records** (the fixed **Groups**, each with its icon as on the phone, and the **Tags** as `#work`, each
-  a section of its own), **Tools** and **Settings** (its tabs). Every heading has its icon, in bold, and
+  **Records** (two sections of its own: the fixed **Groups**, each with its icon as on the phone, and the
+  **Tags** as `#work`), **Tools** and **Settings** (its tabs). Every heading has its icon, in bold, and
   folds what it holds away and back, downwards; what a heading holds is indented under it. Every section
   is folded when the app starts; two buttons at the sidebar's top right fold and unfold them all. When
   the open sections do not fit, the sidebar scrolls.
 - Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
   *Groups and tags*); for a tool, its report or its question (*Password health*, *Similar entries*,
   *Import from a file*, *Export to a file*); for a settings tab, the settings at that tab (see
-  *Settings*). The sidebar marks what is shown. There is no filter menu. The sidebar's width is changed by dragging its edge (140 to 420 px, the
-  list and the entry keeping their room; ← / →, Home and End on the edge too; a double click puts the
-  usual width back) and is kept on this PC. A long tag name is cut short with
-  an ellipsis; its ⋯ menu and count stay in place, the counts in one column.
+  *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
+  menu.
+- The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
+  room; ← / →, Home and End on the edge too; a double click puts the usual width back) and is kept on this
+  PC. A long tag name is cut short with an ellipsis; its ⋯ menu and count stay in place, the counts in
+  one column.
 - The entry view shows title, tags as yellow chips (the Favorite star stays separate), user name, password (masked, `Ctrl+H` or click to reveal), URL, TOTP code,
   notes, additional attributes, attached files (name and size) and when the entry was last changed
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers

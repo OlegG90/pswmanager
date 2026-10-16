@@ -52,6 +52,8 @@ let unlocked = false
 let settingsOpen = false
 /** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
+/** The tools whose reports show beside the sidebar. */
+type Tool = 'health' | 'similar'
 /** The tool whose report is shown, marked in the sidebar. */
 let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
@@ -228,9 +230,15 @@ function showVault(next: Listing) {
   filter = ALL
   fillSidebar()
   refresh()
-  // Settings opened over the unlock screen move beside the sidebar.
-  if (settingsOpen) showSettingsView()
-  else searchInput.focus()
+  // Settings opened over the unlock screen move beside the sidebar, drawn
+  // again for an unlocked database (its own tab, no Done).
+  if (settingsOpen) {
+    showSettingsView()
+    drawSettings().catch((e) => notify(String(e)))
+  } else {
+    showContent()
+    searchInput.focus()
+  }
 }
 
 /** Asks the backend to lock; it answers with the `locked` event. */
@@ -1118,14 +1126,12 @@ function afterLeavingEditor(action: () => unknown): () => void {
   return () => void leaveEditor().then((left) => left && action())
 }
 
-type Tool = 'health' | 'similar'
-
 /** A command in the sidebar: an icon and its name, no count. `choice` names
  *  what it shows beside the sidebar, for marking it while shown. */
 function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown, choice = ''): HTMLLIElement {
   const b = el('button', { type: 'button', className: 'side-item', title, onclick: afterLeavingEditor(action) },
     sidebarIcon(picture), el('span', { className: 'name' }, label))
-  b.dataset.choice = choice
+  if (choice) b.dataset.choice = choice
   return el('li', {}, b)
 }
 
@@ -1193,8 +1199,8 @@ function closeReport() {
   if (unlocked && !settingsOpen) searchInput.focus()
 }
 
-/** Beside the sidebar: the settings, a report, or the list and the entry;
- *  the sidebar marks which. */
+/** Shows beside the sidebar what is open (the settings, a report, else the
+ *  list and the entry), so the sidebar never leaves the screen, and marks it there. */
 function showContent() {
   const records = !settingsOpen && !reportOpen
   listPane.hidden = !records
@@ -1283,7 +1289,12 @@ function closeSettings() {
 
 // ---------------------------------------------------------------- keys
 
-searchInput.addEventListener('input', refresh)
+// A search is in the records: typed over the settings or a report, it shows them.
+searchInput.addEventListener('input', () => {
+  closeSettings()
+  closeReport()
+  refresh()
+})
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', afterLeavingEditor(newEntry))
 $('empty-trash').addEventListener('click', afterLeavingEditor(() => deleteForGood()))
@@ -1457,7 +1468,7 @@ listen<string>('notice', (e) => {
   }
 })
 listen('open-settings', () => {
-  if (!isAsking()) openSettings()
+  if (!isAsking()) afterLeavingEditor(() => openSettings())()
 })
 // Changed from the tray while the screen is open.
 listen('settings-changed', () => {
@@ -1470,11 +1481,11 @@ listen<string>('icon-ready', (e) => {
 
 sidebarResizer($('vault'), $('sidebar-resizer'))
 fillTools()
-const sections = foldingSections($('sidebar'))
+const sidebarSections = foldingSections($('sidebar'))
 $('fold-all').append(sidebarIcon('foldAll'))
 $('unfold-all').append(sidebarIcon('unfoldAll'))
-$('fold-all').addEventListener('click', () => sections.foldAll(true))
-$('unfold-all').addEventListener('click', () => sections.foldAll(false))
+$('fold-all').addEventListener('click', () => sidebarSections.foldAll(true))
+$('unfold-all').addEventListener('click', () => sidebarSections.foldAll(false))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})
