@@ -58,6 +58,9 @@ export function showSettingsTab(tab: SettingsTab) {
   shownTab = tab
 }
 
+/** The tab shown, or shown last. */
+export const settingsTab = () => shownTab
+
 /**
  * The column of tabs: `open(tab)` shows one. ↑/↓ (and ←/→) move to the next or
  * previous one (wrapping), Home and End to the first and last. `off(tab)` says why a
@@ -332,7 +335,9 @@ export async function renderSettings(
     // A disabled tab's title is not read out or shown from the keyboard: said here.
     const locked = database ? [] : [el('p', { className: 'muted locked-note' }, 'Unlock the database to change its own settings.')]
     container.replaceChildren(
-      el('header', {}, el('h1', {}, 'Settings'), button('Done', 'Back (Esc)', onDone)),
+      // Unlocked, the sidebar beside them leaves the settings; locked, Done does.
+      el('header', {}, el('h1', {}, SETTINGS_TABS.find(([tab]) => tab === shownTab)?.[1] ?? 'Settings'),
+        ...(status.unlocked ? [] : [button('Done', 'Back (Esc)', onDone)])),
       tabBar(off, open),
       ...locked,
       panel,

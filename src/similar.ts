@@ -4,7 +4,6 @@ import { describeEntries, titleOf } from './entry-text'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
 
 export interface SimilarOptions {
-  done: () => void
   /** The entry as the list has it. */
   entry: (id: string) => Entry | undefined
   /** Draws an entry's icon. */
@@ -83,7 +82,7 @@ export async function renderSimilar(container: HTMLElement, options: SimilarOpti
     }
     const report: Report = { options, redraw: draw, replace }
     container.replaceChildren(
-      el('header', {}, el('h1', {}, 'Similar entries'), button('Done', 'Back (Esc)', options.done)),
+      el('header', {}, el('h1', {}, 'Similar entries')),
       el('p', { className: 'muted intro' }, SIMILAR_INTRO),
       ...(sites.length ? sites.map((s) => siteSection(s, report, leave(s.name))) : [none()]),
     )

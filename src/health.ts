@@ -1,8 +1,7 @@
 import { api, type Finding } from './api'
-import { button, el } from './dom'
+import { el } from './dom'
 
 export interface HealthOptions {
-  done: () => void
   /** Opens the entry's editor to change its password. */
   fix: (id: string) => void
   /** Draws an entry's icon. */
@@ -29,7 +28,7 @@ export async function renderHealth(container: HTMLElement, options: HealthOption
     el('div', { className: findings.length ? `stat ${severity}` : 'stat' }, el('span', { className: 'count' }, String(findings.length)), el('span', { className: 'hint' }, label))
   const shown = groups.filter(({ findings }) => findings.length)
   container.replaceChildren(
-    el('header', {}, el('h1', {}, 'Password health'), button('Done', 'Back (Esc)', options.done)),
+    el('header', {}, el('h1', {}, 'Password health')),
     el('p', { className: 'muted intro' }, 'Checked on this PC only. Nothing about your entries leaves the device.'),
     el('div', { className: 'stats' }, ...groups.map(stat)),
     ...(shown.length

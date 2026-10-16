@@ -162,13 +162,17 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
-  keyboard shortcuts (see *Keyboard shortcuts*).
-- Three columns: the **sidebar** (the fixed groups, each with its icon as on the phone, then the tags as
-  `#work`, the **Tools** and the **Settings** tabs), the **list** of entries the sidebar's choice shows, and the
-  selected **entry** (see *Groups and tags*). There is no filter menu. Each of the sidebar's four sections
-  has a heading with its icon that folds the section away and back; which ones are folded is kept on this
-  PC. The tools and the settings keep to the sidebar's bottom; when everything does not fit, the
-  sidebar scrolls. The sidebar's width is changed by dragging its edge (140 to 420 px, the
+  keyboard shortcuts (see *Keyboard shortcuts*); the field takes the toolbar's room up to Sync and Lock.
+- The **sidebar** is always shown; beside it is what its choice shows. It holds three sections:
+  **Records** (the fixed **Groups**, each with its icon as on the phone, and the **Tags** as `#work`, each
+  a section of its own), **Tools** and **Settings** (its tabs). Every heading has its icon, in bold, and
+  folds what it holds away and back, downwards; what a heading holds is indented under it. Every section
+  is folded when the app starts; two buttons at the sidebar's top right fold and unfold them all. When
+  the open sections do not fit, the sidebar scrolls.
+- Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
+  *Groups and tags*); for a tool, its report or its question (*Password health*, *Similar entries*,
+  *Import from a file*, *Export to a file*); for a settings tab, the settings at that tab (see
+  *Settings*). The sidebar marks what is shown. There is no filter menu. The sidebar's width is changed by dragging its edge (140 to 420 px, the
   list and the entry keeping their room; ← / →, Home and End on the edge too; a double click puts the
   usual width back) and is kept on this PC. A long tag name is cut short with
   an ellipsis; its ⋯ menu and count stay in place, the counts in one column.
@@ -318,8 +322,10 @@ same table the dialog shows.
 
 ### Settings
 
-*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups in tabs
-down its left side, one tab at a time: **General** (locking and the clipboard), **Window** (theme, global
+*Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups one tab at
+a time, titled with the tab's name. Unlocked, they are beside the sidebar, whose *Settings* list is their
+tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unlock screen), they have their
+tabs down their left side and **Done**. The tabs: **General** (locking and the clipboard), **Window** (theme, global
 hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
 settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
 database format, KDBX 4.1, with what reads it, and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
@@ -415,7 +421,7 @@ while the database is locked):
 
 ## Password health
 
-- A report, opened from the sidebar's *Tools*, of passwords worth changing among the entries in
+- A report, shown beside the sidebar from its *Tools* (a group or a tag, or Esc, goes back), of passwords worth changing among the entries in
   use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
@@ -427,7 +433,8 @@ while the database is locked):
 
 ## Similar entries
 
-- A report, opened from the sidebar's *Tools* (*Similar entries*), of entries in use (not the
+- A report, shown beside the sidebar from its *Tools* (*Similar entries*; a group or a tag, or Esc, goes
+  back), of entries in use (not the
   recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
   `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
   not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a

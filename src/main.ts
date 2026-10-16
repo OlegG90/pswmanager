@@ -13,7 +13,7 @@ import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
-import { renderSettings, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
+import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -37,6 +37,7 @@ const detail = $('detail')
 const settingsView = $('settings')
 const chooseView = $('choose')
 const reportView = $('report')
+const listPane = $('list-pane')
 const toast = $('toast')
 
 
@@ -49,8 +50,10 @@ const EMPTY: Listing = {
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
-/** A report (password health, similar entries) is over the vault. */
+/** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
+/** The tool whose report is shown, marked in the sidebar. */
+let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
 let listing = EMPTY
@@ -225,7 +228,9 @@ function showVault(next: Listing) {
   filter = ALL
   fillSidebar()
   refresh()
-  searchInput.focus()
+  // Settings opened over the unlock screen move beside the sidebar.
+  if (settingsOpen) showSettingsView()
+  else searchInput.focus()
 }
 
 /** Asks the backend to lock; it answers with the `locked` event. */
@@ -249,6 +254,7 @@ async function showLocked() {
   detail.replaceChildren()
   // Open settings no longer have a database to show; closed meanwhile, they stay empty.
   if (settingsOpen) {
+    showSettingsView()
     drawSettings().then(() => settingsOpen || settingsView.replaceChildren(), (e) => notify(String(e)))
   }
   showUnlock(await api.status())
@@ -264,7 +270,7 @@ function fillSidebar() {
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
+    if (!settingsOpen && !reportOpen && sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
@@ -286,6 +292,8 @@ function fillSidebar() {
 }
 
 function showFilter(choice: Filter) {
+  closeSettings()
+  closeReport()
   filter = choice
   fillSidebar()
   refresh()
@@ -1110,17 +1118,32 @@ function afterLeavingEditor(action: () => unknown): () => void {
   return () => void leaveEditor().then((left) => left && action())
 }
 
-/** A command in the sidebar: an icon and its name, no count. */
-function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown): HTMLLIElement {
-  return el('li', {}, el('button', { type: 'button', className: 'side-item', title, onclick: afterLeavingEditor(action) },
-    sidebarIcon(picture), el('span', { className: 'name' }, label)))
+type Tool = 'health' | 'similar'
+
+/** A command in the sidebar: an icon and its name, no count. `choice` names
+ *  what it shows beside the sidebar, for marking it while shown. */
+function sideCommand(label: string, title: string, picture: SidebarIcon, action: () => unknown, choice = ''): HTMLLIElement {
+  const b = el('button', { type: 'button', className: 'side-item', title, onclick: afterLeavingEditor(action) },
+    sidebarIcon(picture), el('span', { className: 'name' }, label))
+  b.dataset.choice = choice
+  return el('li', {}, b)
+}
+
+/** Marks in the sidebar what is shown beside it: a group or tag, a tool's report or a settings tab. */
+function markSidebar() {
+  const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${reportTool}` : null
+  for (const b of document.querySelectorAll<HTMLElement>('#tools .side-item, #settings-tabs .side-item')) {
+    if (shown && b.dataset.choice === shown) b.setAttribute('aria-current', 'true')
+    else b.removeAttribute('aria-current')
+  }
+  if (unlocked) fillSidebar()
 }
 
 /** The tools that work on the whole database, and the settings' tabs. */
 function fillTools() {
   $('tools').replaceChildren(
-    sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth),
-    sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar),
+    sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
+    sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
     sideCommand('Import from a file…', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import',
       () => importFromFile((next, message) => applyListing(next, message)).catch((e) => notify(String(e)))),
     sideCommand('Export to a file…', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export',
@@ -1128,32 +1151,32 @@ function fillTools() {
   )
   // Each tab's icon has the tab's name.
   $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
-    sideCommand(label, `Settings: ${label} (Ctrl+,)`, tab, () => openSettings(tab))))
+    sideCommand(label, `Settings: ${label} (Ctrl+,)`, tab, () => openSettings(tab), `settings:${tab}`)))
 }
 
 // ---------------------------------------------------------------- reports
 
 /** Shows the report `draw` fills the report view with, over the vault. */
-async function openReport(draw: () => Promise<void>) {
-  if (reportOpen || !unlocked || isEditing()) return
+async function openReport(tool: Tool, draw: () => Promise<void>) {
+  if ((reportOpen && reportTool === tool) || !unlocked || isEditing()) return
   try {
     await draw()
   } catch (e) {
     return notify(String(e))
   }
   if (!unlocked) return // locked while checking
+  closeSettings()
   reportOpen = true
-  vault.hidden = true
-  reportView.hidden = false
-  reportView.querySelector('button')?.focus()
+  reportTool = tool
+  showContent()
+  reportView.querySelector<HTMLElement>('button, input')?.focus()
 }
 
-const openHealth = () => openReport(() => renderHealth(reportView, { done: closeReport, fix: changePassword, icon: iconOf }))
+const openHealth = () => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf }))
 
 const openSimilar = () =>
-  openReport(() =>
+  openReport('similar', () =>
     renderSimilar(reportView, {
-      done: closeReport,
       entry: (id) => listing.entries.find((e) => e.id === id),
       icon: iconOf,
       changed: (next, message) => applyListing(next, message, false),
@@ -1164,11 +1187,31 @@ const openSimilar = () =>
 function closeReport() {
   if (!reportOpen) return
   reportOpen = false
-  reportView.hidden = true
+  reportTool = null
   reportView.replaceChildren()
-  if (unlocked && !settingsOpen) {
-    vault.hidden = false
-    searchInput.focus()
+  showContent()
+  if (unlocked && !settingsOpen) searchInput.focus()
+}
+
+/** Beside the sidebar: the settings, a report, or the list and the entry;
+ *  the sidebar marks which. */
+function showContent() {
+  const records = !settingsOpen && !reportOpen
+  listPane.hidden = !records
+  detail.hidden = !records
+  reportView.hidden = !reportOpen
+  if (unlocked) settingsView.hidden = !settingsOpen
+  markSidebar()
+}
+
+/** The settings beside the sidebar while unlocked, over the whole window while locked. */
+function showSettingsView() {
+  if (unlocked) {
+    vault.append(settingsView)
+    showContent()
+  } else {
+    document.body.append(settingsView)
+    settingsView.hidden = false
   }
 }
 
@@ -1202,19 +1245,20 @@ const drawSettings = () =>
 /** The settings, at `tab` when given (the sidebar's list of them). */
 async function openSettings(tab?: SettingsTab) {
   if (tab) showSettingsTab(tab)
-  if (settingsOpen) return
   try {
     await drawSettings()
   } catch (e) {
     return notify(String(e))
   }
+  if (settingsOpen) return markSidebar() // another tab of the open settings
   closeReport()
   settingsOpen = true
-  unlockForm.hidden = true
-  chooseView.hidden = true
-  vault.hidden = true
-  settingsView.hidden = false
-  settingsView.querySelector('button')?.focus()
+  if (!unlocked) {
+    unlockForm.hidden = true
+    chooseView.hidden = true
+  }
+  showSettingsView()
+  settingsView.querySelector<HTMLElement>('select, button, input')?.focus()
 }
 
 /** Back to the vault, or to the unlock screen when locked meanwhile. */
@@ -1224,7 +1268,7 @@ function closeSettings() {
   settingsView.hidden = true
   settingsView.replaceChildren()
   if (unlocked) {
-    vault.hidden = false
+    showContent()
     searchInput.focus()
     if (!current) select(selectedId)
   } else if (chooseView.childElementCount) {
@@ -1426,7 +1470,11 @@ listen<string>('icon-ready', (e) => {
 
 sidebarResizer($('vault'), $('sidebar-resizer'))
 fillTools()
-foldingSections($('sidebar'))
+const sections = foldingSections($('sidebar'))
+$('fold-all').append(sidebarIcon('foldAll'))
+$('unfold-all').append(sidebarIcon('unfoldAll'))
+$('fold-all').addEventListener('click', () => sections.foldAll(true))
+$('unfold-all').addEventListener('click', () => sections.foldAll(false))
 
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})

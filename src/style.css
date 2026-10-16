@@ -640,11 +640,11 @@ input[type='range']:focus-visible {
   padding: 8px 12px 8px 8px;
 }
 
-/* The keyboard button and the search box at the left, the rest at the right. */
+/* The keyboard button at the left, the search box over all the room up to
+   the buttons at the right. */
 #search {
-  flex: 0 1 440px;
+  flex: 1;
   min-width: 0;
-  margin-right: auto;
   background: var(--color-subtle);
   box-shadow: none;
 }
@@ -697,12 +697,10 @@ input[type='range']:focus-visible {
   color: var(--color-danger);
 }
 
-/* Sidebar: the fixed groups, the tags, the tools and the settings, each
-   section folding away under its heading (src/sidebar-sections.ts) */
-
-/* The groups stay in place; a long list of tags scrolls on its own between
-   rules, and the tools and the settings keep to the bottom. When even that
-   does not fit, the whole sidebar scrolls. */
+/* Sidebar: Records (the fixed groups and the tags), Tools and Settings,
+   each section folding away under its heading (src/sidebar-sections.ts); a
+   section's rows sit indented under its heading. When the open sections do
+   not fit, the sidebar scrolls. */
 #sidebar {
   position: relative;
   display: flex;
@@ -710,7 +708,34 @@ input[type='range']:focus-visible {
   min-height: 0;
   overflow: hidden auto;
   scrollbar-width: thin;
+  scrollbar-gutter: stable; /* the counts stay in one column when it scrolls */
   padding: 0 0 8px;
+}
+
+/* Fold every section, unfold every section: at the sidebar's right, next to
+   the list. */
+#sidebar-actions {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 4px 4px;
+}
+
+#sidebar-actions button {
+  width: 28px;
+  min-height: 28px;
+  color: var(--color-text-2);
+}
+
+#sidebar-actions svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* The sidebar's edge: dragged to change its width (src/sidebar-resize.ts). */
@@ -731,35 +756,6 @@ input[type='range']:focus-visible {
   outline: none;
 }
 
-#groups,
-#tools,
-#settings-tabs {
-  flex: none;
-  padding-bottom: 8px;
-  overflow-y: hidden; /* for the gutter below; it never scrolls */
-}
-
-/* Both lists keep room for a scrollbar, so the counts stay in one column
-   when the tags scroll. */
-#groups,
-#tags,
-#tools,
-#settings-tabs {
-  scrollbar-gutter: stable;
-}
-
-#tags {
-  flex: 1 1 auto;
-  min-height: 120px;
-  padding-bottom: 8px;
-  overflow-y: auto;
-}
-
-/* With the tags folded, the tools still keep to the bottom. */
-#sidebar #tools-heading {
-  margin-top: auto;
-}
-
 /* A tag reads as one: #work, not a group called work. */
 #tags .side-item.tag .name::before {
   content: '#';
@@ -776,25 +772,36 @@ input[type='range']:focus-visible {
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  padding: 0;
+  padding: 0 0 4px;
   list-style: none;
 }
 
-#sidebar h3 {
+/* What a heading holds, one step in from it. */
+#sidebar .section {
+  flex: none;
+  margin-left: 16px;
+}
+
+#sidebar h3,
+#sidebar h4 {
   flex: none;
   margin: 0;
-  padding: 4px 4px 2px;
-  font: 600 12px/16px var(--font-body);
+  padding: 2px 4px 0;
 }
 
-/* A rule across the whole sidebar between the groups and the tags, and
-   between the tags and the tools. */
-#tags-heading,
-#tools-heading {
-  border-top: 1px solid var(--color-stroke);
+/* The headings in bold, the top ones a size larger than the rows. */
+.section-head {
+  min-height: 36px;
+  color: var(--color-text);
+  font: 600 15px/20px var(--font-body);
 }
 
-/* A section's chevron turns aside while the section is folded. */
+h4 .section-head {
+  min-height: 32px;
+  font-size: 14px;
+}
+
+/* A section's chevron points down while it is open, aside while folded. */
 .section-head svg:last-child {
   width: 12px;
   height: 12px;
@@ -831,12 +838,6 @@ input[type='range']:focus-visible {
 .side-item:active {
   background: var(--color-subtle-2);
   color: inherit;
-}
-
-.section-head {
-  min-height: 32px;
-  color: var(--color-text-2);
-  font-weight: 600;
 }
 
 /* The chosen one: a tint and a short bar in the accent at its start, half
@@ -1977,7 +1978,8 @@ dialog.modal.shortcuts {
 }
 
 /* Settings: the tabs down the side on the window's ground, the chosen one's
-   settings on the layer, each in a card of its own. */
+   settings on the layer, each in a card of its own. Unlocked, they sit beside
+   the sidebar, whose Settings list is their tabs. */
 
 #settings {
   --tabs-width: 240px;
@@ -2155,7 +2157,33 @@ button.switch[aria-checked='true'] .knob {
   background: var(--color-on-accent);
 }
 
-/* Reports over the vault: password health, similar entries */
+/* Settings and reports beside the sidebar, in the place of the list and the
+   entry, on the same layer with its rounded corner. */
+#vault > #settings,
+#vault > #report {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  min-height: 0;
+  height: auto;
+  background: var(--color-layer);
+  border-top: 1px solid var(--color-stroke);
+  border-left: 1px solid var(--color-stroke);
+  border-top-left-radius: var(--radius-card);
+}
+
+#vault > #settings {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#vault > #settings .tabs {
+  display: none;
+}
+
+#vault > #settings > :not(.tabs) {
+  grid-column: 1;
+}
+
+/* Reports: password health, similar entries */
 
 #report {
   height: 100%;
