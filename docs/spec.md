@@ -239,8 +239,8 @@ which shows entries without user tags (the `Favorite` star does not count); then
   trash** does that for everything in the trash, groups deleted into it included. A deletion for good
   stands in a merge and when an older file comes back, unless the other side changed the entry later. Several chosen entries in
   the trash can be restored or deleted permanently at once. (keepass-rs 0.15 misnumbered the other
-  entries' files after a removal and kept the files only a removed entry's history used; the app uses a
-  fork with the fixes, offered upstream as sseemayer/keepass-rs#374 and #375.)
+  entries' files after a removal and kept the files only a removed entry's history used; fixed in 0.15.3
+  by sseemayer/keepass-rs#374 and #375.)
 - **Templates:** **New entry** (`Ctrl+N`) asks for a blank entry or one of the templates. An entry made
   from a template gets its fields (names, values, protection), icon and tags, not its title, expiry, TOTP
   secret (each entry has its own) or star; a
