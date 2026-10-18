@@ -1251,7 +1251,7 @@ pub fn delete_for_good(db: &mut Database, ids: &[EntryId]) {
 }
 
 /// Removes the entry, its history and the files only it used (in any
-/// version: the fork's fix, offered upstream as sseemayer/keepass-rs#375),
+/// version: sseemayer/keepass-rs#375, in keepass 0.15.3),
 /// recording the deletion.
 fn remove_for_good(db: &mut Database, id: EntryId) {
     if let Some(mut entry) = db.entry_mut(id) {
