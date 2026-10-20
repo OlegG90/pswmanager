@@ -464,6 +464,8 @@ export const api = {
     invoke<Saved>('save_entry', { id, base, data, template, files }),
   /** Moves the entries to the recycle bin, as one change. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
+  /** Copies an entry in use next to it, " (Copy)" after its title, without history. */
+  duplicateEntry: (id: string) => invoke<Saved>('duplicate_entry', { id }),
   /** Puts entries from the trash back where they were. */
   restoreEntries: (ids: string[]) => invoke<Listing>('restore_entries', { ids }),
   /** Removes entries in the trash for good. */

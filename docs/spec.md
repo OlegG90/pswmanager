@@ -242,6 +242,14 @@ which shows entries without user tags (the `Favorite` star does not count); then
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
   change (tags, the star among them, keep no version in history: see *Entry history*).
+- **The list's menu** (#255): a right-click on an entry, or Shift+F10 / the menu key for the chosen one,
+  opens a menu for it, or for all the chosen entries when it is one of them (a right-click elsewhere
+  chooses that entry first). An entry in use offers **Duplicate** (one entry only), **Add tag**, **Remove
+  tag** (when it has tags) and **Delete**, which asks first and moves it to the recycle bin; a template
+  only **Delete**; one in the trash **Restore** and **Delete permanently**. Tags work as for several
+  entries above. **Duplicate** copies the entry next to it, as KeePassXC's Clone does: a new UUID,
+  " (Copy)" after the title, no history, created now; its fields, tags, files, icon, colours, auto-type
+  and custom data are the original's. The copy is shown and saved at once.
 - **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
   or **removed** from every entry, after a confirmation. The entries themselves stay.
 - **Trash:** **Restore** puts an entry back where it was (the group it was deleted from, which KDBX 4.1
@@ -335,6 +343,7 @@ kept, not even in history.
 | `Ctrl+U` | Open URL in the default browser |
 | `Ctrl+H` | Reveal / hide password |
 | `Ctrl+N` / `Ctrl+E` / `Del` | New entry (blank or from a template; a new template in the Templates group) / edit / delete (in the trash: delete permanently) |
+| `Shift+F10` / menu key | The chosen entries' menu, as a right-click opens it (#255) |
 | `Ctrl+L` | Lock |
 | `Ctrl+,` | Settings |
 | `Esc` | Clear search, close panel, then hide to tray |

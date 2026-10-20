@@ -1200,6 +1200,18 @@ fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, Strin
     Ok(listing)
 }
 
+/// Copies an entry next to it (#255), saves the file and returns the copy
+/// with the new listing.
+#[tauri::command(async)]
+fn duplicate_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Saved, String> {
+    let saved = session.with_mut(|v| {
+        let id = v.duplicate(&id)?;
+        Ok(Saved { id, listing: v.listing(), conflicts: Vec::new() })
+    })?;
+    sync::upload_soon(&app);
+    Ok(saved)
+}
+
 /// Moves entries to the recycle bin, saves the file and returns the new listing.
 #[tauri::command(async)]
 fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
@@ -1597,6 +1609,7 @@ pub fn run() {
             edit_entry,
             save_entry,
             delete_entries,
+            duplicate_entry,
             restore_entries,
             delete_for_good,
             empty_trash,

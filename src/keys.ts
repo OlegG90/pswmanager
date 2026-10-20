@@ -14,6 +14,7 @@ export type Action =
   | 'type-to-search'
   | 'settings'
   | 'shortcuts'
+  | 'entry-menu'
 
 /** One line of the shortcuts panel: the keys as shown, what they do, and the
  *  actions they give ([actionFor]); `ctrl` is the physical key pressed with Ctrl. */
@@ -38,6 +39,7 @@ export const SHORTCUTS: Shortcut[] = [
   { group: 'List', keys: 'Type anywhere', does: 'Search', actions: ['type-to-search'] },
   { group: 'List', keys: '↑ / ↓', does: 'Move in the list', actions: ['previous', 'next'] },
   { group: 'List', keys: 'Ctrl+click / Shift+click', does: 'Choose several entries', actions: [] },
+  { group: 'List', keys: 'Shift+F10 / Menu key', does: 'Menu of the chosen entries (also a right-click)', actions: ['entry-menu'] },
   { group: 'Entry', keys: 'Ctrl+B', does: 'Copy the user name', actions: ['copy-username'], ctrl: 'KeyB' },
   { group: 'Entry', keys: 'Ctrl+C', does: 'Copy the password (unless text is selected)', actions: ['copy-password'], ctrl: 'KeyC' },
   { group: 'Entry', keys: 'Ctrl+T', does: 'Copy the TOTP code', actions: ['copy-totp'], ctrl: 'KeyT' },
@@ -52,7 +54,7 @@ export const SHORTCUTS: Shortcut[] = [
 export const shownCombo = (combo: string) => combo.replace('Super', 'Win')
 
 /** `code` is the physical key: shortcuts follow it, so they work in any keyboard layout. */
-export type KeyInfo = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'>
+export type KeyInfo = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'> & { shiftKey?: boolean }
 
 export interface KeyContext {
   /** Focus is in a text field (search or password). */
@@ -81,6 +83,10 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
       return ctx.inTextField ? null : 'delete-entry'
     case 'F1':
       return 'shortcuts'
+    case 'ContextMenu':
+      return 'entry-menu'
+    case 'F10':
+      return e.shiftKey ? 'entry-menu' : null
   }
   // A printable key typed anywhere outside a text field starts a search.
   return !ctx.inTextField && e.key.length === 1 && e.key !== ' ' ? 'type-to-search' : null

@@ -860,6 +860,19 @@ impl Vault {
         })
     }
 
+    /// Copies an entry in use next to it and saves the file (see
+    /// [edit::duplicate]); templates and the recycle bin's are not copied.
+    /// Returns the copy's id.
+    pub fn duplicate(&mut self, id: &str) -> Result<String, String> {
+        let id = parse_id(id)?;
+        let copy = self.change(|db, _| match db.entry(id) {
+            Some(entry) if kind(&entry) == Kind::Entry => edit::duplicate(db, id),
+            Some(_) => Err("Only an entry in use is duplicated".into()),
+            None => Err(NOT_FOUND.into()),
+        })?;
+        Ok(copy.uuid().to_string())
+    }
+
     /// Merges entries `others` into `keep` and moves them to the recycle bin
     /// (see [crate::similar::merge]), and saves the file, as one change.
     /// Entries in the recycle bin or templates are not merged.
@@ -1410,6 +1423,41 @@ pub mod tests {
         assert_eq!(vault.detail(&deleted).unwrap().summary.title, "Deleted");
         assert!(vault.edit_data(&deleted).is_none());
         assert!(vault.detail("not-a-uuid").is_none());
+    }
+
+    #[test]
+    fn a_duplicate_is_a_new_entry_beside_the_original_without_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = sample();
+        let mail = db.iter_all_entries().find(|e| e.get(fields::TITLE) == Some("Mail")).unwrap().id();
+        db.entry_mut(mail).unwrap().add_attachment("note.txt", Value::unprotected(b"hello".to_vec()));
+        db.entry_mut(mail).unwrap().set_icon_custom_new(b"\x89PNG\r\n\x1a\n....".to_vec());
+        db.entry_mut(mail).unwrap().edit_tracking(|e| e.set_unprotected(fields::NOTES, "older")); // files a version
+        let (db, file) = crate::dbfile::tests::saved(dir.path(), &db);
+        let mut vault = Vault { db, file: Some(file), unsaved: false };
+        let original = mail.uuid().to_string();
+        assert!(vault.detail(&original).unwrap().versions > 0);
+
+        let copy = vault.duplicate(&original).unwrap();
+        let (was, now) = (vault.detail(&original).unwrap(), vault.detail(&copy).unwrap());
+        assert_ne!(copy, original);
+        assert_eq!(now.summary.title, "Mail (Copy)");
+        assert_eq!(now.summary.group, was.summary.group);
+        assert_eq!(now.summary.tags, was.summary.tags);
+        assert_eq!(now.fields, was.fields);
+        assert_eq!(now.attachments, was.attachments);
+        assert!(now.summary.custom_icon.is_some());
+        assert_eq!(now.summary.custom_icon, was.summary.custom_icon, "the image is shared, not stored twice");
+        assert_eq!(vault.field(&copy, fields::PASSWORD), vault.field(&original, fields::PASSWORD));
+        assert_eq!(now.versions, 0);
+        assert!(!vault.has_unsaved());
+
+        let trash = vault.listing().entries.into_iter().find(|e| e.kind == Kind::Trash).unwrap().id;
+        assert!(vault.duplicate(&trash).is_err());
+        let mut card = EntryData::default();
+        card.title = "Card".into();
+        let (template, _) = vault.save_entry(None, None, &card, true, &[]).unwrap();
+        assert!(vault.duplicate(&template).is_err());
     }
 
     #[test]
