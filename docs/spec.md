@@ -199,7 +199,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   (`KP2A_URL_1`, `KP2A_URL_2`…) whose value is an http or https address, on both apps. A value without a
   scheme counts as https, a port included (`example.com:8443/login`, `192.168.1.10:5000`); a host may be
   a domain, an IP address, or a local name with a scheme or a port (`http://router`, `nas:5000`). A bare
-  word (`router`) is text, not an address. Site icons still come only from a named domain over https.
+  word (`router`) or a number (`12`, `10:30`) is text, not an address. Site icons still come only from a named domain over https.
 - Clicking a value in the entry view copies it, as its copy icon does (clipboard clearing included); a
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).
