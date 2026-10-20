@@ -261,11 +261,10 @@ async function showLocked() {
   revealed.clear()
   list.replaceChildren()
   detail.replaceChildren()
-  // Open settings no longer have a database to show; closed meanwhile, they stay empty.
-  if (settingsOpen) {
-    showSettingsView()
-    drawSettings().then(() => settingsOpen || settingsView.replaceChildren(), (e) => notify(String(e)))
-  }
+  // Locking closes the settings: the unlock screen asks for the password (#262).
+  settingsOpen = false
+  settingsView.hidden = true
+  settingsView.replaceChildren()
   showUnlock(await api.status())
 }
 

@@ -358,7 +358,8 @@ same table the dialog shows.
 *Settings* (`Ctrl+,`, or a tab in the sidebar's *Settings*, which opens there) shows its groups one tab at
 a time, titled with the tab's name. Unlocked, they are beside the sidebar, whose *Settings* list is their
 tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unlock screen), they have their
-tabs down their left side and **Done**. The tabs: **General** (locking and the clipboard), **Window** (theme, global
+tabs down their left side and **Done**. Locking closes them, so the unlock screen asks for the password
+(#262). The tabs: **General** (locking and the clipboard), **Window** (theme, global
 hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
 settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
 database format, KDBX 4.1, with what reads it, **Check for updates** and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
