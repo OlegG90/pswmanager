@@ -89,7 +89,7 @@ impl LoginPlace {
         match self {
             LoginPlace::App { package, certificate } => {
                 let wanted = format!("androidapp://{package}");
-                if !entry.fields.iter().any(|(name, value)| (name == fields::URL || name.starts_with("KP2A_URL")) && value.get().trim() == wanted) {
+                if !entry.fields.iter().any(|(name, value)| holds_url(name) && value.get().trim() == wanted) {
                     return Fit::No;
                 }
                 match entry.get(&certificate_field(package)).map(str::trim) {
@@ -154,6 +154,8 @@ pub struct EntrySummary {
     pub url: String,
     /// The site the entry's URL points to, for its icon.
     pub host: Option<String>,
+    /// The URL opens in the browser ([icons::link]).
+    pub link: bool,
     /// Group names from the top, without the root group.
     pub group: Vec<String>,
     pub tags: Vec<String>,
@@ -190,6 +192,8 @@ pub struct Field {
     pub name: String,
     pub value: Option<String>,
     pub protected: bool,
+    /// A further URL (`KP2A_URL_n`) that opens in the browser (#254).
+    pub link: bool,
 }
 
 /// A file attached to an entry: its name and size, never its content.
@@ -568,9 +572,11 @@ impl Vault {
         self.change(|db, hidden| edit::restore_version(db, id, index, saved, hidden))
     }
 
-    /// The entry's URL as a web address, if it is one.
-    pub fn web_url(&self, id: &str) -> Option<url::Url> {
-        icons::web_url(&self.field(id, fields::URL)?)
+    /// The address the entry's URL, or the further one `name` (`KP2A_URL_n`),
+    /// opens in the browser, if it is one.
+    pub fn link(&self, id: &str, name: Option<&str>) -> Option<url::Url> {
+        let name = name.unwrap_or(fields::URL);
+        icons::link(&self.field(id, name).filter(|_| holds_url(name))?)
     }
 
     /// The passkeys for the site or app `rp_id`, among the entries the user
@@ -1087,6 +1093,11 @@ fn changed_entries(old: &Database, new: &Database) -> Vec<String> {
     changed
 }
 
+/// The entry's URL or a further one, as Keepass2Android keeps them (`KP2A_URL_n`).
+fn holds_url(name: &str) -> bool {
+    name == fields::URL || name.starts_with(crate::cxf::MORE_URLS)
+}
+
 /// What the entry view shows of an entry or of one of its versions.
 fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
     // Everything the summary does not carry, except the password (which has its own row).
@@ -1096,7 +1107,8 @@ fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
         .filter(|(name, value)| !in_summary(name, value) && name.as_str() != fields::PASSWORD)
         .map(|(name, value)| {
             let secret = is_secret(name, value);
-            Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()) }
+            let link = !secret && holds_url(name) && icons::link(value.get()).is_some();
+            Field { name: name.clone(), protected: secret, value: (!secret).then(|| value.get().clone()), link }
         })
         .collect();
     fields.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -1189,6 +1201,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         title: text(fields::TITLE),
         username: text(fields::USERNAME),
         host: icons::host_of(&url),
+        link: icons::link(&url).is_some(),
         url,
         group,
         tags: e.tags.clone(),
@@ -1379,8 +1392,8 @@ pub mod tests {
         assert_eq!(
             detail.fields,
             [
-                Field { name: "PIN".into(), value: None, protected: true },
-                Field { name: "Recovery phone".into(), value: Some("+0 000".into()), protected: false },
+                Field { name: "PIN".into(), value: None, protected: true, link: false },
+                Field { name: "Recovery phone".into(), value: Some("+0 000".into()), protected: false, link: false },
             ]
         );
         assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "s3cret");
@@ -1565,7 +1578,29 @@ pub mod tests {
         assert_eq!(names, [("otp", true), ("URL", true), ("UserName", true)]);
         assert!(detail.fields.iter().all(|f| f.value.is_none()));
         assert_eq!(vault.field(id, fields::USERNAME).unwrap().as_str(), "client-42");
-        assert_eq!(vault.web_url(id).unwrap().as_str(), "https://bank.example.com/");
+        assert_eq!(vault.link(id, None).unwrap().as_str(), "https://bank.example.com/");
+    }
+
+    #[test]
+    fn urls_and_further_urls_open_in_the_browser() {
+        let mut db = Database::new();
+        db.root_mut().add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "NAS");
+            e.set_unprotected(fields::URL, "nas.example.com:5001");
+            e.set_unprotected("KP2A_URL_1", "192.168.1.10:5000");
+            e.set_unprotected("KP2A_URL_2", "androidapp://com.example.nas");
+            e.set_unprotected("Admin page", "https://nas.example.com/admin");
+        });
+        let vault = Vault::from_database(db);
+        let id = &vault.listing().entries[0].id;
+        let detail = vault.detail(id).unwrap();
+        assert!(detail.summary.link);
+        let links: Vec<(&str, bool)> = detail.fields.iter().map(|f| (f.name.as_str(), f.link)).collect();
+        assert_eq!(links, [("Admin page", false), ("KP2A_URL_1", true), ("KP2A_URL_2", false)]);
+        assert_eq!(vault.link(id, None).unwrap().as_str(), "https://nas.example.com:5001/");
+        assert_eq!(vault.link(id, Some("KP2A_URL_1")).unwrap().as_str(), "https://192.168.1.10:5000/");
+        // Only the URL fields open, whatever another field holds.
+        assert!(vault.link(id, Some("KP2A_URL_2")).is_none() && vault.link(id, Some("Admin page")).is_none());
     }
 
     #[test]

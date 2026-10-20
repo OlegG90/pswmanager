@@ -189,12 +189,17 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
   **History** (see *Entry history*). Protected attributes are masked like the
   password. Each line ends in its commands as icons, as on the phone: **copy**, the **eye** to show a
-  secret (crossed out to hide it again) and **open** (the URL in the browser). Next to a file, **open**
+  secret (crossed out to hide it again) and **open** (the URL in the browser; see *Web addresses*). Next to a file, **open**
   opens it in the app Windows uses for its type and **save** writes it where the user chooses; files are
   added (the paperclip), renamed (the pencil) and removed (the bin) in the editor
   (see *Editing*). A file's content goes between the database and the disk in the backend, never through
   the webview.
   In each value row, the field name sits above its value, as on Android.
+- **Web addresses** (#254): **open** is offered on the URL and on each further URL Keepass2Android keeps
+  (`KP2A_URL_1`, `KP2A_URL_2`…) whose value is an http or https address, on both apps. A value without a
+  scheme counts as https, a port included (`example.com:8443/login`, `192.168.1.10:5000`); a host may be
+  a domain, an IP address, or a local name with a scheme or a port (`http://router`, `nas:5000`). A bare
+  word (`router`) or a number (`12`, `10:30`) is text, not an address. Site icons still come only from a named domain over https.
 - Clicking a value in the entry view copies it, as its copy icon does (clipboard clearing included); a
   mouse selection inside a value stays a selection.
 - Every entry in the list and the entry view shows an icon (see *Entry icons*).

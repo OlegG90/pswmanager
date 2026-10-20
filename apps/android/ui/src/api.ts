@@ -150,7 +150,7 @@ export const api = {
   entryVersion: (id: string, index: number) => invoke<VersionDetail>('entry_version', { id, index }),
   totp: (id: string) => invoke<Code | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
-  openUrl: (id: string) => invoke<void>('open_url', { id }),
+  openUrl: (id: string, field?: string) => invoke<void>('open_url', { id, field }),
   /** The project's GitHub page, in the browser (Settings → About). */
   openRepository: () => invoke<void>('open_repository'),
   openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),

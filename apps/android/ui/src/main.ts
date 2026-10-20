@@ -1728,6 +1728,9 @@ function secretLine(id: string, label: string, field: string, version: number | 
 function entryLines(entry: EntryDetail, version: number | null): [Node[], () => void] {
   const id = entry.id
   const copy = (field: string) => () => api.copyField(id, field, version)
+  // The entry's URL or a further one (#254); not a version's.
+  const opens = (field?: string): Action[] =>
+    version === null ? [['Open in the browser', 'externalLink', () => void api.openUrl(id, field).catch((e) => snack(String(e)))]] : []
   const rows: Node[] = []
   const tags = entry.tags.filter((tag) => tag !== FAVORITE)
   if (tags.length) rows.push(line('Tags', el('span', { className: 'entry-tags' }, ...tags.map((tag) => el('span', { className: 'tag-chip' }, tag))), null))
@@ -1742,13 +1745,12 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
     rows.push(secretLine(id, 'TOTP', OTP, version))
   }
   if (entry.url) {
-    const open: Action[] = version === null ? [['Open in the browser', 'externalLink', () => void api.openUrl(id).catch((e) => snack(String(e)))]] : []
-    rows.push(line('URL', entry.url, copy(URL_FIELD), open))
+    rows.push(line('URL', entry.url, copy(URL_FIELD), entry.link ? opens() : []))
   }
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     const label = labelOf(field.name)
     if (field.protected) rows.push(secretLine(id, label, field.name, version))
-    else if (field.value) rows.push(line(label, field.value, copy(field.name)))
+    else if (field.value) rows.push(line(label, field.value, copy(field.name), field.link ? opens(field.name) : []))
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {

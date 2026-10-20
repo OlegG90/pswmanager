@@ -8,6 +8,7 @@ const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   username: '',
   url: '',
   host: null,
+  link: false,
   group: [],
   tags: [],
   notes: '',

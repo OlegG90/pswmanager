@@ -117,6 +117,8 @@ export interface Entry {
   username: string
   url: string
   host: string | null
+  /** The URL opens in the browser. */
+  link: boolean
   group: string[]
   tags: string[]
   notes: string
@@ -141,6 +143,8 @@ export interface Field {
   /** Missing for a protected field: ask for it with reveal(). */
   value: string | null
   protected: boolean
+  /** A further URL (KP2A_URL_n) that opens in the browser. */
+  link: boolean
 }
 
 /** A file attached to an entry; its content stays in the backend. */
@@ -440,7 +444,8 @@ export const api = {
   entryVersion: (id: string, index: number) => invoke<VersionDetail>('entry_version', { id, index }),
   /** Makes an older version the entry's current content; the replaced one goes to history. */
   restoreVersion: (id: string, index: number, saved: string | null) => invoke<Listing>('restore_version', { id, index, saved }),
-  openUrl: (id: string) => invoke<void>('open_url', { id }),
+  /** Opens the entry's URL, or its further URL `field`, in the browser. */
+  openUrl: (id: string, field?: string) => invoke<void>('open_url', { id, field }),
   /** Opens the app's repository on GitHub in the browser. */
   openRepository: () => invoke<void>('open_repository'),
   /** Asks GitHub for the latest release (only when the user asks). */
