@@ -52,7 +52,7 @@ export function createDatabase(container: HTMLElement): Promise<Status | null> {
         el('p', { className: 'muted' },
           'An empty KeePass (KDBX 4) file, which KeePassXC and Keepass2Android open too. Keep the master password safe: nothing can recover it.')),
       el('div', { className: 'file-row' }, where, chooseFile),
-      el('label', { className: 'field' }, el('span', {}, 'Master password'), typed.field),
+      el('div', { className: 'field' }, el('span', {}, 'Master password'), typed.withEye),
       el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
       typed.strength,
       typed.rules,

@@ -30,7 +30,7 @@ export async function changeMasterKey(keyFile: string | null): Promise<Status | 
     return {
       body: [
         el('label', { className: 'field' }, el('span', {}, 'Current master password'), current),
-        el('label', { className: 'field' }, el('span', {}, 'New master password'), typed.field),
+        el('div', { className: 'field' }, el('span', {}, 'New master password'), typed.withEye),
         el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
         typed.strength,
         typed.rules,

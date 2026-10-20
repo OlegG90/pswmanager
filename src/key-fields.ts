@@ -24,8 +24,9 @@ export function newPassword() {
   })
   return {
     password,
-    /** The first field with its eye, for the form. */
-    field: el('div', { className: 'with-eye' }, password, showHide(password)),
+    /** The first field with its eye, for the form; outside a label, which
+     *  would read the eye's name as part of its own. */
+    withEye: el('div', { className: 'with-eye' }, password, showHide(password)),
     repeat,
     strength,
     rules: masterRulesTip(password),

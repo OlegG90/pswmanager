@@ -121,7 +121,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   twice, with the strength indicator, and left empty for none. The first field has the eye to show what
   was typed. **Rules for a new master password** (#224), on both apps and for a new database too: at
   least 6 characters, upper- and lower-case letters, and a character that is neither a letter nor a
-  digit (any alphabet; a space counts). They are listed under the field before anything is typed, each
+  digit (letters and digits of any script; a space counts; a script without cases still needs a letter
+  of each case). They are listed under the field before anything is typed, each
   ticked once met, and a password that misses one is refused (with what it misses). A database opened
   elsewhere keeps the password it has: the rules apply only when a new one is chosen. A key file can be added, replaced (an existing
   file, or a new one the app makes — KeePass's XML key file, version 2.0, a `.keyx` which KeePassXC and
