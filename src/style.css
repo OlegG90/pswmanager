@@ -439,6 +439,37 @@ input[type='range']:focus-visible {
   gap: 6px;
 }
 
+/* A new master password and its eye (#224). */
+.with-eye {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.with-eye > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The rules for a new master password, each ticked once it is met. */
+.master-rules {
+  color: var(--color-text-2);
+  font-size: 12px;
+}
+
+.master-rules ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+.master-rules li.met {
+  color: var(--color-good);
+}
+
+.master-rules li.met::marker {
+  content: '✓  ';
+}
+
 #password {
   height: 36px;
   font-family: var(--font-mono);
