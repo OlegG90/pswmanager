@@ -5,7 +5,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
-import { contextMenu, menuButton, type MenuItem } from './menu'
+import { closeMenus, contextMenu, menuButton, type MenuItem } from './menu'
 import { foldingSections, sidebarIcon, type SidebarIcon } from './sidebar-sections'
 import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
 import { sidebarResizer } from './sidebar-resize'
@@ -249,6 +249,7 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
+  closeMenus()
   closeReport()
   closeEditor()
   stopTotp()
@@ -376,11 +377,14 @@ function listItem(entry: Entry): HTMLLIElement {
   )
   if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
+  // The list's own menu instead of the webview's (#255).
   li.addEventListener('contextmenu', (e) => {
     e.preventDefault()
     openEntryMenu(entry.id, e.clientX, e.clientY)
   })
   li.addEventListener('mousedown', (e) => {
+    // A right-click leaves the choice to the menu: it keeps several chosen.
+    if (e.button !== 0) return
     if (!isEditing()) return pick(entry.id, e)
     e.preventDefault() // the focus stays in the editor until it is left
     void leaveEditor().then((left) => left && pick(entry.id, e))
@@ -761,7 +765,7 @@ function tagsOf(entries: Entry[]): string[] {
  *  it is one of them: what fits them, as the buttons for several offer it. A
  *  right-click on another entry chooses it first. */
 function openEntryMenu(id: string, x: number, y: number) {
-  if (isEditing() || isAsking()) return
+  if (isEditing() || isAsking() || settingsOpen || reportOpen) return
   const ids = several?.chosen.includes(id) ? several.chosen : [id]
   if (ids.length === 1 && id !== selectedId) select(id)
   const chosen = listing.entries.filter((e) => ids.includes(e.id))

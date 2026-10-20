@@ -51,7 +51,8 @@ function menuOf(items: MenuItem[], close: (refocus: boolean) => void) {
   return { menu, first: () => entries[0]?.focus() }
 }
 
-/** Closes the menu when a click lands or the focus moves outside `wrap`; returns what stops watching. */
+/** Closes the menu when a click lands outside `wrap` (the focus leaving it is
+ *  watched by each menu); returns what stops watching. */
 function closeOutside(wrap: HTMLElement, close: () => void): () => void {
   const outside = (e: Event) => {
     if (!wrap.contains(e.target as Node)) close()
@@ -59,6 +60,9 @@ function closeOutside(wrap: HTMLElement, close: () => void): () => void {
   document.addEventListener('pointerdown', outside, true)
   return () => document.removeEventListener('pointerdown', outside, true)
 }
+
+/** Closes the open menu, if any: the window locks under it. */
+export const closeMenus = () => closeOpen?.()
 
 /**
  * A "⋯" button that opens a short list of actions under it (above it when

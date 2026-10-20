@@ -1418,6 +1418,7 @@ pub mod tests {
         let mut db = sample();
         let mail = db.iter_all_entries().find(|e| e.get(fields::TITLE) == Some("Mail")).unwrap().id();
         db.entry_mut(mail).unwrap().add_attachment("note.txt", Value::unprotected(b"hello".to_vec()));
+        db.entry_mut(mail).unwrap().set_icon_custom_new(b"\x89PNG\r\n\x1a\n....".to_vec());
         db.entry_mut(mail).unwrap().edit_tracking(|e| e.set_unprotected(fields::NOTES, "older")); // files a version
         let (db, file) = crate::dbfile::tests::saved(dir.path(), &db);
         let mut vault = Vault { db, file: Some(file), unsaved: false };
@@ -1432,12 +1433,18 @@ pub mod tests {
         assert_eq!(now.summary.tags, was.summary.tags);
         assert_eq!(now.fields, was.fields);
         assert_eq!(now.attachments, was.attachments);
+        assert!(now.summary.custom_icon.is_some());
+        assert_eq!(now.summary.custom_icon, was.summary.custom_icon, "the image is shared, not stored twice");
         assert_eq!(vault.field(&copy, fields::PASSWORD), vault.field(&original, fields::PASSWORD));
         assert_eq!(now.versions, 0);
         assert!(!vault.has_unsaved());
 
         let trash = vault.listing().entries.into_iter().find(|e| e.kind == Kind::Trash).unwrap().id;
         assert!(vault.duplicate(&trash).is_err());
+        let mut card = EntryData::default();
+        card.title = "Card".into();
+        let (template, _) = vault.save_entry(None, None, &card, true, &[]).unwrap();
+        assert!(vault.duplicate(&template).is_err());
     }
 
     #[test]

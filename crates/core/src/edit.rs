@@ -1185,23 +1185,29 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
 pub fn duplicate(db: &mut Database, id: EntryId) -> Result<EntryId, String> {
     let source = db.entry(id).ok_or(NOT_FOUND)?;
     let parent = source.parent().id();
-    let original: Entry = (*source).clone();
     let icon = source.icon().cloned();
     let files: Vec<(String, Value<Vec<u8>>)> = source.attachments_named().map(|(name, a)| (name.to_string(), a.data.clone())).collect();
+    // What the copy takes, without the history a clone of the whole entry would bring.
+    let mut fields = source.fields.clone();
+    if let Some(title) = fields.get_mut(fields::TITLE) {
+        let copied = format!("{} (Copy)", title.get());
+        *title = if title.is_protected() { Value::protected(copied) } else { Value::unprotected(copied) };
+    }
+    let (autotype, tags, custom_data) = (source.autotype.clone(), source.tags.clone(), source.custom_data.clone());
+    let (foreground, background, override_url) = (source.foreground_color.clone(), source.background_color.clone(), source.override_url.clone());
+    let (quality_check, expires, expiry) = (source.quality_check, source.times.expires, source.times.expiry);
     let mut group = db.group_mut(parent).ok_or(NOT_FOUND)?;
     let mut copy = group.add_entry();
-    copy.fields = original.fields.clone();
-    copy.autotype = original.autotype.clone();
-    copy.tags = original.tags.clone();
-    copy.custom_data = original.custom_data.clone();
-    copy.foreground_color = original.foreground_color.clone();
-    copy.background_color = original.background_color.clone();
-    copy.override_url = original.override_url.clone();
-    copy.quality_check = original.quality_check;
-    copy.times.expires = original.times.expires;
-    copy.times.expiry = original.times.expiry;
-    let title = format!("{} (Copy)", original.get(fields::TITLE).unwrap_or_default());
-    copy.set_unprotected(fields::TITLE, title);
+    copy.fields = fields;
+    copy.autotype = autotype;
+    copy.tags = tags;
+    copy.custom_data = custom_data;
+    copy.foreground_color = foreground;
+    copy.background_color = background;
+    copy.override_url = override_url;
+    copy.quality_check = quality_check;
+    copy.times.expires = expires;
+    copy.times.expiry = expiry;
     match icon {
         Some(Icon::BuiltIn(icon)) => copy.set_icon_builtin(icon),
         Some(Icon::Custom(icon)) => copy.set_icon_custom(icon).map_err(|e| e.to_string())?,

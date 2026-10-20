@@ -45,6 +45,12 @@ describe('actionFor', () => {
     expect(actionFor(press('F1', false, 'F1'), inSearch)).toBe('shortcuts')
   })
 
+  it('opens the entry menu with Shift+F10 or the menu key, from the search too', () => {
+    expect(actionFor({ ...press('F10', false, 'F10'), shiftKey: true }, inSearch)).toBe('entry-menu')
+    expect(actionFor(press('ContextMenu', false, 'ContextMenu'), outside)).toBe('entry-menu')
+    expect(actionFor(press('F10', false, 'F10'), outside)).toBeNull()
+  })
+
   it('lists every key it reacts to in the shortcuts panel', () => {
     // Each Ctrl shortcut gives what the panel says.
     for (const s of SHORTCUTS.filter((s) => s.ctrl)) {
