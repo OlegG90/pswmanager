@@ -1178,6 +1178,41 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     Ok(())
 }
 
+/// Makes a copy of the entry next to it (#255), as KeePassXC's Clone does: a
+/// new UUID, " (Copy)" after the title, no history, created now; its fields,
+/// tags, files, icon, colours, auto-type and custom data are the entry's.
+/// Returns the copy's id.
+pub fn duplicate(db: &mut Database, id: EntryId) -> Result<EntryId, String> {
+    let source = db.entry(id).ok_or(NOT_FOUND)?;
+    let parent = source.parent().id();
+    let original: Entry = (*source).clone();
+    let icon = source.icon().cloned();
+    let files: Vec<(String, Value<Vec<u8>>)> = source.attachments_named().map(|(name, a)| (name.to_string(), a.data.clone())).collect();
+    let mut group = db.group_mut(parent).ok_or(NOT_FOUND)?;
+    let mut copy = group.add_entry();
+    copy.fields = original.fields.clone();
+    copy.autotype = original.autotype.clone();
+    copy.tags = original.tags.clone();
+    copy.custom_data = original.custom_data.clone();
+    copy.foreground_color = original.foreground_color.clone();
+    copy.background_color = original.background_color.clone();
+    copy.override_url = original.override_url.clone();
+    copy.quality_check = original.quality_check;
+    copy.times.expires = original.times.expires;
+    copy.times.expiry = original.times.expiry;
+    let title = format!("{} (Copy)", original.get(fields::TITLE).unwrap_or_default());
+    copy.set_unprotected(fields::TITLE, title);
+    match icon {
+        Some(Icon::BuiltIn(icon)) => copy.set_icon_builtin(icon),
+        Some(Icon::Custom(icon)) => copy.set_icon_custom(icon).map_err(|e| e.to_string())?,
+        None => {}
+    }
+    for (name, data) in files {
+        copy.add_attachment(name, data);
+    }
+    Ok(copy.id())
+}
+
 /// The group templates are kept in (KeePass's `EntryTemplatesGroup`), made
 /// at the top when the database has none, or only one in the recycle bin.
 pub fn templates_group(db: &mut Database) -> GroupId {

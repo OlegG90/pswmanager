@@ -5,7 +5,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
-import { menuButton } from './menu'
+import { contextMenu, menuButton, type MenuItem } from './menu'
 import { foldingSections, sidebarIcon, type SidebarIcon } from './sidebar-sections'
 import { GROUP_ICONS, icon, iconAction, shownIcon, type SharedIcon } from './icons'
 import { sidebarResizer } from './sidebar-resize'
@@ -376,6 +376,10 @@ function listItem(entry: Entry): HTMLLIElement {
   )
   if (editable(entry)) li.append(starButton(entry))
   li.dataset.id = entry.id
+  li.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    openEntryMenu(entry.id, e.clientX, e.clientY)
+  })
   li.addEventListener('mousedown', (e) => {
     if (!isEditing()) return pick(entry.id, e)
     e.preventDefault() // the focus stays in the editor until it is left
@@ -733,7 +737,7 @@ function renderSeveral() {
   }
   if (inUse.length) {
     const ids = inUse.map((e) => e.id)
-    const theirTags = [...new Set(inUse.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
+    const theirTags = tagsOf(inUse)
     const untag = button('Remove tag…', 'Take a tag off these entries', () => untagSeveral(ids, theirTags))
     untag.disabled = theirTags.length === 0
     actions.push(
@@ -746,6 +750,51 @@ function renderSeveral() {
   const rows: Node[] = [el('header', {}, heading)]
   if (actions.length) rows.push(el('div', { className: 'buttons' }, ...actions))
   detail.replaceChildren(...rows)
+}
+
+/** The tags of `entries`, without the star, in order. */
+function tagsOf(entries: Entry[]): string[] {
+  return [...new Set(entries.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
+}
+
+/** The list's menu (#255) for entry `id`, or for all the chosen entries when
+ *  it is one of them: what fits them, as the buttons for several offer it. A
+ *  right-click on another entry chooses it first. */
+function openEntryMenu(id: string, x: number, y: number) {
+  if (isEditing() || isAsking()) return
+  const ids = several?.chosen.includes(id) ? several.chosen : [id]
+  if (ids.length === 1 && id !== selectedId) select(id)
+  const chosen = listing.entries.filter((e) => ids.includes(e.id))
+  const idsOf = (entries: Entry[]) => entries.map((e) => e.id)
+  const inUse = chosen.filter((e) => editable(e))
+  const trashed = idsOf(chosen.filter((e) => inTrash(e)))
+  const toBin = [...idsOf(inUse), ...idsOf(chosen.filter((e) => isTemplate(e)))]
+  const items: MenuItem[] = []
+  if (chosen.length === 1 && inUse.length === 1) {
+    items.push({ label: 'Duplicate', title: 'A copy of the entry, without its history', action: () => duplicate(id) })
+  }
+  if (inUse.length) {
+    const theirTags = tagsOf(inUse)
+    items.push({ label: 'Add tag…', title: 'Give a tag', action: () => tagSeveral(idsOf(inUse)) })
+    if (theirTags.length) items.push({ label: 'Remove tag…', title: 'Take a tag off', action: () => untagSeveral(idsOf(inUse), theirTags) })
+  }
+  if (toBin.length) {
+    items.push({ label: 'Delete…', title: 'Move to the recycle bin (Del)', action: () => deleteSeveral(toBin), danger: true })
+  } else if (trashed.length) {
+    items.push(
+      { label: 'Restore', title: 'Put back where it was', action: () => restore(trashed) },
+      { label: 'Delete permanently…', title: 'Delete for good, on every device (Del)', action: () => deleteForGood(trashed), danger: true })
+  }
+  if (items.length) contextMenu(items, x, y, searchInput)
+}
+
+/** Copies an entry next to it and shows the copy. */
+async function duplicate(id: string) {
+  try {
+    afterSave(await api.duplicateEntry(id), 'Duplicated')
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 /** The chosen entries that can be changed here: not templates, not the trash's. */
@@ -763,30 +812,31 @@ function chosenTemplates(): Entry[] {
 
 async function tagSeveral(ids: string[]) {
   const known = tagCounts(listing.entries).map(([tag]) => tag)
-  const tag = await askText(`Add a tag to ${ids.length} entries:`, '', 'Add tag', 0, known)
+  const tag = await askText(`Add a tag to ${count(ids.length)}:`, '', 'Add tag', 0, known)
   if (tag?.trim()) changeSeveral(ids, tag.trim(), true)
 }
 
 async function untagSeveral(ids: string[], tags: string[]) {
-  const i = await choose(`Take which tag off ${ids.length} entries?`, tags)
+  const i = await choose(`Take which tag off ${count(ids.length)}?`, tags)
   if (i !== null) changeSeveral(ids, tags[i], false)
 }
 
 async function changeSeveral(ids: string[], tag: string, on: boolean) {
   const what = tag === FAVORITE ? (on ? 'Added to Favorites' : 'Removed from Favorites') : `${on ? 'Tagged' : 'Took the tag off'} "${tag}"`
   try {
-    applyListing(await api.setTag(ids, tag, on), `${what} · ${ids.length} entries`, false)
+    applyListing(await api.setTag(ids, tag, on), `${what} · ${count(ids.length)}`, false)
   } catch (e) {
     notify(String(e))
   }
 }
 
 async function deleteSeveral(ids: string[]) {
-  if (!ids.length || !await ask(`Move ${ids.length} entries to the recycle bin?`, 'Move to the recycle bin')) return
+  const what = ids.length === 1 ? `"${titleOf(listing.entries.find((e) => e.id === ids[0]) ?? { title: '' })}"` : count(ids.length)
+  if (!ids.length || !await ask(`Move ${what} to the recycle bin?`, 'Move to the recycle bin')) return
   try {
     const next = await api.deleteEntries(ids)
     several = null
-    applyListing(next, `Moved ${ids.length} entries to the recycle bin`)
+    applyListing(next, `Moved ${what} to the recycle bin`)
   } catch (e) {
     notify(String(e))
   }
@@ -991,7 +1041,7 @@ function applyListing(next: Listing, message: string, focusSearch = true) {
   notify(message)
 }
 
-function afterSave(saved: Saved) {
+function afterSave(saved: Saved, done = 'Saved') {
   selectedId = saved.id
   // The saved entry shows: among All (a template among the templates),
   // without the search, when the sidebar's choice or the search leaves it out.
@@ -1000,7 +1050,7 @@ function afterSave(saved: Saved) {
     searchInput.value = ''
   }
   const replaced = saved.conflicts.join(', ')
-  applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : 'Saved')
+  applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : done)
 }
 
 /** Del / the Delete button: asks first. In the trash, deletes for good. */
@@ -1351,6 +1401,14 @@ function perform(action: Action, e: KeyboardEvent) {
         else if (trashed.length) deleteForGood(trashed.map((x) => x.id))
       } else deleteEntry()
       break
+    case 'entry-menu': {
+      // Under the entry chosen last, as if it were right-clicked there.
+      e.preventDefault()
+      const id = several?.anchor ?? selectedId
+      const li = id ? list.querySelector<HTMLLIElement>(`[data-id="${CSS.escape(id)}"]`) : null
+      if (li) openEntryMenu(id!, li.getBoundingClientRect().left + 24, li.getBoundingClientRect().bottom)
+      break
+    }
     case 'previous':
       move(-1)
       break

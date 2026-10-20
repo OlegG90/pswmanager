@@ -1363,6 +1363,18 @@ button.star[aria-pressed='true'] {
   bottom: calc(100% + 4px);
 }
 
+/* The entry list's menu, where it was opened (#255). */
+.menu-wrap.context {
+  position: fixed;
+  z-index: 10;
+}
+
+.menu-wrap.context .menu {
+  top: 0;
+  right: auto;
+  left: 0;
+}
+
 .menu-wrap .menu button {
   justify-content: flex-start;
   border-color: transparent;
