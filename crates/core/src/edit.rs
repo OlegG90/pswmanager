@@ -163,10 +163,7 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
 
 /// When KeePass's *Expires* is on: the time, as the window gets it.
 pub fn expiry_of(times: &Times) -> Option<String> {
-    match (times.expires, times.expiry) {
-        (Some(true), Some(at)) => Some(time_text(at)),
-        _ => None,
-    }
+    (times.expires == Some(true)).then(|| time_text(times.expiry))
 }
 
 /// A time as the window gets it: UTC, RFC 3339, to the second.
@@ -189,13 +186,13 @@ fn same_form(expires: &Option<String>) -> Option<String> {
 
 /// The expiry the entry has, compared as times rather than as text.
 fn expiry_time(times: &Times) -> Option<NaiveDateTime> {
-    times.expiry.filter(|_| times.expires == Some(true))
+    (times.expires == Some(true)).then_some(times.expiry)
 }
 
 /// Turns *Expires* on at `at`, or off (keeping the old time, as KeePass does).
 fn set_expiry(times: &mut Times, at: Option<NaiveDateTime>) {
     times.expires = Some(at.is_some());
-    if at.is_some() {
+    if let Some(at) = at {
         times.expiry = at;
     }
 }
@@ -1433,7 +1430,7 @@ mod tests {
         apply(&mut db, Some(id), &data("x"), &HashSet::new()).unwrap();
         let entry = db.entry(id).unwrap();
         assert_eq!(read(&entry, vec![]).expires, None);
-        assert!(entry.times.expiry.is_some());
+        assert_eq!(time_text(entry.times.expiry), "2030-01-02T03:04:05Z", "the old time stays, as in KeePass");
         assert_eq!(expiry_of(&entry.historical(0).unwrap().times).as_deref(), Some("2030-01-02T03:04:05Z"));
         assert!(apply(&mut db, Some(id), &with("x", |d| d.expires = Some("soon".into())), &HashSet::new()).is_err());
     }

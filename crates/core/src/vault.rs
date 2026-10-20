@@ -1494,7 +1494,7 @@ pub mod tests {
             e.set_protected(fields::OTP, "otpauth://totp/Shop?secret=JBSWY3DP");
             e.set_protected(edit::passkey::PRIVATE_KEY, "key");
             e.times.expires = Some(true);
-            e.times.expiry = chrono::NaiveDate::from_ymd_opt(2030, 1, 2).unwrap().and_hms_opt(3, 4, 5);
+            e.times.expiry = chrono::NaiveDate::from_ymd_opt(2030, 1, 2).unwrap().and_hms_opt(3, 4, 5).unwrap();
         });
         db.meta.entry_templates_group = Some(templates_id.uuid());
         let listing = Vault::from_database(db).listing();

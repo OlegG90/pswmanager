@@ -34,13 +34,6 @@ opt-level = "s"
 panic = "abort"
 strip = true
 
-# Trimming history needs Database::remove_unused_attachments, which keepass-rs
-# does not have yet. The fork adds it on v0.15.3 (branch pswmanager-0.15.3),
-# which already carries our attachment fixes sseemayer/keepass-rs#374 and #375;
-# back to crates.io once a release has it.
-[patch.crates-io]
-keepass = { git = "https://github.com/OlegG90/keepass-rs", rev = "496ea835a20bd4adf5155c27bce4958019684d24" }
-
 # The crates that unlock and save a database (Argon2, the ciphers, hashing,
 # gzip, XML) and zxcvbn are optimised in debug builds too, so unlocking takes
 # a second, not half a minute. Only these: optimising every dependency made
