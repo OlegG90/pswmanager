@@ -112,7 +112,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - **History limits:** lowering one trims every entry's history at once (saved and synced like an edit), after
   a confirmation that says how many versions go. A version's size counts its fields, tags and files. Every
   save trims to the limits, so a merge does not bring trimmed versions back, and the files only the trimmed
-  versions used leave the file (the keepass-rs fork's `Database::remove_unused_attachments`). A limit another
+  versions used leave the file (keepass-rs's `Database::remove_unused_attachments`, sseemayer/keepass-rs#386). A limit another
   client set that the lists do not offer (no limit, say) shows as one more choice.
 - **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.
 - **Changing the master password or key file** (*Change…* in *Settings → Database*, a dialog): the current

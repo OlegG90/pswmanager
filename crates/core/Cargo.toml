@@ -14,7 +14,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 getrandom = { workspace = true }
 hmac = "0.13"
-keepass = { version = "0.15", features = ["save_kdbx4"] }
+keepass = { version = "0.17", features = ["save_kdbx4"] }
 p256 = { version = "0.14", features = ["ecdsa", "pkcs8", "pem"] }
 percent-encoding = "2"
 psl = "2"
