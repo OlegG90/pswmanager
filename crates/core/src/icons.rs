@@ -26,17 +26,41 @@ const MAX_REDIRECTS: usize = 10;
 /// (`example.com/login`, as SafeInCloud stores them) counts as https. Bare
 /// words ("router", "localhost") and IP addresses are not sites.
 pub fn web_url(url: &str) -> Option<Url> {
+    let parsed = http_url(url)?;
+    let is_site = matches!(parsed.host(), Some(url::Host::Domain(d)) if d.trim_end_matches('.').contains('.'));
+    is_site.then_some(parsed)
+}
+
+/// A field's value as an address to open in the browser (#254): a site, as
+/// [web_url] takes it, or a web address on an IP address or a local name
+/// (`192.168.1.10`, `nas:5000`, `http://router`). A bare word without a
+/// scheme or a port is not one: it is more likely text than an address.
+pub fn link(url: &str) -> Option<Url> {
+    let parsed = http_url(url)?;
+    let named = match parsed.host()? {
+        url::Host::Domain(d) => d.trim_end_matches('.').contains('.') || url.contains("://") || parsed.port().is_some(),
+        url::Host::Ipv4(_) | url::Host::Ipv6(_) => true,
+    };
+    named.then_some(parsed)
+}
+
+/// `url` as an http or https address; one without a scheme counts as https.
+/// `example.com:8443/login` parses as the scheme `example.com`, so a value
+/// without `://` whose first colon is followed by a port is read as one too.
+fn http_url(url: &str) -> Option<Url> {
     let url = url.trim();
     if url.is_empty() || url.chars().any(char::is_whitespace) {
         return None;
     }
+    let with_https = || Url::parse(&format!("https://{url}")).ok();
+    let has_port = || !url.contains("://") && url.split_once(':').is_some_and(|(_, rest)| rest.starts_with(|c: char| c.is_ascii_digit()));
     let parsed = match Url::parse(url) {
-        Ok(u) => u,
-        Err(url::ParseError::RelativeUrlWithoutBase) => Url::parse(&format!("https://{url}")).ok()?,
-        Err(_) => return None,
+        Ok(u) if matches!(u.scheme(), "http" | "https") => u,
+        Ok(_) if has_port() => with_https()?,
+        Err(url::ParseError::RelativeUrlWithoutBase) => with_https()?,
+        _ => return None,
     };
-    let is_site = matches!(parsed.host(), Some(url::Host::Domain(d)) if d.trim_end_matches('.').contains('.'));
-    (matches!(parsed.scheme(), "http" | "https") && is_site).then_some(parsed)
+    (matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some()).then_some(parsed)
 }
 
 /// The site of an entry's URL, for its icon.
@@ -500,6 +524,25 @@ mod tests {
         let url = web_url(" example.com/?next=http://x ").unwrap();
         assert_eq!(url.as_str(), "https://example.com/?next=http://x");
         assert_eq!(web_url("http://example.com").unwrap().as_str(), "http://example.com/");
+        assert_eq!(web_url("example.com:8443/login").unwrap().as_str(), "https://example.com:8443/login");
+        assert_eq!(host_of("example.com:8443").as_deref(), Some("example.com"));
+        assert!(web_url("192.168.1.10:5000").is_none());
+    }
+
+    #[test]
+    fn links_take_ports_ip_addresses_and_local_names() {
+        let link = |url: &str| link(url).map(|u| u.to_string());
+        assert_eq!(link("example.com:8443/login").as_deref(), Some("https://example.com:8443/login"));
+        assert_eq!(link("192.168.1.10:5000").as_deref(), Some("https://192.168.1.10:5000/"));
+        assert_eq!(link("http://192.168.1.1").as_deref(), Some("http://192.168.1.1/"));
+        assert_eq!(link("10.0.0.1").as_deref(), Some("https://10.0.0.1/"));
+        assert_eq!(link("[::1]:8080").as_deref(), Some("https://[::1]:8080/"));
+        assert_eq!(link("localhost:8080").as_deref(), Some("https://localhost:8080/"));
+        assert_eq!(link("http://router/admin").as_deref(), Some("http://router/admin"));
+        // Text, other schemes and bare words are not links.
+        for text in ["router", "mailto:a@example.com", "tel:+380000", "ftp://example.com", "two words", "", "id:abc"] {
+            assert_eq!(link(text), None, "{text}");
+        }
     }
 
     #[test]

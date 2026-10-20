@@ -946,10 +946,11 @@ fn copy_field(store: State<Store>, session: State<Session>, id: String, field: S
     Ok(clear_after.as_secs())
 }
 
-/// Opens the entry's URL in the default browser (web addresses only).
+/// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
+/// default browser (web addresses only).
 #[tauri::command(async)]
-fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), String> {
-    let url = session.with(|v| Some(v.web_url(&id)))?.ok_or("The entry has no web address")?;
+fn open_url(app: AppHandle, session: State<Session>, id: String, field: Option<String>) -> Result<(), String> {
+    let url = session.with(|v| Some(v.link(&id, field.as_deref())))?.ok_or("Not a web address")?;
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 

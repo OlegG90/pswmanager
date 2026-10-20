@@ -211,7 +211,7 @@ As in the mockups `1e`–`1j`.
 - **Entry view** (Back returns to the list where it was, with the entry in view, after an edit too while
   the entry is still listed, #228): title, tags shown as chips (the Favorite star remains separate), user name, password (masked), TOTP with its countdown, URL, notes, additional attributes (protected ones masked), attachments, when the entry was last changed, and **History (N)**
   (stage A2). Each line ends in its commands as icons, as in the mockups: **copy**, the **eye** to show a
-  secret (crossed out to hide it again), and **open** (the URL in the browser, an attachment in another
+  secret (crossed out to hide it again), and **open** (the URL or a further URL `KP2A_URL_n` in the browser, as *Web addresses* in spec.md says, an attachment in another
   app); tapping a value copies it too. A snackbar confirms the copy and says when the clipboard clears.
   From stage A2 the toolbar has the **star** (filled for a favorite; it toggles it), the **pencil** (the
   editor) and **⋮** with *Delete*.

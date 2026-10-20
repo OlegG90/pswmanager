@@ -896,10 +896,11 @@ async fn copy_totp(app: AppHandle, id: String) -> Result<u64, String> {
     copy_to_clipboard(app, Zeroizing::new(code.code)).await
 }
 
-/// Opens the entry's URL in the default browser.
+/// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
+/// default browser (web addresses only).
 #[tauri::command]
-fn open_url(app: AppHandle, session: State<Session>, id: String) -> Result<(), String> {
-    let url = session.with(|v| Some(v.web_url(&id)))?.ok_or("The entry has no web address")?;
+fn open_url(app: AppHandle, session: State<Session>, id: String, field: Option<String>) -> Result<(), String> {
+    let url = session.with(|v| Some(v.link(&id, field.as_deref())))?.ok_or("Not a web address")?;
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 

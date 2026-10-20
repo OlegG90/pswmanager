@@ -560,7 +560,7 @@ function renderDetail() {
   if (entry.hasPassword) values.push(secretRow('Password', PASSWORD, { reveal: 'Ctrl+H', copy: 'Ctrl+C' }))
   if (entry.url) {
     // The entry's own address: not offered for an older version.
-    const actions = entry.host && !version ? [iconAction('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
+    const actions = entry.link && !version ? [iconAction('externalLink', 'Open in the browser (Ctrl+U)', openUrl)] : []
     values.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions }))
   }
   // An older version's TOTP secret is shown as a secret, not as codes.
@@ -569,7 +569,10 @@ function renderDetail() {
     if (field.protected) {
       values.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
-      values.push(row(field.name, field.value, () => copy(field.name, field.name)))
+      // A further URL opens like the entry's own (#254).
+      const open = () => api.openUrl(entry.id, field.name).catch((e) => notify(String(e)))
+      const actions = field.link && !version ? [iconAction('externalLink', 'Open in the browser', open)] : []
+      values.push(row(field.name, field.value, () => copy(field.name, field.name), { actions }))
     }
   }
   if (entry.notes) {
@@ -1062,7 +1065,7 @@ async function copy(field: string, label: string) {
 }
 
 function openUrl() {
-  if (view.kind === 'entry' && current?.host) api.openUrl(current.id).catch((e) => notify(String(e)))
+  if (view.kind === 'entry' && current?.link) api.openUrl(current.id).catch((e) => notify(String(e)))
 }
 
 /** What the entry view shows now: the entry, or the older version open. */
