@@ -707,6 +707,25 @@ input.secret {
   padding: 10px 12px;
 }
 
+/* The rules for a new master password, each ticked once it is met (#224). */
+.master-rules {
+  color: var(--color-neutral-700);
+  font-size: 14px;
+}
+
+.master-rules ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+
+.master-rules li.met {
+  color: var(--color-accent);
+}
+
+.master-rules li.met::marker {
+  content: '✓  ';
+}
+
 button.chip {
   align-self: flex-start;
   padding: 8px 12px;

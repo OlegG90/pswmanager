@@ -30,9 +30,10 @@ export async function changeMasterKey(keyFile: string | null): Promise<Status | 
     return {
       body: [
         el('label', { className: 'field' }, el('span', {}, 'Current master password'), current),
-        el('label', { className: 'field' }, el('span', {}, 'New master password'), typed.password),
+        el('div', { className: 'field' }, el('span', {}, 'New master password'), typed.withEye),
         el('label', { className: 'field' }, el('span', {}, 'Repeat it'), typed.repeat),
         typed.strength,
+        typed.rules,
         keyChoice.row,
         el('p', { className: 'muted' }, 'Leave the new password empty for a key file alone.'),
         error.line,

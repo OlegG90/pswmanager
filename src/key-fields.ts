@@ -1,9 +1,12 @@
 import { api } from './api'
 import { button, el } from './dom'
+import { showHide } from './editor-parts'
+import { masterPasswordProblem, masterRulesTip } from './master-password'
 
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
-/** A new master password typed twice, with its strength shown as it is typed. */
+/** A new master password typed twice, with its strength shown as it is typed,
+ *  the eye to show it, and the rules it must meet (#224). */
 export function newPassword() {
   const password = el('input', { type: 'password', ariaLabel: 'Master password' })
   const repeat = el('input', { type: 'password', ariaLabel: 'Repeat the master password' })
@@ -21,8 +24,12 @@ export function newPassword() {
   })
   return {
     password,
+    /** The first field with its eye, for the form; outside a label, which
+     *  would read the eye's name as part of its own. */
+    withEye: el('div', { className: 'with-eye' }, password, showHide(password)),
     repeat,
     strength,
+    rules: masterRulesTip(password),
     /** Both typed the same. */
     matches: () => password.value === repeat.value,
     clear: () => {
@@ -33,9 +40,12 @@ export function newPassword() {
   }
 }
 
-/** What is wrong with a new key, if anything: it needs a password or a key file. */
+/** What is wrong with a new key, if anything: it needs a password or a key
+ *  file, and a password that meets the rules. */
 export function keyProblem(typed: ReturnType<typeof newPassword>, keyFile: string | null): string | null {
   if (!typed.password.value && !keyFile) return 'Give a master password, a key file, or both'
+  const weak = masterPasswordProblem(typed.password.value)
+  if (weak) return weak
   if (!typed.matches()) return 'The two passwords differ'
   return null
 }

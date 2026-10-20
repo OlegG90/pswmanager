@@ -11,6 +11,7 @@ import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
+import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Exported, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
@@ -179,6 +180,8 @@ function newDatabaseScreen() {
   const ready = () => {
     if (!name.value.trim()) throw new Error('Give the database a name')
     if (!password.value) throw new Error('Choose a master password')
+    const weak = masterPasswordProblem(password.value)
+    if (weak) throw new Error(weak)
     if (password.value !== again.value) throw new Error('The two passwords differ')
   }
   const create = async (place: Parameters<typeof api.createDatabase>[2]) => {
@@ -206,9 +209,10 @@ function newDatabaseScreen() {
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'New database')),
     name,
-    password,
+    el('div', { className: 'together' }, password, showHide(password)),
     again,
     strength.element,
+    masterRulesTip(password),
     el('h2', {}, 'Where it lives'),
     ...CLOUDS.map(inCloud),
     onPhone,
@@ -1518,6 +1522,8 @@ async function changeKeyScreen() {
   const clear = () => (current.value = password.value = again.value = '')
   const change = busyButton('Change', 'Save the database with the new key', async () => {
     if (!password.value && !keyFile.name()) throw new Error('Give a master password, a key file, or both')
+    const weak = masterPasswordProblem(password.value)
+    if (weak) throw new Error(weak)
     if (password.value !== again.value) throw new Error('The two passwords differ')
     const keyFileOnly = password.value ? '' : ' The database will then have no master password: only the key file opens it.'
     confirmSheet('Other devices, Keepass2Android too, will need the new key. The old one still opens the store\'s version history. ' +
@@ -1532,9 +1538,10 @@ async function changeKeyScreen() {
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Back', () => (clear(), back())), el('h1', {}, 'Master password')),
     current,
-    password,
+    el('div', { className: 'together' }, password, showHide(password)),
     again,
     strength.element,
+    masterRulesTip(password),
     el('p', { className: 'muted' }, 'Leave the new password empty for a key file alone.'),
     el('h2', {}, 'Key file'),
     ...keyFile.nodes,

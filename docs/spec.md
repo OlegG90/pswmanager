@@ -47,7 +47,8 @@ uploads anything, and setting up sync never picks another database.
 - **Adding a database** (the choose-database screen) — three explicit actions:
   - **Create a new database**: a new, empty KDBX 4 file (AES-256 with Argon2id at 64 MiB, like KeePassXC's
     default, the recycle bin on) where the user chooses (the dialog starts in `Documents\PswManager`),
-    protected by a master password (typed twice, with the strength indicator) and/or an existing key file.
+    protected by a master password (typed twice, with the strength indicator, meeting the *rules for a new
+    master password*) and/or an existing key file.
     It is never made over a file already there.
   - **Open a local file**: an existing `.kdbx`.
   - **Open from a store** (a LAN folder, Dropbox, Google Drive, OneDrive): sign in, pick an
@@ -117,7 +118,13 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - **The recycle bin** is not a setting: the app needs it (see *Editing*), and **Empty trash** is in the trash.
 - **Changing the master password or key file** (*Change…* in *Settings → Database*, a dialog): the current
   master password is asked first (checked with the key file the database uses now); the new one is typed
-  twice, with the strength indicator, and left empty for none. A key file can be added, replaced (an existing
+  twice, with the strength indicator, and left empty for none. The first field has the eye to show what
+  was typed. **Rules for a new master password** (#224), on both apps and for a new database too: at
+  least 6 characters, upper- and lower-case letters, and a character that is neither a letter nor a
+  digit (letters and digits of any script; a space counts; a script without cases still needs a letter
+  of each case). They are listed under the field before anything is typed, each
+  ticked once met, and a password that misses one is refused (with what it misses). A database opened
+  elsewhere keeps the password it has: the rules apply only when a new one is chosen. A key file can be added, replaced (an existing
   file, or a new one the app makes — KeePass's XML key file, version 2.0, a `.keyx` which KeePassXC and
   Keepass2Android read — where the user chooses, never over a file already there) or removed, as long as a
   password or a key file remains. The list of databases then uses the new key file. `MasterKeyChanged` is set. The confirmation warns
