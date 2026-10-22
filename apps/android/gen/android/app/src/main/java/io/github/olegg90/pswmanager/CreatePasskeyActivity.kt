@@ -78,7 +78,7 @@ class CreatePasskeyActivity : AppCompatActivity() {
       addView(Button(this@CreatePasskeyActivity).apply { text = "New entry"; setOnClickListener { make(null, site) } })
       for (i in 0 until entries.length()) {
         val entry = entries.getJSONObject(i)
-        val label = listOf(entry.optString("title"), entry.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ")
+        val label = entryLabel(entry)
         addView(Button(this@CreatePasskeyActivity).apply { text = "Add to $label"; setOnClickListener { make(entry.getString("id"), label) } })
       }
       addView(Button(this@CreatePasskeyActivity).apply { text = "Cancel"; setOnClickListener { cancel() } })

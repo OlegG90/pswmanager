@@ -33,8 +33,9 @@ import kotlin.concurrent.thread
  * told. Unlocked, each entry is offered by its title and user name only:
  * its values leave the database when it is picked ([AutofillLoginActivity]).
  * Any other entry can be picked and linked to the app or site, as in
- * Keepass2Android ([AutofillPickActivity], #270). A password typed in is offered to save (#270): Android asks *Save to
- * PswManager?*, and [AutofillSaveActivity] saves it, unlocking first.
+ * Keepass2Android ([AutofillPickActivity], #270). A password typed in is
+ * offered to save (#270): Android asks *Save to PswManager?*, and
+ * [AutofillSaveActivity] saves it, unlocking first.
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {

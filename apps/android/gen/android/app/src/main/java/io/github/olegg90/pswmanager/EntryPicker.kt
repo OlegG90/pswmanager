@@ -27,6 +27,8 @@ fun entryLabel(entry: JSONObject): String =
 fun pickEntry(activity: AppCompatActivity, heading: String, picked: (id: String, label: String) -> Unit, cancelled: () -> Unit) {
   val pad = (24 * activity.resources.displayMetrics.density).toInt()
   val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+  // One pick: a second tap meanwhile would link and fill twice.
+  var chosen = false
   fun show(query: String) {
     results.removeAllViews()
     val found = JSONArray(ProviderBridge.searchLogins(query) ?: "[]")
@@ -34,7 +36,7 @@ fun pickEntry(activity: AppCompatActivity, heading: String, picked: (id: String,
     for (i in 0 until found.length()) {
       val entry = found.getJSONObject(i)
       val label = entryLabel(entry).ifEmpty { "Untitled entry" }
-      results.addView(Button(activity).apply { text = label; isAllCaps = false; setOnClickListener { picked(entry.getString("id"), label) } })
+      results.addView(Button(activity).apply { text = label; isAllCaps = false; setOnClickListener { if (!chosen) { chosen = true; picked(entry.getString("id"), label) } } })
     }
   }
   val search = EditText(activity).apply {
