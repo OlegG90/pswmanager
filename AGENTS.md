@@ -58,6 +58,7 @@ npx tsc --noEmit              # Windows UI types
 npx tsc --noEmit -p apps/android/ui   # Android UI types
 cargo clippy --all-targets
 npm run build                 # Windows: target/release/pswm.exe
+npm run cleanup               # removes builds and generated files (target, dist, …)
 ```
 
 - `npm run build` fails while `pswm.exe` runs (the tray icon included): close it first.

@@ -9,6 +9,9 @@
 /tools/sic2kdbx/.venv/
 __pycache__/
 
+# ── Local reports: security audits stay on this PC ──
+/docs/security-audit/
+
 # ── Local app data: a development build writes it next to the exe ──
 /pswm.json
 /icons/
