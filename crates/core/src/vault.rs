@@ -1322,7 +1322,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         },
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
         kind: kind(e),
-        otp: otp::find(&e.fields).is_some(),
+        otp: otp::has(&e.fields),
         passkey: e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)),
         expires: edit::expiry_of(&e.times),
     }

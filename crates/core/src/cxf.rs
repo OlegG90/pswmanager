@@ -228,7 +228,7 @@ fn write_totp(otp: &str, title: &str) -> Option<Value> {
         "algorithm": parsed.algorithm().to_ascii_lowercase(),
     });
     let otp = otp.trim();
-    if !otp.to_ascii_lowercase().starts_with("otpauth:") {
+    if !otp::is_uri(otp) {
         totp["issuer"] = title.into();
         return Some(totp);
     }

@@ -672,8 +672,7 @@ fn wanted_fields(db: &Database, entry: Option<&EntryRef<'_>>, data: &EntryData) 
         let protected = was_protected(name).unwrap_or(protect_by_default);
         wanted.insert(name.to_string(), value_of(value, protected));
     }
-    let had_otp = entry.and_then(|e| e.fields.get(fields::OTP));
-    if let Some(otp) = had_otp {
+    if let Some(otp) = entry.and_then(|e| e.fields.get(fields::OTP)) {
         wanted.insert(fields::OTP.to_string(), otp.clone());
     }
     for field in &data.fields {
@@ -690,12 +689,12 @@ fn wanted_fields(db: &Database, entry: Option<&EntryRef<'_>>, data: &EntryData) 
         None => otp::find(&wanted),
     };
     if typed != shown.as_deref().map_or("", |s| s.trim()) {
-        otp::write(&mut wanted, typed, &data.title, had_otp.is_some())?;
+        otp::write(&mut wanted, typed, &data.title)?;
     }
     Ok(wanted)
 }
 
-fn value_of(value: &str, protected: bool) -> Value<String> {
+pub(crate) fn value_of(value: &str, protected: bool) -> Value<String> {
     if protected {
         Value::protected(value.to_string())
     } else {

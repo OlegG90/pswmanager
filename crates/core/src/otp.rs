@@ -5,6 +5,7 @@
 //! The usual defaults (6 digits, 30 seconds, SHA-1) apply where a layout
 //! leaves them out. Steam's codes are five letters instead of digits.
 
+use crate::edit::value_of;
 use base64::Engine;
 use keepass::db::{fields, Value};
 use serde::Serialize;
@@ -20,10 +21,14 @@ const SETTINGS: &str = "TOTP Settings";
 /// What KeePass 2's attributes start with; the `-Secret` ones hold the secret.
 const KEEPASS: &str = "TimeOtp-";
 const KEEPASS_SECRET: &str = "TimeOtp-Secret";
+const KEEPASS_HEX: &str = "TimeOtp-Secret-Hex";
 const KEEPASS_BASE32: &str = "TimeOtp-Secret-Base32";
+const KEEPASS_BASE64: &str = "TimeOtp-Secret-Base64";
 const KEEPASS_LENGTH: &str = "TimeOtp-Length";
 const KEEPASS_PERIOD: &str = "TimeOtp-Period";
 const KEEPASS_ALGORITHM: &str = "TimeOtp-Algorithm";
+/// What `TOTP Settings` has for the length of a Steam code.
+const KEETRAY_STEAM: &str = "S";
 /// The letters Steam writes its codes with.
 const STEAM: &[u8] = b"23456789BCDFGHJKMNPQRTVWXY";
 
@@ -87,7 +92,7 @@ impl Totp {
     /// (`key=…&step=…&size=…&otpHashMode=…`), or a bare base32 secret.
     pub fn parse(value: &str) -> Result<Totp, String> {
         let value = value.trim();
-        if value.to_ascii_lowercase().starts_with("otpauth:") {
+        if is_uri(value) {
             return Totp::uri(value);
         }
         if is_keeotp(value) {
@@ -148,7 +153,7 @@ impl Totp {
         let mut parts = settings.split(';').map(str::trim);
         totp.period = period(parts.next().unwrap_or(""))?;
         match parts.next().ok_or("TOTP Settings has no length")? {
-            "S" | "s" => totp.make_steam(),
+            length if length.eq_ignore_ascii_case(KEETRAY_STEAM) => totp.make_steam(),
             length => totp.digits = digits(length)?,
         }
         Ok(totp)
@@ -159,9 +164,9 @@ impl Totp {
     fn keepass<'a>(text: &dyn Fn(&str) -> Option<&'a str>) -> Option<Result<Totp, String>> {
         let secret = [
             (KEEPASS_SECRET, Encoding::Utf8),
-            ("TimeOtp-Secret-Hex", Encoding::Hex),
+            (KEEPASS_HEX, Encoding::Hex),
             (KEEPASS_BASE32, Encoding::Base32),
-            ("TimeOtp-Secret-Base64", Encoding::Base64),
+            (KEEPASS_BASE64, Encoding::Base64),
         ]
         .into_iter()
         .find_map(|(name, encoding)| text(name).map(|value| encoding.decode(value)))?;
@@ -263,6 +268,11 @@ fn period(value: &str) -> Result<u64, String> {
     value.trim().parse().ok().filter(|p| *p > 0).ok_or_else(|| "Bad period".into())
 }
 
+/// Whether `value` is an `otpauth:` URI (any case), not a bare secret.
+pub fn is_uri(value: &str) -> bool {
+    value.trim_start().get(..8).is_some_and(|scheme| scheme.eq_ignore_ascii_case("otpauth:"))
+}
+
 fn is_keeotp(value: &str) -> bool {
     url::form_urlencoded::parse(value.as_bytes()).any(|(name, _)| name.eq_ignore_ascii_case("key"))
 }
@@ -313,7 +323,7 @@ fn decode_secret(secret: &str) -> Result<Zeroizing<Vec<u8>>, String> {
 pub fn normalize(input: &str, title: &str) -> Result<String, String> {
     let input = input.trim();
     Totp::parse(input)?;
-    if input.to_ascii_lowercase().starts_with("otpauth:") || is_keeotp(input) {
+    if is_uri(input) || is_keeotp(input) {
         return Ok(input.to_string());
     }
     let secret: String = input.chars().filter(|c| !c.is_whitespace() && *c != '-').collect::<String>().to_ascii_uppercase();
@@ -332,21 +342,42 @@ pub fn portable(text: &str) -> Zeroizing<String> {
     }
 }
 
-/// The entry's TOTP as the editor shows it, looked for in KeePassXC's order
-/// so both apps show the same code: KeeTrayTOTP's pair (as a URI), then `otp`
-/// (as it is, even when this app cannot read it), then KeePass 2's attributes
-/// (as a URI). `None` when the entry has no TOTP.
-pub fn find(fields: &HashMap<String, Value<String>>) -> Option<Zeroizing<String>> {
+/// Where an entry keeps its TOTP (see [find]).
+enum Found<'a> {
+    /// What `otp` holds, as it is.
+    Otp(&'a str),
+    /// Read from KeeTrayTOTP's or KeePass 2's attributes.
+    Layout(Totp),
+}
+
+/// The entry's TOTP, looked for in KeePassXC's order so both apps show the
+/// same code: KeeTrayTOTP's pair, then `otp` (even what this app cannot
+/// read), then KeePass 2's attributes.
+fn locate(fields: &HashMap<String, Value<String>>) -> Option<Found<'_>> {
     let text = |name: &str| fields.get(name).map(|v| v.get().as_str()).filter(|v| !v.trim().is_empty());
     if let (Some(seed), Some(settings)) = (text(SEED), text(SETTINGS)) {
         if let Ok(totp) = Totp::keetray(seed, settings) {
-            return Some(totp.to_uri());
+            return Some(Found::Layout(totp));
         }
     }
     if let Some(otp) = text(fields::OTP) {
-        return Some(Zeroizing::new(otp.to_string()));
+        return Some(Found::Otp(otp));
     }
-    Totp::keepass(&text)?.ok().map(|totp| totp.to_uri())
+    Totp::keepass(&text)?.ok().map(Found::Layout)
+}
+
+/// The entry's TOTP as the editor shows it: what `otp` holds, or another
+/// layout's as a URI; `None` when the entry has none.
+pub fn find(fields: &HashMap<String, Value<String>>) -> Option<Zeroizing<String>> {
+    Some(match locate(fields)? {
+        Found::Otp(otp) => Zeroizing::new(otp.to_string()),
+        Found::Layout(totp) => totp.to_uri(),
+    })
+}
+
+/// Whether the entry has a TOTP, without copying its secret (the listing).
+pub fn has(fields: &HashMap<String, Value<String>>) -> bool {
+    locate(fields).is_some()
 }
 
 /// Whether an attribute belongs to KeeTrayTOTP's or KeePass 2's TOTP layout.
@@ -357,66 +388,68 @@ pub fn is_layout_field(name: &str) -> bool {
 /// Writes `typed` (checked to work) into the TOTP layouts `fields` has, as
 /// KeePassXC does, so the plugin that wrote each keeps working: KeeTrayTOTP's
 /// pair and KeePass 2's attributes where they can hold it, and removed where
-/// they cannot (KeeTrayTOTP has no algorithm, KeePass no Steam and at most 8
-/// digits); `otp` when the entry had it (`had_otp`) or nothing else holds the
-/// TOTP. Empty `typed` removes them all. A secret written in place of another
-/// keeps its protection; a new one is protected.
-pub fn write(fields: &mut HashMap<String, Value<String>>, typed: &str, title: &str, had_otp: bool) -> Result<(), String> {
+/// they cannot; `otp` when the entry has it or nothing else holds the TOTP.
+/// Empty `typed` removes them all. A secret written in place of another keeps
+/// its protection; a new one is protected.
+pub fn write(fields: &mut HashMap<String, Value<String>>, typed: &str, title: &str) -> Result<(), String> {
     let typed = typed.trim();
     if typed.is_empty() {
         fields.retain(|name, _| name != fields::OTP && !is_layout_field(name));
         return Ok(());
     }
     let totp = Totp::parse(typed)?;
-    let protected = |fields: &HashMap<String, Value<String>>, name: &str| fields.get(name).is_none_or(Value::is_protected);
-    let mut held = false;
-
-    if fields.contains_key(SEED) && fields.contains_key(SETTINGS) {
-        if totp.algorithm == Algorithm::Sha1 {
-            let length = if totp.steam { "S".to_string() } else { totp.digits.to_string() };
-            let seed = value(&totp.base32(), protected(fields, SEED));
-            fields.insert(SEED.into(), seed);
-            fields.insert(SETTINGS.into(), Value::unprotected(format!("{};{length}", totp.period)));
-            held = true;
-        } else {
-            fields.remove(SEED);
-            fields.remove(SETTINGS);
-        }
-    }
-
-    if fields.keys().any(|name| name.starts_with(KEEPASS_SECRET)) {
-        let was_protected = fields.iter().filter(|(name, _)| name.starts_with(KEEPASS_SECRET)).all(|(_, v)| v.is_protected());
-        // The optional ones are written where the entry had them or the
-        // value is not KeePass's default.
-        let had = |name: &str| fields.contains_key(name);
-        let settings = [
-            (KEEPASS_LENGTH, had(KEEPASS_LENGTH) || totp.digits != 6, totp.digits.to_string()),
-            (KEEPASS_PERIOD, had(KEEPASS_PERIOD) || totp.period != 30, totp.period.to_string()),
-            (KEEPASS_ALGORITHM, had(KEEPASS_ALGORITHM) || totp.algorithm != Algorithm::Sha1, format!("HMAC-SHA-{}", &totp.algorithm.name()[3..])),
-        ];
-        fields.retain(|name, _| !name.starts_with(KEEPASS));
-        if !totp.steam && totp.digits <= 8 {
-            fields.insert(KEEPASS_BASE32.into(), value(&totp.base32(), was_protected));
-            for (name, _, text) in settings.into_iter().filter(|(_, wanted, _)| *wanted) {
-                fields.insert(name.into(), Value::unprotected(text));
-            }
-            held = true;
-        }
-    }
-
-    if had_otp || !held {
-        let otp = value(&normalize(typed, title)?, protected(fields, fields::OTP));
-        fields.insert(fields::OTP.into(), otp);
+    let in_keetray = write_keetray(fields, &totp);
+    let in_keepass = write_keepass(fields, &totp);
+    if fields.contains_key(fields::OTP) || !(in_keetray || in_keepass) {
+        let protected = fields.get(fields::OTP).is_none_or(Value::is_protected);
+        fields.insert(fields::OTP.into(), value_of(&normalize(typed, title)?, protected));
     }
     Ok(())
 }
 
-fn value(text: &str, protected: bool) -> Value<String> {
-    if protected {
-        Value::protected(text.to_string())
-    } else {
-        Value::unprotected(text.to_string())
+/// KeeTrayTOTP's pair, where the entry has it; it holds no algorithm but
+/// SHA-1. Returns whether it holds the TOTP now.
+fn write_keetray(fields: &mut HashMap<String, Value<String>>, totp: &Totp) -> bool {
+    if !(fields.contains_key(SEED) && fields.contains_key(SETTINGS)) {
+        return false;
     }
+    if totp.algorithm != Algorithm::Sha1 {
+        fields.remove(SEED);
+        fields.remove(SETTINGS);
+        return false;
+    }
+    let length = if totp.steam { KEETRAY_STEAM.to_string() } else { totp.digits.to_string() };
+    let seed = value_of(&totp.base32(), fields[SEED].is_protected());
+    fields.insert(SEED.into(), seed);
+    fields.insert(SETTINGS.into(), Value::unprotected(format!("{};{length}", totp.period)));
+    true
+}
+
+/// KeePass 2's attributes, where the entry has a secret among them; they
+/// hold no Steam secret and at most 8 digits. Returns whether they hold the
+/// TOTP now.
+fn write_keepass(fields: &mut HashMap<String, Value<String>>, totp: &Totp) -> bool {
+    if !fields.keys().any(|name| name.starts_with(KEEPASS_SECRET)) {
+        return false;
+    }
+    let protected = fields.iter().filter(|(name, _)| name.starts_with(KEEPASS_SECRET)).all(|(_, v)| v.is_protected());
+    // The optional ones are written where the entry had them or the value is
+    // not KeePass's default.
+    let had = |name: &str| fields.contains_key(name);
+    let settings = [
+        (KEEPASS_LENGTH, had(KEEPASS_LENGTH) || totp.digits != 6, totp.digits.to_string()),
+        (KEEPASS_PERIOD, had(KEEPASS_PERIOD) || totp.period != 30, totp.period.to_string()),
+        (KEEPASS_ALGORITHM, had(KEEPASS_ALGORITHM) || totp.algorithm != Algorithm::Sha1, format!("HMAC-SHA-{}", &totp.algorithm.name()[3..])),
+    ];
+    fields.retain(|name, _| !name.starts_with(KEEPASS));
+    if totp.steam || totp.digits > 8 {
+        return false;
+    }
+    fields.insert(KEEPASS_BASE32.into(), value_of(&totp.base32(), protected));
+    for (name, _, text) in settings.into_iter().filter(|(_, wanted, _)| *wanted) {
+        fields.insert(name.into(), Value::unprotected(text));
+    }
+    true
 }
 
 #[cfg(test)]
@@ -496,7 +529,7 @@ mod tests {
     fn reads_every_layout_in_keepassxcs_order() {
         let hex = "3132333435363738393031323334353637383930";
         let base64 = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA=";
-        for secret in [(KEEPASS_SECRET, "12345678901234567890"), ("TimeOtp-Secret-Hex", hex), (KEEPASS_BASE32, RFC_SECRET), ("TimeOtp-Secret-Base64", base64)] {
+        for secret in [(KEEPASS_SECRET, "12345678901234567890"), (KEEPASS_HEX, hex), (KEEPASS_BASE32, RFC_SECRET), (KEEPASS_BASE64, base64)] {
             let keepass = attributes(&[secret, (KEEPASS_LENGTH, "8"), (KEEPASS_ALGORITHM, "HMAC-SHA-1")]);
             assert_eq!(code_of(&keepass, 59), "94287082", "{}", secret.0);
         }
@@ -542,7 +575,7 @@ mod tests {
         let text = |f: &HashMap<String, Value<String>>, name: &str| f.get(name).map(|v| v.get().clone());
         // KeeTrayTOTP and KeePass 2 hold it; no `otp` is added beside them.
         let mut fields = attributes(&[(SEED, "JBSWY3DP"), (SETTINGS, "30;6"), (KEEPASS_SECRET, "old"), (KEEPASS_PERIOD, "30")]);
-        write(&mut fields, "otpauth://totp/x?secret=GEZDGNBV&period=60&digits=8", "Bank", false).unwrap();
+        write(&mut fields, "otpauth://totp/x?secret=GEZDGNBV&period=60&digits=8", "Bank").unwrap();
         assert_eq!(text(&fields, SEED).as_deref(), Some("GEZDGNBV"));
         assert_eq!(text(&fields, SETTINGS).as_deref(), Some("60;8"));
         assert_eq!(names(&fields), [SEED, SETTINGS, KEEPASS_LENGTH, KEEPASS_PERIOD, KEEPASS_BASE32]);
@@ -552,22 +585,22 @@ mod tests {
 
         // A layout that cannot hold it goes, and `otp` takes the TOTP.
         let mut fields = attributes(&[(SEED, "JBSWY3DP"), (SETTINGS, "30;6"), (KEEPASS_BASE32, "JBSWY3DP"), (KEEPASS_LENGTH, "6")]);
-        write(&mut fields, "otpauth://totp/x?secret=GEZDGNBV&algorithm=SHA256&digits=10", "Bank", false).unwrap();
+        write(&mut fields, "otpauth://totp/x?secret=GEZDGNBV&algorithm=SHA256&digits=10", "Bank").unwrap();
         assert_eq!(names(&fields), [fields::OTP]);
         let mut fields = attributes(&[(KEEPASS_BASE32, "JBSWY3DP")]);
-        write(&mut fields, &format!("otpauth://totp/s?secret={STEAM_SECRET}&encoder=steam"), "Steam", false).unwrap();
+        write(&mut fields, &format!("otpauth://totp/s?secret={STEAM_SECRET}&encoder=steam"), "Steam").unwrap();
         assert_eq!(names(&fields), [fields::OTP]);
 
         // An entry with `otp` keeps it beside the others; a bare secret becomes a URI.
-        let mut fields = attributes(&[(SEED, "JBSWY3DP"), (SETTINGS, "30;6")]);
-        write(&mut fields, "GEZDGNBV", "Bank", true).unwrap();
+        let mut fields = attributes(&[(SEED, "JBSWY3DP"), (SETTINGS, "30;6"), (fields::OTP, "JBSWY3DP")]);
+        write(&mut fields, "GEZDGNBV", "Bank").unwrap();
         assert_eq!(text(&fields, fields::OTP).as_deref(), Some("otpauth://totp/Bank?secret=GEZDGNBV"));
         assert_eq!(text(&fields, SEED).as_deref(), Some("GEZDGNBV"));
 
         // Cleared, they all go; HOTP's attributes are not TOTP's.
         let mut fields = attributes(&[(SEED, "A"), (SETTINGS, "30;6"), (fields::OTP, "x"), (KEEPASS_BASE32, "A"), ("HmacOtp-Secret", "h")]);
-        write(&mut fields, " ", "Bank", true).unwrap();
+        write(&mut fields, " ", "Bank").unwrap();
         assert_eq!(names(&fields), ["HmacOtp-Secret"]);
-        assert!(write(&mut attributes(&[]), "nope!", "x", false).is_err());
+        assert!(write(&mut attributes(&[]), "nope!", "x").is_err());
     }
 }
