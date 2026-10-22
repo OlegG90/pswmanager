@@ -3,7 +3,7 @@
 //! an `otpauth://totp/` URI; the editor takes it as if it had been typed.
 
 use crate::otp;
-use image::{GrayImage, ImageReader, Limits};
+use image::{ImageReader, Limits};
 use std::io::Cursor;
 use zeroize::Zeroizing;
 
@@ -26,12 +26,14 @@ pub fn check_size(len: u64) -> Result<(), String> {
 /// wipe.
 pub fn from_image(bytes: &[u8]) -> Result<Zeroizing<String>, String> {
     check_size(bytes.len() as u64)?;
-    let unreadable = |_| "Not a picture PswManager can read (PNG or JPEG)".to_string();
-    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(unreadable)?;
+    const UNREADABLE: &str = "Not a picture PswManager can read (PNG or JPEG), or too big";
+    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|_| UNREADABLE.to_string())?;
     let mut limits = Limits::default();
     (limits.max_image_width, limits.max_image_height) = (Some(MAX_SIDE), Some(MAX_SIDE));
     reader.limits(limits);
-    from_gray(reader.decode().map_err(|_| "Not a picture PswManager can read (PNG or JPEG), or too big".to_string())?.to_luma8())
+    let gray = reader.decode().map_err(|_| UNREADABLE.to_string())?.to_luma8();
+    let (width, raw) = (gray.width() as usize, gray.as_raw());
+    read_codes(gray.width(), gray.height(), |x, y| raw[y * width + x])
 }
 
 /// The TOTP URI in an image as the clipboard holds it: `width` × `height`
@@ -41,24 +43,22 @@ pub fn from_rgba(width: u32, height: u32, rgba: &[u8]) -> Result<Zeroizing<Strin
     if width > MAX_SIDE || height > MAX_SIDE {
         return Err("The picture is too big to read for a QR code".into());
     }
-    let gray: Vec<u8> = rgba
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|&[r, g, b, a]| {
-            let luma = (u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114) / 1000;
-            ((luma * u32::from(a) + 255 * (255 - u32::from(a))) / 255) as u8
-        })
-        .collect();
-    from_gray(GrayImage::from_raw(width, height, gray).ok_or("The picture's size does not match its pixels")?)
+    let pixels = rgba.as_chunks::<4>().0;
+    if pixels.len() != width as usize * height as usize {
+        return Err("The picture's size does not match its pixels".into());
+    }
+    read_codes(width, height, |x, y| {
+        let [r, g, b, a] = pixels[y * width as usize + x].map(u32::from);
+        let luma = (r * 299 + g * 587 + b * 114) / 1000;
+        ((luma * a + 255 * (255 - a)) / 255) as u8
+    })
 }
 
 /// The first code in the picture that holds a TOTP URI; failing that, why the
 /// codes found do not (the most telling reason).
-fn from_gray(picture: GrayImage) -> Result<Zeroizing<String>, String> {
-    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(picture.width() as usize, picture.height() as usize, |x, y| {
-        picture.get_pixel(x as u32, y as u32).0[0]
-    });
+/// `gray` gives each pixel's brightness, read straight into the decoder.
+fn read_codes(width: u32, height: u32, gray: impl FnMut(usize, usize) -> u8) -> Result<Zeroizing<String>, String> {
+    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(width as usize, height as usize, gray);
     let mut why = "No QR code found in the picture".to_string();
     for grid in prepared.detect_grids() {
         let Ok((_, content)) = grid.decode() else { continue };
@@ -80,7 +80,7 @@ fn from_gray(picture: GrayImage) -> Result<Zeroizing<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::ImageEncoder;
+    use image::{GrayImage, ImageEncoder};
 
     /// `text` as a QR code: black modules four pixels wide on white, with
     /// the quiet zone around them.
