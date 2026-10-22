@@ -16,14 +16,19 @@ import androidx.credentials.provider.PendingIntentHandler
 import kotlin.concurrent.thread
 
 /**
- * Unlocking PswManager for the credential provider, outside the app's window
- * (#161): the fingerprint (the key sealed for biometric unlock) when it is
- * allowed, else the master password. The database is then unlocked in Rust
- * for the app too, and Android gets the provider's answer again, now
- * unlocked. Captured on screen only if the settings allow screenshots.
+ * Unlocking PswManager for another app, outside the app's window (#161): the
+ * fingerprint (the key sealed for biometric unlock) when it is allowed, else
+ * the master password. The database is then unlocked in Rust for the app too,
+ * and [done] answers what the other app asked for, now unlocked. Captured on
+ * screen only if the settings allow screenshots.
  */
-@RequiresApi(34)
-class UnlockActivity : AppCompatActivity() {
+abstract class UnlockScreen : AppCompatActivity() {
+  /** What the unlock is for, under the title. */
+  protected abstract val purpose: String
+
+  /** Unlocked: answers the request that opened the screen, and closes it. */
+  protected abstract fun done()
+
   private lateinit var password: EditText
   private lateinit var message: TextView
   private lateinit var unlockButton: Button
@@ -48,12 +53,12 @@ class UnlockActivity : AppCompatActivity() {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_VERTICAL
       setPadding(pad, pad, pad, pad)
-      addView(TextView(this@UnlockActivity).apply { text = "Unlock PswManager"; textSize = 22f })
-      addView(TextView(this@UnlockActivity).apply { text = "For a passkey or password another app asks for." })
+      addView(TextView(this@UnlockScreen).apply { text = "Unlock PswManager"; textSize = 22f })
+      addView(TextView(this@UnlockScreen).apply { text = purpose })
       addView(password)
       addView(message)
       addView(unlockButton)
-      if (offered) addView(Button(this@UnlockActivity).apply { text = "Use fingerprint"; setOnClickListener { askFingerprint() } })
+      if (offered) addView(Button(this@UnlockScreen).apply { text = "Use fingerprint"; setOnClickListener { askFingerprint() } })
       addView(cancel)
     })
     if (ProviderBridge.isUnlocked()) return done()
@@ -110,9 +115,15 @@ class UnlockActivity : AppCompatActivity() {
   private fun show(text: String) {
     message.text = text
   }
+}
+
+/** Unlocking for the credential provider: Android gets the provider's answer again, now unlocked. */
+@RequiresApi(34)
+class UnlockActivity : UnlockScreen() {
+  override val purpose = "For a passkey or password another app asks for."
 
   /** Unlocked: Android gets what the site or app asked for. */
-  private fun done() {
+  override fun done() {
     val result = Intent()
     val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
     val response = request?.let { PswmCredentialService.credentials(this, it) } ?: BeginGetCredentialResponse()

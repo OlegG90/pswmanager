@@ -6,6 +6,10 @@
          phone, as Android's pickers hide some folders (one named Data, say);
          never granted without the user turning it on. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <!-- Autofill (#236): the signing certificate of the app being filled, which
+         tells it apart from another app taking its package name. Android 11
+         hides other apps otherwise; PswManager reads only that app's. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -85,6 +89,30 @@
                 <data android:scheme="content" android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- PswManager as Android's autofill service (#236). -->
+        <service
+            android:name=".PswmAutofillService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+        <activity
+            android:name=".AutofillUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".AutofillLoginActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.pswm_android.Translucent" />
         <activity
             android:name=".UnlockActivity"
             android:exported="false"
