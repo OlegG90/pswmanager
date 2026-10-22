@@ -14,8 +14,9 @@ use pswm_core::browser::{Group, Login};
 use serde_json::{json, Map, Value};
 
 /// The KeePassXC version reported: the extension turns its features on by it.
-/// 2.7.6 has the password generator and new TOTP, not passkeys (2.7.7, #285).
-pub const VERSION: &str = "2.7.6";
+/// 2.7.10 has the password generator, the new TOTP, and passkeys with a
+/// default group (#285).
+pub const VERSION: &str = "2.7.10";
 
 /// KeePassXC's error codes, as the extension knows them.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,6 +33,7 @@ enum Failure {
     NoGroups = 16,
     CannotCreateGroup = 17,
     NoValidUuid = 18,
+    EmptyPublicKey = 24,
 }
 
 impl Failure {
@@ -49,6 +51,7 @@ impl Failure {
             Failure::NoGroups => "No groups found",
             Failure::CannotCreateGroup => "Cannot create new group",
             Failure::NoValidUuid => "No valid UUID provided",
+            Failure::EmptyPublicKey => "Empty public key",
         }
     }
 }
@@ -76,6 +79,12 @@ pub trait Host {
     fn save_login(&self, uuid: Option<&str>, url: &str, login: &str, password: &str, group: Option<&str>) -> bool;
     fn generate_password(&self) -> Option<String>;
     fn lock(&self);
+    /// Signs in with a passkey for a page (`passkeys-get`): WebAuthn's
+    /// `PublicKeyCredential` as JSON, or `{ "errorCode": … }`.
+    fn passkeys_get(&self, public_key: Value, origin: &str, related: &[String]) -> Value;
+    /// Makes a passkey for a page (`passkeys-register`), kept in group `group`
+    /// (else the default one): as [Host::passkeys_get] answers.
+    fn passkeys_register(&self, public_key: Value, origin: &str, related: &[String], group: Option<&str>) -> Value;
 }
 
 /// One extension's connection: its temporary key and ours, and the database
@@ -176,7 +185,8 @@ impl Session {
         let text = |name: &str| message.get(name).and_then(Value::as_str).unwrap_or_default();
         let hash = host.hash().unwrap_or_default();
         let associated = self.associated.as_deref() == Some(hash.as_str());
-        let needs_association = ["get-logins", "set-login", "get-database-groups", "create-new-group", "get-totp", "lock-database"];
+        let needs_association =
+            ["get-logins", "set-login", "get-database-groups", "create-new-group", "get-totp", "lock-database", "passkeys-get", "passkeys-register"];
         if needs_association.contains(&action) && !associated {
             return error(action, Failure::AssociationFailed);
         }
@@ -250,6 +260,18 @@ impl Session {
                 Some((name, uuid)) => self.answer(action, &nonce, json!({ "name": name, "uuid": uuid })),
                 None => error(action, Failure::CannotCreateGroup),
             },
+            "passkeys-get" | "passkeys-register" => {
+                let Some(public_key) = message.get("publicKey").filter(|k| k.as_object().is_some_and(|o| !o.is_empty())).cloned() else {
+                    return error(action, Failure::EmptyPublicKey);
+                };
+                let related: Vec<String> = message.get("relatedOrigins").and_then(Value::as_array).into_iter().flatten().filter_map(|o| o.as_str().map(String::from)).collect();
+                let response = if action == "passkeys-get" {
+                    host.passkeys_get(public_key, text("origin"), &related)
+                } else {
+                    host.passkeys_register(public_key, text("origin"), &related, Some(text("groupName")).filter(|g| !g.is_empty()))
+                };
+                self.answer(action, &nonce, json!({ "response": response }))
+            }
             "lock-database" => {
                 host.lock();
                 self.associated = None;
@@ -331,6 +353,12 @@ mod tests {
             Some("generated".into())
         }
         fn lock(&self) {}
+        fn passkeys_get(&self, _public_key: Value, origin: &str, _related: &[String]) -> Value {
+            json!({ "id": "credential", "origin": origin })
+        }
+        fn passkeys_register(&self, _public_key: Value, _origin: &str, _related: &[String], group: Option<&str>) -> Value {
+            json!({ "errorCode": 22, "group": group })
+        }
     }
 
     fn fake(unlocked: bool) -> Fake {
@@ -421,6 +449,12 @@ mod tests {
         assert_eq!(host.saved.borrow().as_slice(), ["https://mail.example/"]);
         let generated = extension.send(&mut session, &host, json!({ "action": "generate-password" }));
         assert_eq!(generated["password"], "generated");
+        let empty = extension.send(&mut session, &host, json!({ "action": "passkeys-get", "publicKey": {}, "origin": "https://example.com" }));
+        assert_eq!(empty["errorCode"], "24");
+        let signed = extension.send(&mut session, &host, json!({ "action": "passkeys-get", "publicKey": { "challenge": "x" }, "origin": "https://example.com" }));
+        assert_eq!(signed["response"], json!({ "id": "credential", "origin": "https://example.com" }));
+        let refused = extension.send(&mut session, &host, json!({ "action": "passkeys-register", "publicKey": { "challenge": "x" }, "origin": "https://example.com", "groupName": "Mine" }));
+        assert_eq!(refused["response"], json!({ "errorCode": 22, "group": "Mine" }), "an error goes inside the response");
     }
 
     #[test]

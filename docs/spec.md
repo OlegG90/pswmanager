@@ -470,8 +470,7 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   a named pipe of this Windows user's, `\\.\pipe\pswmanager-browser-<user>` (only this user and the system
   may open it; no other PC). PswManager not running: it is started hidden in the tray, locked. The messages are
   KeePassXC's: temporary X25519 keys swapped in the clear, then every message NaCl `crypto_box`. PswManager
-  reports KeePassXC version 2.7.6, so the extension offers the password generator and TOTP but not passkeys
-  (#285).
+  reports KeePassXC version 2.7.10, so the extension offers the password generator, TOTP and passkeys.
 - **Connecting an extension** (`associate`): the window asks *A browser extension asks to connect to
   "<database>"* and a name for the connection (a name in use is replaced after asking; Cancel refuses).
   The extension's identification key is kept in the database file as KeePassXC keeps it, so an extension
@@ -501,8 +500,27 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 - **Locked**: the extension is told the database is not open; when it asks to unlock (the user clicked
   it), the window comes up to unlock. Every connected extension is told when the database locks or
   unlocks; `lock-database` (from a connected extension) locks it.
-- Not done: passkeys through the extension (#285), `request-autotype`, HTTP authentication dialogs,
-  KeePassXC's per-entry *Allow* question.
+- **Passkeys** (#285), when the extension's own *Passkeys* option is on (off by default): the extension
+  takes over the page's `navigator.credentials` and asks PswManager, which answers as KeePassXC does, with
+  the passkeys kept as KeePassXC keeps them (made and signed by the core, ES256, as on Android).
+  - Both requests are checked as KeePassXC checks them: an https page on a named host, and a site (RP id)
+    that is the page's host or a parent of it, or any site that lists the page among its related
+    origins (the extension reads them from the site). To make one: a challenge of 16 characters or more,
+    a user id of 1 to 64 bytes, and ES256 among the algorithms the site lists. The client data is made
+    here, for the page's origin.
+  - **Signing in** (`passkeys-get`): the site's passkeys among the entries in use (only those the
+    request allows, when it names some). The window asks *Sign in to <site> with a passkey:*; choosing
+    one is the user's verification, as in KeePassXC. With none in the database, the extension falls back
+    to the browser's own WebAuthn (Windows Hello, a phone, a key) when its fallback option is on (on by
+    default).
+  - **Making one** (`passkeys-register`): refused when a credential the site excludes is in the database
+    already. The window asks where to keep it: a new entry (titled with the site's name, its user name
+    and `https://<site>`, in the group the extension names, else `KeePassXC-Browser Passkeys`), or one of
+    the site's entries that has no passkey yet. It is saved and synced like an edit.
+  - Refusals and Cancel answer KeePassXC's error codes, so the extension says why or falls back. Not
+    done: PRF and other WebAuthn extensions (answered empty), keys other than ES256 (the site is
+    refused), passkeys on localhost or `file://`.
+- Not done: `request-autotype`, HTTP authentication dialogs, KeePassXC's per-entry *Allow* question.
 
 ## Security behaviour
 

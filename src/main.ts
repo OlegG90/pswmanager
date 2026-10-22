@@ -2,7 +2,7 @@ import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { siteIconCache } from './site-icons'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type AutoTypeAsk, type BrowserAssociate, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type AutoTypeAsk, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { closeMenus, contextMenu, menuButton, type MenuItem } from './menu'
@@ -16,7 +16,7 @@ import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES
 import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { chooseToType } from './auto-type'
-import { answerAssociate, answerUpdate } from './browser'
+import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
@@ -1544,6 +1544,8 @@ listen<AutoTypeAsk>('auto-type', (e) => offerAutoType(e.payload))
 // The browser extension's requests that need the user (#273).
 listen<BrowserAssociate>('browser-associate', (e) => answerAssociate(e.payload).catch((err) => notify(String(err))))
 listen<BrowserUpdate>('browser-update', (e) => answerUpdate(e.payload).catch((err) => notify(String(err))))
+listen<BrowserPasskeyGet>('browser-passkey-get', (e) => answerPasskeyGet(e.payload).catch((err) => notify(String(err))))
+listen<BrowserPasskeyRegister>('browser-passkey-register', (e) => answerPasskeyRegister(e.payload).catch((err) => notify(String(err))))
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))

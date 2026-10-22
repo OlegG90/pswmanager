@@ -1,11 +1,12 @@
 //! The app's side of browser integration (#273): the open database answers the
 //! extension ([crate::browser::Host]), and what needs the user (connecting an
-//! extension, replacing a saved login, unlocking) is asked in the window.
+//! extension, replacing a saved login, choosing or making a passkey (#285),
+//! unlocking) is asked in the window.
 
 use crate::browser::{self, Host, Session};
 use crate::native_messaging::{self, Clients};
 use pswm_core::browser::{Group, Login};
-use pswm_core::generator;
+use pswm_core::{generator, webauthn};
 use pswm_core::session::Session as Vault;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
@@ -155,6 +156,63 @@ impl Host for AppHost {
     fn lock(&self) {
         crate::lock_now(&self.0);
     }
+
+    fn passkeys_get(&self, mut public_key: Value, origin: &str, related: &[String]) -> Value {
+        let rp_id = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, false) {
+            Ok(rp_id) => rp_id,
+            Err(refusal) => return passkey_error(refusal as u8),
+        };
+        let request = public_key.to_string();
+        let allowed = webauthn::sign_in_scope(&request).map(|scope| scope.allowed).unwrap_or_default();
+        let Ok(offered) = self.vault().read(|v| v.passkeys_for(&rp_id, &allowed)) else { return passkey_error(DATABASE_NOT_OPENED) };
+        // None here: the extension falls back to the browser's own passkeys.
+        if offered.is_empty() {
+            return passkey_error(NO_LOGINS_FOUND);
+        }
+        // Choosing in the window is the user's verification, as in KeePassXC.
+        let chosen = ask(&self.0, "browser-passkey-get", json!({ "site": rp_id, "choices": offered }));
+        let Some(id) = chosen.as_str().filter(|id| offered.iter().any(|c| c.id == *id)) else { return passkey_error(CANCELLED) };
+        let caller = webauthn::Caller::Page { origin: origin.to_string() };
+        match self.vault().read(|v| v.sign_with_passkey(id, &request, &caller)) {
+            Ok(Ok(credential)) => serde_json::from_str(&credential).unwrap_or_else(|_| passkey_error(UNKNOWN)),
+            _ => passkey_error(UNKNOWN),
+        }
+    }
+
+    fn passkeys_register(&self, mut public_key: Value, origin: &str, related: &[String], group: Option<&str>) -> Value {
+        let rp_id = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, true) {
+            Ok(rp_id) => rp_id,
+            Err(refusal) => return passkey_error(refusal as u8),
+        };
+        let request = public_key.to_string();
+        let excluded = webauthn::excluded_ids(&request);
+        let found = self.vault().read(|v| (!excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty(), v.entries_for_new_passkey(&rp_id)));
+        let Ok((already, entries)) = found else { return passkey_error(DATABASE_NOT_OPENED) };
+        if already {
+            return passkey_error(CREDENTIAL_IS_EXCLUDED);
+        }
+        let user = public_key["user"]["name"].as_str().unwrap_or_default();
+        let answer = ask(&self.0, "browser-passkey-register", json!({ "site": rp_id, "user": user, "entries": entries }));
+        // Null: cancelled; `{ "entry": null }`: a new entry; `{ "entry": id }`: that entry.
+        let Some(entry) = answer.get("entry") else { return passkey_error(CANCELLED) };
+        let entry = entry.as_str().filter(|id| entries.iter().any(|c| c.id == *id));
+        let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin: origin.to_string() }) else { return passkey_error(UNKNOWN) };
+        let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return passkey_error(UNKNOWN) };
+        crate::show_changes(&self.0, vec![id]);
+        serde_json::from_str(&made.response).unwrap_or_else(|_| passkey_error(UNKNOWN))
+    }
+}
+
+/// KeePassXC's error codes a passkey answer may carry.
+const DATABASE_NOT_OPENED: u8 = 1;
+const NO_LOGINS_FOUND: u8 = 15;
+const CREDENTIAL_IS_EXCLUDED: u8 = 21;
+const CANCELLED: u8 = 22;
+const UNKNOWN: u8 = 31;
+
+/// A passkey answer that refuses, as KeePassXC writes it.
+fn passkey_error(code: u8) -> Value {
+    json!({ "errorCode": code })
 }
 
 /// Registers PswManager with the browsers and serves the extension, when the
