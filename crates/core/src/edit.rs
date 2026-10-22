@@ -62,7 +62,8 @@ pub struct EntryData {
     pub password: String,
     pub url: String,
     pub notes: String,
-    /// The TOTP secret or `otpauth://` URI; empty for none.
+    /// The TOTP as [otp::find] gives it: what `otp` holds, or another
+    /// layout's as an `otpauth://` URI; empty for none.
     pub otp: String,
     pub tags: Vec<String>,
     /// Group names from the top, without the root group.
@@ -214,7 +215,7 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
         password: text(fields::PASSWORD),
         url: text(fields::URL),
         notes: text(fields::NOTES),
-        otp: text(fields::OTP),
+        otp: otp::find(&entry.fields).map(|t| t.to_string()).unwrap_or_default(),
         tags: entry.tags.clone(),
         group,
         fields: additional,
@@ -348,13 +349,6 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     let icon = IconSetting::of(db, &data.icon)?;
     let expiry = data.expires.as_deref().map(parse_expiry).transpose()?;
     let existing = id.and_then(|id| db.entry(id));
-    // A TOTP value the entry already has is kept as it is, even one this app
-    // cannot read; a new one must work and is stored as a URI.
-    let otp = match (data.otp.trim(), existing.as_ref().and_then(|e| e.get(fields::OTP))) {
-        ("", _) => None,
-        (_, Some(current)) if current == data.otp => Some(data.otp.clone()),
-        (value, _) => Some(otp::normalize(value, &data.title)?),
-    };
     // Group paths are names, which need not be unique or tidy: an entry whose
     // path did not change stays in its own group.
     let current_group = existing.as_ref().map(|e| e.parent().id()).filter(|g| path_of(db, *g) == data.group);
@@ -365,7 +359,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     };
 
     let Some(id) = id.filter(|id| db.entry(*id).is_some()) else {
-        let wanted = wanted_fields(db, None, data, otp)?;
+        let wanted = wanted_fields(db, None, data)?;
         let mut parent = db.group_mut(group).ok_or("The group is gone")?;
         let mut entry = match id {
             Some(id) => parent.add_entry_with_id(id).map_err(|e| e.to_string())?,
@@ -392,7 +386,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     };
 
     let entry = db.entry(id).expect("checked above");
-    let wanted = wanted_fields(db, Some(&entry), data, otp)?;
+    let wanted = wanted_fields(db, Some(&entry), data)?;
     let moved = entry.parent().id() != group;
     let icon_changed = icon_choice(&entry) != data.icon;
     let expiry_changed = expiry_time(&entry.times) != expiry;
@@ -655,13 +649,9 @@ fn check_field_names(fields: &[FieldData]) -> Result<(), String> {
 }
 
 /// The entry's fields as the editor wants them, each keeping whether it was
-/// protected; a new password or TOTP secret is protected.
-fn wanted_fields(
-    db: &Database,
-    entry: Option<&EntryRef<'_>>,
-    data: &EntryData,
-    otp: Option<String>,
-) -> Result<HashMap<String, Value<String>>, String> {
+/// protected; a new password or TOTP secret is protected. A changed TOTP
+/// goes into the layouts the entry has ([otp::write]).
+fn wanted_fields(db: &Database, entry: Option<&EntryRef<'_>>, data: &EntryData) -> Result<HashMap<String, Value<String>>, String> {
     let protection = db.meta.memory_protection.as_ref();
     let was_protected = |name: &str| entry.and_then(|e| e.fields.get(name)).map(Value::is_protected);
     let standard = [
@@ -682,17 +672,29 @@ fn wanted_fields(
         let protected = was_protected(name).unwrap_or(protect_by_default);
         wanted.insert(name.to_string(), value_of(value, protected));
     }
-    if let Some(otp) = otp {
-        let protected = was_protected(fields::OTP).unwrap_or(true);
-        wanted.insert(fields::OTP.to_string(), value_of(&otp, protected));
+    if let Some(otp) = entry.and_then(|e| e.fields.get(fields::OTP)) {
+        wanted.insert(fields::OTP.to_string(), otp.clone());
     }
     for field in &data.fields {
         wanted.insert(field.name.clone(), value_of(&field.value, field.protected));
     }
+    // Against the TOTP as the editor was shown it (see [read]), or for a new
+    // entry as its fields hold it (one another database had, or none): when
+    // it did not change, its attributes stay as they are, even a value this
+    // app cannot read; a changed one must work.
+    let typed = data.otp.trim();
+    let shown = match entry {
+        Some(entry) => otp::find(&entry.fields),
+        None if typed.is_empty() => None,
+        None => otp::find(&wanted),
+    };
+    if typed != shown.as_deref().map_or("", |s| s.trim()) {
+        otp::write(&mut wanted, typed, &data.title)?;
+    }
     Ok(wanted)
 }
 
-fn value_of(value: &str, protected: bool) -> Value<String> {
+pub(crate) fn value_of(value: &str, protected: bool) -> Value<String> {
     if protected {
         Value::protected(value.to_string())
     } else {
@@ -1811,6 +1813,48 @@ mod tests {
         assert!(otp.is_protected());
         assert_eq!(otp.get(), "otpauth://totp/Site?secret=JBSWY3DP");
         assert!(apply(&mut db, None, &with("x", |d| d.otp = "bad!".into()), &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn totp_in_other_layouts_is_shown_and_written_back_there() {
+        let mut db = Database::new();
+        let keepass = |name: &str, value: &str| FieldData { name: name.into(), value: value.into(), protected: true };
+        let made = with("Bank", |d| d.fields = vec![keepass("TimeOtp-Secret-Base32", "JBSWY3DP"), keepass("TimeOtp-Length", "8")]);
+        let id = apply(&mut db, None, &made, &HashSet::new()).unwrap();
+        let read_back = |db: &Database| read(&db.entry(id).unwrap(), Vec::new());
+        let data = read_back(&db);
+        assert_eq!(data.otp, "otpauth://totp/?secret=JBSWY3DP&digits=8");
+        assert!(!db.entry(id).unwrap().fields.contains_key(fields::OTP));
+
+        // Saved untouched, or with another title, the attributes stay as they were.
+        let edited = |db: &Database, change: fn(&mut EntryData)| {
+            let mut data = read_back(db);
+            change(&mut data);
+            data
+        };
+        let renamed = edited(&db, |d| d.title = "Bank 2".into());
+        apply(&mut db, Some(id), &renamed, &HashSet::new()).unwrap();
+        assert_eq!(db.entry(id).unwrap().get("TimeOtp-Length"), Some("8"));
+        assert!(!db.entry(id).unwrap().fields.contains_key(fields::OTP));
+
+        // A changed TOTP goes back into KeePass 2's attributes; one they
+        // cannot hold goes to `otp` instead.
+        let changed = edited(&db, |d| d.otp = "GEZDGNBV".into());
+        apply(&mut db, Some(id), &changed, &HashSet::new()).unwrap();
+        let entry = db.entry(id).unwrap();
+        assert_eq!((entry.get("TimeOtp-Secret-Base32"), entry.get("TimeOtp-Length")), (Some("GEZDGNBV"), Some("6")));
+        assert!(!entry.fields.contains_key(fields::OTP));
+        assert_eq!(history_len(&db, id), 2);
+        let steam = edited(&db, |d| d.otp = "otpauth://totp/s?secret=GEZDGNBV&encoder=steam".into());
+        apply(&mut db, Some(id), &steam, &HashSet::new()).unwrap();
+        let entry = db.entry(id).unwrap();
+        assert_eq!(entry.get(fields::OTP), Some("otpauth://totp/s?secret=GEZDGNBV&encoder=steam"));
+        assert!(!entry.fields.keys().any(|name| name.starts_with("TimeOtp-")));
+
+        // Cleared, the TOTP is gone whatever held it.
+        let cleared = edited(&db, |d| d.otp.clear());
+        apply(&mut db, Some(id), &cleared, &HashSet::new()).unwrap();
+        assert_eq!(read_back(&db).otp, "");
     }
 
     #[test]

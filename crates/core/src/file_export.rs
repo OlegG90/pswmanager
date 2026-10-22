@@ -6,6 +6,7 @@
 //! wiped when dropped, written only where the user chooses, and never logged.
 
 use crate::edit::{passkey, STANDARD};
+use crate::otp;
 use keepass::db::{fields, EntryRef};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -74,17 +75,20 @@ pub fn write_new(path: &Path, shown: &str, content: &[u8]) -> Result<(), String>
 /// (browsers, Bitwarden and 1Password read them) and the TOTP.
 pub fn csv<'a>(entries: impl Iterator<Item = EntryRef<'a>>) -> Export {
     const HEADER: &str = "name,url,username,password,note,totp\r\n";
-    const COLUMNS: [&str; 6] = [fields::TITLE, fields::URL, fields::USERNAME, fields::PASSWORD, fields::NOTES, fields::OTP];
+    const COLUMNS: [&str; 5] = [fields::TITLE, fields::URL, fields::USERNAME, fields::PASSWORD, fields::NOTES];
     let entries: Vec<EntryRef<'a>> = entries.collect();
+    // The TOTP in whichever layout the entry keeps it, as more apps read it.
+    let totps: Vec<Zeroizing<String>> = entries.iter().map(|e| otp::find(&e.fields).map(|t| otp::portable(&t)).unwrap_or_default()).collect();
     // At its full size at once: a string that grows leaves copies of the
     // secrets it held behind, which nothing wipes.
-    let most = entries.iter().map(|e| COLUMNS.iter().map(|c| 2 * e.get(c).map_or(0, str::len) + 3).sum::<usize>() + 2).sum::<usize>();
+    let cell_size = |text: &str| 2 * text.len() + 3;
+    let most = entries.iter().zip(&totps).map(|(e, totp)| COLUMNS.iter().map(|c| cell_size(e.get(c).unwrap_or(""))).sum::<usize>() + cell_size(totp) + 2).sum::<usize>();
     let mut content = Zeroizing::new(String::with_capacity(HEADER.len() + most));
     content.push_str(HEADER);
     let (mut passkeys, mut with_fields, mut with_files) = (0, 0, 0);
-    for entry in &entries {
-        let cells = COLUMNS.map(|c| entry.get(c).unwrap_or(""));
-        for (n, cell) in cells.iter().enumerate() {
+    for (entry, totp) in entries.iter().zip(&totps) {
+        let cells = COLUMNS.map(|c| entry.get(c).unwrap_or("")).into_iter().chain([totp.as_str()]);
+        for (n, cell) in cells.enumerate() {
             if n > 0 {
                 content.push(',');
             }

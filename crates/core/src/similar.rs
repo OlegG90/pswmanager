@@ -339,6 +339,11 @@ fn take(into: &mut EntryData, from: &EntryData) -> bool {
         if both_passkeys && field.name.starts_with(passkey::PREFIX) {
             continue;
         }
+        // Its TOTP came over as `from.otp`; its layout's attributes would
+        // shadow the kept entry's own (see [otp::find]).
+        if otp::is_layout_field(&field.name) {
+            continue;
+        }
         match into.fields.iter().find(|f| f.name == field.name) {
             Some(ours) if ours.value == field.value => {}
             None => into.fields.push(field.clone()),
@@ -424,6 +429,29 @@ mod tests {
 
     fn field(db: &Database, id: EntryId, name: &str) -> Option<String> {
         db.entry(id).unwrap().fields.get(name).map(|v| v.get().clone())
+    }
+
+    #[test]
+    fn a_totp_in_another_layout_comes_over_as_the_kept_entrys_own() {
+        let mut db = Database::new();
+        let tray = |e: &mut keepass::db::EntryMut<'_>| {
+            e.set_protected("TOTP Seed", "GEZDGNBV");
+            e.set_unprotected("TOTP Settings", "30;6");
+        };
+        let keep = add(&mut db, "Bank", "https://bank.example.com", |e| e.set_protected(fields::OTP, "otpauth://totp/Bank?secret=JBSWY3DP"));
+        let other = add(&mut db, "Bank app", "https://bank.example.com", tray);
+        let empty = add(&mut db, "Shop", "https://shop.example.com", |_| {});
+        let shop = add(&mut db, "Shop 2", "https://shop.example.com", tray);
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[other], &hidden).unwrap();
+        merge(&mut db, empty, &[shop], &hidden).unwrap();
+
+        // The kept entry's own TOTP stays its TOTP; the other's is a field.
+        assert_eq!(field(&db, keep, fields::OTP).as_deref(), Some("otpauth://totp/Bank?secret=JBSWY3DP"));
+        assert_eq!(field(&db, keep, "TOTP Seed"), None);
+        assert_eq!(field(&db, keep, "TOTP (Bank app)").as_deref(), Some("otpauth://totp/?secret=GEZDGNBV"));
+        // Without one of its own, the kept entry takes the other's.
+        assert_eq!(otp::find(&db.entry(empty).unwrap().fields).unwrap().as_str(), "otpauth://totp/?secret=GEZDGNBV");
     }
 
     #[test]
