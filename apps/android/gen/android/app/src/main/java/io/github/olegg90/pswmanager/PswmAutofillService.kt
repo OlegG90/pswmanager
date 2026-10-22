@@ -71,25 +71,26 @@ class PswmAutofillService : AutofillService() {
    * unlocks if need be and asks where they go.
    */
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-    val structure = request.fillContexts.lastOrNull()?.structure ?: return callback.onFailure("There is no password to save")
-    val fields = AutofillFields.of(structure)
-    val password = fields?.password?.let { AutofillFields.text(structure, it) }
+    val fields = request.fillContexts.lastOrNull()?.structure?.let { AutofillFields.of(it) }
+    val password = fields?.passwordText
     if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
-    val username = request.fillContexts.asReversed().firstNotNullOfOrNull { context ->
-      AutofillFields.of(context.structure)
-        ?.takeIf { it.packageName == fields.packageName && it.webDomain == fields.webDomain }
-        ?.username?.let { AutofillFields.text(context.structure, it) }
-        ?.takeIf { it.isNotEmpty() }
-    }.orEmpty()
     val save = Intent(this, AutofillSaveActivity::class.java)
       .putFields(fields, caller)
-      .putExtra(EXTRA_TYPED_USERNAME, username)
+      .putExtra(EXTRA_TYPED_USERNAME, typedUsername(request, fields))
       .putExtra(EXTRA_TYPED_PASSWORD, password)
     // Immutable and once: nothing is added to it, and the password in it is not sent twice.
     val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
     callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
   }
+
+  /** The user name typed beside the password, else in the latest earlier step on the same page. */
+  private fun typedUsername(request: SaveRequest, fields: AutofillFields): String =
+    fields.usernameText?.ifEmpty { null } ?: request.fillContexts.dropLast(1).asReversed().asSequence()
+      .mapNotNull { AutofillFields.of(it.structure) }
+      .filter { it.packageName == fields.packageName && it.webDomain == fields.webDomain }
+      .firstNotNullOfOrNull { it.usernameText?.ifEmpty { null } }
+      .orEmpty()
 
   companion object {
     /**
@@ -155,8 +156,8 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_CERTIFICATE = "certificate"
 
     /** The user name and password typed in, for [AutofillSaveActivity]. */
-    const val EXTRA_TYPED_USERNAME = "typedUsername"
-    const val EXTRA_TYPED_PASSWORD = "typedPassword"
+    internal const val EXTRA_TYPED_USERNAME = "typedUsername"
+    internal const val EXTRA_TYPED_PASSWORD = "typedPassword"
 
     private fun Intent.putFields(fields: AutofillFields, caller: Caller): Intent = putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)

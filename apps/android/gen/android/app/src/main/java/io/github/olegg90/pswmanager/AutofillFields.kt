@@ -11,6 +11,8 @@ import android.view.autofill.AutofillId
  * password fields, the app's package, and the web domain (with its scheme)
  * of the page they are on when the screen is a page in a browser. Either
  * field may be missing: a sign-in in two steps asks for the user name first.
+ * Read from a screen, the fields also hold their text: what the user typed
+ * in, when Android asks to save (it puts the latest values into the screen).
  */
 class AutofillFields(
   val packageName: String,
@@ -18,6 +20,8 @@ class AutofillFields(
   val webScheme: String?,
   val username: AutofillId?,
   val password: AutofillId?,
+  val usernameText: String? = null,
+  val passwordText: String? = null,
 ) {
   /** The fields to fill, the user name first. */
   val ids: List<AutofillId> get() = listOfNotNull(username, password)
@@ -41,7 +45,7 @@ class AutofillFields(
         val here = node.webDomain?.takeIf { it.isNotEmpty() }?.let { Page(it, node.webScheme) } ?: page
         val id = node.autofillId
         if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
-          val field = Field(id, here)
+          val field = Field(id, here, node.autofillValue?.takeIf { it.isText }?.textValue?.toString())
           when (kind(node)) {
             Kind.PASSWORD -> if (password == null) password = field
             Kind.USERNAME -> if (username == null) username = field
@@ -55,24 +59,13 @@ class AutofillFields(
       val pass = password
       val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       val page = (pass ?: user ?: return null).page
-      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id)
-    }
-
-    /**
-     * The text in field `id` of `structure`, or null. When Android asks to
-     * save, the structure holds the latest values: what the user typed in.
-     */
-    fun text(structure: AssistStructure, id: AutofillId): String? {
-      fun find(node: ViewNode): ViewNode? =
-        if (node.autofillId == id) node else (0 until node.childCount).firstNotNullOfOrNull { find(node.getChildAt(it)) }
-      val node = (0 until structure.windowNodeCount).firstNotNullOfOrNull { find(structure.getWindowNodeAt(it).rootViewNode) }
-      return node?.autofillValue?.takeIf { it.isText }?.textValue?.toString()
+      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, pass?.text)
     }
 
     /** The page a field is on: its web domain and scheme. */
     private data class Page(val domain: String, val scheme: String?)
 
-    private class Field(val id: AutofillId, val page: Page?)
+    private class Field(val id: AutofillId, val page: Page?, val text: String?)
 
     // Lower case, as the hints are compared (`emailAddress` among them).
     private val PASSWORD_HINTS = setOf(View.AUTOFILL_HINT_PASSWORD, "current-password", "new-password").map { it.lowercase() }.toSet()
