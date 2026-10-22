@@ -122,11 +122,15 @@ export function contextMenu(items: MenuItem[], x: number, y: number, back: HTMLE
   wrap.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`
   wrap.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight - 4))}px`
   const unwatch = closeOutside(wrap, close)
+  let closed = false
   function close() {
-    if (!wrap.isConnected) return
-    wrap.remove()
+    // Removing the menu takes the focus from it, and its focusout calls this
+    // again while it is still in the page: closed first, it is removed once.
+    if (closed) return
+    closed = true
     unwatch()
     if (closeOpen === close) closeOpen = null
+    wrap.remove()
   }
   closeOpen = close
   wrap.addEventListener('focusout', (e) => {
