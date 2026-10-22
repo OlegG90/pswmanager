@@ -29,14 +29,14 @@ things that come in later stages (the *Backup* settings tab, Templates, a databa
 ### Role
 
 At first PswManager **complements** Keepass2Android on the phone: quick search, viewing and copying, and
-(from stage A2) editing, and filling in passwords in other apps and browsers (*Autofill*, #236).
+(from stage A2) editing, and filling in and saving passwords in other apps and browsers (*Autofill*, #236, #270).
 Keepass2Android stays for what PswManager does not do yet.
 Both open the same file in the same store and merge each other's changes. Replacing Keepass2Android
 completely is a goal for later stages.
 
 ### Out of scope for now
 
-Saving a login typed into another app through autofill (#236 fills only), several databases in the list (one
+Several databases in the list (one
 database on the phone), backup, the Templates
 group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
 Importing from another password manager (#152) and exporting to one (#153) are in (*Screens*); SafeInCloud's
@@ -384,8 +384,17 @@ row, as the phone shows autofill).
   database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
   no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
   fingerprint is not asked again: the database is unlocked, as in the app.
-- **Not yet:** saving a login typed into another app (Android's *Save to PswManager?*), inline offers in
-  the keyboard, and filling other fields (cards, addresses, TOTP codes).
+- **Saving** (#270): a password typed into a screen PswManager offered for (locked or not) is offered to
+  save once the screen is done with (Android's *Save to PswManager?*, when the app's screen closes or a
+  page's fields go), with the user name typed beside it, or in an earlier step of the same sign-in. A
+  screen with no password field offers nothing to save; nor does a login filled from PswManager unchanged.
+  *Save* opens PswManager's save screen: unlocked first if need be (as above), then who asks and where
+  the login goes, as when an app offers one through Credential Manager (*Credential provider*): a **new
+  entry** (named after the app, or the site's host) or **updating** one of the entries for who asks (the
+  password replaced, the old version in history, the user name kept when the entry has one), verified with
+  the fingerprint or the phone's screen lock, *Trust this app?* for an app's entry that keeps no
+  certificate. It is saved and goes up with the next sync; a toast tells it was saved, or why not.
+- **Not yet:** inline offers in the keyboard, and filling other fields (cards, addresses, TOTP codes).
 
 ## Synchronisation
 
@@ -520,6 +529,6 @@ Each stage is a GitHub issue and lands in one or more PRs.
   history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
-- **Autofill** (#236): the autofill service; saving through it later.
+- **Autofill** (#236, #270): the autofill service, filling in and saving logins.
 - **Later:** several databases and creating one; backup; Templates;
   managing tags; restoring a history version; password health.

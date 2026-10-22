@@ -11,11 +11,13 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,7 +32,8 @@ import kotlin.concurrent.thread
  * *Unlock PswManager* ([AutofillUnlockActivity]); nothing about entries is
  * told. Unlocked, each entry is offered by its title and user name only:
  * its values leave the database when it is picked ([AutofillLoginActivity]).
- * Saving what was typed is not offered yet.
+ * A password typed in is offered to save (#270): Android asks *Save to
+ * PswManager?*, and [AutofillSaveActivity] saves it, unlocking first.
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -55,24 +58,52 @@ class PswmAutofillService : AutofillService() {
     if (ProviderBridge.isUnlocked()) return offers(this, fields, caller)
     val unlock = Intent(this, AutofillUnlockActivity::class.java).setIdentifier(fields.packageName).putFields(fields, caller)
     val sender = pendingIntent(this, unlock, 1).intentSender
-    return FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager")).build()
+    val response = FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager"))
+    // A login typed in while locked is offered to save too: the save screen unlocks.
+    saveInfo(fields)?.let { response.setSaveInfo(it) }
+    return response.build()
   }
 
+  /**
+   * The user chose *Save* in Android's *Save to PswManager?*: the values typed
+   * in, read from the screen (a user name from an earlier step of the same
+   * sign-in when this one has none), go to [AutofillSaveActivity], which
+   * unlocks if need be and asks where they go.
+   */
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-    // No save info is ever offered, so Android does not ask; nothing is kept if it does.
-    callback.onSuccess()
+    val structure = request.fillContexts.lastOrNull()?.structure ?: return callback.onFailure("There is no password to save")
+    val fields = AutofillFields.of(structure)
+    val password = fields?.password?.let { AutofillFields.text(structure, it) }
+    if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
+    val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
+    val username = request.fillContexts.asReversed().firstNotNullOfOrNull { context ->
+      AutofillFields.of(context.structure)
+        ?.takeIf { it.packageName == fields.packageName && it.webDomain == fields.webDomain }
+        ?.username?.let { AutofillFields.text(context.structure, it) }
+        ?.takeIf { it.isNotEmpty() }
+    }.orEmpty()
+    val save = Intent(this, AutofillSaveActivity::class.java)
+      .putFields(fields, caller)
+      .putExtra(EXTRA_TYPED_USERNAME, username)
+      .putExtra(EXTRA_TYPED_PASSWORD, password)
+    // Immutable and once: nothing is added to it, and the password in it is not sent twice.
+    val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
+    callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
   }
 
   companion object {
     /**
      * The entries for who asks, each a dataset that fills the fields once it
-     * is picked and [AutofillLoginActivity] has its values; null when there
-     * are none (or the database is locked again).
+     * is picked and [AutofillLoginActivity] has its values, and the save info
+     * for a login typed in; null when there is neither (or the database is
+     * locked again).
      */
     fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse? {
       val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
-      if (found.length() == 0) return null
+      val save = saveInfo(fields)
+      if (found.length() == 0 && save == null) return null
       val response = FillResponse.Builder()
+      save?.let { response.setSaveInfo(it) }
       for (i in 0 until found.length()) {
         val login = found.getJSONObject(i)
         val id = login.getString("id")
@@ -94,6 +125,19 @@ class PswmAutofillService : AutofillService() {
       return response.build()
     }
 
+    /**
+     * What Android offers to save once the screen is done with (the activity
+     * finished, or the fields gone, as a page in a browser does): the password
+     * field, with the user name field when there is one; null without a
+     * password field (the first step of a sign-in in two).
+     */
+    private fun saveInfo(fields: AutofillFields): SaveInfo? {
+      val password = fields.password ?: return null
+      val info = SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD, arrayOf(password))
+      fields.username?.let { info.setOptionalIds(arrayOf(it)) }
+      return info.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE).build()
+    }
+
     /** One line of the offer, as Android shows it under the field. */
     fun presentation(context: Context, text: String): RemoteViews =
       RemoteViews(context.packageName, android.R.layout.simple_list_item_1).apply { setTextViewText(android.R.id.text1, text) }
@@ -109,6 +153,10 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_PASSWORD = "password"
     private const val EXTRA_ORIGIN = "origin"
     private const val EXTRA_CERTIFICATE = "certificate"
+
+    /** The user name and password typed in, for [AutofillSaveActivity]. */
+    const val EXTRA_TYPED_USERNAME = "typedUsername"
+    const val EXTRA_TYPED_PASSWORD = "typedPassword"
 
     private fun Intent.putFields(fields: AutofillFields, caller: Caller): Intent = putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)
@@ -146,6 +194,28 @@ class AutofillUnlockActivity : UnlockScreen() {
     } else {
       setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
     }
+    finish()
+  }
+}
+
+/**
+ * Saving a login typed into another app (#270), once the user chose *Save*
+ * in Android's *Save to PswManager?*: unlocked first if need be, then where
+ * it goes ([SaveLogin]), as for a login offered through Credential Manager.
+ */
+class AutofillSaveActivity : UnlockScreen() {
+  override val purpose = "To save a password typed into another app."
+
+  override fun done() {
+    val (_, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
+    val username = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_USERNAME).orEmpty()
+    val password = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_PASSWORD) ?: return finish()
+    SaveLogin(this, caller, username, password, { tell("Saved in PswManager") }, ::finish, ::tell).choose()
+  }
+
+  /** Android's save sheet is gone by now: the outcome is told in a toast. */
+  private fun tell(text: String) {
+    Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT).show()
     finish()
   }
 }

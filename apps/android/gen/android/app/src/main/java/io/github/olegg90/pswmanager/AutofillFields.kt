@@ -58,6 +58,17 @@ class AutofillFields(
       return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id)
     }
 
+    /**
+     * The text field `id` of `structure` holds: what was typed in, when
+     * Android asks to save (it puts the latest values into the structure).
+     */
+    fun text(structure: AssistStructure, id: AutofillId): String? {
+      fun find(node: ViewNode): ViewNode? =
+        if (node.autofillId == id) node else (0 until node.childCount).firstNotNullOfOrNull { find(node.getChildAt(it)) }
+      val node = (0 until structure.windowNodeCount).firstNotNullOfOrNull { find(structure.getWindowNodeAt(it).rootViewNode) }
+      return node?.autofillValue?.takeIf { it.isText }?.textValue?.toString()
+    }
+
     /** The page a field is on: its web domain and scheme. */
     private data class Page(val domain: String, val scheme: String?)
 
