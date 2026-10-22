@@ -4,6 +4,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,6 +26,7 @@ fun entryLabel(entry: JSONObject): String =
  * database unlocked.
  */
 fun pickEntry(activity: AppCompatActivity, heading: String, picked: (id: String, label: String) -> Unit, cancelled: () -> Unit) {
+  keepOutOfAutofill(activity)
   val pad = (24 * activity.resources.displayMetrics.density).toInt()
   val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
   // One pick: a second tap meanwhile would link and fill twice.
@@ -58,6 +60,16 @@ fun pickEntry(activity: AppCompatActivity, heading: String, picked: (id: String,
     addView(Button(activity).apply { text = "Cancel"; setOnClickListener { cancelled() } })
   })
   show("")
+}
+
+/**
+ * Keeps the fields of a screen PswManager shows for another app out of
+ * autofill: typing in them would start an autofill session of its own on top
+ * of the one that opened the screen, and the other app's fields would not get
+ * what the user picked.
+ */
+fun keepOutOfAutofill(activity: AppCompatActivity) {
+  activity.window.decorView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
 }
 
 /**

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -38,6 +39,7 @@ abstract class UnlockScreen : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     Screenshots.apply(this)
+    keepOutOfAutofill(this)
     val pad = (24 * resources.displayMetrics.density).toInt()
     password = EditText(this).apply {
       hint = "Master password"
