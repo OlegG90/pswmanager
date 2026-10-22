@@ -6,6 +6,7 @@
 
 pub mod autotype;
 pub mod backup;
+pub mod browser;
 pub mod cxf;
 pub mod dbfile;
 pub mod documents;

@@ -7,7 +7,8 @@
 //! `AutoType`, a group's `DefaultAutoTypeSequence` and `EnableAutoType`), so
 //! what is set in KeePassXC types the same here.
 
-use crate::{edit, icons};
+use crate::browser::Page;
+use crate::edit;
 use keepass::db::{fields, EntryRef};
 use serde::Deserialize;
 use zeroize::Zeroizing;
@@ -27,18 +28,9 @@ pub struct Window {
     /// A browser's: it fits entries by its site only, never by its title,
     /// which any page can choose.
     pub browser: bool,
-    /// The site a browser shows ([site_of_address]); `None` when its address
-    /// could not be read or is not an https page on a named site.
-    pub site: Option<String>,
-}
-
-/// The site an address read from a browser's address bar is on: an https
-/// page on a named host. Browsers leave `https://` out of what they show,
-/// so an address without a scheme counts as https; one that says
-/// `http://` is no site to type a password into.
-pub fn site_of_address(address: &str) -> Option<String> {
-    let url = icons::web_url(address)?;
-    (url.scheme() == "https").then(|| icons::host_of(url.as_str())).flatten()
+    /// The page a browser shows ([Page::of_address]); `None` when its address
+    /// could not be read.
+    pub page: Option<Page>,
 }
 
 /// What to type of the entry: its sequence, or one value alone.
@@ -449,15 +441,6 @@ mod tests {
         assert!(!window_matches("//[//", "anything"), "a broken expression matches nothing");
         assert!(!window_matches("", "anything"));
         assert!(window_matches("*", "anything"));
-    }
-
-    #[test]
-    fn only_https_sites_from_the_address_bar() {
-        assert_eq!(site_of_address("mail.example.com/inbox").as_deref(), Some("mail.example.com"));
-        assert_eq!(site_of_address("https://mail.example.com").as_deref(), Some("mail.example.com"));
-        assert_eq!(site_of_address("http://mail.example.com"), None);
-        assert_eq!(site_of_address("search words"), None);
-        assert_eq!(site_of_address("192.168.1.1"), None);
     }
 
     /// A database with a group `Work` (its own Auto-Type settings) holding one entry.

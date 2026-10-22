@@ -5,7 +5,7 @@
 use crate::dbfile::{DbFile, KeyChange, OpenError, Read, SaveError, Snapshot};
 use crate::edit::{self, EntryData, Taking, NOT_FOUND};
 use crate::sync::Outcome;
-use crate::{autotype, encryption, icons, otp};
+use crate::{autotype, browser, encryption, icons, otp};
 use keepass::db::{fields, EntryId, EntryRef, GroupId, Value};
 use keepass::Database;
 /// A database's key, as [key] and [key_reading] make it.
@@ -1110,16 +1110,114 @@ impl Vault {
         Err(String::from("The database file keeps changing on disk; try again in a moment").into())
     }
 
+    /// How the browser extension knows this database (#273, [browser::database_hash]).
+    pub fn browser_hash(&self) -> String {
+        browser::database_hash(&self.db)
+    }
+
+    /// The identification key the extension was associated with as `name`.
+    pub fn browser_key(&self, name: &str) -> Option<String> {
+        browser::key(&self.db, name)
+    }
+
+    /// The extensions associated with this database, by name.
+    pub fn browser_associations(&self) -> Vec<browser::Association> {
+        browser::associations(&self.db)
+    }
+
+    /// Keeps an extension's identification `key` as `name` (replacing one of
+    /// that name) and saves the file; KeePassXC reads it too.
+    pub fn browser_associate(&mut self, name: &str, key: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("The connection needs a name".into());
+        }
+        self.change(|db, _| {
+            browser::associate(db, name, key);
+            Ok(())
+        })
+    }
+
+    /// Removes the association `name` and saves the file.
+    pub fn browser_forget(&mut self, name: &str) -> Result<(), String> {
+        self.change(|db, _| {
+            browser::forget(db, name);
+            Ok(())
+        })
+    }
+
+    /// The logins the extension gets for a page at `url`: the entries in use
+    /// that fit it as in KeePassXC ([browser::Page]) and that KeePassXC's
+    /// settings do not keep from it.
+    pub fn browser_logins(&self, url: &str) -> Vec<browser::Login> {
+        let Some(page) = browser::Page::of_tab(url) else { return Vec::new() };
+        self.visible_entries().filter(|e| page.fits_entry(e) && browser::offered(e, page.host())).map(|e| browser::Login::of(&e)).collect()
+    }
+
+    /// The current TOTP code of entry `id` (any UUID form), when it is in use and has one.
+    pub fn browser_totp(&self, id: &str) -> Option<String> {
+        self.entry(id).filter(|e| kind(e) == Kind::Entry)?;
+        self.totp(id).ok().flatten().map(|c| c.code)
+    }
+
+    /// The database's groups, for the extension to pick where a login goes.
+    pub fn browser_groups(&self) -> browser::Group {
+        browser::groups(&self.db, &self.hidden_groups())
+    }
+
+    /// Creates the group at `path` (`Parent/Child`; the parts already there
+    /// are used) and saves the file; its name and UUID.
+    pub fn browser_create_group(&mut self, path: &str) -> Result<(String, String), String> {
+        let path = browser::split_path(path);
+        let Some(name) = path.last().cloned() else { return Err("The group needs a name".into()) };
+        let id = self.change(|db, hidden| edit::group_at(db, &path, hidden))?;
+        Ok((name, id.uuid().simple().to_string()))
+    }
+
+    /// Keeps a login the extension offers for a page at `url`: the user name
+    /// and password of entry `id`, which must be in use and fit the page, or a
+    /// new entry titled after the page's host with the page's address, in
+    /// the group with UUID `group` (none or unknown: [browser::NEW_LOGINS_GROUP]).
+    /// Saved like an edit (the old version goes to history). Returns its id.
+    pub fn browser_save_login(&mut self, id: Option<&str>, url: &str, username: &str, password: &str, group: Option<&str>) -> Result<String, String> {
+        let page = browser::Page::of_tab(url).ok_or("Logins are saved for web pages only")?;
+        if password.is_empty() {
+            return Err("There is no password to save".into());
+        }
+        let (base, mut data) = match id {
+            Some(id) => {
+                let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
+                if !page.fits_entry(&entry) {
+                    return Err("This login is not for the page".into());
+                }
+                let data = self.edit_data(id).ok_or(NOT_FOUND)?;
+                (Some(data.clone()), data)
+            }
+            None => {
+                let mut data = EntryData::default();
+                data.title = page.host().to_string();
+                data.url = url.to_string();
+                data.group = group
+                    .and_then(|g| browser::group_by_uuid(&self.db, g))
+                    .map_or_else(|| vec![browser::NEW_LOGINS_GROUP.to_string()], |g| edit::path_of(&self.db, g));
+                (None, data)
+            }
+        };
+        data.username = username.to_string();
+        data.password = password.to_string();
+        self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
+    }
+
     /// The entries Auto-Type offers for `window` (#272), by title: those with
-    /// Auto-Type on that are for a browser's site (never by a browser's
-    /// title, which the page chooses), or that fit another app's window title.
+    /// Auto-Type on that fit the page a browser shows as in KeePassXC (never
+    /// by a browser's title, which the page chooses), or that fit another
+    /// app's window title.
     pub fn auto_type_matches(&self, window: &autotype::Window) -> Vec<EntryChoice> {
-        let site = window.site.clone().map(LoginPlace::Site);
         let mut matches: Vec<EntryChoice> = self
             .visible_entries()
             .filter(|e| autotype::enabled(e))
-            .filter(|e| match &site {
-                Some(site) => site.fit(e) == Fit::Yes,
+            .filter(|e| match &window.page {
+                Some(page) => page.fits_entry(e),
                 None => !window.browser && autotype::fits_title(e, &window.title),
             })
             .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
@@ -1202,7 +1300,7 @@ fn changed_entries(old: &Database, new: &Database) -> Vec<String> {
 }
 
 /// The entry's URL or a further one, as Keepass2Android keeps them (`KP2A_URL_n`).
-fn holds_url(name: &str) -> bool {
+pub(crate) fn holds_url(name: &str) -> bool {
     name == fields::URL || name.starts_with(crate::cxf::MORE_URLS)
 }
 
@@ -1451,9 +1549,39 @@ pub mod tests {
     }
 
     #[test]
+    fn the_browser_extension_gets_a_site_s_logins_and_saves_new_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("browser.kdbx");
+        Vault::create(&path, "Browser", Some("pw"), None).unwrap();
+        let mut vault = Vault::open(&path, Some("pw"), None).unwrap();
+        vault.browser_associate("Chrome", "a2V5").unwrap();
+        assert_eq!(Vault::open(&path, Some("pw"), None).unwrap().browser_key("Chrome").as_deref(), Some("a2V5"), "saved to the file");
+
+        let id = vault.browser_save_login(None, "https://mail.example/login", "me", "pw-1", None).unwrap();
+        let logins = vault.browser_logins("https://www.mail.example/inbox");
+        assert_eq!(logins.len(), 1);
+        assert_eq!((logins[0].login.as_str(), logins[0].password.as_str(), logins[0].group.as_str()), ("me", "pw-1", browser::NEW_LOGINS_GROUP));
+        assert!(vault.browser_logins("http://mail.example/").is_empty(), "https pages only");
+        assert!(vault.browser_logins("https://evil.example/").is_empty());
+
+        // Updated by the UUID the extension has, only for its own site.
+        let uuid = logins[0].uuid.clone();
+        vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-2", None).unwrap();
+        assert_eq!(vault.browser_logins("https://mail.example/")[0].password, "pw-2");
+        assert!(vault.browser_save_login(Some(&uuid), "https://evil.example/", "me", "pw-3", None).is_err());
+        assert_eq!(vault.history(&id).unwrap().len(), 1, "the old password is in the history");
+
+        let (name, group) = vault.browser_create_group("Web/Shops").unwrap();
+        assert_eq!(name, "Shops");
+        vault.browser_save_login(None, "https://shop.example/", "me", "pw", Some(&group)).unwrap();
+        assert_eq!(vault.browser_logins("https://shop.example/")[0].group, "Shops");
+        assert_eq!(vault.browser_groups().children.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), [browser::NEW_LOGINS_GROUP, "Web"]);
+    }
+
+    #[test]
     fn auto_type_finds_a_browser_s_entries_by_site_and_an_app_s_by_title() {
         let vault = Vault::from_database(sample());
-        let window = |title: &str, browser: bool, site: Option<&str>| autotype::Window { title: title.into(), browser, site: site.map(Into::into) };
+        let window = |title: &str, browser: bool, site: Option<&str>| autotype::Window { title: title.into(), browser, page: site.and_then(browser::Page::of_address) };
         let titles = |w: autotype::Window| vault.auto_type_matches(&w).into_iter().map(|c| c.title).collect::<Vec<_>>();
         assert_eq!(titles(window("Inbox — Mail client", false, None)), ["Mail"]);
         assert_eq!(titles(window("Sign in", true, Some("www.example.com"))), ["Mail"]);

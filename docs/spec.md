@@ -27,7 +27,7 @@ stays out.
 
 ### Out of scope
 
-Browser autofill and browser extensions on Windows (Auto-Type types into any window instead, see *Auto-Type*; Android's autofill is the Android app's, #236), an own sync server, a database shared between people (each person
+An own browser extension (the KeePassXC-Browser extension works with PswManager, see *Browser integration*; Auto-Type types into any window; Android's autofill is the Android app's, #236), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
 at once (one is open at a time; switching locks the other), importing from other password managers
 other than from a file they exported (*Import from a file*; Android also imports through the system's
@@ -104,6 +104,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 | History: size per entry | `HistoryMaxSize` (6 MiB by default, as KeePass; 1–64 MiB) | the oldest versions go first when an entry's history is larger |
 | Master password and key file | the key | see below |
 | Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
+| Browser extensions | the database's custom data `KPXC_BROWSER_<name>`, as KeePassXC keeps them | listed with when they connected; **Remove…** (after asking) makes the extension connect again; see *Browser integration* |
 
 - **Renaming the database** changes its name, not its file. **Rename file…** (on the choose-database screen,
   beside *Remove from the list*, while locked) renames the local file in its folder, and its `.bak` and
@@ -361,7 +362,7 @@ same table the dialog shows.
 a time, titled with the tab's name. Unlocked, they are beside the sidebar, whose *Settings* list is their
 tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unlock screen), they have their
 tabs down their left side and **Done**. Locking closes them, so the unlock screen asks for the password
-(#262). The tabs: **General** (locking, the clipboard and Auto-Type), **Window** (theme, global
+(#262). The tabs: **General** (locking, the clipboard, Auto-Type and the browser extension), **Window** (theme, global
 hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
 settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
 database format, KDBX 4.1, with what reads it, **Check for updates** and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
@@ -410,15 +411,14 @@ It works in any app, browsers included, with no extension.
   (always: the unlock may have been for something else); the window waits to be typed into for two
   minutes, and a browser that shows another page by the time the entry is typed gets nothing.
 - **Which entries fit**, among the entries in use with Auto-Type on:
-  - in a **browser**, those for the site its address bar shows, by the entry's URL and further URLs as
-    Android's autofill finds them. The address is read through UI Automation: Firefox's (and the
-    browsers made from it) by its id, the Chromium browsers' as the window's first text field outside
-    the page, so a field the page shows never counts. A browser is Chrome, Edge, Firefox, Brave,
-    Vivaldi or Opera, or any window of those engines that shows an address. Only an https page counts:
-    an address without a scheme counts as https, as browsers show it, and one that says `http://` does
-    not (Chrome and Edge leave `http://` out too, so a plain-http page on the entry's own host is not
-    told apart). Never by the window's title, which the page chooses: a page titled like a bank gets
-    nothing. No site read: nothing fits;
+  - in a **browser**, those that fit the page its address bar shows, as in KeePassXC (see *Pages and
+    entries* under *Browser integration*). The address is read through UI Automation: Firefox's (and
+    the browsers made from it) by its id, the Chromium browsers' as the window's first text field
+    outside the page, so a field the page shows never counts. A browser is Chrome, Edge, Firefox,
+    Brave, Vivaldi or Opera, or any window of those engines that shows an address. Browsers leave the
+    scheme out of the address bar, so it is compared only when the address shows it. Never by the
+    window's title, which the page chooses: a page titled like a bank gets nothing. No address read:
+    nothing fits;
   - in **another app**, those whose title is part of the window's title (ignoring case), or one of whose
     window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
     ignoring case; without `*` the whole title must match.
@@ -450,6 +450,59 @@ It works in any app, browsers included, with no extension.
   and window associations (a window title and a sequence each; one without a title is dropped). An
   entry that never had settings gets none written unless they are changed; KeePass's obfuscation
   setting, which the editor does not show, is kept. Groups' sequences and switches are used, not edited.
+
+## Browser integration
+
+The **KeePassXC-Browser** extension (Chrome, Edge, Brave, Vivaldi, Chromium, Firefox) fills in logins from
+PswManager as it does from KeePassXC (#273; why this way: [`desktop-autofill-research.md`](desktop-autofill-research.md)).
+PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
+
+- **Turning it on**: *Settings → General → Browser → KeePassXC-Browser extension* (off by default) writes
+  the extension's native messaging manifests into the data folder and registers them for each browser
+  under `HKCU\Software\{Google\Chrome|Chromium|Microsoft\Edge|Mozilla}\NativeMessagingHosts\org.keepassxc.keepassxc_browser`
+  (Brave and Vivaldi read Chrome's), pointing at the running `pswm.exe`; again at every start, so a copy
+  that moved is found. The extension knows only KeePassXC's host name, so this **replaces KeePassXC's
+  registration**, and KeePassXC takes it back when it starts with its own integration on: one of the two
+  serves the extension at a time, and the setting says when KeePassXC has it. Turning it off removes
+  PswManager's registration (never another program's) and ends the connections.
+- **The connection**: the browser starts `pswm.exe` as the extension's host (it passes the extension's
+  origin, or Firefox's manifest and extension id), which only hands the messages on to the tray app over
+  a named pipe of this Windows user's, `\\.\pipe\pswmanager-browser-<user>` (only this user and the system
+  may open it; no other PC). PswManager not running: it is started hidden in the tray, locked. The messages are
+  KeePassXC's: temporary X25519 keys swapped in the clear, then every message NaCl `crypto_box`. PswManager
+  reports KeePassXC version 2.7.6, so the extension offers the password generator and TOTP but not passkeys
+  (#285).
+- **Connecting an extension** (`associate`): the window asks *A browser extension asks to connect to
+  "<database>"* and a name for the connection (a name in use is replaced after asking; Cancel refuses).
+  The extension's identification key is kept in the database file as KeePassXC keeps it, so an extension
+  connected in KeePassXC works with PswManager at once, and the other way round; sync carries it (a merge
+  keeps the custom data of both copies). A connection proves its association once; another database
+  opened later gives it nothing until it proves that one.
+- **Pages and entries**: the extension and Auto-Type find a page's logins as KeePassXC does with its
+  default settings, so they give what KeePassXC would (Android's autofill keeps its own, stricter
+  rule). An entry's URL or one of its further URLs (`KP2A_URL_n`) fits a page when its scheme is the
+  page's (a URL without one is https: a plain-http page, such as a service on the local network,
+  needs `http://` in the entry), the port it names, if any, is the page's, and the page's host is its
+  host or one below it on the same site (`login.example.com` for `example.com`, never the other way;
+  the site by the public suffix list; an IP address or a local name only itself; `www.` aside). So
+  `http://192.168.1.10:2283` fits that service, and `example.com` fits `https://accounts.example.com`.
+- **Logins** (`get-logins`): the entries in use that fit the browser's tab. The tab's address comes
+  from the browser, not from the page. Entries KeePassXC's settings keep from the site are left out: hidden from the
+  extension (`BrowserHideEntry` on the entry or its nearest group saying so) or denied to the host (the
+  entry's `KeePassXC-Browser Settings`). There is no question per entry, unlike KeePassXC. Each login
+  carries its current TOTP code; `get-totp` gives it again.
+- **Saving** (`set-login`): a new login becomes an entry titled after the page's host, with its address,
+  in the group the extension names, else `KeePassXC-Browser Passwords` (made when missing), saved and
+  synced like an edit. Replacing the password (and user name) of a login the database has is asked in
+  the window first, only for an entry that fits the page; the old version goes into its history. The extension
+  can list the groups and make one (`get-database-groups`, `create-new-group`).
+- **Generating** (`generate-password`): 20 characters of every kind without look-alikes, as the editor's
+  generator starts.
+- **Locked**: the extension is told the database is not open; when it asks to unlock (the user clicked
+  it), the window comes up to unlock. Every connected extension is told when the database locks or
+  unlocks; `lock-database` (from a connected extension) locks it.
+- Not done: passkeys through the extension (#285), `request-autotype`, HTTP authentication dialogs,
+  KeePassXC's per-entry *Allow* question.
 
 ## Security behaviour
 

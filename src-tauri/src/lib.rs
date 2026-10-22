@@ -5,12 +5,15 @@ use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
 mod autotype;
+mod browser;
+mod browser_host;
 mod cli;
 mod clipboard;
 mod credentials;
 mod data_dir;
 mod file_watch;
 mod hello;
+mod native_messaging;
 mod session_watch;
 mod sync;
 mod tray;
@@ -739,6 +742,7 @@ fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), S
     // Touched first, so the inactivity check never sees a fresh vault as idle.
     app.state::<Activity>().touch();
     session.set(Some(vault));
+    browser_host::tell(true);
     if synced {
         // Only this app writes the working copy; the remote file is what changes.
         sync::request(app);
@@ -859,6 +863,7 @@ fn lock_now(app: &AppHandle) {
     let session = app.state::<Session>();
     if session.is_unlocked() {
         session.set(None);
+        browser_host::tell(false);
         *app.state::<FileWatch>().0.lock().unwrap() = None;
         window::set_title(app, None);
         let _ = app.emit("locked", ());
@@ -1405,6 +1410,8 @@ struct SettingsView {
     start_with_windows: bool,
     /// Windows Hello is set up on this PC: unlocking with it is offered.
     windows_hello: bool,
+    /// Another program (KeePassXC) is registered for the browser extension.
+    other_browser_host: bool,
 }
 
 fn settings_view(app: &AppHandle) -> SettingsView {
@@ -1412,6 +1419,7 @@ fn settings_view(app: &AppHandle) -> SettingsView {
         settings: Settings::of(&app.state()).view(),
         start_with_windows: tray::autostart_enabled(app),
         windows_hello: hello::available(),
+        other_browser_host: browser_host::other_registered(app),
     }
 }
 
@@ -1430,7 +1438,12 @@ fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result
     } else {
         let off = value == false;
         Settings::of(&app.state()).set(&name, value)?;
-        if name == "theme" {
+        if name == "browserIntegration" {
+            if let Err(message) = browser_host::apply(&app) {
+                Settings::of(&app.state()).set(&name, false.into())?;
+                return Err(message);
+            }
+        } else if name == "theme" {
             window::apply_theme(&app);
         } else if name == "biometricUnlock" && off {
             hello::forget_all();
@@ -1500,7 +1513,8 @@ fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>
             return type_entry(app, &target, &only.id, Typed::Sequence).map(|()| None);
         }
     }
-    let ask = AutoTypeAsk { window: target.window.title.clone(), site: target.window.site.clone(), browser: target.window.browser, matches };
+    let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
+    let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
     // A newer press meanwhile is the one that waits.
     app.state::<AutoTypeTarget>().0.lock().unwrap().get_or_insert(target);
     Ok(Some(ask))
@@ -1545,7 +1559,11 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
     // The browser may show another page by now (a redirect, another tab).
-    if target.window.browser && autotype::site_now(target) != target.window.site {
+    let same_page = match (autotype::page_now(target), &target.window.page) {
+        (Some(now), Some(then)) => now.same_place(then),
+        (now, then) => now.is_none() && then.is_none(),
+    };
+    if target.window.browser && !same_page {
         return Err("The browser shows another page now: press the Auto-Type hotkey there again".into());
     }
     if autotype::runs_higher(target) {
@@ -1694,6 +1712,10 @@ fn start_backup_clock(app: AppHandle) {
 }
 
 pub fn run() {
+    // Started by a browser for the KeePassXC-Browser extension: a proxy to the running app.
+    if native_messaging::started_by_browser(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        return native_messaging::run_proxy();
+    }
     let cwd = std::env::current_dir().unwrap_or_default();
     let options = match cli::parse(std::env::args().skip(1), &cwd) {
         Ok(cli::Command::Run(options)) => options,
@@ -1733,6 +1755,7 @@ pub fn run() {
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
         .manage(AutoTypeTarget::default())
+        .manage(browser_host::Questions::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -1821,6 +1844,9 @@ pub fn run() {
             auto_type,
             auto_type_entry,
             cancel_auto_type,
+            browser_host::browser_answer,
+            browser_host::browser_associations,
+            browser_host::forget_browser_association,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.
@@ -1844,6 +1870,9 @@ pub fn run() {
             window::open(handle, !options.autostart)?;
             tray::create(handle)?;
             register_hotkeys(handle);
+            if let Err(message) = browser_host::apply(handle) {
+                let _ = handle.state::<Notice>().0.set(message);
+            }
             watch_inactivity(handle.clone());
             lock_on_session_lock(handle.clone());
             sync::start_clock(handle.clone());

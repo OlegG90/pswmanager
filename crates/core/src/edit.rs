@@ -714,7 +714,7 @@ pub fn path_of(db: &Database, group: GroupId) -> Vec<String> {
 
 /// The group at `path` below the root (the first of same-named siblings),
 /// created where missing.
-fn group_at(db: &mut Database, path: &[String], hidden: &HashSet<GroupId>) -> Result<GroupId, String> {
+pub(crate) fn group_at(db: &mut Database, path: &[String], hidden: &HashSet<GroupId>) -> Result<GroupId, String> {
     let mut id = db.root().id();
     for name in path.iter().map(String::as_str).filter(|n| !n.is_empty()) {
         let existing = db.group(id).and_then(|g| g.groups().find(|c| c.name == name).map(|c| c.id()));
@@ -1037,6 +1037,8 @@ fn is_binned(db: &Database, entry: &EntryRef<'_>) -> bool {
 /// including this device's edit where the other device's later edit won.
 /// Returns the ids of the entries it changed in `theirs`.
 pub fn merge(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
+    // Browser associations made on either device (#273).
+    crate::browser::merge_custom_data(theirs, ours);
     let mut changed = keep_newer(theirs, ours);
     for id in join_history(theirs, ours) {
         if !changed.contains(&id) {
@@ -1645,6 +1647,17 @@ mod tests {
         back.entry_mut(id).unwrap().times.last_modification = Some(Times::epoch());
         merge(&mut ours, &back);
         assert_eq!(history_len(&ours, id), 0);
+    }
+
+    #[test]
+    fn a_merge_keeps_browser_associations_made_on_either_device() {
+        let mut theirs = Database::new();
+        let mut ours = theirs.clone();
+        crate::browser::associate(&mut theirs, "Edge", "a2V5LTE=");
+        crate::browser::associate(&mut ours, "Chrome", "a2V5LTI=");
+        merge(&mut theirs, &ours);
+        let names: Vec<String> = crate::browser::associations(&theirs).into_iter().map(|a| a.name).collect();
+        assert_eq!(names, ["Chrome", "Edge"]);
     }
 
     #[test]

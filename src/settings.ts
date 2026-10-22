@@ -171,8 +171,9 @@ export async function renderSettings(
 ) {
   const waiting = el('p', { className: 'muted', hidden: true })
   // Locked: no database settings to show.
-  const [settings, status, version, saved, savedBackup] = await Promise.all([
-    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup()])
+  const [settings, status, version, saved, savedBackup, connected] = await Promise.all([
+    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup(), api.browserAssociations().catch(() => [])])
+  let associations = connected
   let database = saved
   let backup = savedBackup
   draw(settings, status)
@@ -255,7 +256,20 @@ export async function renderSettings(
       row('Master password and key file', keyFile ? `Key file: ${keyFile}` : 'No key file',
         button('Change…', 'Change the master password and / or key file', changeKey)),
       row('Encryption', describeEncryption(d.encryption),
-        button('Change…', 'Change the cipher and key derivation', changeCrypto)))
+        button('Change…', 'Change the cipher and key derivation', changeCrypto)),
+      ...associations.map((a) => row(`Browser extension “${a.name}”`, a.created ? `Connected ${a.created}` : 'Connected in KeePassXC-Browser',
+        button('Remove…', 'The extension must connect again to fill in logins', () => void forget(a.name)))))
+  }
+
+  /** Removes a browser extension's association, after asking. */
+  async function forget(name: string) {
+    if (!await ask(`Remove the browser extension “${name}”? It has to connect again to fill in logins from this database.`, 'Remove')) return
+    try {
+      associations = await api.forgetBrowserAssociation(name)
+    } catch (e) {
+      onError(String(e))
+    }
+    draw(await api.settings(), await api.status())
   }
 
   /** Sync for the open database: where it syncs and Stop, or Upload / Link. */
@@ -324,6 +338,12 @@ export async function renderSettings(
             hotkeyControl(s.autoTypeHotkey, set('autoTypeHotkey'), true)),
           row('Always ask', 'Asks which entry to type even when one alone fits the window',
             toggle('Always ask which entry to type', s.autoTypeAlwaysAsk, set('autoTypeAlwaysAsk')))),
+        group('Browser',
+          row('KeePassXC-Browser extension',
+            s.otherBrowserHost
+              ? (s.browserIntegration ? 'KeePassXC took the extension back: turn this off and on again' : 'Replaces KeePassXC\'s browser integration; KeePassXC takes it back when it starts with its own on')
+              : 'Fills in logins in Chrome, Edge and Firefox through the KeePassXC-Browser extension',
+            toggle('KeePassXC-Browser extension', s.browserIntegration, set('browserIntegration')))),
       ],
       window: () => [
         group('Window and tray',
