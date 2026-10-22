@@ -168,8 +168,12 @@ fn parse(sequence: &str) -> Result<Vec<Token>, String> {
     /// Adds `token` with the modifiers pressed before it, which then let go.
     fn push(tokens: &mut Vec<Token>, mods: &mut Mods, token: Token) -> Result<(), String> {
         let token = match token {
-            // Text comes one character at a time while modifiers are held.
-            Token::Text(text) if mods.any() => Token::Shortcut(text.chars().next().unwrap_or(' '), *mods),
+            // Text comes one character at a time while modifiers are held: one
+            // key's, not KeePass's group `^(ab)`.
+            Token::Text(text) if mods.any() => match text.chars().next() {
+                Some(c) if c != '(' && c != ')' && c.len_utf16() == 1 => Token::Shortcut(c, *mods),
+                _ => return Err(format!("A modifier (+ ^ % #) cannot go with {text}")),
+            },
             Token::Key(key, own) => Token::Key(key, own.with(*mods)),
             other if mods.any() => return Err(format!("A modifier (+ ^ % #) must come before a key, not before {}", describe(&other))),
             other => other,
@@ -425,7 +429,7 @@ mod tests {
 
     #[test]
     fn what_cannot_be_done_is_refused_whole() {
-        for bad in ["{CMD:calc}", "{REF:P@I:1}", "{APPACTIVATE x}", "{TAB 1000}", "{DELAY 99999}", "{USERNAME", "}", "^", "^{USERNAME}", "{F17}"] {
+        for bad in ["^(ab)", "^😀", "{CMD:calc}", "{REF:P@I:1}", "{APPACTIVATE x}", "{TAB 1000}", "{DELAY 99999}", "{USERNAME", "}", "^", "^{USERNAME}", "{F17}"] {
             assert!(typed(bad).is_err(), "{bad}");
         }
         let no_code = steps("{TOTP}", |_| Zeroizing::new(String::new()), || Ok(None));

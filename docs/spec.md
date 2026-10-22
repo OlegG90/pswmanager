@@ -406,14 +406,19 @@ It works in any app, browsers included, with no extension.
 
 - **The hotkey** (default `Ctrl+Alt+A`, as in KeePass; changed or turned off in *Settings → General →
   Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own, the
-  desktop or the taskbar. While locked, the window comes up to unlock, then goes on; the window waits
-  to be typed into for two minutes.
+  desktop or the taskbar. While locked, the window comes up to unlock, then asks which entry to type
+  (always: the unlock may have been for something else); the window waits to be typed into for two
+  minutes, and a browser that shows another page by the time the entry is typed gets nothing.
 - **Which entries fit**, among the entries in use with Auto-Type on:
-  - in a **browser** (Chrome, Edge, Firefox, Brave, Vivaldi, Opera, LibreWolf, Waterfox), those for the
-    site its address bar shows (read through UI Automation), by the entry's URL and further URLs as
-    Android's autofill finds them. Only an https page counts (an address without a scheme, as browsers
-    show it, counts as https; one that says `http://` does not). Never by the window's title, which the
-    page chooses: a page titled like a bank gets nothing. No site read: nothing fits;
+  - in a **browser**, those for the site its address bar shows, by the entry's URL and further URLs as
+    Android's autofill finds them. The address is read through UI Automation: Firefox's (and the
+    browsers made from it) by its id, the Chromium browsers' as the window's first text field outside
+    the page, so a field the page shows never counts. A browser is Chrome, Edge, Firefox, Brave,
+    Vivaldi or Opera, or any window of those engines that shows an address. Only an https page counts:
+    an address without a scheme counts as https, as browsers show it, and one that says `http://` does
+    not (Chrome and Edge leave `http://` out too, so a plain-http page on the entry's own host is not
+    told apart). Never by the window's title, which the page chooses: a page titled like a bank gets
+    nothing. No site read: nothing fits;
   - in **another app**, those whose title is part of the window's title (ignoring case), or one of whose
     window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
     ignoring case; without `*` the whole title must match.
@@ -423,8 +428,8 @@ It works in any app, browsers included, with no extension.
   and **TOTP** type that value alone. Cancel or Esc types nothing.
 - **Entry-level Auto-Type**: `Ctrl+Shift+V` or *Auto-Type* in the entry's menu hides the window and types
   the entry into the window that comes forward then (the one in front before PswManager).
-- **The sequence** is that of the entry's first window association matching the window's title (the
-  entry's own when the association has none), else the entry's own, else its group's (the nearest group
+- **The sequence** is that of the entry's first window association matching the window's title; else
+  (no association matches, or it has no sequence) the entry's own, else its group's (the nearest group
   that has one; the root group's acts as the database's), else `{USERNAME}{TAB}{PASSWORD}{ENTER}`.
   Auto-Type is off for an entry that turns it off, or whose nearest group saying so does.
 - **Sequence syntax**, KeePass's, keywords ignoring case: `{TITLE}` `{USERNAME}` `{PASSWORD}` `{URL}`

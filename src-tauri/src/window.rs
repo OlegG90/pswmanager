@@ -71,9 +71,8 @@ pub fn apply_theme(app: &AppHandle) {
 
 /// Hides the window to the tray, remembering where it was.
 pub fn hide(app: &AppHandle) {
-    if step_aside(app) {
-        settle(app);
-    }
+    step_aside(app);
+    settle(app);
 }
 
 /// Hides a shown window, remembering where it was, and nothing more: Auto-Type

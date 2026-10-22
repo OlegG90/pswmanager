@@ -58,6 +58,8 @@ describe('actionFor', () => {
     }
     // One that needs Shift does nothing without it: Ctrl+V pastes.
     expect(actionFor(press('v', true, 'KeyV'), outside)).toBeNull()
+    // In a text field Ctrl+Shift+V pastes plain text, as everywhere.
+    expect(actionFor({ ...press('v', true, 'KeyV'), shiftKey: true }, inSearch)).toBeNull()
     // And every action a key can give is on the panel.
     const presses = [
       ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) => press(l.toLowerCase(), true)),

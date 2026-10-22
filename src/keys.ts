@@ -74,7 +74,9 @@ export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
   if (e.altKey || e.metaKey) return null
   if (e.ctrlKey) {
     const action = SHORTCUTS.find((s) => s.ctrl === e.code && (!s.shift || e.shiftKey))?.actions[0] ?? null
-    return action === 'copy-password' && ctx.hasSelection ? null : action
+    // In a text field Ctrl+C copies its selection, Ctrl+Shift+V pastes plain text.
+    if (action === 'copy-password' && ctx.hasSelection) return null
+    return action === 'auto-type' && ctx.inTextField ? null : action
   }
   switch (e.key) {
     case 'ArrowUp':

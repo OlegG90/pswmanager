@@ -249,7 +249,12 @@ function showVault(next: Listing) {
 /** Asks which entry to type into the window Auto-Type's hotkey was pressed in
  *  (#272), then types it there; cancelled, nothing waits any more. */
 async function offerAutoType(ask: AutoTypeAsk | null) {
-  if (!ask || !unlocked || isAsking()) return
+  if (!ask || !unlocked) return
+  // Another question is on screen: the window does not wait to be typed into later.
+  if (isAsking()) {
+    notify('Answer the question on screen first, then press the Auto-Type hotkey again', 6)
+    return api.cancelAutoType()
+  }
   const choice = await chooseToType(ask, listing.entries)
   try {
     await (choice ? api.autoType(choice.id, choice.typed) : api.cancelAutoType())

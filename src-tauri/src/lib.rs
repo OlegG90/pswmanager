@@ -1468,7 +1468,7 @@ fn auto_type_pressed(app: &AppHandle) {
         // Once unlocked, the window asks for what is waiting (auto_type_resume).
         return window::show(app);
     }
-    match auto_type_resume(app.clone()) {
+    match waiting_window(app, true) {
         Ok(None) => {}
         Ok(Some(ask)) => {
             window::show(app);
@@ -1481,21 +1481,30 @@ fn auto_type_pressed(app: &AppHandle) {
     }
 }
 
-/// What the window waiting to be typed into needs: nothing when there is none
-/// or one entry alone fits it (typed now), else the choice to show.
+/// After an unlock: the choice for the window waiting to be typed into, if
+/// one waits. It is always asked: the user may have unlocked for something else.
 #[tauri::command(async)]
 fn auto_type_resume(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
-    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().clone().filter(autotype::Target::is_current);
+    waiting_window(&app, false)
+}
+
+/// What the window waiting to be typed into needs: nothing when there is none,
+/// or when `may_type` and one entry alone fits it (typed now, unless the user
+/// wants to be asked); else the choice to show, and the window waits on. Taken
+/// while deciding, so two calls never both type.
+fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>, String> {
+    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current);
     let Some(target) = waiting else { return Ok(None) };
     let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
     if let [only] = &matches[..] {
-        if !Settings::of(&app.state()).auto_type_always_ask() {
-            app.state::<AutoTypeTarget>().0.lock().unwrap().take();
-            return type_entry(&app, &target, &only.id, Typed::Sequence).map(|()| None);
+        if may_type && !Settings::of(&app.state()).auto_type_always_ask() {
+            return type_entry(app, &target, &only.id, Typed::Sequence).map(|()| None);
         }
     }
-    let pswm_core::autotype::Window { title, site, browser } = target.window;
-    Ok(Some(AutoTypeAsk { window: title, site, browser, matches }))
+    let ask = AutoTypeAsk { window: target.window.title.clone(), site: target.window.site.clone(), browser: target.window.browser, matches };
+    // A newer press meanwhile is the one that waits.
+    app.state::<AutoTypeTarget>().0.lock().unwrap().get_or_insert(target);
+    Ok(Some(ask))
 }
 
 /// Types the entry the user chose into the window waiting for it.
@@ -1516,6 +1525,9 @@ fn cancel_auto_type(target: State<AutoTypeTarget>) {
 /// the window that comes forward then (the one in front before PswManager).
 #[tauri::command(async)]
 fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
+    // An entry that cannot be typed (Auto-Type off, no TOTP secret) says so
+    // before the window steps aside.
+    app.state::<Session>().read(|v| v.auto_type_steps(&id, "", typed))??;
     if !window::step_aside(&app) {
         return Err("Auto-Type types from the window".into());
     }
@@ -1535,6 +1547,10 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
 /// back when typing fails.
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
+    // The browser may show another page by now (a redirect, another tab).
+    if target.window.browser && autotype::site_now(target) != target.window.site {
+        return Err("The browser shows another page now: press the Auto-Type hotkey there again".into());
+    }
     if autotype::runs_higher(target) {
         return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
     }

@@ -8,7 +8,7 @@ use windows::core::BSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationValuePattern, TreeScope_Descendants, UIA_AutomationIdPropertyId,
+    CUIAutomation, IUIAutomation, IUIAutomationValuePattern, TreeScope_Descendants, UIA_AutomationIdPropertyId, UIA_DocumentControlTypeId,
     UIA_ControlTypePropertyId, UIA_EditControlTypeId, UIA_ValuePatternId,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND};
@@ -25,8 +25,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
 };
 
-/// The browsers whose address bar is read, by their program's file name.
-const BROWSERS: [&str; 8] = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe", "opera.exe", "librewolf.exe", "waterfox.exe"];
+/// Browsers by their program's file name: one of them is a browser even when
+/// its address cannot be read (and then nothing fits it).
+const BROWSERS: [&str; 6] = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe", "opera.exe"];
 /// Windows that are no app to type into: the desktop and the taskbar.
 const NOT_APPS: [&str; 4] = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
 /// How long a window waits to be typed into while the user unlocks or chooses.
@@ -39,6 +40,8 @@ const KEY_DELAY: u32 = 10;
 pub struct Target {
     /// The window's handle, as a number: a handle is not `Send`.
     hwnd: usize,
+    /// A browser's engine, to read its address again.
+    engine: Option<Engine>,
     pub window: Window,
     since: Instant,
 }
@@ -75,9 +78,39 @@ pub fn foreground() -> Option<Target> {
         let mut title = [0u16; 512];
         let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0) as usize;
         let title = String::from_utf16_lossy(&title[..len]);
-        let browser = program(pid).is_some_and(|p| BROWSERS.contains(&p.as_str()));
-        let site = if browser { address(hwnd, &program(pid).unwrap_or_default()).as_deref().and_then(site_of_address) } else { None };
-        Some(Target { hwnd: hwnd as usize, window: Window { title, browser, site }, since: Instant::now() })
+        let engine = Engine::of(&class);
+        let address = engine.and_then(|e| address(hwnd, e));
+        // A browser not in the list counts as one when it shows an address:
+        // its title, which the page chooses, must never pick the entry.
+        let browser = address.is_some() || program(pid).is_some_and(|p| BROWSERS.contains(&p.as_str()));
+        let site = address.as_deref().and_then(site_of_address);
+        Some(Target { hwnd: hwnd as usize, engine, window: Window { title, browser, site }, since: Instant::now() })
+    }
+}
+
+/// The site the target's browser shows now; `None` when it is no browser or
+/// its address cannot be read.
+pub fn site_now(target: &Target) -> Option<String> {
+    target.engine.and_then(|e| address(target.hwnd(), e)).as_deref().and_then(site_of_address)
+}
+
+/// The browser engines whose address bar can be read, by their windows' class.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Engine {
+    /// Firefox and the browsers made from it.
+    Gecko,
+    /// Chrome, Edge and the browsers made from Chromium (and apps made with
+    /// Electron, which show no address).
+    Chromium,
+}
+
+impl Engine {
+    fn of(class: &str) -> Option<Engine> {
+        match class {
+            "MozillaWindowClass" => Some(Engine::Gecko),
+            "Chrome_WidgetWin_1" => Some(Engine::Chromium),
+            _ => None,
+        }
     }
 }
 
@@ -101,7 +134,7 @@ fn program(pid: u32) -> Option<String> {
 /// What a browser window's address bar holds: Firefox's by its id, the
 /// Chromium browsers' as the window's first text field (the toolbar comes
 /// before the page). `None` when it cannot be read.
-fn address(hwnd: HWND, program: &str) -> Option<String> {
+fn address(hwnd: HWND, engine: Engine) -> Option<String> {
     // SAFETY: COM is set up on this thread for the call and taken down after;
     // the interfaces are released when dropped, before that.
     unsafe {
@@ -109,12 +142,21 @@ fn address(hwnd: HWND, program: &str) -> Option<String> {
         let read = || -> windows::core::Result<String> {
             let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
             let window = automation.ElementFromHandle(windows::Win32::Foundation::HWND(hwnd))?;
-            let condition = if program.contains("firefox") || program.contains("wolf") || program.contains("waterfox") {
-                automation.CreatePropertyCondition(UIA_AutomationIdPropertyId, &VARIANT::from(BSTR::from("urlbar-input")))?
-            } else {
-                automation.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_EditControlTypeId.0))?
+            let condition = match engine {
+                Engine::Gecko => automation.CreatePropertyCondition(UIA_AutomationIdPropertyId, &VARIANT::from(BSTR::from("urlbar-input")))?,
+                Engine::Chromium => automation.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_EditControlTypeId.0))?,
             };
             let field = window.FindFirst(TreeScope_Descendants, &condition)?;
+            // A field inside the page is the page's, whatever it says: with
+            // the toolbar hidden (full screen, a pop-up) the first one can be.
+            let walker = automation.ControlViewWalker()?;
+            let mut parent = walker.GetParentElement(&field);
+            while let Ok(element) = parent {
+                if element.CurrentControlType()? == UIA_DocumentControlTypeId {
+                    return Err(windows::core::Error::empty());
+                }
+                parent = walker.GetParentElement(&element);
+            }
             let value: IUIAutomationValuePattern = field.GetCurrentPatternAs(UIA_ValuePatternId)?;
             Ok(value.CurrentValue()?.to_string())
         };
