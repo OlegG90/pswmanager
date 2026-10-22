@@ -38,6 +38,7 @@ abstract class UnlockScreen : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     Screenshots.apply(this)
+    keepOutOfAutofill(this)
     val pad = (24 * resources.displayMetrics.density).toInt()
     password = EditText(this).apply {
       hint = "Master password"

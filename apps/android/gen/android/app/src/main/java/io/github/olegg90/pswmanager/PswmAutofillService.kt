@@ -11,11 +11,13 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,7 +32,10 @@ import kotlin.concurrent.thread
  * *Unlock PswManager* ([AutofillUnlockActivity]); nothing about entries is
  * told. Unlocked, each entry is offered by its title and user name only:
  * its values leave the database when it is picked ([AutofillLoginActivity]).
- * Saving what was typed is not offered yet.
+ * Any other entry can be picked and linked to the app or site, as in
+ * Keepass2Android ([AutofillPickActivity], #270). A password typed in is
+ * offered to save (#270): Android asks *Save to PswManager?*, and
+ * [AutofillSaveActivity] saves it, unlocking first.
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -55,43 +60,96 @@ class PswmAutofillService : AutofillService() {
     if (ProviderBridge.isUnlocked()) return offers(this, fields, caller)
     val unlock = Intent(this, AutofillUnlockActivity::class.java).setIdentifier(fields.packageName).putFields(fields, caller)
     val sender = pendingIntent(this, unlock, 1).intentSender
-    return FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager")).build()
+    val response = FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager"))
+    // A login typed in while locked is offered to save too: the save screen unlocks.
+    saveInfo(fields)?.let { response.setSaveInfo(it) }
+    return response.build()
   }
 
+  /**
+   * The user chose *Save* in Android's *Save to PswManager?*: the values typed
+   * in, read from the screen (a user name from an earlier step of the same
+   * sign-in when this one has none), go to [AutofillSaveActivity], which
+   * unlocks if need be and asks where they go.
+   */
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-    // No save info is ever offered, so Android does not ask; nothing is kept if it does.
-    callback.onSuccess()
+    val fields = request.fillContexts.lastOrNull()?.structure?.let { AutofillFields.of(it) }
+    val password = fields?.passwordText
+    if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
+    val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
+    val save = Intent(this, AutofillSaveActivity::class.java)
+      .putFields(fields, caller)
+      .putExtra(EXTRA_TYPED_USERNAME, typedUsername(request, fields))
+      .putExtra(EXTRA_TYPED_PASSWORD, password)
+    // Immutable and once: nothing is added to it, and the password in it is not sent twice.
+    val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
+    callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
   }
+
+  /** The user name typed beside the password, else in the latest earlier step on the same page. */
+  private fun typedUsername(request: SaveRequest, fields: AutofillFields): String =
+    fields.usernameText?.ifEmpty { null } ?: request.fillContexts.dropLast(1).asReversed().asSequence()
+      .mapNotNull { AutofillFields.of(it.structure) }
+      .filter { it.packageName == fields.packageName && it.webDomain == fields.webDomain }
+      .firstNotNullOfOrNull { it.usernameText?.ifEmpty { null } }
+      .orEmpty()
 
   companion object {
     /**
      * The entries for who asks, each a dataset that fills the fields once it
-     * is picked and [AutofillLoginActivity] has its values; null when there
-     * are none (or the database is locked again).
+     * is picked and [AutofillLoginActivity] has its values; last, choosing
+     * another entry ([AutofillPickActivity]); and the save info for a login
+     * typed in.
      */
-    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse? {
+    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse {
       val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
-      if (found.length() == 0) return null
       val response = FillResponse.Builder()
+      saveInfo(fields)?.let { response.setSaveInfo(it) }
       for (i in 0 until found.length()) {
         val login = found.getJSONObject(i)
         val id = login.getString("id")
-        val title = login.optString("title")
-        val label = listOf(title, login.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "PswManager entry" }
         // One intent per app and entry: an offer to another app does not replace this one.
         val pick = Intent(context, AutofillLoginActivity::class.java)
           .setIdentifier("${fields.packageName}/$id")
           .putExtra(ProviderBridge.EXTRA_ENTRY, id)
-          .putExtra(ProviderBridge.EXTRA_TITLE, title)
+          .putExtra(ProviderBridge.EXTRA_TITLE, login.optString("title"))
           .putFields(fields, caller)
-        val view = presentation(context, label)
-        val dataset = Dataset.Builder(view)
-        // No values yet: they come from the entry once it is picked.
-        for (field in fields.ids) dataset.setValue(field, null, view)
-        dataset.setAuthentication(pendingIntent(context, pick, 2).intentSender)
-        response.addDataset(dataset.build())
+        response.addDataset(offer(context, fields, entryLabel(login).ifEmpty { "PswManager entry" }, pick, 2))
       }
+      val choose = Intent(context, AutofillPickActivity::class.java).setIdentifier("${fields.packageName}/pick").putFields(fields, caller)
+      val label = if (found.length() == 0) "Choose an entry in PswManager…" else "Another entry in PswManager…"
+      response.addDataset(offer(context, fields, label, choose, 4))
       return response.build()
+    }
+
+    /** An offer under the fields, with no values yet: they come once `intent`'s activity has them. */
+    private fun offer(context: Context, fields: AutofillFields, label: String, intent: Intent, code: Int): Dataset {
+      val view = presentation(context, label)
+      val dataset = Dataset.Builder(view)
+      for (field in fields.ids) dataset.setValue(field, null, view)
+      return dataset.setAuthentication(pendingIntent(context, intent, code).intentSender).build()
+    }
+
+    /** The fields filled with an entry's login (`{username, password}`), as Android gets it back. */
+    fun filled(context: Context, fields: AutofillFields, login: JSONObject): Intent {
+      val view = presentation(context, "PswManager")
+      val dataset = Dataset.Builder(view)
+      fields.username?.let { dataset.setValue(it, AutofillValue.forText(login.getString("username")), view) }
+      fields.password?.let { dataset.setValue(it, AutofillValue.forText(login.getString("password")), view) }
+      return Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build())
+    }
+
+    /**
+     * What Android offers to save once the screen is done with (the activity
+     * finished, or the fields gone, as a page in a browser does): the password
+     * field, with the user name field when there is one; null without a
+     * password field (the first step of a sign-in in two).
+     */
+    private fun saveInfo(fields: AutofillFields): SaveInfo? {
+      val password = fields.password ?: return null
+      val info = SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD, arrayOf(password))
+      fields.username?.let { info.setOptionalIds(arrayOf(it)) }
+      return info.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE).build()
     }
 
     /** One line of the offer, as Android shows it under the field. */
@@ -109,6 +167,10 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_PASSWORD = "password"
     private const val EXTRA_ORIGIN = "origin"
     private const val EXTRA_CERTIFICATE = "certificate"
+
+    /** The user name and password typed in, for [AutofillSaveActivity]. */
+    internal const val EXTRA_TYPED_USERNAME = "typedUsername"
+    internal const val EXTRA_TYPED_PASSWORD = "typedPassword"
 
     private fun Intent.putFields(fields: AutofillFields, caller: Caller): Intent = putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)
@@ -141,11 +203,63 @@ class AutofillUnlockActivity : UnlockScreen() {
   override fun done() {
     val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
     val offers = PswmAutofillService.offers(this, fields, caller)
-    if (offers == null) {
-      setResult(RESULT_CANCELED)
-    } else {
-      setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+    finish()
+  }
+}
+
+/**
+ * Picking any entry for an app or site that none is for yet, or another one
+ * (#270): unlocked first if need be, the user searches the entries, and the
+ * one picked is linked to who asks ([linkEntry]; an app only once the user
+ * confirmed it) and fills the fields.
+ */
+class AutofillPickActivity : UnlockScreen() {
+  override val purpose = "To fill in a password another app asks for."
+
+  override fun done() {
+    val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
+    pickEntry(this, "Fill in from which entry?", { id, label ->
+      linkEntry(this, id, label, caller, { fill(id, fields, caller) }, ::finish, ::fail)
+    }, ::finish)
+  }
+
+  /** The entry is for who asks now: its login fills the fields. */
+  private fun fill(id: String, fields: AutofillFields, caller: Caller) {
+    thread {
+      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, false)
+      runOnUiThread {
+        if (answer == null || answer.startsWith(ProviderBridge.UNCONFIRMED)) return@runOnUiThread finish()
+        setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+        finish()
+      }
     }
+  }
+
+  private fun fail(why: String) {
+    Toast.makeText(applicationContext, why, Toast.LENGTH_SHORT).show()
+    finish()
+  }
+}
+
+/**
+ * Saving a login typed into another app (#270), once the user chose *Save*
+ * in Android's *Save to PswManager?*: unlocked first if need be, then where
+ * it goes ([SaveLogin]), as for a login offered through Credential Manager.
+ */
+class AutofillSaveActivity : UnlockScreen() {
+  override val purpose = "To save a password typed into another app."
+
+  override fun done() {
+    val (_, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
+    val username = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_USERNAME).orEmpty()
+    val password = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_PASSWORD) ?: return finish()
+    SaveLogin(this, caller, username, password, { tell("Saved in PswManager") }, ::finish, ::tell).choose()
+  }
+
+  /** Android's save sheet is gone by now: the outcome is told in a toast. */
+  private fun tell(text: String) {
+    Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT).show()
     finish()
   }
 }
@@ -174,19 +288,13 @@ class AutofillLoginActivity : AppCompatActivity() {
           answer == null -> cancel()
           answer.startsWith(ProviderBridge.UNCONFIRMED) ->
             confirmApp(this, caller.packageName, title, answer.removePrefix(ProviderBridge.UNCONFIRMED), { release(id, title, fields, caller, true) }, ::cancel)
-          else -> fill(fields, JSONObject(answer))
+          else -> {
+            setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+            finish()
+          }
         }
       }
     }
-  }
-
-  private fun fill(fields: AutofillFields, login: JSONObject) {
-    val view = PswmAutofillService.presentation(this, "PswManager")
-    val dataset = Dataset.Builder(view)
-    fields.username?.let { dataset.setValue(it, AutofillValue.forText(login.getString("username")), view) }
-    fields.password?.let { dataset.setValue(it, AutofillValue.forText(login.getString("password")), view) }
-    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build()))
-    finish()
   }
 
   private fun cancel() {

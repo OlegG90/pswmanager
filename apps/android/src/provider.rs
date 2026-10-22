@@ -513,6 +513,60 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
     })
 }
 
+/// The entries in use that hold `query` in their title, user name or URLs, to
+/// pick one for a login no entry is for yet (#270), as JSON
+/// (`[{id, title, username}]`); null while locked.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_searchLogins<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    query: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<String> {
+            let query = optional_text(env, &query).ok()?.unwrap_or_default();
+            let found = session().read(|v| v.login_candidates(&query)).ok()?;
+            serde_json::to_string(&found).ok()
+        }));
+        match found {
+            Ok(Some(json)) => java_text(env, json),
+            _ => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Links entry `id`, which the user picked, to the app or site asking (#270;
+/// `confirmed` once the user confirmed the app): empty when linked (or it was
+/// already), [UNCONFIRMED] and the app's certificate till the app is
+/// confirmed, else `FAILED` and why. The database goes up with the next sync.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_linkLogin<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    confirmed: jboolean,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+            let id = optional_text(env, &id)?.ok_or("No entry chosen")?;
+            let place = login_place(env, &origin, &package, &certificate)?;
+            session().with_mut(|v| v.link_login(&id, &place, confirmed == JNI_TRUE)).map_err(|why| unconfirmed_or(why, &place))?;
+            upload_soon();
+            Ok(())
+        }))
+        .unwrap_or_else(|_| Err("PswManager could not link the entry".into()));
+        let text = match answer {
+            Ok(()) => String::new(),
+            Err(why) if why.starts_with(UNCONFIRMED) => why,
+            Err(why) => format!("{FAILED}{why}"),
+        };
+        java_text(env, text)
+    })
+}
+
 /// Runs `work` with the app's `Store` when the app runs, else with one on the
 /// state file (as the background upload does, with the same caveat: should
 /// the app start meanwhile, both write the file whole).

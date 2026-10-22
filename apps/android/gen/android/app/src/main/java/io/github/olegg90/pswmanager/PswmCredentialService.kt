@@ -89,6 +89,18 @@ object ProviderBridge {
   external fun saveLogin(id: String?, origin: String?, packageName: String, certificate: ByteArray?, title: String, username: String, password: String, confirmed: Boolean): String
 
   /**
+   * The entries in use holding `query` in their title, user name or URLs, to pick one for a login
+   * no entry is for yet (#270), as JSON (`[{id, title, username}]`); null while locked.
+   */
+  external fun searchLogins(query: String): String?
+
+  /**
+   * Links entry `id`, which the user picked, to who asks (#270): empty when linked, [UNCONFIRMED]
+   * and the app's certificate till the user confirmed the app (`confirmed`), or [FAILED] and why.
+   */
+  external fun linkLogin(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String
+
+  /**
    * The database's entries in use as CXF JSON for another password manager
    * ([ExportActivity]), the user checked with the master password or the
    * sealed key; [FAILED] and why (then [STALE] for a stale sealed key).
