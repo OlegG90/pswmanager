@@ -158,8 +158,8 @@ impl Host for AppHost {
     }
 
     fn passkeys_get(&self, mut public_key: Value, origin: &str, related: &[String]) -> Value {
-        let rp_id = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, false) {
-            Ok(rp_id) => rp_id,
+        let (rp_id, origin) = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, false) {
+            Ok(checked) => checked,
             Err(refusal) => return passkey_error(refusal as u8),
         };
         let request = public_key.to_string();
@@ -172,7 +172,7 @@ impl Host for AppHost {
         // Choosing in the window is the user's verification, as in KeePassXC.
         let chosen = ask(&self.0, "browser-passkey-get", json!({ "site": rp_id, "choices": offered }));
         let Some(id) = chosen.as_str().filter(|id| offered.iter().any(|c| c.id == *id)) else { return passkey_error(CANCELLED) };
-        let caller = webauthn::Caller::Page { origin: origin.to_string() };
+        let caller = webauthn::Caller::Page { origin: origin.clone() };
         match self.vault().read(|v| v.sign_with_passkey(id, &request, &caller)) {
             Ok(Ok(credential)) => serde_json::from_str(&credential).unwrap_or_else(|_| passkey_error(UNKNOWN)),
             _ => passkey_error(UNKNOWN),
@@ -180,8 +180,8 @@ impl Host for AppHost {
     }
 
     fn passkeys_register(&self, mut public_key: Value, origin: &str, related: &[String], group: Option<&str>) -> Value {
-        let rp_id = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, true) {
-            Ok(rp_id) => rp_id,
+        let (rp_id, origin) = match pswm_core::browser::check_passkey_request(&mut public_key, origin, related, true) {
+            Ok(checked) => checked,
             Err(refusal) => return passkey_error(refusal as u8),
         };
         let request = public_key.to_string();
@@ -196,7 +196,7 @@ impl Host for AppHost {
         // Null: cancelled; `{ "entry": null }`: a new entry; `{ "entry": id }`: that entry.
         let Some(entry) = answer.get("entry") else { return passkey_error(CANCELLED) };
         let entry = entry.as_str().filter(|id| entries.iter().any(|c| c.id == *id));
-        let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin: origin.to_string() }) else { return passkey_error(UNKNOWN) };
+        let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin: origin.clone() }) else { return passkey_error(UNKNOWN) };
         let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return passkey_error(UNKNOWN) };
         crate::show_changes(&self.0, vec![id]);
         serde_json::from_str(&made.response).unwrap_or_else(|_| passkey_error(UNKNOWN))

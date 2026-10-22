@@ -504,9 +504,10 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   takes over the page's `navigator.credentials` and asks PswManager, which answers as KeePassXC does, with
   the passkeys kept as KeePassXC keeps them (made and signed by the core, ES256, as on Android).
   - Both requests are checked as KeePassXC checks them: an https page on a named host, and a site (RP id)
-    that is the page's host or a parent of it, or any site that lists the page among its related
-    origins (the extension reads them from the site). To make one: a challenge of 16 characters or more,
-    a user id of 1 to 64 bytes, and ES256 among the algorithms the site lists. The client data is made
+    that is a registrable domain (never a public suffix such as `co.uk`) and the page's host or a parent
+    of it. To make one, a site that lists the page among its related origins counts too (the extension
+    reads them from the site only then), and the request needs a challenge of 16 characters or more, a
+    user id of 1 to 64 bytes, and ES256 among the algorithms the site lists. The client data is made
     here, for the page's origin.
   - **Signing in** (`passkeys-get`): the site's passkeys among the entries in use (only those the
     request allows, when it names some). The window asks *Sign in to <site> with a passkey:*; choosing

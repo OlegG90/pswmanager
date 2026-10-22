@@ -618,12 +618,10 @@ impl Vault {
     }
 
     /// [Vault::add_passkey] for the browser extension (#285): a new entry goes
-    /// into the group with UUID `group`, else KeePassXC's
-    /// [browser::NEW_PASSKEYS_GROUP] (made when missing).
+    /// into the group the extension names (`Parent/Child`, made where
+    /// missing), else KeePassXC's [browser::NEW_PASSKEYS_GROUP].
     pub fn add_browser_passkey(&mut self, id: Option<&str>, made: &crate::webauthn::Made, group: Option<&str>) -> Result<String, String> {
-        let path = group
-            .and_then(|g| browser::group_by_uuid(&self.db, g))
-            .map_or_else(|| vec![browser::NEW_PASSKEYS_GROUP.to_string()], |g| edit::path_of(&self.db, g));
+        let path = group.map(browser::split_path).filter(|p| !p.is_empty()).unwrap_or_else(|| vec![browser::NEW_PASSKEYS_GROUP.to_string()]);
         self.keep_passkey(id, made, path)
     }
 
@@ -1995,11 +1993,17 @@ pub mod tests {
         let made = crate::webauthn::make(r#"{"rp": {"id": "shop.example", "name": "Shop"}, "user": {"id": "dQ", "name": "bob"}, "challenge": "Yw"}"#, &page).unwrap();
         let id = vault.add_browser_passkey(None, &made, None).unwrap();
         assert_eq!(vault.edit_data(&id).unwrap().group, [browser::NEW_PASSKEYS_GROUP]);
+        let named = vault.add_browser_passkey(None, &made, Some("Web/Passkeys")).unwrap();
+        assert_eq!(vault.edit_data(&named).unwrap().group, ["Web", "Passkeys"], "the group the extension names");
+        let decode = |text: &serde_json::Value| base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, text.as_str().unwrap()).unwrap();
+        let made_json: serde_json::Value = serde_json::from_str(&made.response).unwrap();
+        assert!(made_json["response"]["attestationObject"].is_string() && made_json["response"]["publicKey"].is_string());
+        let created: serde_json::Value = serde_json::from_slice(&decode(&made_json["response"]["clientDataJSON"])).unwrap();
+        assert_eq!((created["type"].as_str(), created.get("androidPackageName")), (Some("webauthn.create"), None));
 
         let response = vault.sign_with_passkey(&id, r#"{"rpId": "shop.example", "challenge": "c2lnbg"}"#, &page).unwrap();
         let json: serde_json::Value = serde_json::from_str(&response).unwrap();
-        let client_data = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, json["response"]["clientDataJSON"].as_str().unwrap()).unwrap();
-        let client_data: serde_json::Value = serde_json::from_slice(&client_data).unwrap();
+        let client_data: serde_json::Value = serde_json::from_slice(&decode(&json["response"]["clientDataJSON"])).unwrap();
         assert_eq!(client_data, serde_json::json!({ "type": "webauthn.get", "challenge": "c2lnbg", "origin": "https://shop.example", "crossOrigin": false }));
     }
 
