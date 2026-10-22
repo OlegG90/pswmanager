@@ -59,8 +59,8 @@ class AutofillFields(
     }
 
     /**
-     * The text field `id` of `structure` holds: what was typed in, when
-     * Android asks to save (it puts the latest values into the structure).
+     * The text in field `id` of `structure`, or null. When Android asks to
+     * save, the structure holds the latest values: what the user typed in.
      */
     fun text(structure: AssistStructure, id: AutofillId): String? {
       fun find(node: ViewNode): ViewNode? =

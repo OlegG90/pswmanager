@@ -36,11 +36,10 @@ completely is a goal for later stages.
 
 ### Out of scope for now
 
-Several databases in the list (one
-database on the phone), backup, the Templates
-group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
-Importing from another password manager (#152) and exporting to one (#153) are in (*Screens*); SafeInCloud's
-migration stays with `sic2kdbx.py`.
+Several databases in the list (one database on the phone), backup, the Templates group, managing tags
+(rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and
+landscape, Google Play. Importing from another password manager (#152) and exporting to one (#153) are in
+(*Screens*); SafeInCloud's migration stays with `sic2kdbx.py`.
 
 ## The database on the phone
 

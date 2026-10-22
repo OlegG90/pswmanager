@@ -109,6 +109,7 @@
             android:screenOrientation="portrait" />
         <activity
             android:name=".AutofillSaveActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"
             android:excludeFromRecents="true"
             android:screenOrientation="portrait" />
