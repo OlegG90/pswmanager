@@ -1151,7 +1151,7 @@ fn scan_totp_qr(window: Window) -> Result<Option<String>, String> {
         return Ok(Some(uri.to_string()));
     }
     let Some(path) = pick(&window, "Pictures", &["png", "jpg", "jpeg"])? else { return Ok(None) };
-    edit::check_size(std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len())?;
+    qr::check_size(std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len())?;
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
     qr::from_image(&content).map(|uri| Some(uri.to_string()))
 }
