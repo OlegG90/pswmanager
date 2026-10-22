@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::time::Duration;
 
 const HOTKEY: &str = "Ctrl+Alt+P";
+/// Auto-Type's hotkey, as KeePass has it (#272).
+const AUTO_TYPE_HOTKEY: &str = "Ctrl+Alt+A";
 /// Minutes without use before locking; 0 means never.
 const LOCK_AFTER_MINUTES: (u64, u64, u64) = (5, 1, 60);
 /// Minutes between checks of the remote file while unlocked; 0 means never.
@@ -37,6 +39,16 @@ impl<'a> Settings<'a> {
 
     pub fn hotkey(&self) -> String {
         self.get("hotkey", |v| v.as_str().map(str::to_string)).unwrap_or_else(|| HOTKEY.into())
+    }
+
+    /// Auto-Type's hotkey; empty when it is off.
+    pub fn auto_type_hotkey(&self) -> String {
+        self.get("autoTypeHotkey", |v| v.as_str().map(str::to_string)).unwrap_or_else(|| AUTO_TYPE_HOTKEY.into())
+    }
+
+    /// Auto-Type asks which entry to type even when one alone fits the window.
+    pub fn auto_type_always_ask(&self) -> bool {
+        self.get("autoTypeAlwaysAsk", Value::as_bool).unwrap_or(false)
     }
 
     pub fn lock_after(&self) -> Option<Duration> {
@@ -118,6 +130,8 @@ impl<'a> Settings<'a> {
             download_icons: self.download_icons(),
             theme: self.theme(),
             hotkey: self.hotkey(),
+            auto_type_hotkey: self.auto_type_hotkey(),
+            auto_type_always_ask: self.auto_type_always_ask(),
             lock_in_background: self.lock_in_background().map(|d| d.as_secs()),
             lock_on_screen_off: self.lock_on_screen_off(),
             biometric_unlock: self.biometric_unlock(),
@@ -154,6 +168,9 @@ pub struct View {
     pub download_icons: bool,
     pub theme: &'static str,
     pub hotkey: String,
+    /// Empty when Auto-Type has no hotkey.
+    pub auto_type_hotkey: String,
+    pub auto_type_always_ask: bool,
     /// Seconds; `None` for never.
     pub lock_in_background: Option<u64>,
     pub lock_on_screen_off: bool,
@@ -171,12 +188,16 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
-        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" | "allowScreenshots" => value.is_boolean(),
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" | "allowScreenshots" | "autoTypeAlwaysAsk" => {
+            value.is_boolean()
+        }
         "passwordEveryDays" => within(PASSWORD_EVERY_DAYS, false),
         "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
         // Checked and registered by the caller before it is kept.
         "hotkey" => value.as_str().is_some_and(|k| !k.trim().is_empty()),
+        // Empty turns it off.
+        "autoTypeHotkey" => value.is_string(),
         _ => return Err(format!("There is no setting {name}")),
     };
     if ok {
@@ -260,6 +281,7 @@ mod tests {
         assert_eq!((view.lock_after_minutes, view.clear_clipboard, view.sync_every_minutes), (5, 20, 5));
         assert!(view.lock_on_session_lock && !view.lock_when_hidden && view.download_icons);
         assert_eq!(view.hotkey, "Ctrl+Alt+P");
+        assert_eq!((view.auto_type_hotkey.as_str(), view.auto_type_always_ask), ("Ctrl+Alt+A", false));
         assert!(!view.allow_screenshots, "the phone's screens are not captured unless allowed");
 
         settings.set("lockAfterMinutes", 0.into()).unwrap();
@@ -279,13 +301,15 @@ mod tests {
         let store = Store::load(dir.path().join("pswm.json"));
         let settings = Settings::of(&store);
         assert!(settings.set("hotkey", "".into()).is_err());
+        settings.set("autoTypeHotkey", "".into()).unwrap();
+        assert_eq!(settings.auto_type_hotkey(), "", "Auto-Type's hotkey can be off");
         assert!(settings.set("database", "x".into()).is_err());
         assert!(settings.set("clearClipboard", 0.into()).is_err());
         assert!(settings.set("clearClipboard", 121.into()).is_err());
         assert!(settings.set("lockAfterMinutes", 61.into()).is_err());
         assert!(settings.set("lockAfterMinutes", "5".into()).is_err());
         assert!(settings.set("lockWhenHidden", 1.into()).is_err());
-        assert!(store.read(|s| s.settings.is_empty()));
+        assert!(store.read(|s| s.settings.keys().all(|k| k == "autoTypeHotkey")));
         settings.set("syncEveryMinutes", 0.into()).unwrap();
         assert_eq!(settings.sync_every(), None);
         assert!(settings.set("theme", "blue".into()).is_err());

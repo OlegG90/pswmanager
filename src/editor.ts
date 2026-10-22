@@ -1,7 +1,7 @@
-import { api, type Attachment, type EntryData, type Saved } from './api'
+import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
-import { dateOf } from './entry-text'
+import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
 import { tagInput } from './tag-input'
@@ -90,6 +90,37 @@ function fromTemplate(template?: EntryData): Partial<EntryData> {
   return template ? { ...template, title: '', expires: null, otp: '', tags: template.tags.filter((t) => t !== FAVORITE) } : {}
 }
 
+/** The entry's Auto-Type settings (#272): on or off, its own sequence, and
+ *  sequences for windows whose title matches. What the form only trimmed
+ *  stays as the file has it, so an untouched entry saves unchanged. */
+function autoTypeEditor(data: AutoTypeData) {
+  let enabled = data.enabled
+  const on = chip('Auto-Type on', 'Auto-Type types this entry', enabled, (pressed) => (enabled = pressed))
+  const sequence = input(data.sequence, { placeholder: 'The group\'s, else {USERNAME}{TAB}{PASSWORD}{ENTER}', className: 'sequence' })
+  const association = (a = { window: '', sequence: '' }) => {
+    const row = el('div', { className: 'field-row association' },
+      input(a.window, { placeholder: 'Window title, * for any text', className: 'name', ariaLabel: 'Window title' }),
+      input(a.sequence, { placeholder: 'Sequence (empty: the entry\'s)', className: 'value', ariaLabel: 'Sequence' }),
+      button('✕', 'Remove this window', () => row.remove(), 'ghost icon'))
+    return row
+  }
+  const list = el('div', { className: 'fields' }, ...data.associations.map(association))
+  const add = button('+ Add window', 'A sequence of its own for windows whose title matches', () => list.append(association()), 'ghost add-field')
+  const trimmed = (list: AutoTypeData['associations']) => list.map((a) => ({ window: a.window.trim(), sequence: a.sequence.trim() }))
+  const value = (): AutoTypeData => {
+    const associations = trimmed([...list.querySelectorAll<HTMLDivElement>('.association')].map((row) => {
+      const [window, sequence] = row.querySelectorAll('input')
+      return { window: window.value, sequence: sequence.value }
+    })).filter((a) => a.window)
+    return {
+      enabled,
+      sequence: keep(data.sequence, sequence.value.trim(), trimmedLine),
+      associations: keep(data.associations, associations, trimmed),
+    }
+  }
+  return { on, sequence, list, add, value }
+}
+
 /** Shows the editor in `container`. */
 export async function openEditor(container: HTMLElement, options: EditorOptions) {
   // Counts as open while loading, so a second Ctrl+E or a click in the list waits.
@@ -149,7 +180,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   }, showError)
 
   const inputs = { title, username, password, url, otp, notes, tags, starred: () => starred, fieldList, expires }
-  const collect = (): EntryData => ({ ...collectEntry(data, inputs), icon: icon.value() })
+  const autoType = autoTypeEditor(data.autoType)
+  const collect = (): EntryData => ({ ...collectEntry(data, inputs), icon: icon.value(), autoType: autoType.value() })
 
   let saving = false
   const save = async () => {
@@ -215,6 +247,11 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     fieldList,
     button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'ghost add-field'),
     ...(options.template ? [] : [el('h3', {}, 'Files'), files.element]),
+    el('h3', {}, 'Auto-Type'),
+    row('', autoType.on),
+    row('Sequence', autoType.sequence),
+    autoType.list,
+    autoType.add,
     el('div', { className: 'buttons' },
       el('button', { type: 'submit', className: 'primary', textContent: 'Save', title: 'Save (Ctrl+S)' }),
       button('Cancel', 'Cancel (Esc)', close),

@@ -3636,6 +3636,7 @@ dependencies = [
  "p256",
  "percent-encoding",
  "psl",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.11.1",

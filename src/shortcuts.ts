@@ -12,9 +12,12 @@ export async function showShortcuts() {
   if (showing) return
   showing = true
   try {
-    const hotkey = await api.settings().then((s) => shownCombo(s.hotkey), () => null)
+    const settings = await api.settings().catch(() => null)
+    const hotkey = settings && shownCombo(settings.hotkey)
+    const autoType = settings?.autoTypeHotkey && shownCombo(settings.autoTypeHotkey)
     const lines: Pick<Shortcut, 'group' | 'keys' | 'does'>[] = [
       ...(hotkey ? [{ group: 'Window' as const, keys: hotkey, does: 'Show / hide the window, from any app' }] : []),
+      ...(autoType ? [{ group: 'Window' as const, keys: autoType, does: 'Auto-Type: type an entry into the window in front' }] : []),
       ...SHORTCUTS,
     ]
     const groups = SHORTCUT_GROUPS.map((group) =>

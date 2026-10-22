@@ -71,9 +71,30 @@ pub fn apply_theme(app: &AppHandle) {
 
 /// Hides the window to the tray, remembering where it was.
 pub fn hide(app: &AppHandle) {
-    let Some(window) = main_window(app) else { return };
+    step_aside(app);
+    settle(app);
+}
+
+/// Hides a shown window, remembering where it was, and nothing more: Auto-Type
+/// types into the window behind it, then [settle]s. False when it was not shown.
+pub fn step_aside(app: &AppHandle) -> bool {
+    let Some(window) = main_window(app).filter(|w| w.is_visible().unwrap_or(false)) else { return false };
     remember_geometry(&window);
-    let _ = window.hide();
+    window.hide().is_ok()
+}
+
+/// After Auto-Type typed with the window aside: it comes back when typing
+/// failed, to say why; otherwise it stays hidden, and hiding it is done.
+pub fn come_back(app: &AppHandle, typed: bool) {
+    if typed {
+        settle(app);
+    } else {
+        show(app);
+    }
+}
+
+/// What hiding the window does after it is hidden: locking, or syncing.
+pub fn settle(app: &AppHandle) {
     if Settings::of(&app.state()).lock_when_hidden() {
         crate::lock_now(app); // syncs too
     } else {

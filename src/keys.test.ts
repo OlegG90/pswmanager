@@ -54,8 +54,12 @@ describe('actionFor', () => {
   it('lists every key it reacts to in the shortcuts panel', () => {
     // Each Ctrl shortcut gives what the panel says.
     for (const s of SHORTCUTS.filter((s) => s.ctrl)) {
-      expect(actionFor({ ...press('x', true, s.ctrl), key: 'x' }, outside), s.keys).toBe(s.actions[0])
+      expect(actionFor({ ...press('x', true, s.ctrl), key: 'x', shiftKey: s.shift }, outside), s.keys).toBe(s.actions[0])
     }
+    // One that needs Shift does nothing without it: Ctrl+V pastes.
+    expect(actionFor(press('v', true, 'KeyV'), outside)).toBeNull()
+    // In a text field Ctrl+Shift+V pastes plain text, as everywhere.
+    expect(actionFor({ ...press('v', true, 'KeyV'), shiftKey: true }, inSearch)).toBeNull()
     // And every action a key can give is on the panel.
     const presses = [
       ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((l) => press(l.toLowerCase(), true)),

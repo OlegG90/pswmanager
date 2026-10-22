@@ -5,7 +5,10 @@ import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay
 import { FAVORITE } from './search'
 import { iconAction, icon, protectedIcon, shownIcon } from './icons'
 
-export const EMPTY_ENTRY: EntryData = { title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null }
+export const EMPTY_ENTRY: EntryData = {
+  title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null,
+  autoType: { enabled: true, sequence: '', associations: [] },
+}
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
 /** Kept for the session, so the generator opens as it was last used. */
