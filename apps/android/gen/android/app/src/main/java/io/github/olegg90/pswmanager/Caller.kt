@@ -105,12 +105,15 @@ fun verifyUser(activity: FragmentActivity, title: String, subtitle: String, veri
  * when the entry is for the app's package but keeps no certificate (made in Keepass2Android, say).
  * Any app can take a package name; only its signing certificate tells the real one apart, so it is
  * shown, and the entry keeps it once confirmed: an app signed otherwise does not get the login then.
+ * The same when the user picked an entry to link to the app (`linking`, #270).
  */
-fun confirmApp(activity: FragmentActivity, packageName: String, entry: String, certificate: String, confirmed: () -> Unit, cancelled: () -> Unit) {
+fun confirmApp(activity: FragmentActivity, packageName: String, entry: String, certificate: String, confirmed: () -> Unit, cancelled: () -> Unit, linking: Boolean = false) {
+  val login = entry.ifEmpty { "This login" }
+  val why = if (linking) "$login is to be linked to $packageName" else "$login is for $packageName, but PswManager does not know this app's signing certificate yet"
   AlertDialog.Builder(activity)
     .setTitle("Trust this app?")
     .setMessage(
-      "${entry.ifEmpty { "This login" }} is for $packageName, but PswManager does not know this app's signing certificate yet. " +
+      "$why. " +
         "Any app can take that name; only the certificate tells them apart:\n\n$certificate\n\n" +
         "Go on only if this is the app you meant, from a store you trust. The entry then keeps this certificate, and an app signed otherwise will not get or change this login.",
     )

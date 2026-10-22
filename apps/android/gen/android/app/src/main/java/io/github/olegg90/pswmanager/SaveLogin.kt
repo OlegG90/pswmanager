@@ -13,11 +13,13 @@ import kotlin.concurrent.thread
 /**
  * Saving a login another app offers, in `activity` once the database is
  * unlocked (#164, #270): who asks and where it goes (a new entry for the app
- * or site, or one of its entries, whose password it replaces; the old version
- * goes to history), verified with the fingerprint or the screen lock. It goes
- * up with the next sync. An app's entry keeps its signing certificate; one
- * for its package that keeps none yet is changed only once the user confirmed
- * the app ([confirmApp]).
+ * or site, one of its entries, whose password it replaces, the old version
+ * going to history, or any other entry, which is linked to the app or site
+ * first, as Keepass2Android does), verified with the fingerprint or the
+ * screen lock. It goes up with the next sync. An app's entry keeps its
+ * signing certificate; one for its package that keeps none yet is changed,
+ * and another entry linked to the app, only once the user confirmed the app
+ * ([confirmApp]).
  */
 class SaveLogin(
   private val activity: AppCompatActivity,
@@ -32,13 +34,18 @@ class SaveLogin(
   /** A login is being saved: no second save meanwhile. */
   private var busy = false
 
-  /** Shows where the login goes: a new entry, or one of the app's or site's. */
+  /**
+   * Shows where the login goes: a new entry, one of the app's or site's (one
+   * with the user name typed in first; for one with another user name only the
+   * password is replaced), or another entry ([pickEntry]).
+   */
   fun choose() {
     val answer = ProviderBridge.loginChoices(ProviderBridge.state(activity), caller.origin, caller.packageName, caller.certificate)
     if (answer.startsWith(ProviderBridge.FAILED)) return failed(answer.removePrefix(ProviderBridge.FAILED))
     val choices = JSONObject(answer)
     cloud = choices.getBoolean("cloud")
-    val entries = choices.getJSONArray("entries")
+    val entries = choices.getJSONArray("entries").let { all -> (0 until all.length()).map { all.getJSONObject(it) } }
+      .sortedBy { it.optString("username") != username }
     val pad = (24 * activity.resources.displayMetrics.density).toInt()
     val list = LinearLayout(activity).apply {
       orientation = LinearLayout.VERTICAL
@@ -47,11 +54,17 @@ class SaveLogin(
       addView(TextView(activity).apply { text = "Save the password for ${username.ifEmpty { caller.label }}"; textSize = 22f })
       addView(TextView(activity).apply { text = "Asked by ${caller.label}." })
       addView(Button(activity).apply { text = "New entry"; setOnClickListener { save(null, "New entry") } })
-      for (i in 0 until entries.length()) {
-        val entry = entries.getJSONObject(i)
-        val label = listOf(entry.optString("title"), entry.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ")
-        addView(Button(activity).apply { text = "Update $label"; setOnClickListener { save(entry.getString("id"), label) } })
+      for (entry in entries) {
+        val label = entryLabel(entry)
+        val kept = entry.optString("username")
+        val action = when {
+          kept.isNotEmpty() && kept != username -> "Replace the password of $label (its user name stays)"
+          kept.isNotEmpty() && username.isNotEmpty() -> "Update $label (same user name)"
+          else -> "Update $label"
+        }
+        addView(Button(activity).apply { text = action; isAllCaps = false; setOnClickListener { save(entry.getString("id"), label) } })
       }
+      addView(Button(activity).apply { text = "Another entry…"; setOnClickListener { pickEntry(activity, "Save into which entry?", ::savePicked, ::choose) } })
       addView(Button(activity).apply { text = "Cancel"; setOnClickListener { cancelled() } })
     }
     activity.setContentView(ScrollView(activity).apply { addView(list) })
@@ -63,6 +76,17 @@ class SaveLogin(
     if (password.isEmpty()) return failed("There is no password to save")
     busy = true
     verifyUser(activity, "Save the password", entry, { store(id, entry, false) }, { busy = false; cancelled() }, failed)
+  }
+
+  /**
+   * Saves into an entry picked among all, once the user is verified and the
+   * entry linked to who asks ([linkEntry]).
+   */
+  private fun savePicked(id: String, entry: String) {
+    if (busy) return
+    if (password.isEmpty()) return failed("There is no password to save")
+    busy = true
+    verifyUser(activity, "Save the password", entry, { linkEntry(activity, id, entry, caller, { store(id, entry, true) }, cancelled, failed) }, { busy = false; cancelled() }, failed)
   }
 
   /** Saves, the user verified; asks to confirm the app first when the entry needs it. */

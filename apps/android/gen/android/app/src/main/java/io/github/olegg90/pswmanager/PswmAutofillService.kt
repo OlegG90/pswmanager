@@ -32,7 +32,8 @@ import kotlin.concurrent.thread
  * *Unlock PswManager* ([AutofillUnlockActivity]); nothing about entries is
  * told. Unlocked, each entry is offered by its title and user name only:
  * its values leave the database when it is picked ([AutofillLoginActivity]).
- * A password typed in is offered to save (#270): Android asks *Save to
+ * Any other entry can be picked and linked to the app or site, as in
+ * Keepass2Android ([AutofillPickActivity], #270). A password typed in is offered to save (#270): Android asks *Save to
  * PswManager?*, and [AutofillSaveActivity] saves it, unlocking first.
  */
 class PswmAutofillService : AutofillService() {
@@ -95,35 +96,46 @@ class PswmAutofillService : AutofillService() {
   companion object {
     /**
      * The entries for who asks, each a dataset that fills the fields once it
-     * is picked and [AutofillLoginActivity] has its values, and the save info
-     * for a login typed in; null when there is neither (or the database is
-     * locked again).
+     * is picked and [AutofillLoginActivity] has its values; last, choosing
+     * another entry ([AutofillPickActivity]); and the save info for a login
+     * typed in.
      */
-    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse? {
+    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse {
       val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
-      val save = saveInfo(fields)
-      if (found.length() == 0 && save == null) return null
       val response = FillResponse.Builder()
-      save?.let { response.setSaveInfo(it) }
+      saveInfo(fields)?.let { response.setSaveInfo(it) }
       for (i in 0 until found.length()) {
         val login = found.getJSONObject(i)
         val id = login.getString("id")
-        val title = login.optString("title")
-        val label = listOf(title, login.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "PswManager entry" }
         // One intent per app and entry: an offer to another app does not replace this one.
         val pick = Intent(context, AutofillLoginActivity::class.java)
           .setIdentifier("${fields.packageName}/$id")
           .putExtra(ProviderBridge.EXTRA_ENTRY, id)
-          .putExtra(ProviderBridge.EXTRA_TITLE, title)
+          .putExtra(ProviderBridge.EXTRA_TITLE, login.optString("title"))
           .putFields(fields, caller)
-        val view = presentation(context, label)
-        val dataset = Dataset.Builder(view)
-        // No values yet: they come from the entry once it is picked.
-        for (field in fields.ids) dataset.setValue(field, null, view)
-        dataset.setAuthentication(pendingIntent(context, pick, 2).intentSender)
-        response.addDataset(dataset.build())
+        response.addDataset(offer(context, fields, entryLabel(login).ifEmpty { "PswManager entry" }, pick, 2))
       }
+      val choose = Intent(context, AutofillPickActivity::class.java).setIdentifier("${fields.packageName}/pick").putFields(fields, caller)
+      val label = if (found.length() == 0) "Choose an entry in PswManager…" else "Another entry in PswManager…"
+      response.addDataset(offer(context, fields, label, choose, 4))
       return response.build()
+    }
+
+    /** An offer under the fields, with no values yet: they come once `intent`'s activity has them. */
+    private fun offer(context: Context, fields: AutofillFields, label: String, intent: Intent, code: Int): Dataset {
+      val view = presentation(context, label)
+      val dataset = Dataset.Builder(view)
+      for (field in fields.ids) dataset.setValue(field, null, view)
+      return dataset.setAuthentication(pendingIntent(context, intent, code).intentSender).build()
+    }
+
+    /** The fields filled with an entry's login (`{username, password}`), as Android gets it back. */
+    fun filled(context: Context, fields: AutofillFields, login: JSONObject): Intent {
+      val view = presentation(context, "PswManager")
+      val dataset = Dataset.Builder(view)
+      fields.username?.let { dataset.setValue(it, AutofillValue.forText(login.getString("username")), view) }
+      fields.password?.let { dataset.setValue(it, AutofillValue.forText(login.getString("password")), view) }
+      return Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build())
     }
 
     /**
@@ -190,11 +202,41 @@ class AutofillUnlockActivity : UnlockScreen() {
   override fun done() {
     val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
     val offers = PswmAutofillService.offers(this, fields, caller)
-    if (offers == null) {
-      setResult(RESULT_CANCELED)
-    } else {
-      setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+    finish()
+  }
+}
+
+/**
+ * Picking any entry for an app or site that none is for yet, or another one
+ * (#270): unlocked first if need be, the user searches the entries, and the
+ * one picked is linked to who asks ([linkEntry]; an app only once the user
+ * confirmed it) and fills the fields.
+ */
+class AutofillPickActivity : UnlockScreen() {
+  override val purpose = "To fill in a password another app asks for."
+
+  override fun done() {
+    val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
+    pickEntry(this, "Fill in from which entry?", { id, label ->
+      linkEntry(this, id, label, caller, { fill(id, fields, caller) }, ::finish, ::fail)
+    }, ::finish)
+  }
+
+  /** The entry is for who asks now: its login fills the fields. */
+  private fun fill(id: String, fields: AutofillFields, caller: Caller) {
+    thread {
+      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, false)
+      runOnUiThread {
+        if (answer == null || answer.startsWith(ProviderBridge.UNCONFIRMED)) return@runOnUiThread finish()
+        setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+        finish()
+      }
     }
+  }
+
+  private fun fail(why: String) {
+    Toast.makeText(applicationContext, why, Toast.LENGTH_SHORT).show()
     finish()
   }
 }
@@ -245,19 +287,13 @@ class AutofillLoginActivity : AppCompatActivity() {
           answer == null -> cancel()
           answer.startsWith(ProviderBridge.UNCONFIRMED) ->
             confirmApp(this, caller.packageName, title, answer.removePrefix(ProviderBridge.UNCONFIRMED), { release(id, title, fields, caller, true) }, ::cancel)
-          else -> fill(fields, JSONObject(answer))
+          else -> {
+            setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+            finish()
+          }
         }
       }
     }
-  }
-
-  private fun fill(fields: AutofillFields, login: JSONObject) {
-    val view = PswmAutofillService.presentation(this, "PswManager")
-    val dataset = Dataset.Builder(view)
-    fields.username?.let { dataset.setValue(it, AutofillValue.forText(login.getString("username")), view) }
-    fields.password?.let { dataset.setValue(it, AutofillValue.forText(login.getString("password")), view) }
-    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build()))
-    finish()
   }
 
   private fun cancel() {

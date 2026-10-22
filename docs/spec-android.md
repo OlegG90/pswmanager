@@ -341,9 +341,20 @@ Android offers Google first). Android asks it when an app or a site in a browser
   URLs (`KP2A_URL_n`, #236; a `www.` aside; not the site's other hosts). Picking a login asks for the fingerprint or the phone's screen lock, then the user name and
   password go to the app, the entry checked again to be for it. Saving shows who asks and where it
   goes: a **new entry** (named after the app,
-  or the site's host; URL `androidapp://<package>` or `https://<host>`), or **updating** one of its
-  entries: the password is replaced (the old version goes to history), the user name kept when the
-  entry has one. It is verified the same way, saved, and goes up with the next sync.
+  or the site's host; URL `androidapp://<package>` or `https://<host>`), **updating** one of its
+  entries (the one with the user name offered first; for one with another user name it says only the
+  password is replaced): the password is replaced (the old version goes to history), the user name kept
+  when the entry has one; or **another entry**, searched among all (*Picking an entry*), which is linked
+  first. It is verified the same way, saved, and goes up with the next sync.
+- **Picking an entry** (#270), as Keepass2Android does when no entry is for an app or site: a search
+  over the entries in use (title, user name or URL holding the text, any case; those with a password
+  first, at most 50). The entry picked is **linked** to who asks: the app's `androidapp://<package>`
+  or the site's `https://<host>` becomes its URL when it has none, else its next further URL
+  (`KP2A_URL_n`), and an app's entry keeps the app's certificate. An app is linked only once the user
+  confirmed it (*Trust this app?*, showing its certificate): linking hands the entry to it. An entry
+  that keeps another certificate for the app's package is not linked. The entry is saved (the old
+  version goes to history) and goes up with the next sync; from then on it is offered to the app or
+  site like its own.
 - **An app's certificate:** any app can take any package name, so an app's entry keeps the app's
   signing certificate in an ordinary attribute, `PSWM_APP_CERT_<package>` (`android:apk-key-hash:` and
   its SHA-256, as for passkeys), which KeePassXC and Keepass2Android keep as it is. An entry that keeps
@@ -383,16 +394,21 @@ row, as the phone shows autofill).
   database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
   no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
   fingerprint is not asked again: the database is unlocked, as in the app.
+- **Another entry** (#270): last comes *Choose an entry in PswManager…* (*Another entry in
+  PswManager…* when there are entries for who asks): it opens *Picking an entry* (unlocking first if
+  the database was locked meanwhile), links the entry picked to the app or site, and fills the fields
+  from it. An entry made in Keepass2Android with only the server's address, say, is found this way once
+  and offered from then on.
 - **Saving** (#270): a password typed into a screen PswManager offered for (locked or not) is offered to
   save once the screen is done with (Android's *Save to PswManager?*, when the app's screen closes or a
   page's fields go), with the user name typed beside it, or in an earlier step of the same sign-in. A
   screen with no password field offers nothing to save; nor does a login filled from PswManager unchanged.
   *Save* opens PswManager's save screen: unlocked first if need be (as above), then who asks and where
   the login goes, as when an app offers one through Credential Manager (*Credential provider*): a **new
-  entry** (named after the app, or the site's host) or **updating** one of the entries for who asks (the
-  password replaced, the old version in history, the user name kept when the entry has one), verified with
-  the fingerprint or the phone's screen lock, *Trust this app?* for an app's entry that keeps no
-  certificate. It is saved and goes up with the next sync; a toast tells it was saved, or why not.
+  entry** (named after the app, or the site's host), **updating** one of the entries for who asks (the
+  password replaced, the old version in history, the user name kept when the entry has one), or
+  **another entry** picked among all and linked, verified with the fingerprint or the phone's screen
+  lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast tells it was saved, or why not.
 - **Not yet:** inline offers in the keyboard, and filling other fields (cards, addresses, TOTP codes).
 
 ## Synchronisation

@@ -56,6 +56,10 @@ pub const APP_CERTIFICATE: &str = "PSWM_APP_CERT_";
 /// the app ([Vault::confirm_app]).
 pub const UNCONFIRMED: &str = "PswManager has not given this login to this app before";
 
+/// How many entries [Vault::login_candidates] lists at most: enough to pick
+/// from, few enough for the phone to show at once.
+pub const CANDIDATES: usize = 50;
+
 /// Whether an entry is for a place (see [LoginPlace::fit]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fit {
@@ -720,6 +724,66 @@ impl Vault {
         data.password = password.to_string();
         place.keep_certificate(&mut data);
         self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
+    }
+
+    /// The entries in use whose title, user name or one of whose URLs holds
+    /// `query` (any case; all of them for an empty one), for the user to pick
+    /// one for a login an app or site asks for or offers when none is for it
+    /// (#270); those with a password first, then by title. At most
+    /// [CANDIDATES] of them.
+    pub fn login_candidates(&self, query: &str) -> Vec<EntryChoice> {
+        let query = query.trim().to_lowercase();
+        let holds = |text: &str| text.to_lowercase().contains(&query);
+        let mut found: Vec<(bool, EntryChoice)> = self
+            .visible_entries()
+            .filter(|e| kind(e) == Kind::Entry)
+            .filter(|e| {
+                query.is_empty()
+                    || [fields::TITLE, fields::USERNAME].iter().any(|name| e.get(name).is_some_and(holds))
+                    || e.fields.iter().any(|(name, value)| holds_url(name) && holds(value.get()))
+            })
+            .map(|e| (e.get(fields::PASSWORD).is_some_and(|p| !p.is_empty()), EntryChoice::of(&e, e.get(fields::USERNAME))))
+            .collect();
+        found.sort_by(|(a_password, a), (b_password, b)| b_password.cmp(a_password).then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase())));
+        found.into_iter().take(CANDIDATES).map(|(_, choice)| choice).collect()
+    }
+
+    /// Links entry `id`, which the user picked, to `place` (#270), as
+    /// Keepass2Android does: the place's URL becomes the entry's URL when it
+    /// has none, else its next further URL (`KP2A_URL_n`), and an app's entry
+    /// keeps the app's certificate. For an app that must be `confirmed` first
+    /// ([UNCONFIRMED] till then): linking hands the entry to it. Nothing
+    /// changes for an entry that is for the place already; an entry that keeps
+    /// another certificate for the app's package is not linked. The file is
+    /// saved (the old version goes to history).
+    pub fn link_login(&mut self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), String> {
+        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
+        let fit = place.fit(&entry);
+        if fit == Fit::Yes {
+            return Ok(());
+        }
+        if let LoginPlace::App { package, .. } = place {
+            if entry.get(&certificate_field(package)).is_some_and(|kept| !kept.trim().is_empty()) {
+                return Err("This entry is for another app of that name".into());
+            }
+            if !confirmed {
+                return Err(UNCONFIRMED.into());
+            }
+        }
+        let base = self.edit_data(id).ok_or(NOT_FOUND)?;
+        let mut data = base.clone();
+        if fit == Fit::No {
+            let url = place.url();
+            if data.url.trim().is_empty() {
+                data.url = url;
+            } else {
+                let taken = |n: &usize| data.fields.iter().any(|f| f.name == format!("{}_{n}", crate::cxf::MORE_URLS));
+                let n = (1..).find(|n| !taken(n)).unwrap_or(1);
+                data.fields.push(edit::FieldData { name: format!("{}_{n}", crate::cxf::MORE_URLS), value: url, protected: false });
+            }
+        }
+        place.keep_certificate(&mut data);
+        self.save_entry(Some(id), Some(&base), &data, false, &[]).map(|_| ())
     }
 
     /// Signs in with the passkey of entry `id` (WebAuthn's request options,
@@ -1815,6 +1879,59 @@ pub mod tests {
             assert_eq!(vault.logins_for(&LoginPlace::Site(host.into())).len(), 1, "{host}");
         }
         assert!(vault.logins_for(&LoginPlace::Site("other.mail.example".into())).is_empty());
+    }
+
+    #[test]
+    fn any_entry_can_be_picked_and_linked_to_an_app_or_site() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let photos = LoginPlace::of(None, "com.example.photos", Some(b"photos' certificate")).unwrap();
+        let site = LoginPlace::Site("photos.example".into());
+        let mut data = EntryData::default();
+        data.title = "Photos".into();
+        data.username = "alice".into();
+        data.password = "pw-1".into();
+        data.url = "https://photos.home.example".into();
+        let (id, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        let mut bare = EntryData::default();
+        bare.title = "Photos note".into();
+        let (note, _) = vault.save_entry(None, None, &bare, false, &[]).unwrap();
+        assert!(vault.logins_for(&photos).is_empty());
+
+        // Found by title, user name or URL, any case; one with a password first.
+        let ids = |query: &str| vault.login_candidates(query).into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids("PHOTOS"), [id.clone(), note.clone()]);
+        assert_eq!(ids("alice"), std::slice::from_ref(&id));
+        assert_eq!(ids("home.example"), std::slice::from_ref(&id));
+        assert!(ids("nothing like it").is_empty());
+        assert!(vault.login_candidates("").len() > 2);
+
+        // An app is linked only once the user confirmed it: the entry gets its
+        // URL as a further one, and its certificate.
+        assert_eq!(vault.link_login(&id, &photos, false).unwrap_err(), UNCONFIRMED);
+        vault.link_login(&id, &photos, true).unwrap();
+        let linked = vault.edit_data(&id).unwrap();
+        assert_eq!(linked.url, "https://photos.home.example");
+        assert!(linked.fields.iter().any(|f| f.name == "KP2A_URL_1" && f.value == "androidapp://com.example.photos"));
+        assert_eq!(vault.logins_for(&photos).len(), 1);
+        assert_eq!(vault.login(&id, &photos).unwrap().1.as_str(), "pw-1");
+        assert_eq!(vault.history(&id).unwrap().len(), 1);
+        // Linked already: nothing changes.
+        vault.link_login(&id, &photos, false).unwrap();
+        assert_eq!(vault.history(&id).unwrap().len(), 1);
+        // Another app of the same name is not linked to it.
+        let impostor = LoginPlace::of(None, "com.example.photos", Some(b"another certificate")).unwrap();
+        assert!(vault.link_login(&id, &impostor, true).is_err());
+
+        // A site goes into the next further URL; an entry with no URL gets it as its URL.
+        vault.link_login(&id, &site, false).unwrap();
+        assert!(vault.edit_data(&id).unwrap().fields.iter().any(|f| f.name == "KP2A_URL_2" && f.value == "https://photos.example"));
+        vault.link_login(&note, &site, false).unwrap();
+        assert_eq!(vault.edit_data(&note).unwrap().url, "https://photos.example");
+        assert_eq!(vault.logins_for(&site).len(), 1);
+        assert_eq!(vault.entries_for_login(&site).len(), 2);
+        let reopened = Vault::open(&dir.path().join("sic2kdbx.kdbx"), Some("test"), None).unwrap();
+        assert_eq!(reopened.logins_for(&photos).len(), 1);
     }
 
     #[test]
