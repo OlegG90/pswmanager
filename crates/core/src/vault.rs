@@ -1141,7 +1141,7 @@ impl Vault {
 
     /// The entry's current TOTP code, or `None` when it has no secret.
     pub fn totp(&self, id: &str) -> Result<Option<otp::Code>, String> {
-        let Some(value) = self.field(id, fields::OTP) else { return Ok(None) };
+        let Some(value) = self.entry(id).and_then(|e| otp::find(&e.fields)) else { return Ok(None) };
         otp::Totp::parse(&value).map(|totp| Some(totp.code_now()))
     }
 }
@@ -1322,7 +1322,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         },
         has_password: e.get_password().is_some_and(|p| !p.is_empty()),
         kind: kind(e),
-        otp: e.fields.contains_key(fields::OTP),
+        otp: otp::find(&e.fields).is_some(),
         passkey: e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)),
         expires: edit::expiry_of(&e.times),
     }

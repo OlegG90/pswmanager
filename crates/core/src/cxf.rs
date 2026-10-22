@@ -161,10 +161,10 @@ fn write_item(entry: &EntryRef<'_>, id: &str) -> Value {
             "password": {"fieldType": "concealed-string", "value": password},
         }));
     }
-    if let Some(otp) = entry.get(standard::OTP).filter(|o| !o.trim().is_empty()) {
-        match write_totp(otp, &title) {
+    if let Some(otp) = otp::find(&entry.fields) {
+        match write_totp(&otp, &title) {
             Some(totp) => credentials.push(totp),
-            None => unread.push(concealed("TOTP", otp)),
+            None => unread.push(concealed("TOTP", &otp)),
         }
     }
     if let Some(passkey) = write_passkey(entry) {
@@ -215,16 +215,20 @@ fn write_scope(entry: &EntryRef<'_>) -> Option<Value> {
     (!urls.is_empty() || !apps.is_empty()).then(|| json!({"urls": urls, "androidApps": apps}))
 }
 
-/// The entry's TOTP secret (an `otpauth://` URI or a bare secret) as a CXF
-/// TOTP credential; `None` when it is not one this app can read.
+/// The entry's TOTP (see [otp::find]) as a CXF TOTP credential; `None` when
+/// it is not one this app can read, or a Steam secret, which CXF has no place
+/// for (it then goes along as a field).
 fn write_totp(otp: &str, title: &str) -> Option<Value> {
-    otp::Totp::parse(otp).ok()?;
+    let parsed = otp::Totp::parse(otp).ok().filter(|t| !t.is_steam())?;
+    let mut totp = json!({
+        "type": "totp",
+        "secret": parsed.base32().as_str(),
+        "period": parsed.period(),
+        "digits": parsed.digits(),
+        "algorithm": parsed.algorithm().to_ascii_lowercase(),
+    });
     let otp = otp.trim();
-    // Base32 as people type it: any case, spaces, dashes, padding.
-    let clean = |secret: &str| secret.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '=').collect::<String>().to_ascii_uppercase();
-    let mut totp = json!({"type": "totp", "period": 30, "digits": 6, "algorithm": "sha1"});
     if !otp.to_ascii_lowercase().starts_with("otpauth:") {
-        totp["secret"] = clean(otp).into();
         totp["issuer"] = title.into();
         return Some(totp);
     }
@@ -235,17 +239,7 @@ fn write_totp(otp: &str, title: &str) -> Option<Value> {
         Some((issuer, user)) => (Some(issuer.trim().to_string()), user.trim().to_string()),
         None => (None, label.trim().to_string()),
     };
-    let mut issuer = label_issuer;
-    for (key, value) in uri.query_pairs() {
-        match key.to_ascii_lowercase().as_str() {
-            "secret" => totp["secret"] = clean(&value).into(),
-            "issuer" => issuer = Some(value.into_owned()),
-            "period" => totp["period"] = value.parse::<u64>().ok()?.into(),
-            "digits" => totp["digits"] = value.parse::<u64>().ok()?.into(),
-            "algorithm" => totp["algorithm"] = value.to_ascii_lowercase().into(),
-            _ => {}
-        }
-    }
+    let issuer = uri.query_pairs().find(|(key, _)| key.eq_ignore_ascii_case("issuer")).map(|(_, v)| v.into_owned()).or(label_issuer);
     if let Some(issuer) = issuer.filter(|i| !i.is_empty()) {
         totp["issuer"] = issuer.into();
     }

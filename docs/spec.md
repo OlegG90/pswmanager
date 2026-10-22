@@ -510,8 +510,24 @@ It works in any app, browsers included, with no extension.
 - **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,
   exclude look-alike characters. Generated with the OS CSPRNG.
 - **Strength indicator** (zxcvbn) next to the password field.
-- **TOTP**: codes are computed from the entry's `otp` attribute (`otpauth://` URI, as `sic2kdbx` and
-  KeePassXC write it), with a countdown.
+- **TOTP** (#278, `docs/totp-research.md`): codes with a countdown, from whichever layout the entry keeps
+  them in, looked for in KeePassXC's order so both apps show the same code:
+  1. KeeTrayTOTP's `TOTP Seed` (base32) with `TOTP Settings` (`period;digits`, `S` for Steam);
+  2. `otp`: an `otpauth://totp/` URI (as `sic2kdbx` and KeePassXC write it), a bare base32 secret, or a
+     KeeOtp string (`key=…&step=…&size=…&otpHashMode=…`);
+  3. KeePass 2's `TimeOtp-Secret` (UTF-8), `-Hex`, `-Base32` or `-Base64` with `TimeOtp-Length`,
+     `TimeOtp-Period` and `TimeOtp-Algorithm`.
+
+  SHA-1, SHA-256 and SHA-512; 6 to 10 digits; any period. **Steam** secrets (`encoder=steam` in the URI,
+  `S` in `TOTP Settings`) give Steam's five letters. HOTP (`otpauth://hotp/`, `HmacOtp-*`) has no code and
+  is saved as it is. The editor shows the TOTP as `otp` holds it, or another layout's as an
+  `otpauth://totp/` URI. Saved unchanged, the attributes stay exactly as they were; changed, the TOTP is
+  written back into the layouts the entry has, as KeePassXC does, so the plugin that wrote each keeps
+  working: KeeTrayTOTP's pair and KeePass 2's attributes where they can hold it (removed where they
+  cannot: KeeTrayTOTP takes SHA-1 only, KeePass no Steam and at most 8 digits), and `otp` when the entry
+  had it or nothing else holds it (a bare secret becomes a URI there). Cleared, all of them go. The 2FA
+  filter, copying, Auto-Type's `{TOTP}`, the export (a KeeOtp string as a URI in CSV; a Steam secret as a
+  field in CXF, which has no place for it) and *Similar entries* use the same TOTP.
 
 ## Password health
 

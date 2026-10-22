@@ -556,7 +556,8 @@ function secretRow(label: string, field: string, keys?: { reveal: string; copy: 
 /** Shown before the tags of an entry that is not in use. */
 const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template', trash: 'In the trash' }
 
-const hasTotp = (entry: EntryDetail) => entry.fields.some((f) => f.name === OTP)
+/** Codes for the entry: from `otp`, or another layout's attributes (#278). */
+const hasTotp = (entry: EntryDetail) => entry.otp
 
 function renderDetail() {
   const shown = current
@@ -598,8 +599,11 @@ function renderDetail() {
     ? [iconAction('externalLink', `Open in the browser${field ? '' : ' (Ctrl+U)'}`, () => api.openUrl(entry.id, field).catch((e) => notify(String(e))))]
     : []
   if (entry.url) values.push(row('URL', entry.url, () => copy(URL_FIELD, 'URL'), { actions: opens(entry.link) }))
-  // An older version's TOTP secret is shown as a secret, not as codes.
-  if (hasTotp(entry)) values.push(version ? secretRow('TOTP', OTP) : totpRow(entry.id))
+  // An older version's TOTP secret is shown as a secret, not as codes (one
+  // in another layout is among its fields).
+  if (version) {
+    if (entry.fields.some((f) => f.name === OTP)) values.push(secretRow('TOTP', OTP))
+  } else if (hasTotp(entry)) values.push(totpRow(entry.id))
   for (const field of entry.fields.filter((f) => f.name !== OTP)) {
     if (field.protected) {
       values.push(secretRow(labelOf(field.name), field.name))
