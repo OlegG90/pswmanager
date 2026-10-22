@@ -1,7 +1,7 @@
 import { api, type Entry, type Listing } from './api'
 import { busyButton, button, el } from './dom'
 import { describeEntries, titleOf } from './entry-text'
-import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
+import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
 
 export interface SimilarOptions {
   /** The entry as the list has it. */
@@ -72,13 +72,22 @@ export function renderSimilar(container: HTMLElement, options: SimilarOptions) {
   /** Sites left as they are, until the next Scan. */
   const left = new Set<string>()
   const results = el('div', { className: 'results' })
+  const scan = busyButton('Scan', 'Look for entries alike in what is ticked', async () => {
+    left.clear()
+    await draw()
+    // A tick taken off meanwhile leaves nothing to compare.
+    scan.disabled = !anyCriterion()
+  }, options.fail, 'primary')
+  scan.disabled = !anyCriterion()
   const page = [
     el('header', {}, el('h1', {}, 'Similar entries')),
     el('section', { className: 'tool' }, el('p', {}, SIMILAR_INTRO),
-      el('div', { className: 'tool-actions' }, busyButton('Scan', 'Look for entries for the same site and user name', () => {
-        left.clear()
-        return draw()
-      }, options.fail, 'primary'))),
+      // Results of other ticks would not say what these find.
+      criteriaChecks((any) => {
+        scan.disabled = !any
+        results.replaceChildren()
+      }),
+      el('div', { className: 'tool-actions' }, scan)),
     results,
   ]
   const replace = (nodes: Node[]) => {
@@ -88,7 +97,7 @@ export function renderSimilar(container: HTMLElement, options: SimilarOptions) {
   }
   // Also after a merge: the page comes back with the sites as they are now.
   async function draw() {
-    const sites = similarSites(await api.similarEntries(), options.entry, left)
+    const sites = similarSites(await api.similarEntries(similarCriteria()), options.entry, left)
     const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
     const leave = (name: string) => (section: HTMLElement) => {
       left.add(name)

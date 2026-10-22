@@ -1,4 +1,4 @@
-import { OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type MergePreview, type Similar } from './api'
+import { OTP, PASSWORD, URL_FIELD, USERNAME, type Entry, type MergePreview, type Similar, type SimilarCriteria } from './api'
 import { el } from './dom'
 import { labelOf, titleOf } from './entry-text'
 
@@ -6,14 +6,40 @@ import { labelOf, titleOf } from './entry-text'
  *  *Similar entries*); each draws it in its own way. */
 
 export const SIMILAR_INTRO =
-  'Entries whose URLs are for the same site, with the same user name. Merging keeps one entry with everything the others have; they go to the recycle bin.'
-export const NO_SIMILAR = 'No two entries are for the same site and user name.'
+  'Entries alike in what is ticked: the title, the user name, or the site of any of their URLs (the same host on another port is another site). ' +
+  'Merging keeps one entry with everything the others have; they go to the recycle bin.'
+export const NO_SIMILAR = 'No two entries are alike in what is ticked.'
+export const NO_CRITERION = 'Tick what the entries are to be alike in.'
+
+/** The criteria ticked last: the next Scan uses them while the app runs. */
+let chosen: SimilarCriteria = { title: false, userName: true, url: true }
+const CRITERIA: [keyof SimilarCriteria, string][] = [['title', 'Title'], ['userName', 'User name'], ['url', 'URL']]
+
+/** What Scan looks for now. */
+export const similarCriteria = () => chosen
+
+/** Something is ticked: Scan has something to compare. */
+export const anyCriterion = () => chosen.title || chosen.userName || chosen.url
+
+/** The check boxes for what makes entries similar (#267); `changed` hears
+ *  each change, with whether anything is still ticked. */
+export function criteriaChecks(changed: (any: boolean) => void): HTMLElement {
+  const boxes = CRITERIA.map(([key, label]) => {
+    const box = el('input', { type: 'checkbox', checked: chosen[key] })
+    box.addEventListener('change', () => {
+      chosen = { ...chosen, [key]: box.checked }
+      changed(anyCriterion())
+    })
+    return el('label', { className: 'criterion' }, box, label)
+  })
+  return el('div', { className: 'similar-criteria' }, el('span', {}, 'Alike in:'), ...boxes)
+}
 export const NONE_TICKED = 'Tick the entries to merge into the kept one'
 
-/** One site's entries for one account, the most recently changed first. */
+/** Entries alike in the criteria, the most recently changed first. */
 export interface Site {
-  /** The site with the user name (`google.com · me@example.com`): what the
-   *  section is headed with, and what tells it from the site's other accounts. */
+  /** What they share (`google.com · Gmail · me@example.com`): what the section
+   *  is headed with, and what tells it from the others. */
   name: string
   entries: Entry[]
 }
@@ -23,7 +49,7 @@ export interface Site {
 export function similarSites(found: Similar[], entry: (id: string) => Entry | undefined, left: Set<string>): Site[] {
   return found
     .map((s) => ({
-      name: s.userName ? `${s.site} · ${s.userName}` : s.site,
+      name: [s.site, s.title, s.userName].filter(Boolean).join(' · ') || 'No user name',
       entries: s.ids.map(entry).filter((e): e is Entry => e?.kind === 'entry'),
     }))
     .filter((s) => !left.has(s.name) && s.entries.length > 1)

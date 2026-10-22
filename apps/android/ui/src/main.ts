@@ -9,7 +9,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
-import { leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
@@ -940,7 +940,7 @@ function toolsSheet(listing: Listing) {
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
     button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), fileImportSheet()), 'item'),
     button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
-    button('Find similar entries', 'Entries for the same site and user name, to merge them', () => (close(), void similarScreen(listing)), 'item'),
+    button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
   ])
 }
 
@@ -954,7 +954,7 @@ function toolsSheet(listing: Listing) {
 async function similarScreen(listing: Listing, left = new Set<string>()) {
   let found: Similar[]
   try {
-    found = await api.similarEntries()
+    found = anyCriterion() ? await api.similarEntries(similarCriteria()) : []
   } catch (e) {
     snack(String(e))
     return
@@ -977,7 +977,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
   }
   const failed = (e: unknown) => snack(String(e))
   const quote = (title: string) => `“${title}”`
-  const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
+  const none = () => el('p', { className: 'muted' }, anyCriterion() ? NO_SIMILAR : NO_CRITERION)
 
   const site = (site: Site) => {
     const choice = siteChoice(site, (entry, tick, keep) =>
@@ -1021,6 +1021,8 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
   display([
     el('header', { className: 'bar' }, iconButton('back', 'Back to the list', toList), el('h1', {}, 'Similar entries')),
     el('p', { className: 'muted' }, SIMILAR_INTRO),
+    // A changed tick scans again (#267); Leave as is holds until then.
+    criteriaChecks(() => void similarScreen(listing)),
     ...(sites.length ? sites.map(site) : [none()]),
   ], toList)
 }

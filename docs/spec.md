@@ -473,16 +473,26 @@ while the database is locked):
 ## Similar entries
 
 - A page beside the sidebar, from its *Tools* (*Similar entries*; a group or a tag, or Esc, goes back): it
-  says what it looks for, and nothing is looked for until **Scan**, which lists under it, on the same page,
-  the entries in use (not the recycle bin or templates) that are for the same site (#176): their URLs share a registrable domain (Public Suffix List, so
-  `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
-  not a site's (`androidapp://…`; a web address on an IP address goes by the address). Entries without a
-  URL are not listed.
-- The **user name** tells accounts apart (#227): a site's entries are grouped by user name (trimmed, any
-  case), and entries with different user names are never offered to merge; each account is a section of
-  its own, headed with the site and the user name (`google.com · me@example.com`; the site alone without
-  one). Entries without a user name go with the site's only user name; when it has several, they are a
-  section of their own.
+  says what it looks for, with check boxes for what makes entries similar (#267): **Title**, **User name**
+  and **URL** (the last two ticked at first; the choice holds while the app runs). Nothing is looked for
+  until **Scan** (off while nothing is ticked), which lists under it, on the same page, the entries in use
+  (not the recycle bin or templates) alike in every ticked one; an entry without what a ticked one
+  compares (no title, no URL) is like no other.
+  - **URL:** the same site (#176): their URLs share a registrable domain (Public Suffix List, so
+    `mail.google.com` and `accounts.google.com` are both `google.com`), or are the same address when it is
+    not a site's (`androidapp://…`; a web address on an IP address goes by the address). A port given in
+    the address is part of the site (#267): `nas.example.com:5001` and `nas.example.com:8443` are two. The
+    further URLs (`KP2A_URL_n`) count as well as the URL: one address in common is enough, and an entry
+    sharing one with each of two others joins all three; the section goes by the site most of them have.
+  - **Title:** trimmed, any case.
+- **User name:** it tells accounts apart (#227): entries are grouped by user name (trimmed, any case),
+  and entries with different user names are never offered to merge. Entries without a user name go with
+  the only user name among those for the same site or with the same title; when there are several, they
+  are a section of their own. By the user name alone, an entry without one is like no other. Entries
+  split into accounts are joined by site again among themselves: one that linked two sites may have
+  gone to another account.
+- Each section is headed with what its entries share, of what is ticked
+  (`google.com · Gmail · me@example.com`; *No user name* when that is all there is).
 - Each section's entries are listed most recently changed first. One is **kept** (the first, at first; any
   can be chosen), the others are **ticked** to merge into it; per section:
   - **Proceed**: the kept entry as the merge would leave it, shown as the entry view shows an entry

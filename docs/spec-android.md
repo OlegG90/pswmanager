@@ -176,9 +176,10 @@ As in the mockups `1e`–`1j`.
   The sheet after it says how many entries came in and what did not; for a file chosen in the phone's
   folders it offers *Delete the file* / *Keep it*, for one from Android's picker it says to delete it, as it
   holds every password in clear text.
-- **Find similar entries** (#215): a screen of the entries that are for the same site and account, as on
-  Windows (`docs/spec.md`, *Similar entries*; the grouping, the merge and its preview are the shared core's).
-  Per section (a site and user name) the entries are listed most recently changed first, each with a tick
+- **Find similar entries** (#215): a screen of the entries alike in the criteria ticked on it (**Title**,
+  **User name**, **URL**; #267), as on Windows (`docs/spec.md`, *Similar entries*; the grouping, the merge
+  and its preview are the shared core's). It scans when it opens and again when a tick changes.
+  Per section (what its entries share) the entries are listed most recently changed first, each with a tick
   and *Keep* (the first, at first); *Proceed* shows the kept entry as the merge would leave it (what it
   adds in another colour and starred), with *Merge* and *Cancel* (Back too: the sections again, ticks as
   they were); *Leave as is* takes the section off the screen until it is opened from Tools again. No

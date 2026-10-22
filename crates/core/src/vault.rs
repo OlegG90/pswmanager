@@ -392,9 +392,9 @@ impl Vault {
         self.db.meta.database_name.clone().unwrap_or_default()
     }
 
-    /// The entries the user works with that are for the same site and account.
-    pub fn similar(&self) -> Vec<crate::similar::Similar> {
-        crate::similar::find(self.visible_entries())
+    /// The entries the user works with that are alike in `criteria` (#267).
+    pub fn similar(&self, criteria: crate::similar::Criteria) -> Vec<crate::similar::Similar> {
+        crate::similar::find(self.visible_entries(), criteria)
     }
 
     /// Every entry, the recycle bin's and the templates too, each marked with its [Kind].
