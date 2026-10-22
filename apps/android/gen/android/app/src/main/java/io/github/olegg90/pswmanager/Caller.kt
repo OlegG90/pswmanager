@@ -1,6 +1,7 @@
 package io.github.olegg90.pswmanager
 
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -9,6 +10,8 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.credentials.provider.CallingAppInfo
 import androidx.fragment.app.FragmentActivity
+import org.json.JSONObject
+import java.security.MessageDigest
 
 /**
  * Who asks for a passkey: a browser on Google's list of privileged apps
@@ -27,11 +30,47 @@ class Caller(val origin: String?, val packageName: String, val certificate: Byte
     /** Throws when the list of privileged browsers cannot be read: who asks is then unknown. */
     @RequiresApi(34)
     fun of(context: Context, app: CallingAppInfo): Caller {
-      val origin = app.getOrigin(PswmCredentialService.allowlist(context))
+      val origin = app.getOrigin(ProviderBridge.allowlist(context))
       // The app's current signing certificate (the last after a rotation).
       val signing = app.signingInfoCompat
       val certificate = (if (signing.hasMultipleSigners) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
       return Caller(origin, app.packageName, certificate)
+    }
+
+    /**
+     * Who an autofill request is for (#236): the page's web domain when a
+     * browser on Google's list of privileged apps shows it (any app can put a
+     * domain in its views, so only those speak for a site), else the app by
+     * its package and signing certificate. Null when the app cannot be seen.
+     */
+    fun forAutofill(context: Context, packageName: String, webDomain: String?): Caller? {
+      val certificate = signingCertificate(context, packageName) ?: return null
+      val origin = webDomain?.takeIf { privilegedBrowser(context, packageName, certificate) }?.let { "https://$it" }
+      return Caller(origin, packageName, certificate)
+    }
+
+    /** An installed app's current signing certificate (the last after a rotation). */
+    private fun signingCertificate(context: Context, packageName: String): ByteArray? = try {
+      val signing = context.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo ?: return null
+      (if (signing.hasMultipleSigners()) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
+    } catch (e: PackageManager.NameNotFoundException) {
+      android.util.Log.w("PswmAutofill", "Cannot see the app asking ($packageName)")
+      null
+    }
+
+    /** Whether the app is a browser on Google's list, signed with one of the certificates listed for it. */
+    private fun privilegedBrowser(context: Context, packageName: String, certificate: ByteArray): Boolean {
+      val fingerprint = MessageDigest.getInstance("SHA-256").digest(certificate).joinToString(":") { "%02X".format(it) }
+      val apps = try {
+        JSONObject(ProviderBridge.allowlist(context)).getJSONArray("apps")
+      } catch (e: Exception) {
+        return false
+      }
+      return (0 until apps.length()).map { apps.getJSONObject(it).optJSONObject("info") }.any { info ->
+        val signatures = info?.optJSONArray("signatures")
+        info?.optString("package_name") == packageName && signatures != null &&
+          (0 until signatures.length()).any { signatures.getJSONObject(it).optString("cert_fingerprint_sha256").equals(fingerprint, ignoreCase = true) }
+      }
     }
   }
 }

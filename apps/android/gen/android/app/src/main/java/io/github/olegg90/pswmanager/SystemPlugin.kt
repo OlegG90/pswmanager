@@ -5,6 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
+import android.provider.Settings
+import android.view.autofill.AutofillManager
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -35,7 +38,8 @@ class UploadArgs {
  * - The screen turning off: `window.pswmScreenOff()`, which locks.
  *
  * And what the app asks of Android: the background upload ([UploadWorker]),
- * and whether its screens may be captured ([Screenshots]).
+ * whether its screens may be captured ([Screenshots]), and the phone's
+ * autofill service ([PswmAutofillService]).
  */
 @TauriPlugin
 class SystemPlugin(private val activity: Activity) : Plugin(activity) {
@@ -67,6 +71,28 @@ class SystemPlugin(private val activity: Activity) : Plugin(activity) {
   fun applyScreenshots(invoke: Invoke) {
     activity.runOnUiThread { Screenshots.apply(activity) }
     invoke.resolve(JSObject())
+  }
+
+  /** Whether the phone can autofill, and whether PswManager is its autofill service (#236). */
+  @Command
+  fun autofillStatus(invoke: Invoke) {
+    val manager = activity.getSystemService(AutofillManager::class.java)
+    val status = JSObject()
+    status.put("supported", manager?.isAutofillSupported == true)
+    // True only when PswManager's own service is the one chosen.
+    status.put("enabled", manager?.hasEnabledAutofillServices() == true)
+    invoke.resolve(status)
+  }
+
+  /** Android's choice of autofill service, with PswManager offered (the user decides there). */
+  @Command
+  fun chooseAutofill(invoke: Invoke) {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:${activity.packageName}")))
+      invoke.resolve(JSObject())
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: e.toString())
+    }
   }
 
   /** Changes are waiting: they go up in the background if the app cannot send them first. */

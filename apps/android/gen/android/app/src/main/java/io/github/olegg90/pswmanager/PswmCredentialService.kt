@@ -105,6 +105,12 @@ object ProviderBridge {
 
   /** The app's state file, as Tauri keeps it (its data folder, `app_data_dir`; `STATE_FILE` in app.rs). */
   fun state(context: Context): String = File(context.dataDir, "pswm.json").absolutePath
+
+  @Volatile private var allowlist: String? = null
+
+  /** Google's list of browsers trusted to speak for a site (kept with the app, updated with releases), read once. */
+  fun allowlist(context: Context): String =
+    allowlist ?: context.resources.openRawResource(R.raw.privileged_allowlist).bufferedReader().use { it.readText() }.also { allowlist = it }
 }
 
 /**
@@ -212,11 +218,5 @@ class PswmCredentialService : CredentialProviderService() {
         .putExtra(ProviderBridge.EXTRA_TITLE, title)
       return PendingIntent.getActivity(context, 2, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
-
-    @Volatile private var allowlist: String? = null
-
-    /** Google's list of browsers trusted to speak for a site (kept with the app, updated with releases), read once. */
-    fun allowlist(context: Context): String =
-      allowlist ?: context.resources.openRawResource(R.raw.privileged_allowlist).bufferedReader().use { it.readText() }.also { allowlist = it }
   }
 }

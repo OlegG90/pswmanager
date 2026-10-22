@@ -29,13 +29,14 @@ things that come in later stages (the *Backup* settings tab, Templates, a databa
 ### Role
 
 At first PswManager **complements** Keepass2Android on the phone: quick search, viewing and copying, and
-(from stage A2) editing. Keepass2Android stays for what PswManager does not do yet, autofill above all.
+(from stage A2) editing, and filling in passwords in other apps and browsers (*Autofill*, #236).
+Keepass2Android stays for what PswManager does not do yet.
 Both open the same file in the same store and merge each other's changes. Replacing Keepass2Android
 completely is a goal for later stages.
 
 ### Out of scope for now
 
-Autofill (Android's `AutofillService`; a later stage of its own), several databases in the list (one
+Saving a login typed into another app through autofill (#236 fills only), several databases in the list (one
 database on the phone), backup, the Templates
 group, managing tags (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and landscape, Google Play.
 Importing from another password manager (#152) and exporting to one (#153) are in (*Screens*); SafeInCloud's
@@ -252,7 +253,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 
 | Tab | Settings |
 |---|---|
-| General | locking, screenshots and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3) |
+| General | locking, screenshots and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3); **Autofill**: whether PswManager is the phone's autofill service, and Android's choice of it (see *Autofill*) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
 | Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength, the eye on the first field and the rules for a new master password, #224) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; fine for the APK this project builds, which is not on Google Play, whose policy keeps that permission from password managers), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows (a copy that says it changed back to a key the phone was moved off is asked for the same way, never followed by itself) |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; with a cloud store linked, **Sync now** and **Stop syncing** (e.g. when the store cannot be reached or the account has a problem), the one way out as on Windows (#225): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone and the store's account stays signed in. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
@@ -333,8 +334,8 @@ Android offers Google first). Android asks it when an app or a site in a browser
   app, as the site checks the app's signing certificate.
 - **Passwords through Credential Manager** (#164): apps that ask Credential Manager for a password
   (`GetPasswordOption`) or offer one to save (`CreatePasswordRequest`) get PswManager too. This is not
-  Android's autofill (`AutofillService`), a stage of its own; most apps and every site in a browser
-  still fill through that. Who asks decides the entries: an **app** by its package, among an entry's URLs
+  Android's autofill (`AutofillService`), through which most apps and every site in a browser fill:
+  see *Autofill*. Who asks decides the entries: an **app** by its package, among an entry's URLs
   as Keepass2Android keeps it (`androidapp://<package>` in URL or `KP2A_URL_n`), and its signing
   certificate (below); a **browser** on the
   privileged list by its page's host, which must be the entry's (a `www.` aside; not the site's other
@@ -353,6 +354,34 @@ Android offers Google first). Android asks it when an app or a site in a browser
   app (*Trust this app?*, showing its certificate, after the fingerprint); the entry keeps it then.
   An app whose signing key changed gets its entries again once that attribute is deleted (and the app
   confirmed again).
+
+## Autofill
+
+PswManager as Android's **autofill service** (`AutofillService`, #236): the user name and password fields
+of other apps and of pages in browsers offer the entries for them, under the field (or in the keyboard's
+row, as the phone shows autofill).
+
+- **Turning it on:** the phone keeps one autofill service, chosen in Android's settings. *Settings →
+  General → Autofill* says whether PswManager is it and opens Android's choice. Chrome fills through it
+  only with *Autofill using another service* on in its own settings; other browsers as they do.
+- **The fields:** a screen's user name and password fields, by what they say they are (autofill hints,
+  a page's `type`, the input type), else by words in their id or hint (*user*, *login*, *email*,
+  *password*…); a text field just before the first password is taken for the user name. A sign-in in two
+  steps gets the user name first, then the password. PswManager's own screens are not filled.
+- **Who asks**, as for the credential provider (*Credential provider*): an **app** by its package among
+  an entry's URLs (`androidapp://<package>`, `KP2A_URL_n`) and its signing certificate (*An app's
+  certificate*); a **page** by its host, which must be the entry's (a `www.` aside), only when the
+  browser showing it is on Google's list of privileged browsers, signed as listed: any app can put a
+  web domain into its views. A page in another browser is taken for that browser, as an app.
+- **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
+  the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
+  the fields then offer the entries.
+- **Unlocked:** each entry for who asks is offered by its title and user name only. Its values leave the
+  database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
+  no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
+  fingerprint is not asked again: the database is unlocked, as in the app.
+- **Not yet:** saving a login typed into another app (Android's *Save to PswManager?*), inline offers in
+  the keyboard, and filling other fields (cards, addresses, TOTP codes).
 
 ## Synchronisation
 
@@ -422,7 +451,7 @@ background.
   Windows app.
 - **Kotlin plugins** for what only Android offers: file and folder access (SAF), the Keystore and
   biometric prompt, the sensitive clipboard, `FLAG_SECURE`, the app's lifecycle (front, background, screen
-  off), WorkManager, opening attachments; later the autofill service.
+  off), WorkManager, opening attachments, the autofill service (apps and Chrome).
 - **Build:** only in CI. The Android SDK, NDK and JDK have no Windows-on-ARM64 builds, so the APK is built
   on GitHub Actions (Ubuntu): every push to a branch with Android changes builds an APK as an artifact,
   a release build signed with the app's key, so it installs over the released app and keeps its data, and
@@ -487,5 +516,6 @@ Each stage is a GitHub issue and lands in one or more PRs.
   history read only.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
-- **Later:** autofill; several databases and creating one; backup; Templates;
+- **Autofill** (#236): the autofill service; saving through it later.
+- **Later:** several databases and creating one; backup; Templates;
   managing tags; restoring a history version; password health.

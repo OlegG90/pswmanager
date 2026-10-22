@@ -27,7 +27,7 @@ stays out.
 
 ### Out of scope
 
-Browser autofill and browser extensions (Android's autofill is a later stage of the Android app), an own sync server, a database shared between people (each person
+Browser autofill and browser extensions on Windows (Android's autofill is the Android app's, #236), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
 at once (one is open at a time; switching locks the other), importing from other password managers
 other than from a file they exported (*Import from a file*; Android also imports through the system's

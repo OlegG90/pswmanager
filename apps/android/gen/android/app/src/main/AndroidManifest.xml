@@ -85,6 +85,29 @@
                 <data android:scheme="content" android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- PswManager as Android's autofill service (#236). -->
+        <service
+            android:name=".PswmAutofillService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+        <activity
+            android:name=".AutofillUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".AutofillLoginActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.pswm_android.Translucent" />
         <activity
             android:name=".UnlockActivity"
             android:exported="false"

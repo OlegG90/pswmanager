@@ -161,6 +161,10 @@ export const api = {
   screenOff: () => invoke<boolean>('screen_off'),
   settings: () => invoke<Settings>('settings'),
   setSetting: (name: string, value: unknown) => invoke<Settings>('set_setting', { name, value }),
+  /** Whether the phone can autofill, and whether PswManager is its autofill service (#236). */
+  autofillStatus: () => invoke<{ supported: boolean; enabled: boolean }>('autofill_status'),
+  /** Opens Android's choice of autofill service, with PswManager offered. */
+  chooseAutofill: () => invoke<void>('choose_autofill'),
   stayUnlocked: () => invoke<void>('stay_unlocked'),
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),

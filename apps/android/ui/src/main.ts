@@ -1654,6 +1654,26 @@ function scrolledTabs(bar: HTMLElement): HTMLElement {
   return el('div', { className: 'tabs-box' }, left, bar, right)
 }
 
+/**
+ * Whether PswManager fills in passwords in other apps and in browsers (#236),
+ * and the button to Android's choice of autofill service: the phone keeps
+ * one, chosen there, and PswManager can only offer itself.
+ */
+function autofillRow(): HTMLElement {
+  const said = el('p', { className: 'muted' }, 'Checking…')
+  const choose = button('Choose the autofill service', 'Android’s list of autofill services', () =>
+    void api.chooseAutofill().catch((e) => snack(String(e))), 'wide')
+  void api.autofillStatus().then(({ supported, enabled }) => {
+    choose.hidden = !supported
+    said.textContent = !supported
+      ? 'This phone does not autofill.'
+      : enabled
+        ? 'PswManager fills in passwords in apps and browsers. Chrome does so only with “Autofill using another service” on in its settings.'
+        : 'PswManager does not fill in passwords yet: choose it as the phone’s autofill service.'
+  }, (e) => (said.textContent = String(e)))
+  return el('div', {}, said, choose)
+}
+
 /** A tab of the phone's own settings (the Database tab is [databaseTab]). */
 function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
   switch (which) {
@@ -1666,6 +1686,8 @@ function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
         el('h2', {}, 'Unlock'),
         toggle('Unlock with fingerprint', 'The fingerprint button on the unlock screen; set up at the next unlock with the password. Off deletes the stored key', 'biometricUnlock', s.biometricUnlock),
         choice('Master password', 'Asked for again after', 'passwordEveryDays', s.passwordEveryDays, [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 1 ? '1 day' : `${d} days`] as [number, string])),
+        el('h2', {}, 'Autofill'),
+        autofillRow(),
         el('h2', {}, 'Screen'),
         toggle('Allow screenshots', 'Screenshots and screen recording show PswManager, and so does the recent-apps preview', 'allowScreenshots', s.allowScreenshots),
         el('h2', {}, 'Clipboard'),

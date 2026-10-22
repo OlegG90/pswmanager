@@ -62,6 +62,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
         })
         .invoke_handler(tauri::generate_handler![
             status,
+            autofill_status,
+            choose_autofill,
             open_local_file,
             forget_database,
             stop_syncing,
@@ -586,6 +588,18 @@ fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_j
         app.state::<crate::system::System<Wry>>().apply_screenshots()?;
     }
     Ok(settings(store))
+}
+
+/// Whether the phone can autofill, and whether PswManager is its autofill service (#236).
+#[tauri::command]
+fn autofill_status(app: AppHandle) -> Result<crate::system::AutofillStatus, String> {
+    app.state::<crate::system::System<Wry>>().autofill_status()
+}
+
+/// Opens Android's choice of autofill service, with PswManager offered.
+#[tauri::command]
+fn choose_autofill(app: AppHandle) -> Result<(), String> {
+    app.state::<crate::system::System<Wry>>().choose_autofill()
 }
 
 /// Where the key file is kept in the state file (the phone has one database):
