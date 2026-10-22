@@ -3,7 +3,7 @@
 
 use crate::otp;
 use base64::Engine;
-use keepass::db::{fields, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Meta, Times, Value};
+use keepass::db::{fields, AutoType, AutoTypeAssociation, CustomIconId, Entry, EntryId, EntryRef, GroupId, History, Icon, Meta, Times, Value};
 use chrono::{NaiveDateTime, SecondsFormat, Timelike};
 use keepass::Database;
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,68 @@ pub struct EntryData {
     /// When the entry expires (UTC, RFC 3339); `None` when it does not.
     #[zeroize(skip)]
     pub expires: Option<String>,
+    /// How Auto-Type types it (#272).
+    #[zeroize(skip)]
+    #[serde(default)]
+    pub auto_type: AutoTypeData,
+}
+
+/// An entry's Auto-Type settings as the editor shows them: KeePass's own, so
+/// what KeePassXC set is kept and shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoTypeData {
+    pub enabled: bool,
+    /// The entry's own sequence; empty for its group's, else KeePass's default.
+    pub sequence: String,
+    /// Sequences for windows whose title matches (`*` wildcards, `//regex//`).
+    pub associations: Vec<AssociationData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssociationData {
+    pub window: String,
+    /// Empty for the entry's own sequence.
+    pub sequence: String,
+}
+
+/// An entry without Auto-Type settings: on, with the group's sequence.
+impl Default for AutoTypeData {
+    fn default() -> Self {
+        AutoTypeData { enabled: true, sequence: String::new(), associations: Vec::new() }
+    }
+}
+
+impl AutoTypeData {
+    fn of(auto_type: Option<&AutoType>) -> AutoTypeData {
+        let Some(a) = auto_type else { return AutoTypeData::default() };
+        AutoTypeData {
+            enabled: a.enabled,
+            sequence: a.default_sequence.clone().unwrap_or_default(),
+            associations: a.associations.iter().map(|x| AssociationData { window: x.window.clone(), sequence: x.sequence.clone() }).collect(),
+        }
+    }
+
+    /// The settings as the file keeps them, in place of `before`: none for an
+    /// entry that had none and gets the defaults; how KeePass obfuscates the
+    /// typing (which the editor does not show) as it was.
+    fn applied(&self, before: Option<AutoType>) -> Option<AutoType> {
+        if before.is_none() && *self == AutoTypeData::default() {
+            return None;
+        }
+        Some(AutoType {
+            enabled: self.enabled,
+            default_sequence: Some(self.sequence.trim().to_string()).filter(|s| !s.is_empty()),
+            data_transfer_obfuscation: before.map(|b| b.data_transfer_obfuscation).unwrap_or_default(),
+            associations: self
+                .associations
+                .iter()
+                .filter(|x| !x.window.trim().is_empty())
+                .map(|x| AutoTypeAssociation { window: x.window.trim().to_string(), sequence: x.sequence.trim().to_string() })
+                .collect(),
+        })
+    }
 }
 
 /// The entry's icon as the editor chooses it.
@@ -158,6 +220,7 @@ pub fn read(entry: &EntryRef<'_>, group: Vec<String>) -> EntryData {
         fields: additional,
         icon: icon_choice(entry),
         expires: expiry_of(&entry.times),
+        auto_type: AutoTypeData::of(entry.autotype.as_ref()),
     }
 }
 
@@ -221,6 +284,7 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
         &same_form(&base.expires),
         &same_form(&edited.expires),
     );
+    let auto_type = pick(&mut conflicts, "Auto-Type", &current.auto_type, &base.auto_type, &edited.auto_type);
 
     // Additional fields, by name: removed, added or changed in the editor
     // apply; the rest are as they are now.
@@ -248,7 +312,7 @@ pub fn merge3(current: &EntryData, base: &EntryData, edited: &EntryData) -> (Ent
             None => fields.push(new.clone()),
         }
     }
-    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields, icon, expires };
+    let merged = EntryData { title, username, password, url, notes, otp, tags, group, fields, icon, expires, auto_type };
     (merged, conflicts)
 }
 
@@ -309,6 +373,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
         };
         entry.fields = wanted;
         entry.tags = tags;
+        entry.autotype = data.auto_type.applied(None);
         set_expiry(&mut entry.times, expiry);
         let id = entry.id();
         db.deleted_objects.remove(&id.uuid());
@@ -331,7 +396,9 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     let moved = entry.parent().id() != group;
     let icon_changed = icon_choice(&entry) != data.icon;
     let expiry_changed = expiry_time(&entry.times) != expiry;
-    if entry.fields == wanted && entry.tags == tags && !moved && !icon_changed && !expiry_changed {
+    let auto_type_changed = AutoTypeData::of(entry.autotype.as_ref()) != data.auto_type;
+    let same = entry.fields == wanted && !icon_changed && !expiry_changed && !auto_type_changed;
+    if same && entry.tags == tags && !moved {
         return Ok((id, false));
     }
     let mut entry = db.entry_mut(id).expect("checked above");
@@ -344,7 +411,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     }
     // Tags alone are no new version ([set_tags]); with anything else they
     // change in the same tracked edit.
-    if entry.fields == wanted && !icon_changed && !expiry_changed {
+    if same {
         if entry.tags != tags {
             set_tags(&mut entry, tags);
         }
@@ -358,6 +425,9 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
         }
         if expiry_changed {
             set_expiry(&mut e.times, expiry);
+        }
+        if auto_type_changed {
+            e.autotype = data.auto_type.applied(e.autotype.take());
         }
     }); // dropping the tracker files the old version into the history
     trim_history(db, id);
@@ -1359,6 +1429,35 @@ mod tests {
         data.username = "me".into();
         data.password = "pw1".into();
         data
+    }
+
+    #[test]
+    fn auto_type_settings_are_written_only_when_set_and_read_back() {
+        let mut db = Database::new();
+        let hidden = hidden_groups(&db);
+        let id = apply(&mut db, None, &data("Mail"), &hidden).unwrap();
+        assert_eq!(db.entry(id).unwrap().autotype, None, "the defaults write nothing");
+        let mut edited = read(&db.entry(id).unwrap(), vec![]);
+        assert_eq!(edited.auto_type, AutoTypeData::default());
+        edited.auto_type = AutoTypeData {
+            enabled: true,
+            sequence: " {PASSWORD}{ENTER} ".into(),
+            associations: vec![
+                AssociationData { window: "*Mail*".into(), sequence: String::new() },
+                AssociationData { window: " ".into(), sequence: "{USERNAME}".into() },
+            ],
+        };
+        apply(&mut db, Some(id), &edited, &hidden).unwrap();
+        let kept = db.entry(id).unwrap().autotype.clone().unwrap();
+        assert_eq!(kept.default_sequence.as_deref(), Some("{PASSWORD}{ENTER}"));
+        assert_eq!(kept.associations.len(), 1, "an association without a window goes");
+        let back = read(&db.entry(id).unwrap(), vec![]).auto_type.clone();
+        assert_eq!((back.sequence.as_str(), back.associations[0].window.as_str()), ("{PASSWORD}{ENTER}", "*Mail*"));
+        // Turned off and on again, the entry keeps settings rather than none.
+        let mut off = read(&db.entry(id).unwrap(), vec![]);
+        off.auto_type.enabled = false;
+        apply(&mut db, Some(id), &off, &hidden).unwrap();
+        assert!(!db.entry(id).unwrap().autotype.as_ref().unwrap().enabled);
     }
 
     /// `data(title)` with one change.

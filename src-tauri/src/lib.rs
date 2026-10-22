@@ -1,8 +1,10 @@
 // The database, merge, sync and stores live in the shared core.
 use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, updates, vault};
+use pswm_core::autotype::Typed;
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
+mod autotype;
 mod cli;
 mod clipboard;
 mod credentials;
@@ -46,6 +48,11 @@ fn need_key(app: &AppHandle, change: impl FnOnce(&mut KeyNeeded)) {
 /// Watches the open database's file; dropping the watcher stops it.
 #[derive(Default)]
 struct FileWatch(Mutex<Option<notify::RecommendedWatcher>>);
+
+/// The window Auto-Type types into while the user unlocks or chooses the
+/// entry (#272).
+#[derive(Default)]
+struct AutoTypeTarget(Mutex<Option<autotype::Target>>);
 
 /// Something the user should know that happened before the window could say
 /// it (the global hotkey could not be registered).
@@ -1418,8 +1425,8 @@ fn settings(app: AppHandle) -> SettingsView {
 fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
     if name == "startWithWindows" {
         tray::set_autostart(&app, value.as_bool().ok_or("Start with Windows is on or off")?)?;
-    } else if name == "hotkey" {
-        change_hotkey(&app, value.as_str().ok_or("A hotkey is a key combination")?)?;
+    } else if let Some(hotkey) = Hotkey::named(&name) {
+        change_hotkey(&app, hotkey, value.as_str().ok_or("A hotkey is a key combination")?)?;
     } else {
         let off = value == false;
         Settings::of(&app.state()).set(&name, value)?;
@@ -1438,6 +1445,112 @@ fn icon(cache: State<icons::Cache>, host: String) -> Option<String> {
     cache.get(&host).and_then(|bytes| icons::data_url(&bytes))
 }
 
+/// Auto-Type's choice, when the window asks which entry to type.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AutoTypeAsk {
+    /// The title of the window typed into.
+    window: String,
+    /// A browser's site, when it could be read.
+    site: Option<String>,
+    browser: bool,
+    /// The entries that fit it.
+    matches: Vec<vault::EntryChoice>,
+}
+
+/// Auto-Type's hotkey (#272): the window in front waits to be typed into. One
+/// entry alone fits it: typed at once (unless the user wants to be asked).
+/// Otherwise, or while locked, the window comes up to unlock or choose.
+fn auto_type_pressed(app: &AppHandle) {
+    let Some(target) = autotype::foreground() else { return }; // PswManager's own window, the desktop
+    *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
+    if !app.state::<Session>().is_unlocked() {
+        // Once unlocked, the window asks for what is waiting (auto_type_resume).
+        return window::show(app);
+    }
+    match auto_type_resume(app.clone()) {
+        Ok(None) => {}
+        Ok(Some(ask)) => {
+            window::show(app);
+            let _ = app.emit("auto-type", ask);
+        }
+        Err(message) => {
+            window::show(app);
+            let _ = app.emit("notice", message);
+        }
+    }
+}
+
+/// What the window waiting to be typed into needs: nothing when there is none
+/// or one entry alone fits it (typed now), else the choice to show.
+#[tauri::command(async)]
+fn auto_type_resume(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
+    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().clone().filter(autotype::Target::is_current);
+    let Some(target) = waiting else { return Ok(None) };
+    let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
+    if let [only] = &matches[..] {
+        if !Settings::of(&app.state()).auto_type_always_ask() {
+            app.state::<AutoTypeTarget>().0.lock().unwrap().take();
+            return type_entry(&app, &target, &only.id, Typed::Sequence).map(|()| None);
+        }
+    }
+    let pswm_core::autotype::Window { title, site, browser } = target.window;
+    Ok(Some(AutoTypeAsk { window: title, site, browser, matches }))
+}
+
+/// Types the entry the user chose into the window waiting for it.
+#[tauri::command(async)]
+fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
+    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current);
+    let target = waiting.ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
+    type_entry(&app, &target, &id, typed)
+}
+
+/// The user chose no entry: nothing waits to be typed into.
+#[tauri::command]
+fn cancel_auto_type(target: State<AutoTypeTarget>) {
+    target.0.lock().unwrap().take();
+}
+
+/// Entry-level Auto-Type: the window steps aside, and the entry is typed into
+/// the window that comes forward then (the one in front before PswManager).
+#[tauri::command(async)]
+fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
+    if !window::step_aside(&app) {
+        return Err("Auto-Type types from the window".into());
+    }
+    std::thread::sleep(Duration::from_millis(250));
+    let target = autotype::foreground().ok_or("There is no window behind PswManager to type into");
+    let typed = target.map_err(String::from).and_then(|target| type_entry(&app, &target, &id, typed));
+    if typed.is_err() {
+        window::show(&app);
+    } else {
+        window::settle(&app);
+    }
+    typed
+}
+
+/// Types `typed` of entry `id` into `target`. A window that is shown steps
+/// aside first, and does what hiding it does after (lock or sync); it comes
+/// back when typing fails.
+fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
+    let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
+    if autotype::runs_higher(target) {
+        return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
+    }
+    let aside = window::step_aside(app);
+    let done = autotype::type_into(target, &steps);
+    drop(steps);
+    if aside {
+        if done.is_err() {
+            window::show(app);
+        } else {
+            window::settle(app);
+        }
+    }
+    done
+}
+
 /// Locks once the database has been left alone for `lockAfterMinutes`.
 fn watch_inactivity(app: AppHandle) {
     std::thread::spawn(move || loop {
@@ -1452,44 +1565,111 @@ fn watch_inactivity(app: AppHandle) {
     });
 }
 
-/// Registers the show / hide hotkey from the `hotkey` setting. A key taken by
-/// another app is reported on the unlock screen instead of failing the start.
-fn register_hotkey(app: &AppHandle) {
-    let hotkey = Settings::of(&app.state()).hotkey();
-    if let Err(e) = listen_to(app, &hotkey) {
-        let _ = app.state::<Notice>().0.set(format!("The hotkey {hotkey} is not available: {e}"));
+/// The app's global hotkeys.
+#[derive(Clone, Copy, PartialEq)]
+enum Hotkey {
+    /// Shows or hides the window.
+    Window,
+    /// Auto-Type into the window in front (#272).
+    AutoType,
+}
+
+impl Hotkey {
+    /// The setting it is kept in.
+    fn setting(self) -> &'static str {
+        match self {
+            Hotkey::Window => "hotkey",
+            Hotkey::AutoType => "autoTypeHotkey",
+        }
+    }
+
+    fn named(setting: &str) -> Option<Hotkey> {
+        [Hotkey::Window, Hotkey::AutoType].into_iter().find(|h| h.setting() == setting)
+    }
+
+    /// The combination set; empty when it is off.
+    fn combination(self, app: &AppHandle) -> String {
+        let store = app.state::<Store>();
+        let settings = Settings::of(&store);
+        match self {
+            Hotkey::Window => settings.hotkey(),
+            Hotkey::AutoType => settings.auto_type_hotkey(),
+        }
+    }
+
+    fn other(self) -> Hotkey {
+        match self {
+            Hotkey::Window => Hotkey::AutoType,
+            Hotkey::AutoType => Hotkey::Window,
+        }
     }
 }
 
-/// Shows or hides the window on `hotkey`.
-fn listen_to(app: &AppHandle, hotkey: &str) -> Result<(), String> {
-    let shortcut: Shortcut = hotkey.parse().map_err(|e| format!("{hotkey} is not a key combination: {e}"))?;
+/// Registers the hotkeys from the settings. A key taken by another app is
+/// reported on the unlock screen instead of failing the start.
+fn register_hotkeys(app: &AppHandle) {
+    let mut taken = Vec::new();
+    for hotkey in [Hotkey::Window, Hotkey::AutoType] {
+        let combination = hotkey.combination(app);
+        if combination.is_empty() {
+            continue;
+        }
+        if let Err(e) = listen_to(app, hotkey, &combination) {
+            taken.push(format!("The hotkey {combination} is not available: {e}"));
+        }
+    }
+    if !taken.is_empty() {
+        let _ = app.state::<Notice>().0.set(taken.join("\n"));
+    }
+}
+
+/// Does what `hotkey` does on `combination`.
+fn listen_to(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(), String> {
+    let shortcut: Shortcut = combination.parse().map_err(|e| format!("{combination} is not a key combination: {e}"))?;
     app.global_shortcut()
-        .on_shortcut(shortcut, |app, _, event| {
-            if event.state == ShortcutState::Pressed {
-                window::toggle(app, true);
+        .on_shortcut(shortcut, move |app, _, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            match hotkey {
+                Hotkey::Window => window::toggle(app, true),
+                // Off the event loop: reading the window and typing take a while.
+                Hotkey::AutoType => {
+                    let app = app.clone();
+                    std::thread::spawn(move || auto_type_pressed(&app));
+                }
             }
         })
         .map_err(|e| e.to_string())
 }
 
-/// Moves the show / hide hotkey to `hotkey`, kept only once it is
-/// registered: a combination another app holds is refused and the old one
-/// stays.
-fn change_hotkey(app: &AppHandle, hotkey: &str) -> Result<(), String> {
-    let old = Settings::of(&app.state()).hotkey();
+/// Moves `hotkey` to `combination` (empty turns Auto-Type's off), kept only
+/// once it is registered: a combination another app or the other hotkey holds
+/// is refused and the old one stays.
+fn change_hotkey(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(), String> {
+    let old = hotkey.combination(app);
     let same = |a: &str, b: &str| a.parse::<Shortcut>().ok().zip(b.parse::<Shortcut>().ok()).is_some_and(|(a, b)| a == b);
-    if !same(&old, hotkey) {
-        let modified = hotkey.parse::<Shortcut>().is_ok_and(|s| {
+    if combination.is_empty() {
+        if hotkey == Hotkey::Window {
+            return Err("The window's hotkey cannot be turned off".into());
+        }
+        let _ = app.global_shortcut().unregister(old.as_str());
+    } else if !same(&old, combination) {
+        let modified = combination.parse::<Shortcut>().is_ok_and(|s| {
             s.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER)
         });
         if !modified {
             return Err("A hotkey needs Ctrl, Alt or Win, so typing does not trigger it".into());
         }
-        listen_to(app, hotkey).map_err(|e| format!("{hotkey} is not available — another app may use it ({e})"))?;
-        let _ = app.global_shortcut().unregister(old.as_str());
+        if same(&hotkey.other().combination(app), combination) {
+            return Err(format!("{combination} is the other hotkey already"));
+        }
+        listen_to(app, hotkey, combination).map_err(|e| format!("{combination} is not available — another app may use it ({e})"))?;
+        if !old.is_empty() {
+            let _ = app.global_shortcut().unregister(old.as_str());
+        }
     }
-    Settings::of(&app.state()).set("hotkey", hotkey.into())
+    Settings::of(&app.state()).set(hotkey.setting(), combination.into())
 }
 
 /// Locks when Windows locks or the session is disconnected (`lockOnSessionLock`).
@@ -1548,6 +1728,7 @@ pub fn run() {
         .manage(Notice::default())
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
+        .manage(AutoTypeTarget::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,
@@ -1632,6 +1813,10 @@ pub fn run() {
             similar_entries,
             merge_entries,
             merge_preview,
+            auto_type_resume,
+            auto_type,
+            auto_type_entry,
+            cancel_auto_type,
         ])
         .on_window_event(|window, event| {
             // Closing the window only hides it; Quit is in the tray menu.
@@ -1654,7 +1839,7 @@ pub fn run() {
             }
             window::open(handle, !options.autostart)?;
             tray::create(handle)?;
-            register_hotkey(handle);
+            register_hotkeys(handle);
             watch_inactivity(handle.clone());
             lock_on_session_lock(handle.clone());
             sync::start_clock(handle.clone());
