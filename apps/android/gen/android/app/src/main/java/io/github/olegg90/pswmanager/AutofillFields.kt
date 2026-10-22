@@ -8,11 +8,17 @@ import android.view.autofill.AutofillId
 
 /**
  * The login fields of a screen another app shows (#236): its user name and
- * password fields, the app's package, and the web domain when the screen is a
- * page in a browser. Either field may be missing: a sign-in in two steps asks
- * for the user name first.
+ * password fields, the app's package, and the web domain (with its scheme)
+ * of the page they are on when the screen is a page in a browser. Either
+ * field may be missing: a sign-in in two steps asks for the user name first.
  */
-class AutofillFields(val packageName: String, val webDomain: String?, val username: AutofillId?, val password: AutofillId?) {
+class AutofillFields(
+  val packageName: String,
+  val webDomain: String?,
+  val webScheme: String?,
+  val username: AutofillId?,
+  val password: AutofillId?,
+) {
   /** The fields to fill, the user name first. */
   val ids: List<AutofillId> get() = listOfNotNull(username, password)
 
@@ -26,33 +32,42 @@ class AutofillFields(val packageName: String, val webDomain: String?, val userna
      * password is taken for the user name when nothing says so.
      */
     fun of(structure: AssistStructure): AutofillFields? {
-      var webDomain: String? = null
-      var username: AutofillId? = null
-      var password: AutofillId? = null
-      var lastText: AutofillId? = null
-      fun visit(node: ViewNode) {
-        if (webDomain == null) node.webDomain?.takeIf { it.isNotEmpty() }?.let { webDomain = it }
+      var username: Field? = null
+      var password: Field? = null
+      var lastText: Field? = null
+      // A field is on the page of its nearest node with a web domain: an
+      // iframe from another site is a page of its own.
+      fun visit(node: ViewNode, page: Page?) {
+        val here = node.webDomain?.takeIf { it.isNotEmpty() }?.let { Page(it, node.webScheme) } ?: page
         val id = node.autofillId
         if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
+          val field = Field(id, here)
           when (kind(node)) {
-            Kind.PASSWORD -> if (password == null) password = id
-            Kind.USERNAME -> if (username == null) username = id
-            Kind.TEXT -> if (password == null) lastText = id
+            Kind.PASSWORD -> if (password == null) password = field
+            Kind.USERNAME -> if (username == null) username = field
+            Kind.TEXT -> if (password == null) lastText = field
             Kind.OTHER -> {}
           }
         }
-        for (i in 0 until node.childCount) visit(node.getChildAt(i))
+        for (i in 0 until node.childCount) visit(node.getChildAt(i), here)
       }
-      for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i).rootViewNode)
-      val user = username ?: lastText.takeIf { password != null }
-      if (user == null && password == null) return null
-      return AutofillFields(structure.activityComponent.packageName, webDomain, user, password)
+      for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i).rootViewNode, null)
+      val pass = password
+      val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
+      val page = (pass ?: user ?: return null).page
+      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id)
     }
 
-    private val PASSWORD_HINTS = setOf(View.AUTOFILL_HINT_PASSWORD, "current-password", "new-password")
-    private val USERNAME_HINTS = setOf(View.AUTOFILL_HINT_USERNAME, View.AUTOFILL_HINT_EMAIL_ADDRESS, "email", "username")
+    /** The page a field is on: its web domain and scheme. */
+    private data class Page(val domain: String, val scheme: String?)
+
+    private class Field(val id: AutofillId, val page: Page?)
+
+    // Lower case, as the hints are compared (`emailAddress` among them).
+    private val PASSWORD_HINTS = setOf(View.AUTOFILL_HINT_PASSWORD, "current-password", "new-password").map { it.lowercase() }.toSet()
+    private val USERNAME_HINTS = setOf(View.AUTOFILL_HINT_USERNAME, View.AUTOFILL_HINT_EMAIL_ADDRESS, "email", "username").map { it.lowercase() }.toSet()
     private val PASSWORD_WORDS = listOf("password", "passwd", "pwd", "пароль")
-    private val USERNAME_WORDS = listOf("user", "login", "email", "e-mail", "account", "логін", "пошта")
+    private val USERNAME_WORDS = listOf("user", "login", "email", "e-mail", "логін", "пошта")
 
     private fun kind(node: ViewNode): Kind {
       val hints = node.autofillHints?.map { it.lowercase() }.orEmpty()

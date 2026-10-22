@@ -372,7 +372,10 @@ row, as the phone shows autofill).
   an entry's URLs (`androidapp://<package>`, `KP2A_URL_n`) and its signing certificate (*An app's
   certificate*); a **page** by its host, which must be the entry's (a `www.` aside), only when the
   browser showing it is on Google's list of privileged browsers, signed as listed: any app can put a
-  web domain into its views. A page in another browser is taken for that browser, as an app.
+  web domain into its views; a plain `http` page is not the site's, and a field in a frame from another
+  site goes by that site. A page in another browser is taken for that browser, as an app. To read the
+  certificate of the app being filled, the APK asks for `QUERY_ALL_PACKAGES` (Android 11 hides other apps
+  otherwise; fine for this APK, which is not on Google Play): only that app's certificate is read.
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.

@@ -37,13 +37,25 @@ class PswmAutofillService : AutofillService() {
     val fields = request.fillContexts.lastOrNull()?.structure?.let { AutofillFields.of(it) }
     // PswManager's own screens are not filled from it.
     if (fields == null || fields.packageName == packageName) return callback.onSuccess(null)
-    val caller = Caller.forAutofill(this, fields.packageName, fields.webDomain) ?: return callback.onSuccess(null)
-    if (!ProviderBridge.isUnlocked()) {
-      val unlock = Intent(this, AutofillUnlockActivity::class.java).putFields(fields, caller)
-      val sender = pendingIntent(this, unlock, 1).intentSender
-      return callback.onSuccess(FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager")).build())
+    // Off the main thread: a sync or a save may hold the database a moment.
+    thread {
+      val response = try {
+        respond(fields)
+      } catch (e: Exception) {
+        android.util.Log.w("PswmAutofill", "No offer: ${e.javaClass.simpleName}")
+        null
+      }
+      if (!cancellationSignal.isCanceled) callback.onSuccess(response)
     }
-    callback.onSuccess(offers(this, fields, caller))
+  }
+
+  /** What the fields are offered: *Unlock PswManager* while locked, else the entries for who asks. */
+  private fun respond(fields: AutofillFields): FillResponse? {
+    val caller = Caller.forAutofill(this, fields) ?: return null
+    if (ProviderBridge.isUnlocked()) return offers(this, fields, caller)
+    val unlock = Intent(this, AutofillUnlockActivity::class.java).setIdentifier(fields.packageName).putFields(fields, caller)
+    val sender = pendingIntent(this, unlock, 1).intentSender
+    return FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager")).build()
   }
 
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
@@ -66,8 +78,9 @@ class PswmAutofillService : AutofillService() {
         val id = login.getString("id")
         val title = login.optString("title")
         val label = listOf(title, login.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "PswManager entry" }
+        // One intent per app and entry: an offer to another app does not replace this one.
         val pick = Intent(context, AutofillLoginActivity::class.java)
-          .setIdentifier(id)
+          .setIdentifier("${fields.packageName}/$id")
           .putExtra(ProviderBridge.EXTRA_ENTRY, id)
           .putExtra(ProviderBridge.EXTRA_TITLE, title)
           .putFields(fields, caller)
@@ -91,6 +104,7 @@ class PswmAutofillService : AutofillService() {
 
     private const val EXTRA_PACKAGE = "package"
     private const val EXTRA_DOMAIN = "domain"
+    private const val EXTRA_SCHEME = "scheme"
     private const val EXTRA_USERNAME = "username"
     private const val EXTRA_PASSWORD = "password"
     private const val EXTRA_ORIGIN = "origin"
@@ -98,6 +112,7 @@ class PswmAutofillService : AutofillService() {
 
     private fun Intent.putFields(fields: AutofillFields, caller: Caller): Intent = putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)
+      .putExtra(EXTRA_SCHEME, fields.webScheme)
       .putExtra(EXTRA_USERNAME, fields.username)
       .putExtra(EXTRA_PASSWORD, fields.password)
       .putExtra(EXTRA_ORIGIN, caller.origin)
@@ -110,6 +125,7 @@ class PswmAutofillService : AutofillService() {
       val fields = AutofillFields(
         packageName,
         intent.getStringExtra(EXTRA_DOMAIN),
+        intent.getStringExtra(EXTRA_SCHEME),
         intent.getParcelableExtra<AutofillId>(EXTRA_USERNAME),
         intent.getParcelableExtra<AutofillId>(EXTRA_PASSWORD),
       )
