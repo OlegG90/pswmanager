@@ -128,7 +128,7 @@ impl Mods {
     }
 
     /// These and `more` held together.
-    fn with(self, more: Mods) -> Mods {
+    pub fn with(self, more: Mods) -> Mods {
         Mods { shift: self.shift || more.shift, ctrl: self.ctrl || more.ctrl, alt: self.alt || more.alt, win: self.win || more.win }
     }
 }
@@ -227,7 +227,8 @@ fn describe(token: &Token) -> String {
     match token {
         Token::Field(name) => format!("the field {name}"),
         Token::Totp => "{TOTP}".into(),
-        _ => "a delay".into(),
+        Token::Pause(_) | Token::KeyDelay(_) => "a delay".into(),
+        Token::Text(_) | Token::Key(..) | Token::Shortcut(..) => "a key".into(),
     }
 }
 
@@ -332,19 +333,16 @@ pub fn fits_title(entry: &EntryRef<'_>, title: &str) -> bool {
 /// association has none), else its default sequence, else its groups' (the
 /// nearest one that has one), else [DEFAULT_SEQUENCE].
 pub fn sequence(entry: &EntryRef<'_>, title: &str) -> String {
-    let given = |s: &str| !s.trim().is_empty();
+    let db = entry.database();
     let own = entry.autotype.as_ref();
-    let default = || {
-        let db = entry.database();
-        own.and_then(|a| a.default_sequence.clone())
-            .filter(|s| given(s))
-            .or_else(|| edit::ancestors(db, entry.parent().id()).into_iter().find_map(|g| db.group(g)?.default_autotype_sequence.clone().filter(|s| given(s))))
-            .unwrap_or_else(|| DEFAULT_SEQUENCE.into())
-    };
-    match own.and_then(|a| a.associations.iter().find(|x| window_matches(&x.window, title))) {
-        Some(association) if given(&association.sequence) => association.sequence.clone(),
-        _ => default(),
-    }
+    let association = own.and_then(|a| a.associations.iter().find(|x| window_matches(&x.window, title))).map(|x| x.sequence.clone());
+    let groups = edit::ancestors(db, entry.parent().id()).into_iter().filter_map(|g| db.group(g)?.default_autotype_sequence.clone());
+    association
+        .into_iter()
+        .chain(own.and_then(|a| a.default_sequence.clone()))
+        .chain(groups)
+        .find(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_SEQUENCE.into())
 }
 
 /// Whether a window association's `pattern` matches the window's title,

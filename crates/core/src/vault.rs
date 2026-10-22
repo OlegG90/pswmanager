@@ -1060,7 +1060,7 @@ impl Vault {
             })
             .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
             .collect();
-        matches.sort_by_key(|c| (c.title.to_lowercase(), c.username.to_lowercase()));
+        matches.sort_by_cached_key(|c| (c.title.to_lowercase(), c.username.to_lowercase()));
         matches
     }
 

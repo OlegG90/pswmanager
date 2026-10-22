@@ -106,12 +106,12 @@ function autoTypeEditor(data: AutoTypeData) {
   }
   const list = el('div', { className: 'fields' }, ...data.associations.map(association))
   const add = button('+ Add window', 'A sequence of its own for windows whose title matches', () => list.append(association()), 'ghost add-field')
+  const trimmed = (list: AutoTypeData['associations']) => list.map((a) => ({ window: a.window.trim(), sequence: a.sequence.trim() }))
   const value = (): AutoTypeData => {
-    const associations = [...list.querySelectorAll<HTMLDivElement>('.association')].map((row) => {
+    const associations = trimmed([...list.querySelectorAll<HTMLDivElement>('.association')].map((row) => {
       const [window, sequence] = row.querySelectorAll('input')
-      return { window: window.value.trim(), sequence: sequence.value.trim() }
-    }).filter((a) => a.window)
-    const trimmed = (list: AutoTypeData['associations']) => list.map((a) => ({ window: a.window.trim(), sequence: a.sequence.trim() }))
+      return { window: window.value, sequence: sequence.value }
+    })).filter((a) => a.window)
     return {
       enabled,
       sequence: keep(data.sequence, sequence.value.trim(), trimmedLine),

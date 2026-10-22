@@ -88,6 +88,17 @@ pub fn foreground() -> Option<Target> {
     }
 }
 
+/// The window that comes forward once PswManager's stepped aside: waits up
+/// to half a second for Windows to bring it forward.
+pub fn behind() -> Option<Target> {
+    let mut found = None;
+    wait_until(Duration::from_millis(500), || {
+        found = foreground();
+        found.is_some()
+    });
+    found
+}
+
 /// The site the target's browser shows now; `None` when it is no browser or
 /// its address cannot be read.
 pub fn site_now(target: &Target) -> Option<String> {
@@ -235,6 +246,11 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
     let layout = unsafe { GetKeyboardLayout(GetWindowThreadProcessId(hwnd, std::ptr::null_mut())) };
     let mut delay = KEY_DELAY;
     for step in steps {
+        // Every key goes to the window only while it is in front; a text's
+        // before each of its characters too.
+        if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) && !in_front() {
+            return Err(MOVED.into());
+        }
         match step {
             Step::Text(text) => {
                 let mut units = [0u16; 2];
@@ -252,16 +268,10 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
                 }
             }
             Step::Key(key, mods) => {
-                if !in_front() {
-                    return Err(MOVED.into());
-                }
                 press(code(*key), *mods);
                 pause(delay);
             }
             Step::Shortcut(c, mods) => {
-                if !in_front() {
-                    return Err(MOVED.into());
-                }
                 let mut units = [0u16; 2];
                 let [unit] = c.encode_utf16(&mut units) else { return Err(format!("No key types {c}")) };
                 // SAFETY: a plain lookup in the window's layout.
@@ -269,9 +279,10 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
                 if scan == -1 {
                     return Err(format!("No key types {c} in this keyboard layout"));
                 }
+                // The key, and the modifiers the layout needs for the character.
                 let [vk, shift_state] = (scan as u16).to_le_bytes();
                 let needed = Mods { shift: shift_state & 1 != 0, ctrl: shift_state & 2 != 0, alt: shift_state & 4 != 0, win: false };
-                press(u16::from(vk), Mods { shift: mods.shift || needed.shift, ctrl: mods.ctrl || needed.ctrl, alt: mods.alt || needed.alt, win: mods.win });
+                press(u16::from(vk), mods.with(needed));
                 pause(delay);
             }
             Step::Pause(ms) => pause(*ms),
@@ -286,7 +297,7 @@ fn pause(ms: u32) {
 }
 
 /// Waits up to `limit` for `done`, looking every 20 ms.
-fn wait_until(limit: Duration, done: impl Fn() -> bool) -> bool {
+fn wait_until(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
     while !done() {
         if start.elapsed() > limit {

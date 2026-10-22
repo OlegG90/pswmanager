@@ -83,6 +83,16 @@ pub fn step_aside(app: &AppHandle) -> bool {
     window.hide().is_ok()
 }
 
+/// After Auto-Type typed with the window aside: it comes back when typing
+/// failed, to say why; otherwise it stays hidden, and hiding it is done.
+pub fn come_back(app: &AppHandle, typed: bool) {
+    if typed {
+        settle(app);
+    } else {
+        show(app);
+    }
+}
+
 /// What hiding the window does after it is hidden: locking, or syncing.
 pub fn settle(app: &AppHandle) {
     if Settings::of(&app.state()).lock_when_hidden() {

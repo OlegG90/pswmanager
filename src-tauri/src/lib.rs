@@ -1493,8 +1493,7 @@ fn auto_type_resume(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
 /// wants to be asked); else the choice to show, and the window waits on. Taken
 /// while deciding, so two calls never both type.
 fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>, String> {
-    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current);
-    let Some(target) = waiting else { return Ok(None) };
+    let Some(target) = take_waiting(app) else { return Ok(None) };
     let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
     if let [only] = &matches[..] {
         if may_type && !Settings::of(&app.state()).auto_type_always_ask() {
@@ -1510,15 +1509,19 @@ fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>
 /// Types the entry the user chose into the window waiting for it.
 #[tauri::command(async)]
 fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
-    let waiting = app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current);
-    let target = waiting.ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
+    let target = take_waiting(&app).ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
     type_entry(&app, &target, &id, typed)
 }
 
 /// The user chose no entry: nothing waits to be typed into.
 #[tauri::command]
-fn cancel_auto_type(target: State<AutoTypeTarget>) {
-    target.0.lock().unwrap().take();
+fn cancel_auto_type(app: AppHandle) {
+    take_waiting(&app);
+}
+
+/// The window waiting to be typed into, if it still is, taken: no other call gets it.
+fn take_waiting(app: &AppHandle) -> Option<autotype::Target> {
+    app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current)
 }
 
 /// Entry-level Auto-Type: the window steps aside, and the entry is typed into
@@ -1531,15 +1534,9 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
     if !window::step_aside(&app) {
         return Err("Auto-Type types from the window".into());
     }
-    std::thread::sleep(Duration::from_millis(250));
-    let target = autotype::foreground().ok_or("There is no window behind PswManager to type into");
-    let typed = target.map_err(String::from).and_then(|target| type_entry(&app, &target, &id, typed));
-    if typed.is_err() {
-        window::show(&app);
-    } else {
-        window::settle(&app);
-    }
-    typed
+    let done = autotype::behind().ok_or_else(|| "There is no window behind PswManager to type into".to_string()).and_then(|target| type_entry(&app, &target, &id, typed));
+    window::come_back(&app, done.is_ok());
+    done
 }
 
 /// Types `typed` of entry `id` into `target`. A window that is shown steps
@@ -1558,11 +1555,7 @@ fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed
     let done = autotype::type_into(target, &steps);
     drop(steps);
     if aside {
-        if done.is_err() {
-            window::show(app);
-        } else {
-            window::settle(app);
-        }
+        window::come_back(app, done.is_ok());
     }
     done
 }
@@ -1591,6 +1584,8 @@ enum Hotkey {
 }
 
 impl Hotkey {
+    const ALL: [Hotkey; 2] = [Hotkey::Window, Hotkey::AutoType];
+
     /// The setting it is kept in.
     fn setting(self) -> &'static str {
         match self {
@@ -1600,7 +1595,7 @@ impl Hotkey {
     }
 
     fn named(setting: &str) -> Option<Hotkey> {
-        [Hotkey::Window, Hotkey::AutoType].into_iter().find(|h| h.setting() == setting)
+        Hotkey::ALL.into_iter().find(|h| h.setting() == setting)
     }
 
     /// The combination set; empty when it is off.
@@ -1612,20 +1607,13 @@ impl Hotkey {
             Hotkey::AutoType => settings.auto_type_hotkey(),
         }
     }
-
-    fn other(self) -> Hotkey {
-        match self {
-            Hotkey::Window => Hotkey::AutoType,
-            Hotkey::AutoType => Hotkey::Window,
-        }
-    }
 }
 
 /// Registers the hotkeys from the settings. A key taken by another app is
 /// reported on the unlock screen instead of failing the start.
 fn register_hotkeys(app: &AppHandle) {
     let mut taken = Vec::new();
-    for hotkey in [Hotkey::Window, Hotkey::AutoType] {
+    for hotkey in Hotkey::ALL {
         let combination = hotkey.combination(app);
         if combination.is_empty() {
             continue;
@@ -1677,7 +1665,7 @@ fn change_hotkey(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(
         if !modified {
             return Err("A hotkey needs Ctrl, Alt or Win, so typing does not trigger it".into());
         }
-        if same(&hotkey.other().combination(app), combination) {
+        if Hotkey::ALL.into_iter().any(|other| other != hotkey && same(&other.combination(app), combination)) {
             return Err(format!("{combination} is the other hotkey already"));
         }
         listen_to(app, hotkey, combination).map_err(|e| format!("{combination} is not available — another app may use it ({e})"))?;
