@@ -14,13 +14,13 @@
     "cleanup": "node tools/cleanup.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.2",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.3"
+    "@tauri-apps/api": "^2.12.4"
   }
 }
