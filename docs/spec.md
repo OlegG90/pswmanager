@@ -27,7 +27,7 @@ stays out.
 
 ### Out of scope
 
-Browser autofill and browser extensions on Windows (Android's autofill is the Android app's, #236), an own sync server, a database shared between people (each person
+Browser autofill and browser extensions on Windows (Auto-Type types into any window instead, see *Auto-Type*; Android's autofill is the Android app's, #236), an own sync server, a database shared between people (each person
 syncs their own), several people editing one file at the same moment, iPad, several databases unlocked
 at once (one is open at a time; switching locks the other), importing from other password managers
 other than from a file they exported (*Import from a file*; Android also imports through the system's
@@ -244,7 +244,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
   change (tags, the star among them, keep no version in history: see *Entry history*).
 - **The list's menu** (#255): a right-click on an entry, or Shift+F10 / the menu key for the chosen one,
   opens a menu for it, or for all the chosen entries when it is one of them (a right-click elsewhere
-  chooses that entry first). An entry in use offers **Duplicate** (one entry only), **Add tag**, **Remove
+  chooses that entry first). An entry in use offers **Auto-Type** and **Duplicate** (one entry only), **Add tag**, **Remove
   tag** (when it has tags) and **Delete**, which asks first and moves it to the recycle bin; a template
   only **Delete**; one in the trash **Restore** and **Delete permanently**. Tags work as for several
   entries above. **Duplicate** copies the entry next to it, as KeePassXC's Clone does: a new UUID,
@@ -342,6 +342,8 @@ kept, not even in history.
 | `Ctrl+T` | Copy TOTP code |
 | `Ctrl+U` | Open URL in the default browser |
 | `Ctrl+H` | Reveal / hide password |
+| Auto-Type hotkey (default `Ctrl+Alt+A`; set or turned off in *Settings → General*) | Type an entry into the window in front (see *Auto-Type*) |
+| `Ctrl+Shift+V` | Auto-Type the entry shown into the window behind PswManager |
 | `Ctrl+N` / `Ctrl+E` / `Del` | New entry (blank or from a template; a new template in the Templates group) / edit / delete (in the trash: delete permanently) |
 | `Shift+F10` / menu key | The chosen entries' menu, as a right-click opens it (#255) |
 | `Ctrl+L` | Lock |
@@ -359,7 +361,7 @@ same table the dialog shows.
 a time, titled with the tab's name. Unlocked, they are beside the sidebar, whose *Settings* list is their
 tabs; choosing a group or a tag there, or Esc, goes back. Locked (over the unlock screen), they have their
 tabs down their left side and **Done**. Locking closes them, so the unlock screen asks for the password
-(#262). The tabs: **General** (locking and the clipboard), **Window** (theme, global
+(#262). The tabs: **General** (locking, the clipboard and Auto-Type), **Window** (theme, global
 hotkey, start with Windows, site icons), **Database** (the open database's own settings, see *Database
 settings*; disabled while locked), **Sync**, **Backup** (see *Backup*) and **About** (the version, the
 database format, KDBX 4.1, with what reads it, **Check for updates** and **Open on GitHub** for the source). ↑/↓ (and ←/→) move
@@ -396,6 +398,54 @@ while the database is locked):
   taken is reported on the unlock screen.
 - Single instance: launching `pswm` again brings the running window forward.
 
+## Auto-Type
+
+Windows has no system autofill for passwords, so PswManager types them, as KeePass and KeePassXC do
+(#272; why, and the other ways considered: [`desktop-autofill-research.md`](desktop-autofill-research.md)).
+It works in any app, browsers included, with no extension.
+
+- **The hotkey** (default `Ctrl+Alt+A`, as in KeePass; changed or turned off in *Settings → General →
+  Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own, the
+  desktop or the taskbar. While locked, the window comes up to unlock, then goes on; the window waits
+  to be typed into for two minutes.
+- **Which entries fit**, among the entries in use with Auto-Type on:
+  - in a **browser** (Chrome, Edge, Firefox, Brave, Vivaldi, Opera, LibreWolf, Waterfox), those for the
+    site its address bar shows (read through UI Automation), by the entry's URL and further URLs as
+    Android's autofill finds them. Only an https page counts (an address without a scheme, as browsers
+    show it, counts as https; one that says `http://` does not). Never by the window's title, which the
+    page chooses: a page titled like a bank gets nothing. No site read: nothing fits;
+  - in **another app**, those whose title is part of the window's title (ignoring case), or one of whose
+    window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
+    ignoring case; without `*` the whole title must match.
+- **One entry fits**: it is typed at once, unless **Always ask** is on (off by default). Otherwise a
+  dialog *Type into "<title>"* (with the site, in a browser) lists those that fit; typing searches every
+  entry in use. ↑ / ↓ choose, Enter or **Type** types the entry's sequence; **User name**, **Password**
+  and **TOTP** type that value alone. Cancel or Esc types nothing.
+- **Entry-level Auto-Type**: `Ctrl+Shift+V` or *Auto-Type* in the entry's menu hides the window and types
+  the entry into the window that comes forward then (the one in front before PswManager).
+- **The sequence** is that of the entry's first window association matching the window's title (the
+  entry's own when the association has none), else the entry's own, else its group's (the nearest group
+  that has one; the root group's acts as the database's), else `{USERNAME}{TAB}{PASSWORD}{ENTER}`.
+  Auto-Type is off for an entry that turns it off, or whose nearest group saying so does.
+- **Sequence syntax**, KeePass's, keywords ignoring case: `{TITLE}` `{USERNAME}` `{PASSWORD}` `{URL}`
+  `{NOTES}` `{TOTP}` (`{TIMEOTP}`) and `{S:Field name}`; the keys `{TAB}` `{ENTER}` (`~`) `{SPACE}`
+  `{BACKSPACE}` `{DELETE}` `{ESC}` `{INSERT}` `{HOME}` `{END}` `{PGUP}` `{PGDN}` `{UP}` `{DOWN}` `{LEFT}`
+  `{RIGHT}` `{CAPSLOCK}` `{F1}`–`{F16}`, repeated as `{TAB 3}` (up to 100); `{DELAY 500}` waits,
+  `{DELAY=50}` sets the pause between keys (up to 10 s; 10 ms by default); `{CLEARFIELD}` empties the
+  field; `+` Shift, `^` Ctrl, `%` Alt, `#` Win hold for the next key or character; `{{}` `{}}` `{+}`
+  `{^}` `{%}` `{~}` `{#}` and the like type those characters. Anything else (`{CMD:…}`, `{REF:…}`,
+  `{APPACTIVATE …}`, `{VKEY …}`, `{PICKCHARS}` …) refuses the whole sequence rather than typing part of
+  it. Values are typed as they are (placeholders inside them are not read); a line break presses Enter.
+- **Typing**: once the hotkey's keys are let go, characters are typed as Unicode (`SendInput`), whatever
+  the keyboard layout; a key with modifiers uses the window's layout. Before every key the window must
+  still be in front: if another comes forward, typing stops and says so. A window whose program runs as
+  administrator gets nothing (Windows drops the keys) and the app says why. Apps that read only virtual
+  keys (remote desktops, virtual machines, some games) may not take the Unicode characters.
+- **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
+  and window associations (a window title and a sequence each; one without a title is dropped). An
+  entry that never had settings gets none written unless they are changed; KeePass's obfuscation
+  setting, which the editor does not show, is kept. Groups' sequences and switches are used, not edited.
+
 ## Security behaviour
 
 | Setting | Default |
@@ -430,8 +480,8 @@ while the database is locked):
   spelling, a TOTP value the app cannot read) are saved as they were, so an untouched entry saves
   unchanged. An edited entry stays in its KDBX group.
 - Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*, set to the start of the chosen day on this PC; a time another client set stays while the day is unchanged; none
-  by default), TOTP secret, additional attributes (add / rename / remove, protected or not: the padlock, closed when protected; the eye shows a value). The group is
-  not edited (see *Groups and tags*).
+  by default), TOTP secret, additional attributes (add / rename / remove, protected or not: the padlock, closed when protected; the eye shows a value),
+  Auto-Type (see *Auto-Type*). The group is not edited (see *Groups and tags*).
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
 - **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a

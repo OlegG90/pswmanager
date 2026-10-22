@@ -15,6 +15,7 @@ export type Action =
   | 'settings'
   | 'shortcuts'
   | 'entry-menu'
+  | 'auto-type'
 
 /** One line of the shortcuts panel: the keys as shown, what they do, and the
  *  actions they give ([actionFor]); `ctrl` is the physical key pressed with Ctrl. */
@@ -26,6 +27,8 @@ export interface Shortcut {
   does: string
   actions: Action[]
   ctrl?: `Key${string}` | 'Comma'
+  /** Shift is pressed with Ctrl too (for the others it may be or not). */
+  shift?: true
 }
 
 /** Every shortcut of the unlocked window. [actionFor] reads the Ctrl ones from
@@ -47,6 +50,7 @@ export const SHORTCUTS: Shortcut[] = [
   { group: 'Entry', keys: 'Ctrl+H', does: 'Show / hide the password', actions: ['toggle-password'], ctrl: 'KeyH' },
   { group: 'Entry', keys: 'Ctrl+N', does: 'New entry (blank or from a template)', actions: ['new-entry'], ctrl: 'KeyN' },
   { group: 'Entry', keys: 'Ctrl+E', does: 'Edit the entry', actions: ['edit-entry'], ctrl: 'KeyE' },
+  { group: 'Entry', keys: 'Ctrl+Shift+V', does: 'Auto-Type: type the entry into the window behind PswManager', actions: ['auto-type'], ctrl: 'KeyV', shift: true },
   { group: 'Entry', keys: 'Del', does: 'Delete (in the trash: delete for good)', actions: ['delete-entry'] },
 ]
 
@@ -69,7 +73,7 @@ export interface KeyContext {
 export function actionFor(e: KeyInfo, ctx: KeyContext): Action | null {
   if (e.altKey || e.metaKey) return null
   if (e.ctrlKey) {
-    const action = SHORTCUTS.find((s) => s.ctrl === e.code)?.actions[0] ?? null
+    const action = SHORTCUTS.find((s) => s.ctrl === e.code && (!s.shift || e.shiftKey))?.actions[0] ?? null
     return action === 'copy-password' && ctx.hasSelection ? null : action
   }
   switch (e.key) {

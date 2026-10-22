@@ -1759,6 +1759,14 @@ input::-ms-reveal {
   font-family: var(--font-mono);
 }
 
+/* Auto-Type's sequences and window titles (#272). */
+.field-row input.value,
+.editor input.sequence {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
 .field-row textarea.masked {
   -webkit-text-security: disc;
 }
@@ -2006,6 +2014,49 @@ dialog.modal.shortcuts {
   border-bottom-color: var(--color-control-bottom);
   border-radius: var(--radius-control);
   background: var(--color-control);
+}
+
+/* Auto-Type's choice of entry (#272): the search, then the entries. */
+dialog.modal.auto-type {
+  width: min(520px, 90vw);
+}
+
+.modal.auto-type input.text {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.modal.auto-type p.muted {
+  margin: 0 0 8px;
+}
+
+ul.type-choices {
+  max-height: 40vh;
+  margin: 0 0 16px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.type-choice {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  cursor: default;
+}
+
+.type-choice:hover {
+  background: var(--color-subtle);
+}
+
+.type-choice[aria-selected='true'] {
+  background: var(--color-subtle-2);
+}
+
+.type-choice .subtitle {
+  color: var(--color-text-2);
+  font-size: 12px;
 }
 
 .modal .choices {

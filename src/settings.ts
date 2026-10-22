@@ -131,9 +131,12 @@ export function comboOf(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
-/** The hotkey, and a button that takes the next key combination pressed. */
-function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLElement {
-  const shown = el('span', { className: 'value' }, shownCombo(hotkey))
+/** The hotkey, and a button that takes the next key combination pressed;
+ *  with `canTurnOff`, one that turns it off (an empty combination). */
+function hotkeyControl(hotkey: string, change: (value: string) => void, canTurnOff = false): HTMLElement {
+  const label = (combo: string) => (combo ? shownCombo(combo) : 'Off')
+  const shown = el('span', { className: 'value' }, label(hotkey))
+  const off = canTurnOff && hotkey ? [button('Turn off', 'No hotkey for this', () => change(''))] : []
   const edit = button('Change…', 'Press the new combination; Esc cancels', () => {
     shown.textContent = 'Press the keys…'
     edit.disabled = true
@@ -147,12 +150,12 @@ function hotkeyControl(hotkey: string, change: (value: string) => void): HTMLEle
     const done = (combo: string | null) => {
       document.removeEventListener('keydown', take, true)
       edit.disabled = false
-      shown.textContent = shownCombo(hotkey)
+      shown.textContent = label(hotkey)
       if (combo && combo !== hotkey) change(combo)
     }
     document.addEventListener('keydown', take, true)
   })
-  return el('span', { className: 'hotkey' }, shown, edit)
+  return el('span', { className: 'hotkey' }, shown, edit, ...off)
 }
 
 /**
@@ -316,6 +319,11 @@ export async function renderSettings(
         group('Clipboard',
           row('Clear clipboard after copying', 'Only if it still holds the copied value',
             select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
+        group('Auto-Type',
+          row('Auto-Type hotkey', 'Types an entry into the window in front: in a browser the entry for its site, elsewhere one whose title is in the window\'s',
+            hotkeyControl(s.autoTypeHotkey, set('autoTypeHotkey'), true)),
+          row('Always ask', 'Asks which entry to type even when one alone fits the window',
+            toggle('Always ask which entry to type', s.autoTypeAlwaysAsk, set('autoTypeAlwaysAsk')))),
       ],
       window: () => [
         group('Window and tray',

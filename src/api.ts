@@ -228,6 +228,38 @@ export interface EntryData {
   icon: IconChoice
   /** When it expires (RFC 3339); null when it does not. */
   expires: string | null
+  /** How Auto-Type types it (#272). */
+  autoType: AutoTypeData
+}
+
+/** An entry's Auto-Type settings, as KeePass keeps them. */
+export interface AutoTypeData {
+  enabled: boolean
+  /** The entry's own sequence; empty for its group's, else KeePass's default. */
+  sequence: string
+  /** Sequences for windows whose title matches (`*` wildcards, `//regex//`). */
+  associations: { window: string; sequence: string }[]
+}
+
+/** What Auto-Type types of an entry: its sequence, or one value alone. */
+export type Typed = 'sequence' | 'username' | 'password' | 'totp'
+
+/** An entry offered for a window. */
+export interface EntryChoice {
+  id: string
+  title: string
+  username: string
+}
+
+/** Auto-Type's hotkey was pressed and the window asks which entry to type. */
+export interface AutoTypeAsk {
+  /** The title of the window typed into. */
+  window: string
+  /** A browser's site, when it could be read. */
+  site: string | null
+  browser: boolean
+  /** The entries that fit the window. */
+  matches: EntryChoice[]
 }
 
 /** An additional field with its value, for the editor. */
@@ -288,6 +320,10 @@ export interface Settings {
   theme: Theme
   /** The show / hide hotkey, e.g. `Ctrl+Alt+P`. */
   hotkey: string
+  /** Auto-Type's hotkey; empty when it is off. */
+  autoTypeHotkey: string
+  /** Auto-Type asks which entry even when one alone fits the window. */
+  autoTypeAlwaysAsk: boolean
   startWithWindows: boolean
   /** Unlock with Windows Hello once the master password was given (#235). */
   biometricUnlock: boolean
@@ -510,6 +546,14 @@ export const api = {
   mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
   /** What `mergeEntries` would change in `keep`; nothing changes. */
   mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),
+  /** After an unlock: the choice for the window waiting to be typed into;
+   *  null when none waits, or one entry alone fit it and was typed. */
+  autoTypeResume: () => invoke<AutoTypeAsk | null>('auto_type_resume'),
+  /** Types the chosen entry into the window waiting for it. */
+  autoType: (id: string, typed: Typed) => invoke<void>('auto_type', { id, typed }),
+  /** Types the entry into the window behind PswManager's (entry-level Auto-Type). */
+  autoTypeEntry: (id: string, typed: Typed) => invoke<void>('auto_type_entry', { id, typed }),
+  cancelAutoType: () => invoke<void>('cancel_auto_type'),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
   setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),
