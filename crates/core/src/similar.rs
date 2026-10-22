@@ -4,6 +4,7 @@
 //! merging such entries into one.
 
 use crate::edit::{self, passkey, EntryData, FieldData, FileChange, FileEdit, NOT_FOUND};
+use crate::cxf::MORE_URLS;
 use crate::{icons, otp};
 use keepass::db::{EntryId, EntryRef, GroupId};
 use keepass::Database;
@@ -82,6 +83,12 @@ fn sites_of(entry: &EntryRef<'_>) -> Vec<String> {
     sites
 }
 
+/// An entry Scan compares, with the sites of its URLs when they count.
+struct Candidate<'a> {
+    entry: EntryRef<'a>,
+    sites: Vec<String>,
+}
+
 /// The entries of `entries` alike in `criteria`, more than one each. By user
 /// name (#227), entries with different ones are different accounts, never
 /// offered to merge.
@@ -90,11 +97,13 @@ pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>, criteria: Criteria)
         return Vec::new();
     }
     // By title first: one bucket when it does not count. An entry without
-    // what a criterion compares is like no other.
-    let mut by_title: BTreeMap<String, Vec<(EntryRef<'a>, Vec<String>)>> = BTreeMap::new();
+    // what a criterion compares is like no other; one without a user name
+    // joins another's only within a site or a title.
+    let alone_without_user_name = criteria.user_name && !criteria.url && !criteria.title;
+    let mut by_title: BTreeMap<String, Vec<Candidate<'a>>> = BTreeMap::new();
     for entry in entries {
         let sites = if criteria.url { sites_of(&entry) } else { Vec::new() };
-        if criteria.url && sites.is_empty() {
+        if criteria.url && sites.is_empty() || alone_without_user_name && user_name(&entry).is_none() {
             continue;
         }
         let key = match (criteria.title, title(&entry)) {
@@ -102,32 +111,47 @@ pub fn find<'a>(entries: impl Iterator<Item = EntryRef<'a>>, criteria: Criteria)
             (true, Some(title)) => title.to_lowercase(),
             (true, None) => continue,
         };
-        by_title.entry(key).or_default().push((entry, sites));
+        by_title.entry(key).or_default().push(Candidate { entry, sites });
     }
+    let joined = |entries: Vec<Candidate<'a>>| if criteria.url { by_site(entries) } else { vec![(String::new(), entries)] };
     let mut found = Vec::new();
     for entries in by_title.into_values() {
-        let groups = if criteria.url { by_site(entries) } else { vec![(String::new(), entries.into_iter().map(|(e, _)| e).collect())] };
-        for (site, entries) in groups {
-            let accounts = if criteria.user_name { accounts(entries) } else { vec![entries] };
-            for mut entries in accounts.into_iter().filter(|entries| entries.len() > 1) {
-                entries.sort_by_key(|e| std::cmp::Reverse(e.times.last_modification));
-                let newest = |on: bool, of: &dyn Fn(&EntryRef<'_>) -> Option<String>| {
-                    if on { entries.iter().find_map(of).unwrap_or_default() } else { String::new() }
-                };
-                let title = newest(criteria.title, &|e| title(e).map(str::to_string));
-                let user_name = newest(criteria.user_name, &|e| user_name(e).map(str::to_string));
-                let ids = entries.iter().map(|e| e.id().uuid().to_string()).collect();
-                found.push(Similar { site: site.clone(), title, user_name, ids });
+        for (site, entries) in joined(entries) {
+            if !criteria.user_name {
+                found.extend(similar(site, entries, criteria));
+                continue;
+            }
+            // An account split off a group may not share a site any more: an
+            // entry without a user name linked it, and went to another account.
+            for account in accounts(entries) {
+                for (site, entries) in joined(account) {
+                    found.extend(similar(site, entries, criteria));
+                }
             }
         }
     }
     found
 }
 
+/// `entries`, alike, as a [Similar] when there are more than one.
+fn similar(site: String, mut entries: Vec<Candidate<'_>>, criteria: Criteria) -> Option<Similar> {
+    if entries.len() < 2 {
+        return None;
+    }
+    entries.sort_by_key(|c| std::cmp::Reverse(c.entry.times.last_modification));
+    let newest = |on: bool, of: &dyn Fn(&EntryRef<'_>) -> Option<String>| {
+        if on { entries.iter().find_map(|c| of(&c.entry)).unwrap_or_default() } else { String::new() }
+    };
+    let title = newest(criteria.title, &|e| title(e).map(str::to_string));
+    let user_name = newest(criteria.user_name, &|e| user_name(e).map(str::to_string));
+    let ids = entries.iter().map(|c| c.entry.id().uuid().to_string()).collect();
+    Some(Similar { site, title, user_name, ids })
+}
+
 /// Entries joined by the sites they share: one address in common is enough,
 /// and an entry sharing one with each of two others joins all three. Each
 /// group goes by the site most of its entries have, and they come in its order.
-fn by_site<'a>(entries: Vec<(EntryRef<'a>, Vec<String>)>) -> Vec<(String, Vec<EntryRef<'a>>)> {
+fn by_site(entries: Vec<Candidate<'_>>) -> Vec<(String, Vec<Candidate<'_>>)> {
     fn root(parent: &mut [usize], mut at: usize) -> usize {
         while parent[at] != at {
             parent[at] = parent[parent[at]];
@@ -137,8 +161,8 @@ fn by_site<'a>(entries: Vec<(EntryRef<'a>, Vec<String>)>) -> Vec<(String, Vec<En
     }
     let mut parent: Vec<usize> = (0..entries.len()).collect();
     let mut first: HashMap<&str, usize> = HashMap::new();
-    for (at, (_, sites)) in entries.iter().enumerate() {
-        for site in sites {
+    for (at, candidate) in entries.iter().enumerate() {
+        for site in &candidate.sites {
             match first.get(site.as_str()) {
                 Some(&other) => {
                     let (a, b) = (root(&mut parent, at), root(&mut parent, other));
@@ -151,15 +175,15 @@ fn by_site<'a>(entries: Vec<(EntryRef<'a>, Vec<String>)>) -> Vec<(String, Vec<En
         }
     }
     let roots: Vec<usize> = (0..entries.len()).map(|at| root(&mut parent, at)).collect();
-    let mut groups: BTreeMap<usize, Vec<(EntryRef<'a>, Vec<String>)>> = BTreeMap::new();
-    for (entry, at) in entries.into_iter().zip(roots) {
-        groups.entry(at).or_default().push(entry);
+    let mut groups: BTreeMap<usize, Vec<Candidate<'_>>> = BTreeMap::new();
+    for (candidate, at) in entries.into_iter().zip(roots) {
+        groups.entry(at).or_default().push(candidate);
     }
-    let mut named: Vec<(String, Vec<EntryRef<'a>>)> = groups
+    let mut named: Vec<(String, Vec<Candidate<'_>>)> = groups
         .into_values()
         .map(|group| {
             let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-            for site in group.iter().flat_map(|(_, sites)| sites) {
+            for site in group.iter().flat_map(|c| &c.sites) {
                 *counts.entry(site).or_default() += 1;
             }
             // The most common; among as common ones, the first by name.
@@ -168,24 +192,24 @@ fn by_site<'a>(entries: Vec<(EntryRef<'a>, Vec<String>)>) -> Vec<(String, Vec<En
                 .max_by_key(|(site, n)| (**n, std::cmp::Reverse(**site)))
                 .map(|(site, _)| site.to_string())
                 .unwrap_or_default();
-            (name, group.into_iter().map(|(entry, _)| entry).collect())
+            (name, group)
         })
         .collect();
     named.sort_by(|a, b| a.0.cmp(&b.0));
     named
 }
 
-/// One site's entries by account: the same user name, told apart without
-/// regard to case. Entries without one go with the site's only user name;
-/// when it has several, they are an account of their own, as no one can tell
+/// Entries by account: the same user name, told apart without regard to
+/// case. Entries without one go with the only user name among them; when
+/// there are several, they are an account of their own, as no one can tell
 /// whose they are.
-fn accounts(entries: Vec<EntryRef<'_>>) -> Vec<Vec<EntryRef<'_>>> {
-    let mut named: BTreeMap<String, Vec<EntryRef<'_>>> = BTreeMap::new();
+fn accounts(entries: Vec<Candidate<'_>>) -> Vec<Vec<Candidate<'_>>> {
+    let mut named: BTreeMap<String, Vec<Candidate<'_>>> = BTreeMap::new();
     let mut unnamed = Vec::new();
-    for entry in entries {
-        match user_name(&entry) {
-            Some(name) => named.entry(name.to_lowercase()).or_default().push(entry),
-            None => unnamed.push(entry),
+    for candidate in entries {
+        match user_name(&candidate.entry) {
+            Some(name) => named.entry(name.to_lowercase()).or_default().push(candidate),
+            None => unnamed.push(candidate),
         }
     }
     let mut accounts: Vec<_> = named.into_values().collect();
@@ -345,9 +369,6 @@ fn titled(data: &EntryData) -> &str {
     }
 }
 
-/// Further URLs of an entry, as Keepass2Android and KeePassXC keep them:
-/// `KP2A_URL_1`, `KP2A_URL_2`…
-const MORE_URLS: &str = "KP2A_URL";
 
 /// `url` as the next of `into`'s further URLs, unless it has it already.
 fn add_url(into: &mut EntryData, url: &str) {
@@ -453,6 +474,22 @@ mod tests {
     }
 
     #[test]
+    fn an_account_split_off_keeps_only_what_its_entries_share() {
+        let user = |name: &'static str, more: &'static str| {
+            move |e: &mut keepass::db::EntryMut<'_>| {
+                e.set_unprotected(fields::USERNAME, name);
+                e.set_unprotected("KP2A_URL_1", more);
+            }
+        };
+        let mut db = Database::new();
+        // Bob's entry links Alice's two sites; without it they share none.
+        add(&mut db, "Alice X", "https://x.example.com", user("alice", ""));
+        add(&mut db, "Bob", "https://x.example.com", user("bob", "https://y.example.org"));
+        add(&mut db, "Alice Y", "https://y.example.org", user("alice", ""));
+        assert!(find(db.iter_all_entries(), Criteria::default()).is_empty());
+    }
+
+    #[test]
     fn the_criteria_chosen_decide() {
         let user = |name: &'static str| move |e: &mut keepass::db::EntryMut<'_>| e.set_unprotected(fields::USERNAME, name);
         let mut db = Database::new();
@@ -460,6 +497,8 @@ mod tests {
         add(&mut db, " bank ", "https://other.example.org", user("alice"));
         add(&mut db, "Bank", "https://bank.example.com", user("bob"));
         add(&mut db, "", "", user("alice"));
+        add(&mut db, "Lone", "", |_| {});
+        add(&mut db, "Lone too", "", |_| {});
         let found = |title, user_name, url| {
             let mut found: Vec<(String, String, String, usize)> = find(db.iter_all_entries(), Criteria { title, user_name, url })
                 .into_iter()
@@ -475,6 +514,8 @@ mod tests {
         assert_eq!(found(false, false, true), one("", "", "example.com", 2));
         assert_eq!(found(true, false, true), one("bank", "", "example.com", 2));
         assert!(found(true, true, true).is_empty());
+        // Entries without a user name are not alike by it alone.
+        assert_eq!(found(false, true, false).len(), 1);
         assert!(found(false, false, false).is_empty());
     }
 

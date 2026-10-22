@@ -72,15 +72,21 @@ export function renderSimilar(container: HTMLElement, options: SimilarOptions) {
   /** Sites left as they are, until the next Scan. */
   const left = new Set<string>()
   const results = el('div', { className: 'results' })
-  const scan = busyButton('Scan', 'Look for entries alike in what is ticked', () => {
+  const scan = busyButton('Scan', 'Look for entries alike in what is ticked', async () => {
     left.clear()
-    return draw()
+    await draw()
+    // A tick taken off meanwhile leaves nothing to compare.
+    scan.disabled = !anyCriterion()
   }, options.fail, 'primary')
   scan.disabled = !anyCriterion()
   const page = [
     el('header', {}, el('h1', {}, 'Similar entries')),
     el('section', { className: 'tool' }, el('p', {}, SIMILAR_INTRO),
-      criteriaChecks((any) => (scan.disabled = !any)),
+      // Results of other ticks would not say what these find.
+      criteriaChecks((any) => {
+        scan.disabled = !any
+        results.replaceChildren()
+      }),
       el('div', { className: 'tool-actions' }, scan)),
     results,
   ]

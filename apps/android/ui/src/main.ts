@@ -9,7 +9,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
-import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
@@ -977,7 +977,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
   }
   const failed = (e: unknown) => snack(String(e))
   const quote = (title: string) => `“${title}”`
-  const none = () => el('p', { className: 'muted' }, NO_SIMILAR)
+  const none = () => el('p', { className: 'muted' }, anyCriterion() ? NO_SIMILAR : NO_CRITERION)
 
   const site = (site: Site) => {
     const choice = siteChoice(site, (entry, tick, keep) =>

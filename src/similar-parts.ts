@@ -9,6 +9,7 @@ export const SIMILAR_INTRO =
   'Entries alike in what is ticked: the title, the user name, or the site of any of their URLs (the same host on another port is another site). ' +
   'Merging keeps one entry with everything the others have; they go to the recycle bin.'
 export const NO_SIMILAR = 'No two entries are alike in what is ticked.'
+export const NO_CRITERION = 'Tick what the entries are to be alike in.'
 
 /** The criteria ticked last: the next Scan uses them while the app runs. */
 let chosen: SimilarCriteria = { title: false, userName: true, url: true }

@@ -487,7 +487,10 @@ while the database is locked):
   - **Title:** trimmed, any case.
 - **User name:** it tells accounts apart (#227): entries are grouped by user name (trimmed, any case),
   and entries with different user names are never offered to merge. Entries without a user name go with
-  the only user name among them; when there are several, they are a section of their own.
+  the only user name among those for the same site or with the same title; when there are several, they
+  are a section of their own. By the user name alone, an entry without one is like no other. Entries
+  split into accounts are joined by site again among themselves: one that linked two sites may have
+  gone to another account.
 - Each section is headed with what its entries share, of what is ticked
   (`google.com · Gmail · me@example.com`; *No user name* when that is all there is).
 - Each section's entries are listed most recently changed first. One is **kept** (the first, at first; any
