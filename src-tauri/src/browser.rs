@@ -18,9 +18,10 @@ use serde_json::{json, Map, Value};
 /// default group (#285).
 pub const VERSION: &str = "2.7.10";
 
-/// KeePassXC's error codes, as the extension knows them.
+/// KeePassXC's error codes, as the extension knows them: a request's, and
+/// those a passkey answer carries (#285).
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Failure {
+pub enum Failure {
     DatabaseNotOpened = 1,
     ClientKeyNotReceived = 3,
     CannotDecrypt = 4,
@@ -33,7 +34,10 @@ enum Failure {
     NoGroups = 16,
     CannotCreateGroup = 17,
     NoValidUuid = 18,
+    CredentialIsExcluded = 21,
+    PasskeyCancelled = 22,
     EmptyPublicKey = 24,
+    PasskeyFailed = 31,
 }
 
 impl Failure {
@@ -51,6 +55,9 @@ impl Failure {
             Failure::NoGroups => "No groups found",
             Failure::CannotCreateGroup => "Cannot create new group",
             Failure::NoValidUuid => "No valid UUID provided",
+            Failure::CredentialIsExcluded => "Credential is excluded",
+            Failure::PasskeyCancelled => "Passkeys request canceled",
+            Failure::PasskeyFailed => "Unknown passkeys error",
             Failure::EmptyPublicKey => "Empty public key",
         }
     }

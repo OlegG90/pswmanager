@@ -3,7 +3,7 @@
 //! extension, replacing a saved login, choosing or making a passkey (#285),
 //! unlocking) is asked in the window.
 
-use crate::browser::{self, Host, Session};
+use crate::browser::{self, Failure, Host, Session};
 use crate::native_messaging::{self, Clients};
 use pswm_core::browser::{Group, Login};
 use pswm_core::{generator, webauthn};
@@ -164,19 +164,16 @@ impl Host for AppHost {
         };
         let request = public_key.to_string();
         let allowed = webauthn::sign_in_scope(&request).map(|scope| scope.allowed).unwrap_or_default();
-        let Ok(offered) = self.vault().read(|v| v.passkeys_for(&rp_id, &allowed)) else { return passkey_error(DATABASE_NOT_OPENED) };
+        let Ok(offered) = self.vault().read(|v| v.passkeys_for(&rp_id, &allowed)) else { return failed(Failure::DatabaseNotOpened) };
         // None here: the extension falls back to the browser's own passkeys.
         if offered.is_empty() {
-            return passkey_error(NO_LOGINS_FOUND);
+            return failed(Failure::NoLogins);
         }
         // Choosing in the window is the user's verification, as in KeePassXC.
         let chosen = ask(&self.0, "browser-passkey-get", json!({ "site": rp_id, "choices": offered }));
-        let Some(id) = chosen.as_str().filter(|id| offered.iter().any(|c| c.id == *id)) else { return passkey_error(CANCELLED) };
-        let caller = webauthn::Caller::Page { origin: origin.clone() };
-        match self.vault().read(|v| v.sign_with_passkey(id, &request, &caller)) {
-            Ok(Ok(credential)) => serde_json::from_str(&credential).unwrap_or_else(|_| passkey_error(UNKNOWN)),
-            _ => passkey_error(UNKNOWN),
-        }
+        let Some(id) = chosen.as_str().filter(|id| offered.iter().any(|c| c.id == *id)) else { return failed(Failure::PasskeyCancelled) };
+        let caller = webauthn::Caller::Page { origin };
+        credential(self.vault().read(|v| v.sign_with_passkey(id, &request, &caller)).ok().and_then(Result::ok))
     }
 
     fn passkeys_register(&self, mut public_key: Value, origin: &str, related: &[String], group: Option<&str>) -> Value {
@@ -187,32 +184,34 @@ impl Host for AppHost {
         let request = public_key.to_string();
         let excluded = webauthn::excluded_ids(&request);
         let found = self.vault().read(|v| (!excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty(), v.entries_for_new_passkey(&rp_id)));
-        let Ok((already, entries)) = found else { return passkey_error(DATABASE_NOT_OPENED) };
+        let Ok((already, entries)) = found else { return failed(Failure::DatabaseNotOpened) };
         if already {
-            return passkey_error(CREDENTIAL_IS_EXCLUDED);
+            return failed(Failure::CredentialIsExcluded);
         }
         let user = public_key["user"]["name"].as_str().unwrap_or_default();
         let answer = ask(&self.0, "browser-passkey-register", json!({ "site": rp_id, "user": user, "entries": entries }));
         // Null: cancelled; `{ "entry": null }`: a new entry; `{ "entry": id }`: that entry.
-        let Some(entry) = answer.get("entry") else { return passkey_error(CANCELLED) };
+        let Some(entry) = answer.get("entry") else { return failed(Failure::PasskeyCancelled) };
         let entry = entry.as_str().filter(|id| entries.iter().any(|c| c.id == *id));
-        let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin: origin.clone() }) else { return passkey_error(UNKNOWN) };
-        let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return passkey_error(UNKNOWN) };
+        let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin }) else { return failed(Failure::PasskeyFailed) };
+        let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return failed(Failure::PasskeyFailed) };
         crate::show_changes(&self.0, vec![id]);
-        serde_json::from_str(&made.response).unwrap_or_else(|_| passkey_error(UNKNOWN))
+        credential(Some(made.response))
     }
 }
-
-/// KeePassXC's error codes a passkey answer may carry.
-const DATABASE_NOT_OPENED: u8 = 1;
-const NO_LOGINS_FOUND: u8 = 15;
-const CREDENTIAL_IS_EXCLUDED: u8 = 21;
-const CANCELLED: u8 = 22;
-const UNKNOWN: u8 = 31;
 
 /// A passkey answer that refuses, as KeePassXC writes it.
 fn passkey_error(code: u8) -> Value {
     json!({ "errorCode": code })
+}
+
+fn failed(failure: Failure) -> Value {
+    passkey_error(failure as u8)
+}
+
+/// The credential the core made or signed, as the answer carries it.
+fn credential(json: Option<String>) -> Value {
+    json.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_else(|| failed(Failure::PasskeyFailed))
 }
 
 /// Registers PswManager with the browsers and serves the extension, when the
