@@ -82,9 +82,10 @@ impl LoginPlace {
     /// Whether the entry is for this place: an app named among its URLs
     /// (`androidapp://<package>`, as Keepass2Android keeps it; packages are
     /// case-sensitive) whose certificate is the one the entry keeps for it
-    /// ([Fit::Unconfirmed] while it keeps none), or a site whose host is the
-    /// entry's (a `www.` aside). Not a site's other hosts: a password goes to
-    /// its own host only.
+    /// ([Fit::Unconfirmed] while it keeps none), or a site whose host is that
+    /// of the entry's URL or of one of its further URLs (`KP2A_URL_n`, #236;
+    /// a `www.` aside). Not a site's other hosts: a password goes to its own
+    /// hosts only.
     fn fit(&self, entry: &EntryRef<'_>) -> Fit {
         match self {
             LoginPlace::App { package, certificate } => {
@@ -100,7 +101,8 @@ impl LoginPlace {
             }
             LoginPlace::Site(host) => {
                 let bare = |h: &str| h.trim_start_matches("www.").to_ascii_lowercase();
-                if entry.get(fields::URL).and_then(icons::host_of).is_some_and(|site| bare(&site) == bare(host)) {
+                let hosts = entry.fields.iter().filter(|(name, _)| holds_url(name)).filter_map(|(_, value)| icons::host_of(value.get()));
+                if hosts.map(|site| bare(&site)).any(|site| site == bare(host)) {
                     Fit::Yes
                 } else {
                     Fit::No
@@ -1796,6 +1798,23 @@ pub mod tests {
         let mail = LoginPlace::App { package: "com.example.mail".into(), certificate: crate::webauthn::app_origin(b"mail's certificate") };
         assert_eq!(app, mail);
         assert!(LoginPlace::of(None, "com.example.mail", None).is_err());
+    }
+
+    #[test]
+    fn a_site_finds_its_logins_by_further_urls_too() {
+        let mut db = Database::new();
+        db.root_mut().add_entry().edit(|e| {
+            e.set_unprotected(fields::TITLE, "Mail");
+            e.set_unprotected(fields::URL, "https://mail.example");
+            e.set_unprotected("KP2A_URL_1", "https://login.mail.example/signin");
+            e.set_unprotected(fields::USERNAME, "alice");
+            e.set_unprotected(fields::PASSWORD, "pw");
+        });
+        let vault = Vault::from_database(db);
+        for host in ["mail.example", "login.mail.example", "www.login.mail.example"] {
+            assert_eq!(vault.logins_for(&LoginPlace::Site(host.into())).len(), 1, "{host}");
+        }
+        assert!(vault.logins_for(&LoginPlace::Site("other.mail.example".into())).is_empty());
     }
 
     #[test]

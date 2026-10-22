@@ -338,8 +338,8 @@ Android offers Google first). Android asks it when an app or a site in a browser
   see *Autofill*. Who asks decides the entries: an **app** by its package, among an entry's URLs
   as Keepass2Android keeps it (`androidapp://<package>` in URL or `KP2A_URL_n`), and its signing
   certificate (below); a **browser** on the
-  privileged list by its page's host, which must be the entry's (a `www.` aside; not the site's other
-  hosts). Picking a login asks for the fingerprint or the phone's screen lock, then the user name and
+  privileged list by its page's host, which must be that of the entry's URL or of one of its further
+  URLs (`KP2A_URL_n`, #236; a `www.` aside; not the site's other hosts). Picking a login asks for the fingerprint or the phone's screen lock, then the user name and
   password go to the app, the entry checked again to be for it. Saving shows who asks and where it
   goes: a **new entry** (named after the app,
   or the site's host; URL `androidapp://<package>` or `https://<host>`), or **updating** one of its
@@ -370,7 +370,8 @@ row, as the phone shows autofill).
   steps gets the user name first, then the password. PswManager's own screens are not filled.
 - **Who asks**, as for the credential provider (*Credential provider*): an **app** by its package among
   an entry's URLs (`androidapp://<package>`, `KP2A_URL_n`) and its signing certificate (*An app's
-  certificate*); a **page** by its host, which must be the entry's (a `www.` aside), only when the
+  certificate*); a **page** by its host, which must be that of the entry's URL or of one of its further
+  URLs (`KP2A_URL_n`; a `www.` aside), only when the
   browser showing it is on Google's list of privileged browsers, signed as listed: any app can put a
   web domain into its views; a plain `http` page is not the site's, and a field in a frame from another
   site goes by that site. A page in another browser is taken for that browser, as an app. To read the
