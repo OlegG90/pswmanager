@@ -1013,6 +1013,21 @@ button.wide[hidden] {
   font-size: 14px;
 }
 
+/* Find similar's criteria (#267), in a row. */
+.similar-criteria {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0;
+}
+
+.similar-criteria .criterion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .similar-actions {
   display: flex;
   align-items: center;

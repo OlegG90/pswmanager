@@ -105,10 +105,11 @@ pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>)
     Ok(listing)
 }
 
-/// The entries that are for the same site and account (Tools › Find similar entries).
+/// The entries alike in `criteria`, the same site and account when not given
+/// (Tools › Find similar entries).
 #[tauri::command(async)]
-pub fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
-    session.read(|v| v.similar())
+pub fn similar_entries(session: State<Session>, criteria: Option<similar::Criteria>) -> Result<Vec<similar::Similar>, String> {
+    session.read(|v| v.similar(criteria.unwrap_or_default()))
 }
 
 /// What merging entries into `keep` would change in it; protected values are left out.

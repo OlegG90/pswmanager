@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported } from '../../../../src/api'
 
 export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported }
 
@@ -239,7 +239,7 @@ export const api = {
   /** Moves entries to the recycle bin. */
   deleteEntries: (ids: string[]) => invoke<Listing>('delete_entries', { ids }),
   /** The entries that are for the same site and account. */
-  similarEntries: () => invoke<Similar[]>('similar_entries'),
+  similarEntries: (criteria: SimilarCriteria) => invoke<Similar[]>('similar_entries', { criteria }),
   /** What `mergeEntries` would change in `keep`; nothing changes. */
   mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),
   /** Adds what `others` have to `keep` and moves them to the recycle bin. */

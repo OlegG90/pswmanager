@@ -337,9 +337,20 @@ export interface Finding {
  *  the address itself when it is not a site's, and the user name they share
  *  (empty: none). The most recently changed first. */
 export interface Similar {
+  /** Empty when the URL is not a criterion. */
   site: string
+  /** Empty when the title is not a criterion. */
+  title: string
+  /** Empty when the user name is not a criterion, or they have none. */
   userName: string
   ids: string[]
+}
+
+/** What makes entries similar (#267): alike in each one that is on. */
+export interface SimilarCriteria {
+  title: boolean
+  userName: boolean
+  url: boolean
 }
 
 /** The kept entry as a merge would leave it (secrets masked), and what it gets. */
@@ -494,7 +505,7 @@ export const api = {
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
   passwordHealth: () => invoke<Health>('password_health'),
-  similarEntries: () => invoke<Similar[]>('similar_entries'),
+  similarEntries: (criteria: SimilarCriteria) => invoke<Similar[]>('similar_entries', { criteria }),
   /** Adds what `others` have to `keep` and moves them to the recycle bin. */
   mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
   /** What `mergeEntries` would change in `keep`; nothing changes. */

@@ -1382,10 +1382,11 @@ fn password_health(session: State<Session>) -> Result<health::Health, String> {
     session.read(Vault::health)
 }
 
-/// The entries that are for the same site and account, by their ids.
+/// The entries alike in `criteria` (the same site and account when not
+/// given), by their ids.
 #[tauri::command(async)]
-fn similar_entries(session: State<Session>) -> Result<Vec<similar::Similar>, String> {
-    session.read(Vault::similar)
+fn similar_entries(session: State<Session>, criteria: Option<similar::Criteria>) -> Result<Vec<similar::Similar>, String> {
+    session.read(|v| v.similar(criteria.unwrap_or_default()))
 }
 
 /// The settings screen's values.

@@ -2321,6 +2321,20 @@ button.switch[aria-checked='true'] .knob {
   color: var(--color-danger);
 }
 
+/* Find similar's criteria (#267), in a row. */
+.similar-criteria {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.similar-criteria .criterion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tool-actions {
   display: flex;
   flex-wrap: wrap;
