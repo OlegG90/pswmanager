@@ -133,6 +133,7 @@ impl Totp {
                 "size" => totp.digits = digits(&value)?,
                 "step" => totp.period = period(&value)?,
                 "otphashmode" => totp.algorithm = Algorithm::parse(&value)?,
+                "type" if !value.eq_ignore_ascii_case("totp") => return Err("Only time-based codes are supported".into()),
                 _ => {}
             }
         }
@@ -348,6 +349,11 @@ pub fn find(fields: &HashMap<String, Value<String>>) -> Option<Zeroizing<String>
     Totp::keepass(&text)?.ok().map(|totp| totp.to_uri())
 }
 
+/// Whether an attribute belongs to KeeTrayTOTP's or KeePass 2's TOTP layout.
+pub fn is_layout_field(name: &str) -> bool {
+    name == SEED || name == SETTINGS || name.starts_with(KEEPASS)
+}
+
 /// Writes `typed` (checked to work) into the TOTP layouts `fields` has, as
 /// KeePassXC does, so the plugin that wrote each keeps working: KeeTrayTOTP's
 /// pair and KeePass 2's attributes where they can hold it, and removed where
@@ -358,7 +364,7 @@ pub fn find(fields: &HashMap<String, Value<String>>) -> Option<Zeroizing<String>
 pub fn write(fields: &mut HashMap<String, Value<String>>, typed: &str, title: &str, had_otp: bool) -> Result<(), String> {
     let typed = typed.trim();
     if typed.is_empty() {
-        fields.retain(|name, _| name != fields::OTP && name != SEED && name != SETTINGS && !name.starts_with(KEEPASS));
+        fields.retain(|name, _| name != fields::OTP && !is_layout_field(name));
         return Ok(());
     }
     let totp = Totp::parse(typed)?;
@@ -479,6 +485,11 @@ mod tests {
         let totp = Totp::parse(&format!("key={RFC_SECRET}&step=30&size=8&otpHashMode=Sha1")).unwrap();
         assert_eq!(totp.code_at(59).code, "94287082");
         assert_eq!(Totp::parse(&format!("key={RFC_SECRET}")).unwrap().code_at(59).code, "287082");
+        assert!(Totp::parse(&format!("key={RFC_SECRET}&type=Hotp&counter=1")).is_err());
+        // RFC 6238's SHA-512 vector: its own 64-byte secret.
+        let sha512 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+        let totp = Totp::parse(&format!("key={sha512}&size=8&otpHashMode=Sha512")).unwrap();
+        assert_eq!(totp.code_at(59).code, "90693936");
     }
 
     #[test]
@@ -489,6 +500,9 @@ mod tests {
             let keepass = attributes(&[secret, (KEEPASS_LENGTH, "8"), (KEEPASS_ALGORITHM, "HMAC-SHA-1")]);
             assert_eq!(code_of(&keepass, 59), "94287082", "{}", secret.0);
         }
+        // RFC 6238's SHA-256 vector: its own 32-byte secret.
+        let sha256 = attributes(&[(KEEPASS_SECRET, "12345678901234567890123456789012"), (KEEPASS_LENGTH, "8"), (KEEPASS_ALGORITHM, "HMAC-SHA-256")]);
+        assert_eq!(code_of(&sha256, 59), "46119246");
         let other = "JBSWY3DPEHPK3PXP";
         // KeeTrayTOTP's pair comes before `otp`, which comes before KeePass 2's.
         let all = attributes(&[(SEED, RFC_SECRET), (SETTINGS, "30;8;https://time.example.com"), (fields::OTP, other), (KEEPASS_BASE32, other)]);

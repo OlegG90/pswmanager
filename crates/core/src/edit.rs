@@ -349,11 +349,6 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     let icon = IconSetting::of(db, &data.icon)?;
     let expiry = data.expires.as_deref().map(parse_expiry).transpose()?;
     let existing = id.and_then(|id| db.entry(id));
-    // The TOTP as the editor was shown it (see [read]): when it did not
-    // change, its attributes stay as they are, even a value this app cannot
-    // read; a changed one must work.
-    let shown = existing.as_ref().and_then(|e| otp::find(&e.fields));
-    let otp_changed = data.otp.trim() != shown.as_deref().map_or("", |s| s.trim());
     // Group paths are names, which need not be unique or tidy: an entry whose
     // path did not change stays in its own group.
     let current_group = existing.as_ref().map(|e| e.parent().id()).filter(|g| path_of(db, *g) == data.group);
@@ -364,7 +359,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     };
 
     let Some(id) = id.filter(|id| db.entry(*id).is_some()) else {
-        let wanted = wanted_fields(db, None, data, otp_changed)?;
+        let wanted = wanted_fields(db, None, data)?;
         let mut parent = db.group_mut(group).ok_or("The group is gone")?;
         let mut entry = match id {
             Some(id) => parent.add_entry_with_id(id).map_err(|e| e.to_string())?,
@@ -391,7 +386,7 @@ fn apply_tracked(db: &mut Database, id: Option<EntryId>, data: &EntryData, hidde
     };
 
     let entry = db.entry(id).expect("checked above");
-    let wanted = wanted_fields(db, Some(&entry), data, otp_changed)?;
+    let wanted = wanted_fields(db, Some(&entry), data)?;
     let moved = entry.parent().id() != group;
     let icon_changed = icon_choice(&entry) != data.icon;
     let expiry_changed = expiry_time(&entry.times) != expiry;
@@ -655,13 +650,8 @@ fn check_field_names(fields: &[FieldData]) -> Result<(), String> {
 
 /// The entry's fields as the editor wants them, each keeping whether it was
 /// protected; a new password or TOTP secret is protected. A changed TOTP
-/// (`otp_changed`) goes into the layouts the entry has ([otp::write]).
-fn wanted_fields(
-    db: &Database,
-    entry: Option<&EntryRef<'_>>,
-    data: &EntryData,
-    otp_changed: bool,
-) -> Result<HashMap<String, Value<String>>, String> {
+/// goes into the layouts the entry has ([otp::write]).
+fn wanted_fields(db: &Database, entry: Option<&EntryRef<'_>>, data: &EntryData) -> Result<HashMap<String, Value<String>>, String> {
     let protection = db.meta.memory_protection.as_ref();
     let was_protected = |name: &str| entry.and_then(|e| e.fields.get(name)).map(Value::is_protected);
     let standard = [
@@ -689,8 +679,18 @@ fn wanted_fields(
     for field in &data.fields {
         wanted.insert(field.name.clone(), value_of(&field.value, field.protected));
     }
-    if otp_changed {
-        otp::write(&mut wanted, &data.otp, &data.title, had_otp.is_some())?;
+    // Against the TOTP as the editor was shown it (see [read]), or for a new
+    // entry as its fields hold it (one another database had, or none): when
+    // it did not change, its attributes stay as they are, even a value this
+    // app cannot read; a changed one must work.
+    let typed = data.otp.trim();
+    let shown = match entry {
+        Some(entry) => otp::find(&entry.fields),
+        None if typed.is_empty() => None,
+        None => otp::find(&wanted),
+    };
+    if typed != shown.as_deref().map_or("", |s| s.trim()) {
+        otp::write(&mut wanted, typed, &data.title, had_otp.is_some())?;
     }
     Ok(wanted)
 }
