@@ -51,6 +51,11 @@ impl<'a> Settings<'a> {
         self.get("autoTypeAlwaysAsk", Value::as_bool).unwrap_or(false)
     }
 
+    /// On the PC: the KeePassXC-Browser extension works with PswManager (#273).
+    pub fn browser_integration(&self) -> bool {
+        self.get("browserIntegration", Value::as_bool).unwrap_or(false)
+    }
+
     pub fn lock_after(&self) -> Option<Duration> {
         lock_after(self.get("lockAfterMinutes", Value::as_u64))
     }
@@ -132,6 +137,7 @@ impl<'a> Settings<'a> {
             hotkey: self.hotkey(),
             auto_type_hotkey: self.auto_type_hotkey(),
             auto_type_always_ask: self.auto_type_always_ask(),
+            browser_integration: self.browser_integration(),
             lock_in_background: self.lock_in_background().map(|d| d.as_secs()),
             lock_on_screen_off: self.lock_on_screen_off(),
             biometric_unlock: self.biometric_unlock(),
@@ -171,6 +177,7 @@ pub struct View {
     /// Empty when Auto-Type has no hotkey.
     pub auto_type_hotkey: String,
     pub auto_type_always_ask: bool,
+    pub browser_integration: bool,
     /// Seconds; `None` for never.
     pub lock_in_background: Option<u64>,
     pub lock_on_screen_off: bool,
@@ -188,7 +195,7 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockAfterMinutes" => within(LOCK_AFTER_MINUTES, true),
         "syncEveryMinutes" => within(SYNC_EVERY_MINUTES, true),
         "clearClipboard" => within(CLEAR_SECONDS, false),
-        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" | "allowScreenshots" | "autoTypeAlwaysAsk" => {
+        "lockOnSessionLock" | "lockWhenHidden" | "downloadIcons" | "lockOnScreenOff" | "biometricUnlock" | "swipes" | "allowScreenshots" | "autoTypeAlwaysAsk" | "browserIntegration" => {
             value.is_boolean()
         }
         "passwordEveryDays" => within(PASSWORD_EVERY_DAYS, false),
@@ -282,6 +289,7 @@ mod tests {
         assert!(view.lock_on_session_lock && !view.lock_when_hidden && view.download_icons);
         assert_eq!(view.hotkey, "Ctrl+Alt+P");
         assert_eq!((view.auto_type_hotkey.as_str(), view.auto_type_always_ask), ("Ctrl+Alt+A", false));
+        assert!(!view.browser_integration, "the browser extension is off until turned on");
         assert!(!view.allow_screenshots, "the phone's screens are not captured unless allowed");
 
         settings.set("lockAfterMinutes", 0.into()).unwrap();

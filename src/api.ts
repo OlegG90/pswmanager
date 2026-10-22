@@ -244,6 +244,30 @@ export interface AutoTypeData {
 /** What Auto-Type types of an entry: its sequence, or one value alone. */
 export type Typed = 'sequence' | 'username' | 'password' | 'totp'
 
+/** A browser extension associated with the database, as KeePassXC keeps it. */
+export interface BrowserAssociation {
+  name: string
+  /** When it was made, as the app that made it wrote it. */
+  created: string | null
+}
+
+/** The extension asks to connect to the open database (`browser-associate`). */
+export interface BrowserAssociate {
+  id: number
+  database: string
+  /** The names associations have already. */
+  taken: string[]
+}
+
+/** The extension offers a new password for a saved login (`browser-update`). */
+export interface BrowserUpdate {
+  id: number
+  title: string
+  username: string
+  newUsername: string
+  site: string
+}
+
 /** An entry offered for a window. */
 export interface EntryChoice {
   id: string
@@ -324,6 +348,10 @@ export interface Settings {
   autoTypeHotkey: string
   /** Auto-Type asks which entry even when one alone fits the window. */
   autoTypeAlwaysAsk: boolean
+  /** The KeePassXC-Browser extension works with PswManager (#273). */
+  browserIntegration: boolean
+  /** Another program (KeePassXC) is registered for the extension (not a setting). */
+  otherBrowserHost: boolean
   startWithWindows: boolean
   /** Unlock with Windows Hello once the master password was given (#235). */
   biometricUnlock: boolean
@@ -554,6 +582,11 @@ export const api = {
   /** Types the entry into the window behind PswManager's (entry-level Auto-Type). */
   autoTypeEntry: (id: string, typed: Typed) => invoke<void>('auto_type_entry', { id, typed }),
   cancelAutoType: () => invoke<void>('cancel_auto_type'),
+  /** The window's answer to a question the browser extension's request raised. */
+  browserAnswer: (id: number, answer: string | boolean | null) => invoke<void>('browser_answer', { id, answer }),
+  /** The browser extensions associated with the open database. */
+  browserAssociations: () => invoke<BrowserAssociation[]>('browser_associations'),
+  forgetBrowserAssociation: (name: string) => invoke<BrowserAssociation[]>('forget_browser_association', { name }),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
   setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),

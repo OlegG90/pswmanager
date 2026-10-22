@@ -2,7 +2,8 @@
 //! address a browser there shows (read through UI Automation), and the core's
 //! steps typed into it with `SendInput`.
 
-use pswm_core::autotype::{site_of_address, Key, Mods, Step, Window};
+use pswm_core::autotype::{Key, Mods, Step, Window};
+use pswm_core::browser::Page;
 use std::time::{Duration, Instant};
 use windows::core::BSTR;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
@@ -83,8 +84,8 @@ pub fn foreground() -> Option<Target> {
         // A browser not in the list counts as one when it shows an address:
         // its title, which the page chooses, must never pick the entry.
         let browser = address.is_some() || program(pid).is_some_and(|p| BROWSERS.contains(&p.as_str()));
-        let site = address.as_deref().and_then(site_of_address);
-        Some(Target { hwnd: hwnd as usize, engine, window: Window { title, browser, site }, since: Instant::now() })
+        let page = address.as_deref().and_then(Page::of_address);
+        Some(Target { hwnd: hwnd as usize, engine, window: Window { title, browser, page }, since: Instant::now() })
     }
 }
 
@@ -99,10 +100,10 @@ pub fn behind() -> Option<Target> {
     found
 }
 
-/// The site the target's browser shows now; `None` when it is no browser or
+/// The page the target's browser shows now; `None` when it is no browser or
 /// its address cannot be read.
-pub fn site_now(target: &Target) -> Option<String> {
-    target.engine.and_then(|e| address(target.hwnd(), e)).as_deref().and_then(site_of_address)
+pub fn page_now(target: &Target) -> Option<Page> {
+    target.engine.and_then(|e| address(target.hwnd(), e)).as_deref().and_then(Page::of_address)
 }
 
 /// The browser engines whose address bar can be read, by their windows' class.
