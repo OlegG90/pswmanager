@@ -136,6 +136,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::generate_password,
             crate::editing::password_strength,
             crate::editing::pick_file_to_attach,
+            crate::editing::scan_totp_qr,
             crate::editing::release_files,
             crate::transfer::import_from_app,
             crate::transfer::import_from_file,

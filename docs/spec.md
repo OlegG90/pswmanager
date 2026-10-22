@@ -581,6 +581,12 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   had it or nothing else holds it (a bare secret becomes a URI there). Cleared, all of them go. The 2FA
   filter, copying, Auto-Type's `{TOTP}`, the export (a KeeOtp string as a URI in CSV; a Steam secret as a
   field in CXF, which has no place for it) and *Similar entries* use the same TOTP.
+- **QR code** (#279): the scan button by the editor's TOTP field reads the `otpauth://totp/` URI from a
+  QR code into the field, as if it had been typed: from the picture on the clipboard (a `Win+Shift+S`
+  snip of the code a site shows), or, when the clipboard holds no such code, from a PNG or JPEG the user
+  picks. A picture without a QR code, a code holding something else, or Google Authenticator's export
+  (`otpauth-migration://`, not read yet: #281) is said so. The file's bytes and the code's text are wiped
+  once read and never logged.
 
 ## Password health
 

@@ -560,6 +560,8 @@ export const api = {
   openAttachment: (id: string, name: string, version: number | null = null) => invoke<void>('open_attachment', { id, name, version }),
   /** Asks for a file to attach in the editor; null when cancelled. */
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
+  /** A TOTP URI from a QR code: the clipboard's picture, or one picked; null when cancelled. */
+  scanTotpQr: () => invoke<string | null>('scan_totp_qr'),
   /** The editor let go of files it had picked. */
   releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
   /** An image file for an entry's icon, base64; null when cancelled. */

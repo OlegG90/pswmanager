@@ -119,6 +119,16 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     startActivityForResult(invoke, intent, "pickedToRead")
   }
 
+  /** A picture to read once (a TOTP QR code, #279): no lasting access is kept. */
+  @Command
+  fun pickImage(invoke: Invoke) {
+    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+      .addCategory(Intent.CATEGORY_OPENABLE)
+      .setType("image/*")
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    startActivityForResult(invoke, intent, "pickedToRead")
+  }
+
   /** The file picked to read, with its size (-1 when the provider does not say); `uri` is null when the user cancelled. */
   @ActivityCallback
   fun pickedToRead(invoke: Invoke, result: ActivityResult) {
