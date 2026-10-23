@@ -1,5 +1,6 @@
 import { api, type FileImported, type GauthProgress, type Listing } from './api'
 import { busyButton, button, el } from './dom'
+import { importedMessage, skippedList } from './file-import-parts'
 import { gauthAbout, importLabel, progressText } from './gauth-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
@@ -39,16 +40,13 @@ export function renderGauthImport(container: HTMLElement, options: GauthOptions)
   const importIt = async () => done(await api.gauthImport())
 
   const done = ({ group, added, skipped, listing }: FileImported) => {
-    const message = added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported into “${group}”` : 'Nothing was imported'
+    const message = importedMessage(added, group)
     options.imported(listing, message)
     if (!page.isConnected) return
     page.replaceChildren(header(), el('section', { className: 'tool' },
       el('p', {}, `${message}.`),
       ...(added ? [el('p', { className: 'muted' }, SIMILAR_AFTER_IMPORT)] : []),
-      ...(skipped.length
-        ? [el('p', {}, `Not brought over (${skipped.length}):`),
-            el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
-        : []),
+      ...skippedList(skipped),
       el('div', { className: 'tool-actions' }, button('Import another export', 'Read the codes of another export', () => draw(null)))))
   }
 

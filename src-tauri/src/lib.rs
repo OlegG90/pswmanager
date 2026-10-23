@@ -866,7 +866,7 @@ fn lock_now(app: &AppHandle) {
         browser_host::tell(false);
         *app.state::<FileWatch>().0.lock().unwrap() = None;
         window::set_title(app, None);
-        app.state::<GauthExport>().0.lock().unwrap().take();
+        app.state::<gauth::Session>().cancel();
         let _ = app.emit("locked", ());
         // What changed here goes up; a merge waits for the next unlock.
         sync::request(app);
@@ -1358,16 +1358,10 @@ fn add_entries(app: &AppHandle, source: String, import: cxf::Import) -> Result<F
     Ok(FileImported { file: source, group, added, skipped: import.skipped, listing })
 }
 
-/// Google Authenticator's export codes read so far (#281) while its page is
-/// open ([gauth_start]), in memory only; `None` once it is left, the codes
-/// imported or the database locked, so a read that ends later keeps nothing.
-#[derive(Default)]
-struct GauthExport(Mutex<Option<gauth::Collected>>);
-
-/// The page opens: no codes read yet.
+/// The page opens: no codes read yet (see [gauth::Session]).
 #[tauri::command(async)]
 fn gauth_start(app: AppHandle) {
-    *app.state::<GauthExport>().0.lock().unwrap() = Some(gauth::Collected::default());
+    app.state::<gauth::Session>().start();
 }
 
 /// Reads one of Google Authenticator's export codes (as [scan_totp_qr]
@@ -1376,11 +1370,9 @@ fn gauth_start(app: AppHandle) {
 /// gone.
 #[tauri::command(async)]
 fn gauth_read(app: AppHandle, window: Window) -> Result<Option<gauth::Progress>, String> {
-    let export = app.state::<GauthExport>();
-    let new = |text: &str| export.0.lock().unwrap().as_ref().is_some_and(|read| !read.is_read(text));
-    let Some(text) = read_qr(&window, qr::export_from_rgba, qr::export_from_image, new)? else { return Ok(None) };
-    let progress = export.0.lock().unwrap().as_mut().map(|read| read.add(&text)).transpose();
-    progress
+    let session = app.state::<gauth::Session>();
+    let Some(text) = read_qr(&window, qr::export_from_rgba, qr::export_from_image, |text| !session.is_read(text))? else { return Ok(None) };
+    session.add(&text)
 }
 
 /// Imports the accounts of the export codes read so far, as a file's
@@ -1390,14 +1382,14 @@ fn gauth_import(app: AppHandle) -> Result<FileImported, String> {
     if !app.state::<Session>().is_unlocked() {
         return Err("Unlock the database first".into());
     }
-    let import = app.state::<GauthExport>().0.lock().unwrap().take().ok_or("No codes were read")?.import();
+    let import = app.state::<gauth::Session>().import()?;
     add_entries(&app, import.exporter.clone(), import)
 }
 
 /// Lets go of the export codes read so far.
 #[tauri::command(async)]
 fn gauth_cancel(app: AppHandle) {
-    app.state::<GauthExport>().0.lock().unwrap().take();
+    app.state::<gauth::Session>().cancel();
 }
 
 /// Deletes the file the last import read (the user confirmed): only that one.
@@ -1894,7 +1886,7 @@ pub fn run() {
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
         .manage(WaitingFile::default())
-        .manage(GauthExport::default())
+        .manage(gauth::Session::default())
         .manage(AutoTypeTarget::default())
         .manage(browser_host::Questions::default())
         .manage(sync::Syncer::default())

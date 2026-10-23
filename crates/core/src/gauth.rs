@@ -12,6 +12,7 @@ use crate::cxf::{self, Fields, Import, Skipped};
 use crate::edit::EntryData;
 use base64::Engine;
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use zeroize::Zeroizing;
 
 const SCHEME: &str = "otpauth-migration:";
@@ -50,9 +51,42 @@ pub fn is_export(text: &str) -> bool {
 /// The export's codes read so far: one export's batches, by their index.
 #[derive(Default)]
 pub struct Collected {
-    id: Option<u64>,
-    size: usize,
+    /// The export's id and its number of codes.
+    export: Option<(u64, usize)>,
     batches: BTreeMap<usize, Vec<Account>>,
+}
+
+/// The codes read while the app's import page (or sheet) is open, held in
+/// memory only: `None` once it is left, the codes imported or the database
+/// locked ([Session::cancel]), so a read that ends later keeps nothing.
+#[derive(Default)]
+pub struct Session(Mutex<Option<Collected>>);
+
+impl Session {
+    /// The page opens: no codes read yet.
+    pub fn start(&self) {
+        *self.0.lock().unwrap() = Some(Collected::default());
+    }
+
+    /// Lets go of the codes read so far.
+    pub fn cancel(&self) {
+        self.0.lock().unwrap().take();
+    }
+
+    /// Whether the page is open and has read the code `text` already.
+    pub fn is_read(&self, text: &str) -> bool {
+        self.0.lock().unwrap().as_ref().is_some_and(|read| read.is_read(text))
+    }
+
+    /// Adds a code read ([Collected::add]); `None` when the page is gone.
+    pub fn add(&self, text: &str) -> Result<Option<Progress>, String> {
+        self.0.lock().unwrap().as_mut().map(|read| read.add(text)).transpose()
+    }
+
+    /// The accounts read as entries ([Collected::import]); the codes go.
+    pub fn import(&self) -> Result<Import, String> {
+        Ok(self.0.lock().unwrap().take().ok_or("No codes were read")?.import())
+    }
 }
 
 /// How far the collecting is, for the page to show.
@@ -73,8 +107,8 @@ impl Collected {
     /// nothing.
     pub fn add(&mut self, text: &str) -> Result<Progress, String> {
         let payload = parse(text)?;
-        if self.id != Some(payload.id) || self.size != payload.size {
-            *self = Collected { id: Some(payload.id), size: payload.size, batches: BTreeMap::new() };
+        if self.export != Some((payload.id, payload.size)) {
+            *self = Collected { export: Some((payload.id, payload.size)), batches: BTreeMap::new() };
         }
         self.batches.entry(payload.index).or_insert(payload.accounts);
         Ok(self.progress())
@@ -83,13 +117,17 @@ impl Collected {
     /// Whether the code whose text is `text` was read already (the
     /// clipboard may still hold the last snip).
     pub fn is_read(&self, text: &str) -> bool {
-        parse(text).is_ok_and(|payload| self.id == Some(payload.id) && self.batches.contains_key(&payload.index))
+        parse(text).is_ok_and(|payload| self.export.is_some_and(|(id, _)| id == payload.id) && self.batches.contains_key(&payload.index))
     }
 
     /// Which codes are read, and the accounts they hold.
+    fn size(&self) -> usize {
+        self.export.map_or(0, |(_, size)| size)
+    }
+
     pub fn progress(&self) -> Progress {
         Progress {
-            codes: self.size,
+            codes: self.size(),
             read: self.batches.keys().map(|index| index + 1).collect(),
             accounts: self.batches.values().map(Vec::len).sum(),
         }
@@ -112,9 +150,9 @@ impl Collected {
                 Err(why) => import.skipped.push(Skipped { title, why }),
             }
         }
-        let missing: Vec<String> = (0..self.size).filter(|i| !self.batches.contains_key(i)).map(|i| (i + 1).to_string()).collect();
+        let missing: Vec<String> = (0..self.size()).filter(|i| !self.batches.contains_key(i)).map(|i| (i + 1).to_string()).collect();
         if !missing.is_empty() {
-            let why = format!("Not read: the export's code {} of {}; import again with it", missing.join(", "), self.size);
+            let why = format!("Not read: the export's code {} of {}; import again with it", missing.join(", "), self.size());
             import.skipped.push(Skipped { title: "Google Authenticator".into(), why });
         }
         import
@@ -189,7 +227,8 @@ fn parse(text: &str) -> Result<Payload, String> {
 
 fn payload(bytes: &[u8]) -> Option<Payload> {
     let mut payload = Payload { accounts: Vec::new(), size: 1, index: 0, id: 0 };
-    for field in Wire::of(bytes) {
+    let mut wire = Wire(bytes);
+    while let Some(field) = wire.next_field() {
         match field? {
             (1, Value::Bytes(account)) => payload.accounts.push(account_of(account)?),
             // A negative int32 comes as a huge varint: refused, as too many codes.
@@ -205,7 +244,8 @@ fn payload(bytes: &[u8]) -> Option<Payload> {
 fn account_of(bytes: &[u8]) -> Option<Account> {
     let mut account = Account { secret: Zeroizing::new(Vec::new()), name: String::new(), issuer: String::new(), algorithm: 0, digits: 0, kind: 0, counter: 0 };
     let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).ok();
-    for field in Wire::of(bytes) {
+    let mut wire = Wire(bytes);
+    while let Some(field) = wire.next_field() {
         match field? {
             (1, Value::Bytes(secret)) => account.secret = Zeroizing::new(secret.to_vec()),
             (2, Value::Bytes(name)) => account.name = text(name)?,
@@ -228,23 +268,21 @@ enum Value<'a> {
     Bytes(&'a [u8]),
 }
 
-/// The fields of a protobuf message, in order; `None` for one that cannot be
-/// read (and the reading stops there).
-struct Wire<'a> {
-    bytes: &'a [u8],
-    failed: bool,
-}
+/// A protobuf message's bytes, read field by field.
+struct Wire<'a>(&'a [u8]);
 
 impl<'a> Wire<'a> {
-    fn of(bytes: &'a [u8]) -> Self {
-        Wire { bytes, failed: false }
+    /// The next field: `None` at the end, `Some(None)` for one that cannot
+    /// be read (the caller gives up then).
+    fn next_field(&mut self) -> Option<Option<(u64, Value<'a>)>> {
+        (!self.0.is_empty()).then(|| self.field())
     }
 
     fn varint(&mut self) -> Option<u64> {
         let mut value = 0u64;
         for shift in (0..64).step_by(7) {
-            let (&byte, rest) = self.bytes.split_first()?;
-            self.bytes = rest;
+            let (&byte, rest) = self.0.split_first()?;
+            self.0 = rest;
             value |= u64::from(byte & 0x7f) << shift;
             if byte & 0x80 == 0 {
                 return Some(value);
@@ -259,35 +297,22 @@ impl<'a> Wire<'a> {
             0 => Value::Number(self.varint()?),
             2 => {
                 let len = usize::try_from(self.varint()?).ok()?;
-                let (bytes, rest) = (self.bytes.get(..len)?, self.bytes.get(len..)?);
-                self.bytes = rest;
+                let (bytes, rest) = (self.0.get(..len)?, self.0.get(len..)?);
+                self.0 = rest;
                 Value::Bytes(bytes)
             }
             // Fixed 64 and 32 bits: no field of the export has them, but skipped rightly.
             1 => {
-                self.bytes = self.bytes.get(8..)?;
+                self.0 = self.0.get(8..)?;
                 Value::Number(0)
             }
             5 => {
-                self.bytes = self.bytes.get(4..)?;
+                self.0 = self.0.get(4..)?;
                 Value::Number(0)
             }
             _ => return None,
         };
         Some((key >> 3, value))
-    }
-}
-
-impl<'a> Iterator for Wire<'a> {
-    type Item = Option<(u64, Value<'a>)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.failed || self.bytes.is_empty() {
-            return None;
-        }
-        let field = self.field();
-        self.failed = field.is_none();
-        Some(field)
     }
 }
 
@@ -378,6 +403,22 @@ mod tests {
         let mut collected = Collected::default();
         collected.add(&first).unwrap();
         assert!(collected.is_read(&first) && !collected.is_read(&second) && !collected.is_read("x"));
+    }
+
+    #[test]
+    fn a_session_keeps_codes_only_while_open() {
+        let session = Session::default();
+        let text = code(&[account(RFC_SECRET, "a", "A", [1, 1, 2, 0])], 1, 0, 4);
+        assert_eq!(session.add(&text).unwrap(), None);
+        assert!(session.import().is_err());
+        session.start();
+        assert_eq!(session.add(&text).unwrap().unwrap().accounts, 1);
+        assert!(session.is_read(&text));
+        assert_eq!(session.import().unwrap().entries.len(), 1);
+        assert!(session.import().is_err());
+        session.start();
+        session.cancel();
+        assert_eq!(session.add(&text).unwrap(), None);
     }
 
     #[test]
