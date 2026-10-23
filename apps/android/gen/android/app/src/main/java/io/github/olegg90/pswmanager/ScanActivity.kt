@@ -96,16 +96,19 @@ class ScanActivity : AppCompatActivity() {
         return@addListener fail("$CANNOT_OPEN: ${e.message}")
       }
       val shown = Preview.Builder().build().also { it.setSurfaceProvider(preview.surfaceProvider) }
-      // Larger than the default 640×480, so a dense code shown small on a
-      // screen still reads.
+      // Well above the default 640×480, so a dense code shown on another
+      // screen still has a few pixels to each of its modules.
       val size = ResolutionSelector.Builder()
-        .setResolutionStrategy(ResolutionStrategy(Size(1280, 720), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+        .setResolutionStrategy(ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
         .build()
       val analyzed = ImageAnalysis.Builder()
         .setResolutionSelector(size)
         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         .build()
-      val reader = MultiFormatReader().apply { setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE))) }
+      // Trying harder: an export's code (#281) is dense, and shown on another
+      // screen it reaches the camera with moiré and glare.
+      val hints = mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE), DecodeHintType.TRY_HARDER to true)
+      val reader = MultiFormatReader().apply { setHints(hints) }
       analyzed.setAnalyzer(analysis) { frame -> read(reader, frame)?.let { runOnUiThread { found(it) } } }
       frames = analyzed
       try {

@@ -244,7 +244,7 @@ As in the mockups `1e`–`1j`.
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
 - **QR code with the camera** (#280): a screen of its own (CameraX) with the preview; each frame's brightness is read by
-  ZXing in memory and never saved, at 1280×720 where the camera offers it. The first QR code read closes it, and the core
+  ZXing in memory and never saved, at 1920×1080 where the camera offers it, trying hard (an export's code is dense). The first QR code read closes it, and the core
   checks it as a picture's (`spec.md` *QR code*), so a code holding something else is said so. The screen cannot be
   captured, whatever *Allow screenshots* says: it shows the secret's code. The camera permission is asked the first
   time, with what it is for on the screen behind; refused, the editor says so, and a picture still works. A phone

@@ -963,8 +963,8 @@ function gauthSheet() {
         el('b', {}, 'Import from Google Authenticator'),
         ...gauthAbout('Read each code with the camera, or pick a screenshot of it.'),
         ...(progress ? [el('p', { className: 'progress' }, progressText(progress))] : []),
-        busyButton(progress ? 'Next code with the camera' : 'With the camera', 'Point the camera at the code', () => read(true), (message) => snack(message), 'item'),
-        busyButton('From a picture…', 'A screenshot of the code', () => read(false), (message) => snack(message), 'item'),
+        busyButton(progress ? 'Next code with the camera' : 'With the camera', 'Point the camera at the code', () => read(true), (message) => snack(message)),
+        busyButton('From a picture…', 'A screenshot of the code', () => read(false), (message) => snack(message)),
         ...(progress?.accounts
           ? [busyButton(importLabel(progress), 'Import the accounts read', async () => {
               const done = await api.gauthImport()
