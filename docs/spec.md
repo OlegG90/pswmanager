@@ -419,8 +419,9 @@ It works in any app, browsers included, with no extension.
     Brave, Vivaldi, Opera, Yandex, Arc, Thorium, Whale…), or any Chromium window that shows an address
     (apps made with Electron share its windows but show none). Browsers leave the
     scheme out of the address bar, so it is compared only when the address shows it. Never by the
-    window's title, which the page chooses: a page titled like a bank gets nothing. No address read:
-    nothing fits;
+    window's title, which the page chooses: a page titled like a bank gets nothing. No address read
+    (asked again a few times, as a browser just started may not have it yet): nothing fits, and an entry
+    chosen from the window is not typed there either;
   - in **another app**, those whose title is part of the window's title (ignoring case), or one of whose
     window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
     ignoring case; without `*` the whole title must match.
@@ -439,16 +440,19 @@ It works in any app, browsers included, with no extension.
   `{BACKSPACE}` `{DELETE}` `{ESC}` `{INSERT}` `{HOME}` `{END}` `{PGUP}` `{PGDN}` `{UP}` `{DOWN}` `{LEFT}`
   `{RIGHT}` `{CAPSLOCK}` `{F1}`–`{F16}`, repeated as `{TAB 3}` (up to 100); `{DELAY 500}` waits,
   `{DELAY=50}` sets the pause between keys (up to 10 s; 10 ms by default); `{CLEARFIELD}` empties the
-  field; `+` Shift, `^` Ctrl, `%` Alt, `#` Win hold for the next key or character; `{{}` `{}}` `{+}`
+  field; `+` Shift, `^` Ctrl, `%` Alt, `#` Win hold for the next key or character (for every key of `+{TAB 3}`); `{{}` `{}}` `{+}`
   `{^}` `{%}` `{~}` `{#}` and the like type those characters. Anything else (`{CMD:…}`, `{REF:…}`,
   `{APPACTIVATE …}`, `{VKEY …}`, `{PICKCHARS}` …) refuses the whole sequence rather than typing part of
   it. Values are typed as they are (placeholders inside them are not read); a line break presses Enter.
 - **Typing**: once the hotkey's keys are let go, characters are typed as Unicode (`SendInput`), whatever
-  the keyboard layout; a key with modifiers uses the window's layout. Before every key the window must
+  the keyboard layout; a key with modifiers uses the window's layout, and one that layout has no key
+  for (`^a` in a Ukrainian layout) stops the sequence before its first key. Before every key the window must
   still be in front, and before every step a browser must still show the same page (not one it went
   on to after an Enter or a pause, nor another tab): otherwise typing stops and says so. A window whose program runs as
-  administrator gets nothing (Windows drops the keys) and the app says why. Apps that read only virtual
-  keys (remote desktops, virtual machines, some games) may not take the Unicode characters.
+  administrator gets nothing (Windows drops the keys) and the app says why. Keys go with their scan codes,
+  which remote desktops and some apps read; apps that read only keys (remote desktops, virtual machines,
+  some games) may still not take the Unicode characters. A window chosen before a lock is not typed into
+  after it. The values typed are wiped from memory as they go.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
   and window associations (a window title and a sequence each; one without a title is dropped). An
   entry that never had settings gets none written unless they are changed; KeePass's obfuscation

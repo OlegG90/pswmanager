@@ -18,7 +18,7 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyboardLayout, SendInput, VkKeyScanExW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+    GetAsyncKeyState, GetKeyboardLayout, MapVirtualKeyW, SendInput, VkKeyScanExW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, MAPVK_VK_TO_VSC,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_F1,
     VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
@@ -88,7 +88,17 @@ pub fn foreground() -> Option<Target> {
         let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0) as usize;
         let title = String::from_utf16_lossy(&title[..len]);
         let engine = Engine::of(&class);
-        let address = engine.and_then(|e| address(hwnd, e));
+        // On a browser's first call (a cold start) UI Automation may not have
+        // its tree yet: asked again a few times before giving up.
+        let mut shown = engine.and_then(|e| address(hwnd, e));
+        for _ in 0..3 {
+            if shown.is_some() || engine.is_none() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+            shown = engine.and_then(|e| address(hwnd, e));
+        }
+        let address = shown;
         // A browser not in the list counts as one when it shows an address:
         // its title, which the page chooses, must never pick the entry.
         let program = program(pid);
@@ -269,6 +279,13 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
     std::thread::sleep(Duration::from_millis(50));
     // SAFETY: the window's thread's keyboard layout, for the keys of characters.
     let layout = unsafe { GetKeyboardLayout(GetWindowThreadProcessId(hwnd, std::ptr::null_mut())) };
+    // Every shortcut's key must be in that layout (`^a` in a Ukrainian one is
+    // not): checked before the first key, rather than stopping half-way.
+    for step in steps {
+        if let Step::Shortcut(c, _) = step {
+            shortcut_key(*c, layout)?;
+        }
+    }
     let mut delay = KEY_DELAY;
     for step in steps {
         // Every key goes to the window only while it is in front; a text's
@@ -283,7 +300,6 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
         }
         match step {
             Step::Text(text) => {
-                let mut units = [0u16; 2];
                 for c in text.chars() {
                     if !in_front() {
                         return Err(MOVED.into());
@@ -292,7 +308,7 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
                         '\r' => continue,
                         '\n' => press(VK_RETURN, Mods::default()),
                         '\t' => press(VK_TAB, Mods::default()),
-                        c => send(&c.encode_utf16(&mut units).iter().flat_map(|u| [unicode(*u, 0), unicode(*u, KEYEVENTF_KEYUP)]).collect::<Vec<_>>()),
+                        c => type_char(c),
                     }
                     pause(delay);
                 }
@@ -302,17 +318,8 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
                 pause(delay);
             }
             Step::Shortcut(c, mods) => {
-                let mut units = [0u16; 2];
-                let [unit] = c.encode_utf16(&mut units) else { return Err(format!("No key types {c}")) };
-                // SAFETY: a plain lookup in the window's layout.
-                let scan = unsafe { VkKeyScanExW(*unit, layout) };
-                if scan == -1 {
-                    return Err(format!("No key types {c} in this keyboard layout"));
-                }
-                // The key, and the modifiers the layout needs for the character.
-                let [vk, shift_state] = (scan as u16).to_le_bytes();
-                let needed = Mods { shift: shift_state & 1 != 0, ctrl: shift_state & 2 != 0, alt: shift_state & 4 != 0, win: false };
-                press(u16::from(vk), mods.with(needed));
+                let (vk, needed) = shortcut_key(*c, layout)?;
+                press(vk, mods.with(needed));
                 pause(delay);
             }
             Step::Pause(ms) => pause(*ms),
@@ -320,6 +327,37 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The key that types `c` in `layout`, and the modifiers the layout needs for it.
+fn shortcut_key(c: char, layout: windows_sys::Win32::UI::Input::KeyboardAndMouse::HKL) -> Result<(VIRTUAL_KEY, Mods), String> {
+    let mut units = [0u16; 2];
+    let [unit] = c.encode_utf16(&mut units) else { return Err(format!("No key types {c}")) };
+    // SAFETY: a plain lookup in the window's layout.
+    let scan = unsafe { VkKeyScanExW(*unit, layout) };
+    if scan == -1 {
+        return Err(format!("No key types {c} in this keyboard layout: Auto-Type did not type"));
+    }
+    let [vk, shift_state] = (scan as u16).to_le_bytes();
+    Ok((u16::from(vk), Mods { shift: shift_state & 1 != 0, ctrl: shift_state & 2 != 0, alt: shift_state & 4 != 0, win: false }))
+}
+
+/// Types one character as Unicode; the inputs that held it are wiped after.
+fn type_char(c: char) {
+    let mut units = [0u16; 2];
+    let units = c.encode_utf16(&mut units);
+    let mut inputs = [unicode(0, 0); 4];
+    for (n, unit) in units.iter().enumerate() {
+        inputs[2 * n] = unicode(*unit, 0);
+        inputs[2 * n + 1] = unicode(*unit, KEYEVENTF_KEYUP);
+    }
+    send(&inputs[..2 * units.len()]);
+    for input in &mut inputs {
+        // SAFETY: an INPUT is plain data; written through a volatile pointer
+        // so the wiping is not left out as unused.
+        unsafe { std::ptr::write_volatile(input, unicode(0, 0)) };
+    }
+    units.fill(0);
 }
 
 fn pause(ms: u32) {
@@ -392,7 +430,10 @@ fn keyboard(ki: KEYBDINPUT) -> INPUT {
 fn virtual_key(vk: VIRTUAL_KEY, flags: u32) -> INPUT {
     let extended = [VK_INSERT, VK_DELETE, VK_HOME, VK_END, VK_PRIOR, VK_NEXT, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_LWIN].contains(&vk);
     let flags = if extended { flags | KEYEVENTF_EXTENDEDKEY } else { flags };
-    keyboard(KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 })
+    // With its scan code too: remote desktops, Java and some games read only that.
+    // SAFETY: a plain lookup.
+    let scan = unsafe { MapVirtualKeyW(u32::from(vk), MAPVK_VK_TO_VSC) } as u16;
+    keyboard(KEYBDINPUT { wVk: vk, wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 })
 }
 
 /// A UTF-16 unit typed as itself, whatever the keyboard layout.

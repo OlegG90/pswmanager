@@ -200,7 +200,13 @@ fn parse(sequence: &str) -> Result<Vec<Token>, String> {
                         None => return Err(format!("{{{inner} has no closing }}")),
                     }
                 }
+                // The modifiers before `{TAB 3}` hold for every one of its
+                // keys, as in KeePass.
+                let held = mods;
                 for token in placeholder(&inner)? {
+                    if matches!(token, Token::Key(..)) {
+                        mods = held;
+                    }
                     push(&mut tokens, &mut mods, token)?;
                 }
             }
@@ -281,16 +287,14 @@ pub fn steps(
     field: impl Fn(&str) -> Zeroizing<String>,
     totp: impl Fn() -> Result<Option<String>, String>,
 ) -> Result<Vec<Step>, String> {
+    // Each value is a step of its own, moved in as it is: joining them would
+    // grow a string, leaving the earlier copies in freed memory unwiped.
     let mut steps: Vec<Step> = Vec::new();
-    let text = |steps: &mut Vec<Step>, more: &str| match steps.last_mut() {
-        Some(Step::Text(text)) => text.push_str(more),
-        _ => steps.push(Step::Text(Zeroizing::new(more.to_string()))),
-    };
     for token in parse(sequence)? {
         match token {
-            Token::Text(literal) => text(&mut steps, &literal),
-            Token::Field(name) => text(&mut steps, &field(&name)),
-            Token::Totp => text(&mut steps, &Zeroizing::new(totp()?.ok_or("The entry has no TOTP secret")?)),
+            Token::Text(literal) => steps.push(Step::Text(Zeroizing::new(literal))),
+            Token::Field(name) => steps.push(Step::Text(field(&name))),
+            Token::Totp => steps.push(Step::Text(Zeroizing::new(totp()?.ok_or("The entry has no TOTP secret")?))),
             Token::Key(key, mods) => steps.push(Step::Key(key, mods)),
             Token::Shortcut(c, mods) => steps.push(Step::Shortcut(c, mods)),
             Token::Pause(ms) => steps.push(Step::Pause(ms)),
@@ -396,8 +400,9 @@ mod tests {
     }
 
     #[test]
-    fn keywords_ignore_case_and_text_runs_together() {
-        assert_eq!(typed("id: {username}{S:PIN}!~").unwrap(), vec![text("id: <UserName><PIN>!"), Step::Key(Key::Enter, NONE)]);
+    fn keywords_ignore_case_and_values_are_steps_of_their_own() {
+        let steps = vec![text("id: "), text("<UserName>"), text("<PIN>"), text("!"), Step::Key(Key::Enter, NONE)];
+        assert_eq!(typed("id: {username}{S:PIN}!~").unwrap(), steps);
         assert_eq!(typed("{TOTP}").unwrap(), vec![text("123456")]);
         assert_eq!(typed("{TimeOtp}").unwrap(), vec![text("123456")]);
     }
@@ -408,6 +413,9 @@ mod tests {
         assert_eq!(typed("^a{DEL}").unwrap(), vec![Step::Shortcut('a', ctrl), Step::Key(Key::Delete, NONE)]);
         assert_eq!(typed("+%{F4}").unwrap(), vec![Step::Key(Key::F(4), Mods { shift: true, alt: true, ..NONE })]);
         assert_eq!(typed("{TAB 3}").unwrap(), (0..3).map(|_| Step::Key(Key::Tab, NONE)).collect::<Vec<_>>());
+        // A modifier holds for every repeat, as in KeePass.
+        let shift = Mods { shift: true, ..NONE };
+        assert_eq!(typed("+{TAB 2}x").unwrap(), vec![Step::Key(Key::Tab, shift), Step::Key(Key::Tab, shift), text("x")]);
         assert_eq!(typed("{DELAY 250}{DELAY=40}x").unwrap(), vec![Step::Pause(250), Step::KeyDelay(40), text("x")]);
         assert_eq!(typed("{CLEARFIELD}").unwrap().len(), 3);
     }
