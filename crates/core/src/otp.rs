@@ -274,7 +274,7 @@ pub fn is_uri(value: &str) -> bool {
 }
 
 /// An `otpauth://hotp/` URI with a secret that reads as base32.
-fn is_hotp(value: &str) -> bool {
+pub(crate) fn is_hotp(value: &str) -> bool {
     let Ok(url) = Url::parse(value) else { return false };
     url.scheme().eq_ignore_ascii_case("otpauth")
         && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case("hotp"))
@@ -339,6 +339,21 @@ pub fn normalize(input: &str, title: &str) -> Result<String, String> {
     url.set_path(if title.is_empty() { "PswManager" } else { title });
     url.query_pairs_mut().append_pair("secret", secret.trim_end_matches('='));
     Ok(url.to_string())
+}
+
+/// Whether saving takes `value` as an entry's TOTP: one this app reads, or
+/// an HOTP URI kept for other clients ([write]).
+pub fn is_storable(value: &str) -> bool {
+    Totp::parse(value).is_ok() || is_hotp(value.trim())
+}
+
+/// Bitwarden's `steam://SECRET` as a URI this app reads; anything else as it is.
+pub fn from_steam_scheme(value: &str) -> String {
+    let value = value.trim();
+    match value.get(..8).filter(|scheme| scheme.eq_ignore_ascii_case("steam://")) {
+        Some(_) => format!("otpauth://totp/?secret={}&encoder=steam", value[8..].trim()),
+        None => value.to_string(),
+    }
 }
 
 /// For a file another app reads: a KeeOtp string as a URI, which more apps

@@ -21,6 +21,7 @@ class AutofillFields(
   val username: AutofillId?,
   val password: AutofillId?,
   val usernameText: String? = null,
+  /** The password to save: on a form that changes it, the new one. */
   val passwordText: String? = null,
 ) {
   /** The fields to fill, the user name first. */
@@ -38,6 +39,10 @@ class AutofillFields(
     fun of(structure: AssistStructure): AutofillFields? {
       var username: Field? = null
       var password: Field? = null
+      // On a form that changes the password (current, new, again), the one
+      // to save is the new one: the field that says so, else the last.
+      var newPassword: Field? = null
+      var lastPassword: Field? = null
       var lastText: Field? = null
       // A field is on the page of its nearest node with a web domain: an
       // iframe from another site is a page of its own.
@@ -47,7 +52,11 @@ class AutofillFields(
         if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
           val field = Field(id, here, node.autofillValue?.takeIf { it.isText }?.textValue?.toString())
           when (kind(node)) {
-            Kind.PASSWORD -> if (password == null) password = field
+            Kind.PASSWORD -> {
+              if (password == null) password = field
+              if (newPassword == null && isNewPassword(node)) newPassword = field
+              lastPassword = field
+            }
             Kind.USERNAME -> if (username == null) username = field
             Kind.TEXT -> if (password == null) lastText = field
             Kind.OTHER -> {}
@@ -59,7 +68,8 @@ class AutofillFields(
       val pass = password
       val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       val page = (pass ?: user ?: return null).page
-      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, pass?.text)
+      val saved = (newPassword ?: lastPassword)?.takeIf { it.page == page } ?: pass
+      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text)
     }
 
     /** The page a field is on: its web domain and scheme. */
@@ -72,6 +82,11 @@ class AutofillFields(
     private val USERNAME_HINTS = setOf(View.AUTOFILL_HINT_USERNAME, View.AUTOFILL_HINT_EMAIL_ADDRESS, "email", "username").map { it.lowercase() }.toSet()
     private val PASSWORD_WORDS = listOf("password", "passwd", "pwd", "пароль")
     private val USERNAME_WORDS = listOf("user", "login", "email", "e-mail", "логін", "пошта")
+
+    /** A password field for a new password: by its autofill hint or its `autocomplete`. */
+    private fun isNewPassword(node: ViewNode): Boolean =
+      node.autofillHints.orEmpty().any { it.equals("new-password", ignoreCase = true) } ||
+        node.htmlInfo?.attributes.orEmpty().any { it.first.equals("autocomplete", ignoreCase = true) && it.second.equals("new-password", ignoreCase = true) }
 
     private fun kind(node: ViewNode): Kind {
       val hints = node.autofillHints?.map { it.lowercase() }.orEmpty()

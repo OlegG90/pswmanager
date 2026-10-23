@@ -104,7 +104,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 | History: size per entry | `HistoryMaxSize` (6 MiB by default, as KeePass; 1–64 MiB) | the oldest versions go first when an entry's history is larger |
 | Master password and key file | the key | see below |
 | Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
-| Browser extensions | the database's custom data `KPXC_BROWSER_<name>`, as KeePassXC keeps them | listed with when they connected; **Remove…** (after asking) makes the extension connect again; see *Browser integration* |
+| Browser extensions | the database's custom data `KPXC_BROWSER_<name>`, as KeePassXC keeps them | listed with when they connected; **Remove…** (after asking) makes the extension connect again, an open connection included; a mark (`PSWM_BROWSER_REMOVED_<name>`) keeps a sync from bringing it back from another copy, until it is associated again; see *Browser integration* |
 
 - **Renaming the database** changes its name, not its file. **Rename file…** (on the choose-database screen,
   beside *Remove from the list*, while locked) renames the local file in its folder, and its `.bak` and
@@ -414,8 +414,10 @@ It works in any app, browsers included, with no extension.
   - in a **browser**, those that fit the page its address bar shows, as in KeePassXC (see *Pages and
     entries* under *Browser integration*). The address is read through UI Automation: Firefox's (and
     the browsers made from it) by its id, the Chromium browsers' as the window's first text field
-    outside the page, so a field the page shows never counts. A browser is Chrome, Edge, Firefox,
-    Brave, Vivaldi or Opera, or any window of those engines that shows an address. Browsers leave the
+    outside the page, so a field the page shows never counts. A browser is any window of Firefox's
+    engine (Firefox, LibreWolf, Zen, Floorp…; not Thunderbird), a known Chromium browser (Chrome, Edge,
+    Brave, Vivaldi, Opera, Yandex, Arc, Thorium, Whale…), or any Chromium window that shows an address
+    (apps made with Electron share its windows but show none). Browsers leave the
     scheme out of the address bar, so it is compared only when the address shows it. Never by the
     window's title, which the page chooses: a page titled like a bank gets nothing. No address read:
     nothing fits;
@@ -443,7 +445,8 @@ It works in any app, browsers included, with no extension.
   it. Values are typed as they are (placeholders inside them are not read); a line break presses Enter.
 - **Typing**: once the hotkey's keys are let go, characters are typed as Unicode (`SendInput`), whatever
   the keyboard layout; a key with modifiers uses the window's layout. Before every key the window must
-  still be in front: if another comes forward, typing stops and says so. A window whose program runs as
+  still be in front, and before every step a browser must still show the same page (not one it went
+  on to after an Enter or a pause, nor another tab): otherwise typing stops and says so. A window whose program runs as
   administrator gets nothing (Windows drops the keys) and the app says why. Apps that read only virtual
   keys (remote desktops, virtual machines, some games) may not take the Unicode characters.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
@@ -604,7 +607,7 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   QR code into the field, as if it had been typed: from the picture on the clipboard (a `Win+Shift+S`
   snip of the code a site shows), or, when the clipboard holds no such code, from a PNG or JPEG the user
   picks. A picture without a QR code, a code holding something else, or Google Authenticator's export
-  (`otpauth-migration://`, not read yet: #281) is said so; a picture with several codes gives the first
+  (`otpauth-migration://`, read by *Import from Google Authenticator* instead) is said so; a picture with several codes gives the first
   TOTP one. Pictures over 20 MB or 16,384 pixels a side are not read. The file's bytes are wiped once
   read; the code's text goes to the editor as a typed secret does, and is never logged. The phone also reads
   the code with its camera (`spec-android.md`, #280).

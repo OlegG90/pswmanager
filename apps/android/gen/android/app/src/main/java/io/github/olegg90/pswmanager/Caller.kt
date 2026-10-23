@@ -40,17 +40,17 @@ class Caller(val origin: String?, val packageName: String, val certificate: Byte
     /**
      * Who an autofill request is for (#236): the page's web domain when a
      * browser on Google's list of privileged apps shows it over https (any app
-     * can put a domain in its views, so only those speak for a site, and a
-     * plain http page is not the site's), else the app by its package and
-     * signing certificate. Null when the app cannot be seen.
+     * can put a domain in its views, so only those speak for a site), else the
+     * app by its package and signing certificate. Such a browser speaks for a
+     * page only: one over plain http (or with no scheme said), its own screens
+     * and a page without a domain are no one's, so nothing is filled or saved
+     * there, rather than as the browser app's. Null when there is no one.
      */
     fun forAutofill(context: Context, fields: AutofillFields): Caller? {
       val certificate = signingCertificate(context, fields.packageName) ?: return null
-      val secure = fields.webScheme == null || fields.webScheme.equals("https", ignoreCase = true)
-      val origin = fields.webDomain
-        ?.takeIf { secure && privilegedBrowser(context, fields.packageName, certificate) }
-        ?.let { "https://$it" }
-      return Caller(origin, fields.packageName, certificate)
+      if (!privilegedBrowser(context, fields.packageName, certificate)) return Caller(null, fields.packageName, certificate)
+      val domain = fields.webDomain?.takeIf { fields.webScheme.equals("https", ignoreCase = true) } ?: return null
+      return Caller("https://$domain", fields.packageName, certificate)
     }
 
     /** An installed app's current signing certificate (the last after a rotation). */

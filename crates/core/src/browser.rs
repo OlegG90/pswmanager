@@ -25,6 +25,8 @@ use std::collections::HashSet;
 pub const KEY_PREFIX: &str = "KPXC_BROWSER_";
 /// The custom data saying when an association was made, followed by its name.
 const CREATED_PREFIX: &str = "_CREATED_";
+/// This app's mark of an association removed ([forget]).
+const REMOVED_PREFIX: &str = "PSWM_BROWSER_REMOVED_";
 /// An entry's own settings for the extension (JSON).
 const ENTRY_SETTINGS: &str = "KeePassXC-Browser Settings";
 /// `true` on an entry, or on a group (for its entries, the nearest group that
@@ -226,6 +228,13 @@ fn created_name(name: &str) -> String {
     format!("{CREATED_PREFIX}{name}")
 }
 
+/// When association `name` was removed: a mark of this app's (KeePassXC
+/// passes it over) so a sync does not bring the association back from
+/// another copy that still has it ([merge_custom_data]).
+fn removed_name(name: &str) -> String {
+    format!("{REMOVED_PREFIX}{name}")
+}
+
 /// An association, as the settings list it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -265,12 +274,15 @@ pub fn associate(db: &mut Database, name: &str, key: &str) {
     let created = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
     db.meta.custom_data.insert(key_name(name), item(key));
     db.meta.custom_data.insert(created_name(name), item(&created));
+    db.meta.custom_data.remove(&removed_name(name));
 }
 
-/// Removes the association `name`.
+/// Removes the association `name`, and marks it removed for the syncs to come.
 pub fn forget(db: &mut Database, name: &str) {
     db.meta.custom_data.remove(&key_name(name));
     db.meta.custom_data.remove(&created_name(name));
+    let removed = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    db.meta.custom_data.insert(removed_name(name), item(&removed));
 }
 
 /// The database's associations, by name.
@@ -291,14 +303,27 @@ pub fn associations(db: &Database) -> Vec<Association> {
 
 /// Takes into `theirs` the database custom data `ours` has that `theirs`
 /// lacks or has older (associations made on this device), as a sync merges
-/// two copies. One removed on either side may come back from the other.
-/// True when `theirs` changed.
+/// two copies; then an association removed on either side ([forget]) after
+/// it was made goes, so the other copy does not bring it back. True when
+/// `theirs` changed.
 pub fn merge_custom_data(theirs: &mut Database, ours: &Database) -> bool {
     let mut changed = false;
     for (key, mine) in &ours.meta.custom_data {
         let newer = theirs.meta.custom_data.get(key).is_none_or(|other| mine.last_modification_time > other.last_modification_time);
         if newer {
             theirs.meta.custom_data.insert(key.clone(), mine.clone());
+            changed = true;
+        }
+    }
+    let data = &mut theirs.meta.custom_data;
+    let removed: Vec<(String, Option<chrono::NaiveDateTime>)> =
+        data.iter().filter_map(|(key, mark)| Some((key.strip_prefix(REMOVED_PREFIX)?.to_string(), mark.last_modification_time))).collect();
+    for (name, removed_at) in removed {
+        // One with no time (as KeePassXC writes them in KDBX 4.0) may be newer: it stays.
+        let made_before = |made: &CustomDataItem| matches!((made.last_modification_time, removed_at), (Some(made), Some(removed)) if made <= removed);
+        if data.get(&key_name(&name)).is_some_and(made_before) {
+            data.remove(&key_name(&name));
+            data.remove(&created_name(&name));
             changed = true;
         }
     }
@@ -512,6 +537,28 @@ mod tests {
         associate(&mut ours, "Chrome", "a2V5LTI=");
         merge_custom_data(&mut theirs, &ours);
         assert_eq!(associations(&theirs).len(), 2);
+    }
+
+    #[test]
+    fn a_removed_association_does_not_come_back_from_the_other_copy() {
+        let mut theirs = Database::new();
+        associate(&mut theirs, "Chrome", "a2V5LTE=");
+        let mut ours = theirs.clone();
+        // Removed here a second later; the other copy still has it.
+        let mut later = item("x");
+        later.last_modification_time = later.last_modification_time.map(|t| t + chrono::Duration::seconds(1));
+        forget(&mut ours, "Chrome");
+        ours.meta.custom_data.get_mut(&removed_name("Chrome")).unwrap().last_modification_time = later.last_modification_time;
+        let mut other = theirs.clone();
+        merge_custom_data(&mut theirs, &ours);
+        assert!(associations(&theirs).is_empty());
+        merge_custom_data(&mut ours, &other);
+        assert!(associations(&ours).is_empty());
+        // Associated again after the removal, it stays.
+        associate(&mut other, "Chrome", "a2V5LTI=");
+        other.meta.custom_data.get_mut(&key_name("Chrome")).unwrap().last_modification_time = later.last_modification_time.map(|t| t + chrono::Duration::seconds(1));
+        merge_custom_data(&mut ours, &other);
+        assert_eq!(key(&ours, "Chrome").as_deref(), Some("a2V5LTI="));
     }
 
     #[test]

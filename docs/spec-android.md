@@ -407,8 +407,11 @@ row, as the phone shows autofill).
   certificate*); a **page** by its host, which must be that of the entry's URL or of one of its further
   URLs (`KP2A_URL_n`; a `www.` aside), only when the
   browser showing it is on Google's list of privileged browsers, signed as listed: any app can put a
-  web domain into its views; a plain `http` page is not the site's, and a field in a frame from another
-  site goes by that site. A page in another browser is taken for that browser, as an app. To read the
+  web domain into its views; a plain `http` page (or one whose scheme the browser does not say), the
+  browser's own screens and a page without a domain are no one's: nothing is offered or saved there.
+  A field in a frame from another site goes by that site. A page in another browser is taken for that
+  browser, as an app. On a form that changes the password (current, new, again), the one saved is the
+  new one: the field marked `new-password`, else the last. To read the
   certificate of the app being filled, the APK asks for `QUERY_ALL_PACKAGES` (Android 11 hides other apps
   otherwise; fine for this APK, which is not on Google Play): only that app's certificate is read.
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
