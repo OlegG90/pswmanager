@@ -867,6 +867,7 @@ fn lock_now(app: &AppHandle) {
         *app.state::<FileWatch>().0.lock().unwrap() = None;
         window::set_title(app, None);
         app.state::<gauth::Session>().cancel();
+        browser_host::forget_questions(app);
         let _ = app.emit("locked", ());
         // What changed here goes up; a merge waits for the next unlock.
         sync::request(app);

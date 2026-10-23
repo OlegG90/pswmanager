@@ -94,14 +94,22 @@ pub trait Host {
     fn passkeys_register(&self, public_key: Value, origin: &str, related: &[String], group: Option<&str>) -> Value;
 }
 
-/// One extension's connection: its temporary key and ours, and the database
-/// (by its hash) it proved it is associated with — another one opened since
-/// gives it nothing until it proves that one.
+/// One extension's connection: its temporary key and ours, and the
+/// association it proved: the database (by its hash), the association's name
+/// and key. It is checked again on every request that needs it, so another
+/// database opened since, or the association removed (here, or on another
+/// device and synced), gives the extension nothing until it proves one again.
 #[derive(Default)]
 pub struct Session {
     client: Option<PublicKey>,
     secret: Option<SecretKey>,
-    associated: Option<String>,
+    associated: Option<Proved>,
+}
+
+struct Proved {
+    hash: String,
+    name: String,
+    key: String,
 }
 
 /// The nonce of the answer: the request's, plus one (little-endian), as
@@ -191,7 +199,7 @@ impl Session {
         let Some((message, nonce)) = self.open(request) else { return error(action, Failure::CannotDecrypt) };
         let text = |name: &str| message.get(name).and_then(Value::as_str).unwrap_or_default();
         let hash = host.hash().unwrap_or_default();
-        let associated = self.associated.as_deref() == Some(hash.as_str());
+        let associated = self.associated.as_ref().is_some_and(|proved| proved.hash == hash && host.key(&proved.name).as_deref() == Some(proved.key.as_str()));
         let needs_association =
             ["get-logins", "set-login", "get-database-groups", "create-new-group", "get-totp", "lock-database", "passkeys-get", "passkeys-register"];
         if needs_association.contains(&action) && !associated {
@@ -207,7 +215,7 @@ impl Session {
                 let id_key = Some(text("idKey")).filter(|k| !k.is_empty()).unwrap_or(text("key"));
                 match host.associate(id_key) {
                     Some(name) => {
-                        self.associated = Some(hash.clone());
+                        self.associated = Some(Proved { hash: hash.clone(), name: name.clone(), key: id_key.to_string() });
                         self.answer(action, &nonce, json!({ "hash": hash, "id": name }))
                     }
                     None => error(action, Failure::CancelledOrDenied),
@@ -221,7 +229,7 @@ impl Session {
                 if host.key(id).as_deref() != Some(key) {
                     return error(action, Failure::AssociationFailed);
                 }
-                self.associated = Some(hash.clone());
+                self.associated = Some(Proved { hash: hash.clone(), name: id.to_string(), key: key.to_string() });
                 self.answer(action, &nonce, json!({ "hash": hash, "id": id }))
             }
             "get-logins" => {
@@ -317,6 +325,8 @@ mod tests {
     struct Fake {
         unlocked: bool,
         hash: RefCell<String>,
+        /// Associations by name, with their keys.
+        keys: RefCell<Vec<(String, String)>>,
         asked_to_unlock: RefCell<bool>,
         saved: RefCell<Vec<String>>,
     }
@@ -332,9 +342,10 @@ mod tests {
             Some(self.hash.borrow().clone())
         }
         fn key(&self, name: &str) -> Option<String> {
-            (name == "Chrome").then(|| "aWQta2V5".into())
+            self.keys.borrow().iter().find(|(n, _)| n == name).map(|(_, key)| key.clone())
         }
-        fn associate(&self, _key: &str) -> Option<String> {
+        fn associate(&self, key: &str) -> Option<String> {
+            self.keys.borrow_mut().push(("New".into(), key.into()));
             Some("New".into())
         }
         fn logins(&self, url: &str) -> Vec<Login> {
@@ -369,7 +380,8 @@ mod tests {
     }
 
     fn fake(unlocked: bool) -> Fake {
-        Fake { unlocked, hash: RefCell::new("hash".into()), asked_to_unlock: RefCell::new(false), saved: RefCell::new(Vec::new()) }
+        let keys = RefCell::new(vec![("Chrome".into(), "aWQta2V5".into())]);
+        Fake { unlocked, hash: RefCell::new("hash".into()), keys, asked_to_unlock: RefCell::new(false), saved: RefCell::new(Vec::new()) }
     }
 
     /// The extension's side of a connection.
@@ -436,6 +448,11 @@ mod tests {
         assert_eq!(none["errorCode"], "15");
         let totp = extension.send(&mut session, &host, json!({ "action": "get-totp", "uuid": "0".repeat(32) }));
         assert_eq!(totp["totp"], "123456");
+        // The association removed (here, or synced from another device): nothing more.
+        let kept = host.keys.replace(Vec::new());
+        let removed = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));
+        assert_eq!(removed["errorCode"], "8");
+        host.keys.replace(kept);
         // Another database opened since: associated with that one first.
         *host.hash.borrow_mut() = "other".into();
         let other = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));

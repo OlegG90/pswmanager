@@ -49,6 +49,13 @@ fn ask(app: &AppHandle, event: &str, mut details: Value) -> Value {
     reply
 }
 
+/// Drops the questions still waiting (the database locked): each is answered
+/// as cancelled, so an answer given after cannot reach the database opened
+/// next.
+pub fn forget_questions(app: &AppHandle) {
+    app.state::<Questions>().waiting.lock().unwrap().clear();
+}
+
 /// The window's answer to question `id`.
 #[tauri::command]
 pub fn browser_answer(questions: State<Questions>, id: u64, answer: Value) {
@@ -109,10 +116,15 @@ impl Host for AppHost {
     }
 
     fn associate(&self, key: &str) -> Option<String> {
+        let asked_about = self.hash()?;
         let (database, taken) = self.vault().read(|v| (v.settings().name, v.browser_associations())).ok()?;
         let taken: Vec<String> = taken.into_iter().map(|a| a.name).collect();
         let name = ask(&self.0, "browser-associate", json!({ "database": database, "taken": taken }));
         let name = name.as_str()?.trim().to_string();
+        // The answer is for the database asked about, not one opened since.
+        if self.hash().as_deref() != Some(asked_about.as_str()) {
+            return None;
+        }
         self.change(|v| v.browser_associate(&name, key))?;
         Some(name)
     }

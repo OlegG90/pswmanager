@@ -104,7 +104,7 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 | History: size per entry | `HistoryMaxSize` (6 MiB by default, as KeePass; 1–64 MiB) | the oldest versions go first when an entry's history is larger |
 | Master password and key file | the key | see below |
 | Encryption | the header: cipher (AES-256 or ChaCha20) and key derivation (Argon2id, Argon2d or AES-KDF with its rounds / memory / parallelism) | see below |
-| Browser extensions | the database's custom data `KPXC_BROWSER_<name>`, as KeePassXC keeps them | listed with when they connected; **Remove…** (after asking) makes the extension connect again; see *Browser integration* |
+| Browser extensions | the database's custom data `KPXC_BROWSER_<name>`, as KeePassXC keeps them | listed with when they connected; **Remove…** (after asking) makes the extension connect again, an open connection included; a mark (`PSWM_BROWSER_REMOVED_<name>`) keeps a sync from bringing it back from another copy, until it is associated again; see *Browser integration* |
 
 - **Renaming the database** changes its name, not its file. **Rename file…** (on the choose-database screen,
   beside *Remove from the list*, while locked) renames the local file in its folder, and its `.bak` and
