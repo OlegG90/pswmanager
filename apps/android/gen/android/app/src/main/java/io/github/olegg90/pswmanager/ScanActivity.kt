@@ -46,10 +46,13 @@ class ScanActivity : AppCompatActivity() {
     private const val CANNOT_OPEN = "The camera cannot be opened"
   }
 
-  private lateinit var analysis: ExecutorService
-  private lateinit var preview: PreviewView
+  private val analysis: ExecutorService = Executors.newSingleThreadExecutor()
+  private val preview by lazy { PreviewView(this) }
   private var frames: ImageAnalysis? = null
-  private var done = false
+  /** A result is given: frames still queued are not decoded. */
+  @Volatile private var done = false
+  /** The frame's brightness, reused from frame to frame (on the analysis thread). */
+  private var luma = ByteArray(0)
 
   private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
     if (granted) start() else fail("PswManager may not use the camera: allow it in Android's settings, or pick a picture")
@@ -58,8 +61,6 @@ class ScanActivity : AppCompatActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-    analysis = Executors.newSingleThreadExecutor()
-    preview = PreviewView(this)
     val hint = TextView(this).apply {
       text = "Point the camera at the QR code. Only the code is read; no picture is kept."
       setTextColor(0xFFFFFFFF.toInt())
@@ -118,8 +119,10 @@ class ScanActivity : AppCompatActivity() {
 
   /** The text of a QR code in `frame`, or null; the frame's copy is wiped. */
   private fun read(reader: MultiFormatReader, frame: ImageProxy): String? = frame.use {
+    if (done) return@use null
     val plane = it.planes[0]
-    val luma = ByteArray(plane.buffer.remaining()).also { bytes -> plane.buffer.get(bytes) }
+    if (luma.size != plane.buffer.remaining()) luma = ByteArray(plane.buffer.remaining())
+    plane.buffer.get(luma)
     try {
       val source = PlanarYUVLuminanceSource(luma, plane.rowStride, it.height, 0, 0, it.width, it.height, false)
       reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
