@@ -319,7 +319,9 @@ pub fn merge_custom_data(theirs: &mut Database, ours: &Database) -> bool {
     let removed: Vec<(String, Option<chrono::NaiveDateTime>)> =
         data.iter().filter_map(|(key, mark)| Some((key.strip_prefix(REMOVED_PREFIX)?.to_string(), mark.last_modification_time))).collect();
     for (name, removed_at) in removed {
-        if data.get(&key_name(&name)).is_some_and(|made| made.last_modification_time <= removed_at) {
+        // One with no time (as KeePassXC writes them in KDBX 4.0) may be newer: it stays.
+        let made_before = |made: &CustomDataItem| matches!((made.last_modification_time, removed_at), (Some(made), Some(removed)) if made <= removed);
+        if data.get(&key_name(&name)).is_some_and(made_before) {
             data.remove(&key_name(&name));
             data.remove(&created_name(&name));
             changed = true;
