@@ -273,6 +273,14 @@ pub fn is_uri(value: &str) -> bool {
     value.trim_start().get(..8).is_some_and(|scheme| scheme.eq_ignore_ascii_case("otpauth:"))
 }
 
+/// An `otpauth://hotp/` URI with a secret that reads as base32.
+fn is_hotp(value: &str) -> bool {
+    let Ok(url) = Url::parse(value) else { return false };
+    url.scheme().eq_ignore_ascii_case("otpauth")
+        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case("hotp"))
+        && url.query_pairs().find(|(key, _)| key.eq_ignore_ascii_case("secret")).is_some_and(|(_, secret)| decode_secret(&secret).is_ok())
+}
+
 fn is_keeotp(value: &str) -> bool {
     url::form_urlencoded::parse(value.as_bytes()).any(|(name, _)| name.eq_ignore_ascii_case("key"))
 }
@@ -395,6 +403,14 @@ pub fn write(fields: &mut HashMap<String, Value<String>>, typed: &str, title: &s
     let typed = typed.trim();
     if typed.is_empty() {
         fields.retain(|name, _| name != fields::OTP && !is_layout_field(name));
+        return Ok(());
+    }
+    if is_hotp(typed) {
+        // Kept for the clients that make its codes (an authenticator's
+        // import, #282); this app shows none, and only `otp` holds it.
+        fields.retain(|name, _| !is_layout_field(name));
+        let protected = fields.get(fields::OTP).is_none_or(Value::is_protected);
+        fields.insert(fields::OTP.into(), value_of(typed, protected));
         return Ok(());
     }
     let totp = Totp::parse(typed)?;
@@ -602,5 +618,13 @@ mod tests {
         write(&mut fields, " ", "Bank").unwrap();
         assert_eq!(names(&fields), ["HmacOtp-Secret"]);
         assert!(write(&mut attributes(&[]), "nope!", "x").is_err());
+
+        // HOTP: kept in `otp` as it is, the other layouts gone.
+        let hotp = "otpauth://hotp/bob?secret=GEZDGNBV&counter=4";
+        let mut fields = attributes(&[(KEEPASS_BASE32, "JBSWY3DP")]);
+        write(&mut fields, hotp, "Bank").unwrap();
+        assert_eq!(names(&fields), [fields::OTP]);
+        assert_eq!(text(&fields, fields::OTP).as_deref(), Some(hotp));
+        assert!(write(&mut attributes(&[]), "otpauth://hotp/bob?secret=!", "x").is_err());
     }
 }
