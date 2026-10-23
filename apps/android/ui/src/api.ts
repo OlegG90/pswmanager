@@ -183,6 +183,8 @@ export const api = {
   importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
   /** Lets go of the file waiting for its password. */
   cancelImport: () => invoke<void>('cancel_import'),
+  /** Google Authenticator's import sheet opens: no codes read yet. */
+  gauthStart: () => invoke<void>('gauth_start'),
   /** Reads one of Google Authenticator's export codes with the camera or in a picked picture; null when cancelled. */
   gauthRead: (camera: boolean) => invoke<GauthProgress | null>('gauth_read', { camera }),
   /** Imports the accounts of the export codes read so far. */

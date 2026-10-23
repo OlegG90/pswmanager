@@ -15,6 +15,10 @@ use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 
 const SCHEME: &str = "otpauth-migration:";
+/// The most codes an export is taken to have: Google Authenticator puts about
+/// ten accounts in a code, so this is far beyond any real one, and a damaged
+/// or made-up code cannot ask for billions.
+const MAX_CODES: usize = 255;
 
 /// One account of the export.
 struct Account {
@@ -76,6 +80,13 @@ impl Collected {
         Ok(self.progress())
     }
 
+    /// Whether the code whose text is `text` was read already (the
+    /// clipboard may still hold the last snip).
+    pub fn is_read(&self, text: &str) -> bool {
+        parse(text).is_ok_and(|payload| self.id == Some(payload.id) && self.batches.contains_key(&payload.index))
+    }
+
+    /// Which codes are read, and the accounts they hold.
     pub fn progress(&self) -> Progress {
         Progress {
             codes: self.size,
@@ -181,7 +192,8 @@ fn payload(bytes: &[u8]) -> Option<Payload> {
     for field in Wire::of(bytes) {
         match field? {
             (1, Value::Bytes(account)) => payload.accounts.push(account_of(account)?),
-            (3, Value::Number(size)) => payload.size = usize::try_from(size).ok()?.max(1),
+            // A negative int32 comes as a huge varint: refused, as too many codes.
+            (3, Value::Number(size)) => payload.size = usize::try_from(size).ok().filter(|&size| size <= MAX_CODES)?.max(1),
             (4, Value::Number(index)) => payload.index = usize::try_from(index).ok()?,
             (5, Value::Number(id)) => payload.id = id,
             _ => {}
@@ -307,7 +319,8 @@ mod tests {
         out.extend_from_slice(value);
     }
 
-    /// A made-up account: (secret, name, issuer, algorithm, digits, type, counter).
+    /// A made-up account: its secret, name and issuer, then its algorithm,
+    /// digit count, type and counter.
     fn account(secret: &[u8], name: &str, issuer: &str, numbers: [u64; 4]) -> Vec<u8> {
         let mut out = Vec::new();
         bytes(1, secret, &mut out);
@@ -360,6 +373,14 @@ mod tests {
     }
 
     #[test]
+    fn a_code_read_already_is_known() {
+        let (first, second) = (code(&[], 2, 0, 5), code(&[], 2, 1, 5));
+        let mut collected = Collected::default();
+        collected.add(&first).unwrap();
+        assert!(collected.is_read(&first) && !collected.is_read(&second) && !collected.is_read("x"));
+    }
+
+    #[test]
     fn another_export_starts_over() {
         let mut collected = Collected::default();
         collected.add(&code(&[account(RFC_SECRET, "a", "A", [1, 1, 2, 0])], 2, 0, 1)).unwrap();
@@ -375,6 +396,10 @@ mod tests {
         // A field cut short.
         let cut = base64::engine::general_purpose::STANDARD.encode([0x0a, 0x10, 0x01]);
         assert!(collected.add(&format!("otpauth-migration://offline?data={cut}")).unwrap_err().contains("damaged"));
+        // Billions of codes (a negative batch size), or more than an export has.
+        for size in [u64::MAX, 256] {
+            assert!(collected.add(&code(&[], size, 0, 9)).unwrap_err().contains("damaged"));
+        }
         // A `+` of the base64 written as is reads back.
         let plus = (0..=255u8).map(|b| code(&[account(&[0xfb, b, 0xef], "p", "P", [1, 1, 2, 0])], 1, 0, 3)).find(|c| c.contains("%2B")).unwrap();
         assert!(collected.add(&plus.replace("%2B", "+")).is_ok());

@@ -36,10 +36,7 @@ export function renderGauthImport(container: HTMLElement, options: GauthOptions)
     if (progress && page.isConnected) draw(progress)
   }
 
-  const importIt = async () => {
-    const result = await api.gauthImport()
-    done(result)
-  }
+  const importIt = async () => done(await api.gauthImport())
 
   const done = ({ group, added, skipped, listing }: FileImported) => {
     const message = added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported into “${group}”` : 'Nothing was imported'

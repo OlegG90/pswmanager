@@ -188,10 +188,17 @@ pub fn cancel_import(app: AppHandle) {
     app.state::<WaitingFile>().cancel();
 }
 
-/// Google Authenticator's export codes read so far (#281), in memory only
-/// until they are imported or let go of ([gauth_cancel]).
+/// Google Authenticator's export codes read so far (#281) while its sheet is
+/// open ([gauth_start]), in memory only; `None` once it is closed, the codes
+/// imported or the database locked, so a read that ends later keeps nothing.
 #[derive(Default)]
-pub struct GauthExport(Mutex<gauth::Collected>);
+pub struct GauthExport(Mutex<Option<gauth::Collected>>);
+
+/// The sheet opens: no codes read yet.
+#[tauri::command]
+pub fn gauth_start(app: AppHandle) {
+    *app.state::<GauthExport>().0.lock().unwrap() = Some(gauth::Collected::default());
+}
 
 /// Reads one of Google Authenticator's export codes with the camera
 /// (`camera`) or in a picture the user picks, and adds it to those read so
@@ -207,7 +214,8 @@ pub async fn gauth_read(app: AppHandle, camera: bool) -> Result<Option<gauth::Pr
             let Some((_, content)) = documents.pick_image()? else { return Ok(None) };
             qr::export_from_image(&Zeroizing::new(content))?
         };
-        app.state::<GauthExport>().0.lock().unwrap().add(&text).map(Some)
+        let progress = app.state::<GauthExport>().0.lock().unwrap().as_mut().map(|read| read.add(&text)).transpose();
+        progress
     })
     .await
 }
@@ -220,10 +228,8 @@ pub async fn gauth_import(app: AppHandle) -> Result<Imported, String> {
         if !app.state::<Session>().is_unlocked() {
             return Err("Unlock the database first".into());
         }
-        let import = app.state::<GauthExport>().0.lock().unwrap().import();
-        let done = add(&app, import, LOCKED_MEANWHILE, false, None)?;
-        gauth_cancel(app);
-        Ok(done)
+        let import = app.state::<GauthExport>().0.lock().unwrap().take().ok_or("No codes were read")?.import();
+        add(&app, import, LOCKED_MEANWHILE, false, None)
     })
     .await
 }
@@ -231,7 +237,13 @@ pub async fn gauth_import(app: AppHandle) -> Result<Imported, String> {
 /// Lets go of the export codes read so far.
 #[tauri::command]
 pub fn gauth_cancel(app: AppHandle) {
-    *app.state::<GauthExport>().0.lock().unwrap() = gauth::Collected::default();
+    forget_gauth(&app);
+}
+
+/// Lets go of Google Authenticator's codes read so far (the sheet closed, or
+/// the database locked).
+pub fn forget_gauth(app: &AppHandle) {
+    app.state::<GauthExport>().0.lock().unwrap().take();
 }
 
 const LOCKED_MEANWHILE: &str = "The database locked meanwhile: unlock it and import again";

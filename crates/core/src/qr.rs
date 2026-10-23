@@ -180,6 +180,10 @@ mod tests {
         let export = "otpauth-migration://offline?data=AAAA";
         assert_eq!(export_from_image(&png(&picture(export))).unwrap().as_str(), export);
         assert!(export_from_image(&png(&picture(URI))).unwrap_err().contains("one account's"));
+        assert!(export_from_image(&png(&picture("https://example.com"))).unwrap_err().contains("not a code"));
+        let pixels: Vec<u8> = picture(export).pixels().flat_map(|p| [p.0[0], p.0[0], p.0[0], 255]).collect();
+        let side = picture(export).width();
+        assert_eq!(export_from_rgba(side, side, &pixels).unwrap().as_str(), export);
         assert_eq!(from_text(Zeroizing::new(URI.into())).unwrap().as_str(), URI);
         assert!(from_text(Zeroizing::new("otpauth://totp/x".into())).unwrap_err().contains("no secret"));
         assert!(from_rgba(MAX_SIDE + 1, 1, &[]).is_err());

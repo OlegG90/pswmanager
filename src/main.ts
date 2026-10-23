@@ -1258,6 +1258,8 @@ function fillTools() {
 async function openReport(tool: Tool, draw: () => Promise<void>) {
   // Chosen again while open, a tool starts over (an import, an export from its first step).
   if (!unlocked || isEditing()) return
+  // Google Authenticator's codes read so far go with its page.
+  if (reportTool === 'gauth' && tool !== 'gauth') void api.gauthCancel()
   try {
     await draw()
   } catch (e) {
@@ -1280,7 +1282,7 @@ const openImport = () =>
 // Chosen again, it starts over: the codes read before are let go of.
 const openGauth = () =>
   openReport('gauth', async () => {
-    await api.gauthCancel()
+    await api.gauthStart()
     renderGauthImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) })
   })
 

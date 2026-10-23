@@ -950,16 +950,20 @@ function toolsSheet(listing: Listing) {
  *  by one (the camera, or a screenshot), then their accounts imported. The
  *  codes read go when the sheet closes, imported or not. */
 function gauthSheet() {
+  void api.gauthStart()
   sheet((close) => {
     const body = el('div')
+    const read = async (camera: boolean) => {
+      const next = await api.gauthRead(camera)
+      if (next) draw(next)
+    }
     const draw = (progress: GauthProgress | null) => {
-      const read = (camera: boolean) => api.gauthRead(camera).then((next) => next && draw(next), (e) => snack(String(e)))
       body.replaceChildren(
         el('b', {}, 'Import from Google Authenticator'),
         ...gauthAbout('Read each code with the camera, or pick a screenshot of it.'),
         ...(progress ? [el('p', { className: 'progress' }, progressText(progress))] : []),
-        button(progress ? 'Next code with the camera' : 'With the camera', 'Point the camera at the code', () => void read(true), 'item'),
-        button('From a picture…', 'A screenshot of the code', () => void read(false), 'item'),
+        busyButton(progress ? 'Next code with the camera' : 'With the camera', 'Point the camera at the code', () => read(true), (message) => snack(message), 'item'),
+        busyButton('From a picture…', 'A screenshot of the code', () => read(false), (message) => snack(message), 'item'),
         ...(progress?.accounts
           ? [busyButton(importLabel(progress), 'Import the accounts read', async () => {
               const done = await api.gauthImport()
