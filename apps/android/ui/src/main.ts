@@ -7,7 +7,7 @@ import { describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HIST
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
-import { GROUP_ICONS, shownIcon } from '../../../../src/icons'
+import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
@@ -1951,6 +1951,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     release: api.releaseFiles,
     askName,
   }, (message) => showError(message))
+  // A TOTP secret from a QR code in a picture (#279), a screenshot of the site's code.
+  const scanQr = iconAction('scanQr', 'Read a QR code from a picture', () => {
+    api.scanTotpQr().then((uri) => {
+      if (uri !== null) otp.value = uri
+    }).catch((e) => showError(String(e)))
+  }, 'state')
+
   const strength = strengthMeter(password, api.passwordStrength)
   const generator = generatorPanel(api.generatePassword, (chosen) => {
     password.value = chosen
@@ -2000,7 +2007,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       strength.element,
       generator.panel,
       label('URL', url),
-      label('TOTP secret', together(otp, showHide(otp))),
+      label('TOTP secret', together(otp, showHide(otp), scanQr)),
       label('Tags', tags.element),
       star,
       label('Expires', together(expires, button('Never', 'Does not expire', () => (expires.value = ''), 'link'))),

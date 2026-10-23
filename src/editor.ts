@@ -4,6 +4,7 @@ import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel,
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
+import { iconAction } from './icons'
 import { tagInput } from './tag-input'
 import { FAVORITE } from './search'
 
@@ -172,6 +173,14 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     error.scrollIntoView({ block: 'nearest' })
   }
 
+  // A TOTP secret from a QR code (#279): the picture on the clipboard (a
+  // snip of the site's code), or one picked.
+  const scanQr = iconAction('scanQr', 'Read a QR code: a snip on the clipboard, or a picture', () => {
+    api.scanTotpQr().then((uri) => {
+      if (uri !== null) otp.value = uri
+    }).catch((e) => showError(String(e)))
+  })
+
   const strength = strengthMeter(password, api.passwordStrength)
 
   const generator = generatorPanel(api.generatePassword, (chosen) => {
@@ -237,7 +246,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('', strength.element),
     generator.panel,
     row('URL', url),
-    row('TOTP', otp, showHide(otp)),
+    row('TOTP', otp, showHide(otp), scanQr),
     row('Tags', tags.element),
     ...(options.template ? [] : [row('', star)]),
     row('Expires', expires, neverExpires),

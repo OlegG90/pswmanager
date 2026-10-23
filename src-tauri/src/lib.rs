@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, remote, settings, similar, staged, store, updates, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, qr, remote, settings, similar, staged, store, updates, vault};
 use pswm_core::autotype::Typed;
 use pswm_core::session::{KeyNeeded, Session};
 
@@ -1136,10 +1136,30 @@ fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: St
 #[tauri::command(async)]
 fn pick_file_to_attach(window: Window, session: State<Session>) -> Result<Option<staged::StagedFile>, String> {
     let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
-    edit::check_size(std::fs::metadata(&path).map_err(|e| format!("Cannot read the file: {e}"))?.len())?;
-    let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read the file: {e}"))?);
+    let content = read_picked(&path, edit::check_size)?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     session.staged().add(name, content).map(Some)
+}
+
+/// A TOTP secret from a QR code (#279) for the editor: the picture on the
+/// clipboard (a `Win+Shift+S` snip of the site's code), or, when it holds no
+/// such code, a picture the user picks. Nothing when they cancel.
+#[tauri::command(async)]
+fn scan_totp_qr(window: Window) -> Result<Option<String>, String> {
+    if let Some(uri) = clipboard::totp_qr() {
+        return Ok(Some(uri.to_string()));
+    }
+    let Some(path) = pick(&window, "Pictures", &["png", "jpg", "jpeg"])? else { return Ok(None) };
+    let content = read_picked(&path, qr::check_size)?;
+    qr::from_image(&content).map(|uri| Some(uri.to_string()))
+}
+
+/// A file the user picked, read whole; `check_size` refuses one too big
+/// before it is read.
+fn read_picked(path: &std::path::Path, check_size: fn(u64) -> Result<(), String>) -> Result<Zeroizing<Vec<u8>>, String> {
+    let unreadable = |e: std::io::Error| format!("Cannot read the file: {e}");
+    check_size(std::fs::metadata(path).map_err(unreadable)?.len())?;
+    std::fs::read(path).map(Zeroizing::new).map_err(unreadable)
 }
 
 /// The editor let go of files it had picked (cancelled, or removed them).
@@ -1828,6 +1848,7 @@ pub fn run() {
             save_attachment,
             open_attachment,
             pick_file_to_attach,
+            scan_totp_qr,
             release_files,
             pick_icon_image,
             totp,

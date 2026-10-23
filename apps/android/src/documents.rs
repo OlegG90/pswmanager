@@ -128,10 +128,22 @@ impl<R: Runtime> Documents<R> {
     /// `None` when they cancelled. A file too big to attach is refused before
     /// it is read, when the provider tells its size.
     pub fn pick_to_read(&self) -> Result<Option<(String, Vec<u8>)>, String> {
-        let answer: PickAnswer = self.call("pickToRead", ())?;
+        self.read_picked("pickToRead", pswm_core::edit::check_size)
+    }
+
+    /// A picture the user picks (a TOTP QR code), read once as
+    /// [Documents::pick_to_read] reads a file.
+    pub fn pick_image(&self) -> Result<Option<(String, Vec<u8>)>, String> {
+        self.read_picked("pickImage", pswm_core::qr::check_size)
+    }
+
+    /// The picker `method` opens, and the file picked; `check_size` refuses
+    /// one too big before it is read.
+    fn read_picked(&self, method: &str, check_size: fn(u64) -> Result<(), String>) -> Result<Option<(String, Vec<u8>)>, String> {
+        let answer: PickAnswer = self.call(method, ())?;
         let Some(uri) = answer.uri else { return Ok(None) };
         if let Ok(size) = u64::try_from(answer.size) {
-            pswm_core::edit::check_size(size)?;
+            check_size(size)?;
         }
         let content = self.read(&uri)?.ok_or(format!("Cannot read {}", answer.name))?;
         Ok(Some((answer.name, content)))

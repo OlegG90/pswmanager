@@ -14,11 +14,15 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 getrandom = { workspace = true }
 hmac = "0.13"
+# Pictures of TOTP QR codes (#279): PNG and JPEG only.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 keepass = { version = "0.17", features = ["save_kdbx4"] }
 p256 = { version = "0.14", features = ["ecdsa", "pkcs8", "pem"] }
 percent-encoding = "2"
 psl = "2"
 regex = "1"
+# Finds and reads the QR code in such a picture (pure Rust, no image crate of its own).
+rqrr = { version = "0.11", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
@@ -38,4 +42,6 @@ ureq = { version = "3.2.1", default-features = false, features = ["native-tls"] 
 ureq = { version = "3.2.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
+# Draws the QR codes the tests read back.
+qrcode = { version = "0.14", default-features = false }
 tempfile = { workspace = true }

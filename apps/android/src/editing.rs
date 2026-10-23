@@ -88,6 +88,18 @@ pub async fn pick_file_to_attach(app: AppHandle) -> Result<Option<StagedFile>, S
     .await
 }
 
+/// A TOTP secret from a QR code in a picture the user picks (#279), for the
+/// editor; nothing when they cancel.
+#[tauri::command]
+pub async fn scan_totp_qr(app: AppHandle) -> Result<Option<String>, String> {
+    crate::app::off_main(move || {
+        let Some((_, content)) = app.state::<Documents<Wry>>().pick_image()? else { return Ok(None) };
+        let content = Zeroizing::new(content);
+        pswm_core::qr::from_image(&content).map(|uri| Some(uri.to_string()))
+    })
+    .await
+}
+
 /// The editor let go of files it had picked (cancelled, or removed them).
 #[tauri::command]
 pub fn release_files(session: State<Session>, files: Vec<u64>) {
