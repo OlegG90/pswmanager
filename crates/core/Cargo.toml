@@ -9,6 +9,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Encrypted Aegis exports (#282): AES-256-GCM, the key from scrypt.
+aes-gcm = "0.11"
 base32 = "0.5.1"
 base64 = { workspace = true }
 chrono = { workspace = true }
@@ -21,6 +23,7 @@ p256 = { version = "0.14", features = ["ecdsa", "pkcs8", "pem"] }
 percent-encoding = "2"
 psl = "2"
 regex = "1"
+scrypt = { version = "0.12", default-features = false }
 # Finds and reads the QR code in such a picture (pure Rust, no image crate of its own).
 rqrr = { version = "0.11", default-features = false }
 serde = { workspace = true }

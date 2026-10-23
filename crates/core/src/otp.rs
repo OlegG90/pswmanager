@@ -298,7 +298,7 @@ impl Encoding {
     }
 }
 
-fn decode_hex(value: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_hex(value: &str) -> Option<Vec<u8>> {
     let clean: Zeroizing<Vec<u8>> = Zeroizing::new(value.bytes().filter(|b| !b.is_ascii_whitespace()).collect());
     if !clean.len().is_multiple_of(2) {
         return None;

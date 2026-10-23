@@ -35,6 +35,9 @@ export interface Skipped {
   why: string
 }
 
+/** An import from a file's next step: done, or the file's password is needed (an encrypted Aegis export). */
+export type ImportStep = ({ step: 'done' } & Imported) | { step: 'password'; file: string }
+
 /** What an import from another app brought. */
 export interface Imported {
   exporter: string
@@ -175,9 +178,13 @@ export const api = {
   /** Imports from another password manager on this phone; null when the user went back. */
   importFromApp: () => invoke<Imported | null>('import_from_app'),
   /** Picks a file another password manager exported and imports it (#238). */
-  importFromFile: () => invoke<Imported | null>('import_from_file'),
+  importFromFile: () => invoke<ImportStep | null>('import_from_file'),
+  /** Imports the file waiting for its password; a wrong one leaves it waiting. */
+  importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
+  /** Lets go of the file waiting for its password. */
+  cancelImport: () => invoke<void>('cancel_import'),
   /** Imports the file `name` in a browsed folder (All files access). */
-  importFileAt: (folder: string, name: string) => invoke<Imported>('import_file_at', { folder, name }),
+  importFileAt: (folder: string, name: string) => invoke<ImportStep>('import_file_at', { folder, name }),
   /** Deletes the file the last import read by its path. */
   deleteImportedFile: () => invoke<void>('delete_imported_file'),
   /** Checks the user again before an export: the master password, or with null the fingerprint (`cancelled` when closed). */

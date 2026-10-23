@@ -27,11 +27,25 @@ pub struct Transfer<R: Runtime>(PluginHandle<R>);
 #[derive(Default)]
 pub struct ImportedFile(Mutex<Option<PathBuf>>);
 
+/// The file waiting for its password (an encrypted Aegis export, #282), with
+/// where it was read when by its path (All files access).
+type WaitingFile = file_import::WaitingFile<Option<PathBuf>>;
+
+/// An import from a file's next step: done, or the file's password is
+/// needed, which [import_file_with_password] takes.
+#[derive(Serialize)]
+#[serde(tag = "step", rename_all = "camelCase")]
+pub enum ImportStep {
+    Done(Box<Imported>),
+    Password { file: String },
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("transfer")
         .setup(|app, api| {
             app.manage(Transfer(api.register_android_plugin("io.github.olegg90.pswmanager", "TransferPlugin")?));
             app.manage(ImportedFile::default());
+            app.manage(WaitingFile::default());
             Ok(())
         })
         .build()
@@ -128,21 +142,47 @@ pub async fn import_from_app(app: AppHandle) -> Result<Option<Imported>, String>
 
 /// Imports a file another password manager exported (#238): CSV or JSON, see
 /// [file_import]. Added as [import_from_app] adds. `None` when no file was
-/// picked.
+/// picked; a file only its password opens waits for it.
 #[tauri::command]
-pub async fn import_from_file(app: AppHandle) -> Result<Option<Imported>, String> {
+pub async fn import_from_file(app: AppHandle) -> Result<Option<ImportStep>, String> {
     off_main(move || {
         if !app.state::<Session>().is_unlocked() {
             return Err("Unlock the database first".into());
         }
         app.state::<ImportedFile>().0.lock().unwrap().take();
+        app.state::<WaitingFile>().cancel();
         let Some((name, content)) = app.state::<Documents<Wry>>().pick_to_read()? else { return Ok(None) };
-        let content = Zeroizing::new(content);
-        let import = file_import::parse(&name, &content)?;
-        drop(content); // wiped now rather than at the end
-        add(&app, import, LOCKED_MEANWHILE, true, None).map(Some)
+        import_read(&app, name, Zeroizing::new(content), None).map(Some)
     })
     .await
+}
+
+/// Imports what a file read holds, or keeps it waiting for its password.
+fn import_read(app: &AppHandle, name: String, content: Zeroizing<Vec<u8>>, path: Option<PathBuf>) -> Result<ImportStep, String> {
+    if file_import::needs_password(&content) {
+        app.state::<WaitingFile>().hold(name.clone(), content, path);
+        return Ok(ImportStep::Password { file: name });
+    }
+    let import = file_import::parse(&name, &content)?;
+    drop(content); // wiped now rather than at the end
+    add(app, import, LOCKED_MEANWHILE, true, path).map(|done| ImportStep::Done(Box::new(done)))
+}
+
+/// Imports the file waiting for its password with `password` (see
+/// [file_import::WaitingFile::open]).
+#[tauri::command]
+pub async fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
+    off_main(move || {
+        let (_, import, path) = app.state::<WaitingFile>().open(&Zeroizing::new(password))?;
+        add(&app, import, LOCKED_MEANWHILE, true, path).map(|done| ImportStep::Done(Box::new(done)))
+    })
+    .await
+}
+
+/// Lets go of the file waiting for its password.
+#[tauri::command]
+pub fn cancel_import(app: AppHandle) {
+    app.state::<WaitingFile>().cancel();
 }
 
 const LOCKED_MEANWHILE: &str = "The database locked meanwhile: unlock it and import again";
@@ -150,18 +190,17 @@ const LOCKED_MEANWHILE: &str = "The database locked meanwhile: unlock it and imp
 /// Imports the file `name` in a browsed folder (All files access, #207), as
 /// [import_from_file] does; the app may then delete it.
 #[tauri::command]
-pub async fn import_file_at(app: AppHandle, folder: String, name: String) -> Result<Imported, String> {
+pub async fn import_file_at(app: AppHandle, folder: String, name: String) -> Result<ImportStep, String> {
     off_main(move || {
         if !app.state::<Session>().is_unlocked() {
             return Err("Unlock the database first".into());
         }
         app.state::<ImportedFile>().0.lock().unwrap().take();
+        app.state::<WaitingFile>().cancel();
         let name = crate::phone_files::file_name(&name)?;
         let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
         let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {name}: {e}"))?);
-        let import = file_import::parse(&name, &content)?;
-        drop(content); // wiped now rather than at the end
-        add(&app, import, LOCKED_MEANWHILE, true, Some(path))
+        import_read(&app, name, content, Some(path))
     })
     .await
 }

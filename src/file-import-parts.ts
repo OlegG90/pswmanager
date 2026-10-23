@@ -10,7 +10,8 @@ export function fileImportAbout(): Node[] {
     el('p', {}, 'Choose a file another password manager exported:'),
     el('ul', { className: 'formats' },
       el('li', {}, el('b', {}, 'CSV'), ' — Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass (no passkeys)'),
-      el('li', {}, el('b', {}, 'JSON'), ' — Bitwarden (passkeys too)')),
+      el('li', {}, el('b', {}, 'JSON'), ' — Bitwarden (passkeys too)'),
+      el('li', {}, el('b', {}, 'Aegis'), ' — the authenticator’s export, plain or encrypted (its password is asked for)')),
     el('p', {}, 'Its entries are added as new ones in a group of their own.'),
     el('p', { className: 'muted' }, 'Delete the file after the import: it holds every password in clear text.'),
   ]

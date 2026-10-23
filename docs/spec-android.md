@@ -173,6 +173,8 @@ As in the mockups `1e`–`1j`.
 - **Import from a file** (#238): a sheet says what it takes, then the file is chosen as a key file is
   (#207: the phone's folders with All files access, `.csv` and `.json` first;
   otherwise Android's file picker), read and added as on Windows (`docs/spec.md`, *Import from a file*).
+  An encrypted Aegis export (#282) asks for its password on a sheet first (a wrong one can be typed
+  again; closing the sheet lets the file go).
   The sheet after it says how many entries came in and what did not; for a file chosen in the phone's
   folders it offers *Delete the file* / *Keep it*, for one from Android's picker it says to delete it, as it
   holds every password in clear text.

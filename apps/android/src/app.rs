@@ -141,6 +141,8 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::transfer::import_from_app,
             crate::transfer::import_from_file,
             crate::transfer::import_file_at,
+            crate::transfer::import_file_with_password,
+            crate::transfer::cancel_import,
             crate::transfer::delete_imported_file,
             confirm_export,
             crate::transfer::export_to,

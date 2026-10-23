@@ -10,6 +10,8 @@ export const SIMILAR_INTRO =
   'Merging keeps one entry with everything the others have; they go to the recycle bin.'
 export const NO_SIMILAR = 'No two entries are alike in what is ticked.'
 export const NO_CRITERION = 'Tick what the entries are to be alike in.'
+/** After an import: imported entries may belong with ones already there (an authenticator's tokens with their logins). */
+export const SIMILAR_AFTER_IMPORT = 'For accounts you had already, Tools → Find similar entries merges them into those entries.'
 
 /** The criteria ticked last: the next Scan uses them while the app runs. */
 let chosen: SimilarCriteria = { title: false, userName: true, url: true }
