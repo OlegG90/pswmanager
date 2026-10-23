@@ -1,12 +1,12 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
+import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from '../../../../src/editor-parts'
 import { beforeExtension, dateOf, describeEntries, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
 import { OTP, PASSWORD, URL_FIELD, USERNAME, type DatabaseSetting, type DatabaseSettings, type Encryption } from '../../../../src/api'
 import { describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from '../../../../src/database-settings'
 import { DEFAULT_ICON, glyphIcon } from '../../../../src/glyphs'
 import { siteIconCache } from '../../../../src/site-icons'
-import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
+import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
@@ -19,9 +19,6 @@ import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type E
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
-
-/** The groups the phone shows; Templates comes later. */
-const PHONE_GROUPS = GROUPS.filter((g) => g.group !== 'templates')
 
 /** The database on this phone: what the screens say about it. */
 let database: Status['database'] = null
@@ -440,11 +437,12 @@ function listScreen(opened: Listing) {
   const chosen = new Set<string>()
   const chosenTitle = el('h1', {})
   const copyChosen = iconButton('copy', 'Copy from it', () => quickCopy(listing.entries.find((e) => chosen.has(e.id))!))
+  const tagChosen = iconButton('tag', 'Add or remove a tag', () => tagSheet([...chosen], listing, changedSeveral))
   const selecting = el('header', { className: 'bar', hidden: true },
     iconButton('close', 'Clear the selection', () => clearSelection()),
     chosenTitle,
     copyChosen,
-    iconButton('tag', 'Add or remove a tag', () => tagSheet([...chosen], listing, changedSeveral)),
+    tagChosen,
     iconButton('trash', 'Move to the recycle bin', () =>
       confirmSheet(`Move ${entriesCount(chosen.size)} to the recycle bin?`, 'Delete', () =>
         void api.deleteEntries([...chosen]).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))))
@@ -461,6 +459,8 @@ function listScreen(opened: Listing) {
     const on = chosen.size > 0
     chosenTitle.textContent = `${chosen.size} selected`
     copyChosen.hidden = chosen.size !== 1
+    // Templates are not tagged from here, as on Windows: only edited or deleted.
+    tagChosen.hidden = sameFilter(filter, TEMPLATES)
     selecting.hidden = !on
     toolbar.hidden = searching.hidden = on
     findButton.hidden = on || searching.isConnected
@@ -490,6 +490,9 @@ function listScreen(opened: Listing) {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
     emptyBin.hidden = !sameFilter(filter, TRASH) || !inBin()
+    const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
+    add.title = newLabel
+    add.setAttribute('aria-label', newLabel)
     const shown = search(listing.entries, query, filter)
     // What is no longer shown is no longer chosen.
     for (const id of [...chosen]) if (!shown.some((e) => e.id === id)) chosen.delete(id)
@@ -535,7 +538,7 @@ function listScreen(opened: Listing) {
     backs.push(closeSearch)
     searchField.focus()
   }, 'fab')
-  const add = iconButton('plus', 'New entry', () => void editorScreen(null, listing, () => listScreen(listing)), 'fab')
+  const add = iconButton('plus', 'New entry', () => newEntry(listing), 'fab')
   show([selecting, query ? searching : toolbar, scroll, el('div', { className: 'fabs' }, findButton, add), status], undefined, 'list-screen')
   if (query) {
     findButton.hidden = true
@@ -682,7 +685,7 @@ const toListSaying = (message: string) => (fresh: Listing) => (listScreen(fresh)
 function filterLabel(f: Filter) {
   if (f.kind === 'tag') return f.tag
   if (f.kind === 'untagged') return 'Untagged'
-  return PHONE_GROUPS.find((g) => g.group === f.group)!.label
+  return GROUPS.find((g) => g.group === f.group)!.label
 }
 
 /** An entry in the list: a tap does `tap`, a long press `press`. */
@@ -811,7 +814,7 @@ function drawer(listing: Listing, changed: () => void, dragged = false): Sliding
     el('b', { className: 'title' }, database?.title ?? ''),
     el('small', {}, [database?.syncedWith, syncLine].filter(Boolean).join(' · ')),
     el('h2', {}, 'Groups'),
-    ...PHONE_GROUPS.map(({ group, label }) => {
+    ...GROUPS.map(({ group, label }) => {
       const f: Filter = { kind: 'group', group }
       return item(f, label, search(entries, '', f).length, GROUP_ICONS[group])
     }),
@@ -1875,24 +1878,52 @@ async function entryScreen(id: string, listing: Listing) {
   const back = iconButton('back', 'Back to the list', toList)
   const inBin = entry.kind === 'trash'
   if (inBin) rows.push(trashButtons(entry))
+  if (entry.kind === 'template') {
+    rows.push(button('New entry from it', 'A new entry with its fields, icon and tags', () => void newFromTemplate(id, listing, () => void entryScreen(id, listing)), 'primary'))
+  }
   const commands = inBin ? [] : entryCommands(entry, listing)
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), ...commands), ...rows], toList)
   leave = stop
   showAgainOnSync(id)
 }
 
-/** The toolbar's star, pencil and ⋮ (with Delete) of an entry in use. */
+/** The toolbar's star, pencil and ⋮ (with Delete) of an entry in use; a
+ *  template has no star. */
 function entryCommands(entry: EntryDetail, listing: Listing): HTMLElement[] {
   const id = entry.id
+  const template = entry.kind === 'template'
   const starred = entry.tags.includes(FAVORITE)
   const star = iconButton('star', starred ? 'Not favorite' : 'Favorite', () =>
     void api.setTag([id], FAVORITE, !starred).then((fresh) => entryScreen(id, fresh), (e) => snack(String(e))), starred ? 'icon starred' : 'icon')
-  const edit = iconButton('pencil', 'Edit', () => void editorScreen(id, listing, () => void entryScreen(id, listing)))
+  const edit = iconButton('pencil', 'Edit', () => void editorScreen(id, listing, () => void entryScreen(id, listing), { template }))
   const remove = () =>
     confirmSheet(`Move “${titleOf(entry)}” to the recycle bin?`, 'Delete', () =>
       void api.deleteEntries([id]).then(toListSaying('Moved to the recycle bin'), (e) => snack(String(e))))
   const more = iconButton('more', 'More', () => sheet((close) => [el('b', {}, titleOf(entry)), button('Delete', 'Move to the recycle bin', () => (close(), remove()), 'item')]))
-  return [star, edit, more]
+  return template ? [edit, more] : [star, edit, more]
+}
+
+/** The list's +: a blank entry, or one from a template (asked when there are
+ *  any); in Templates, a new template. */
+function newEntry(listing: Listing) {
+  const back = () => listScreen(listing)
+  if (sameFilter(filter, TEMPLATES)) return void editorScreen(null, listing, back, { template: true })
+  const templates = search(listing.entries, '', TEMPLATES)
+  if (!templates.length) return void editorScreen(null, listing, back)
+  sheet((close) => [
+    el('b', {}, 'New entry'),
+    button('Blank entry', 'An empty entry', () => (close(), void editorScreen(null, listing, back)), 'item'),
+    ...templates.map((t) => button(titleOf(t), 'A new entry with its fields, icon and tags', () => (close(), void newFromTemplate(t.id, listing, back)), 'item')),
+  ])
+}
+
+/** A new entry with the template's fields, icon and tags, not its title. */
+async function newFromTemplate(id: string, listing: Listing, back: () => void) {
+  try {
+    await editorScreen(null, listing, back, { from: await api.editEntry(id) })
+  } catch (e) {
+    snack(String(e))
+  }
 }
 
 /** An entry in the recycle bin is not edited: it is restored or deleted for good. */
@@ -1980,12 +2011,13 @@ function askName(current: string): Promise<string | null> {
 
 /** The editor, as `spec.md` *Editing* has it; a new blank entry when `id` is
  *  null. Cancel and Back return with `back`; saving shows the entry. */
-async function editorScreen(id: string | null, listing: Listing, back: () => void) {
+async function editorScreen(id: string | null, listing: Listing, back: () => void, start: { from?: EntryData; template?: boolean } = {}) {
+  const template = !!start.template
   let data: EntryData
   let attachments: EntryDetail['attachments'] = []
   try {
-    // A new entry goes to the top group, with the database's default user name.
-    data = id ? await api.editEntry(id) : { ...EMPTY_ENTRY, username: listing.database.defaultUsername }
+    // A new entry goes to the top group (a template among the templates).
+    data = id ? await api.editEntry(id) : newEntryData([], { ...start, defaultUsername: listing.database.defaultUsername })
     if (id) attachments = (await api.entry(id)).attachments
   } catch (e) {
     snack(String(e))
@@ -2041,7 +2073,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     if (saving) return
     saving = true
     try {
-      const saved = await api.saveEntry(id, id ? data : null, collect(), files.changes())
+      const saved = await api.saveEntry(id, id ? data : null, collect(), template, files.changes())
+      // Back on the list it shows: among All (a template among the templates),
+      // without the search, when the chosen group or the search leaves it out.
+      if (!search(saved.listing.entries, query, filter).some((e) => e.id === saved.id)) {
+        filter = template ? TEMPLATES : ALL
+        query = ''
+      }
       await entryScreen(saved.id, saved.listing)
       if (saved.conflicts.length) snack(`Also changed on another device: ${saved.conflicts.join(', ')}. That version is in the history.`)
     } catch (e) {
@@ -2066,7 +2104,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   const label = (text: string, ...controls: Node[]) => el('label', { className: 'edit-row' }, el('small', {}, text), ...controls)
   const together = (...controls: Node[]) => el('div', { className: 'together' }, ...controls)
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Cancel', close), el('h1', {}, id ? 'Edit entry' : 'New entry'), iconButton('check', 'Save', () => void save())),
+    el('header', { className: 'bar' }, iconButton('back', 'Cancel', close), el('h1', {}, `${id ? 'Edit' : 'New'} ${template ? 'template' : 'entry'}`), iconButton('check', 'Save', () => void save())),
     el('form', { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), void save()) },
       error,
       label('Title', title),
@@ -2077,14 +2115,14 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
       label('URL', url),
       label('TOTP secret', together(otp, showHide(otp), scanQr)),
       label('Tags', tags.element),
-      star,
+      // A template has no star, and its files are not changed (as on Windows).
+      ...(template ? [] : [star]),
       label('Expires', together(expires, button('Never', 'Does not expire', () => (expires.value = ''), 'link'))),
       label('Notes', notes),
       el('h2', {}, 'Additional fields'),
       fieldList,
       button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'link'),
-      el('h2', {}, 'Files'),
-      files.element,
+      ...(template ? [] : [el('h2', {}, 'Files'), files.element]),
       ...(id ? [el('p', { className: 'muted' }, 'Saving keeps the previous version in the history.')] : [])),
   ], onBack)
   if (!id) title.focus()

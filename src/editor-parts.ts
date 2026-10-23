@@ -1,5 +1,5 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
-import type { Attachment, EntryData, FieldData, FileChange, GeneratorOptions, StagedFile, Strength } from './api'
+import { isTotpLayoutField, type Attachment, type EntryData, type FieldData, type FileChange, type GeneratorOptions, type StagedFile, type Strength } from './api'
 import { button, el } from './dom'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
@@ -9,6 +9,19 @@ export const EMPTY_ENTRY: EntryData = {
   title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null,
   autoType: { enabled: true, sequence: '', associations: [] },
 }
+
+/** A new entry as the editor starts it, in `group`. From a template it takes
+ *  everything but the template's title, expiry, TOTP secret (every entry has
+ *  its own) and star; a blank one (not a template either) gets the database's
+ *  default user name. */
+export function newEntryData(group: string[], start: { from?: EntryData; template?: boolean; defaultUsername?: string }): EntryData {
+  const { from, template, defaultUsername = '' } = start
+  if (!from) return { ...EMPTY_ENTRY, username: template ? '' : defaultUsername, group }
+  // Its TOTP stays with it, in whichever layout it is kept (#278).
+  const fields = from.fields.filter((f) => !isTotpLayoutField(f.name))
+  return { ...from, title: '', expires: null, otp: '', fields, tags: from.tags.filter((t) => t !== FAVORITE), group }
+}
+
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
 /** Kept for the session, so the generator opens as it was last used. */

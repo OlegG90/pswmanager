@@ -398,9 +398,15 @@ pub fn find(fields: &HashMap<String, Value<String>>) -> Option<Zeroizing<String>
     })
 }
 
-/// Whether the entry has a TOTP, without copying its secret (the listing).
+/// Whether the entry has a TOTP, without copying its secret (the listing):
+/// the 2FA filter, the TOTP row and the copy actions go by it. An HOTP URI
+/// (kept for other clients, #298) gives no code here, so it does not count;
+/// a value this app cannot read does, so the entry says why it has no code.
 pub fn has(fields: &HashMap<String, Value<String>>) -> bool {
-    locate(fields).is_some()
+    match locate(fields) {
+        Some(Found::Otp(otp)) => !is_hotp(otp.trim()),
+        found => found.is_some(),
+    }
 }
 
 /// Whether an attribute belongs to KeeTrayTOTP's or KeePass 2's TOTP layout.
@@ -641,5 +647,8 @@ mod tests {
         assert_eq!(names(&fields), [fields::OTP]);
         assert_eq!(text(&fields, fields::OTP).as_deref(), Some(hotp));
         assert!(write(&mut attributes(&[]), "otpauth://hotp/bob?secret=!", "x").is_err());
+        // Kept, but no TOTP as far as the listing goes.
+        assert!(!has(&attributes(&[(fields::OTP, hotp)])));
+        assert!(has(&attributes(&[(fields::OTP, "nope!")])));
     }
 }

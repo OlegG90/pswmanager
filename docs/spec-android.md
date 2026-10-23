@@ -12,7 +12,7 @@ Rust crate shared by both apps (see *Technology*), so they cannot drift apart.
 
 The look is in [`design/android/`](design/android/) (mockups from Claude Design). This spec describes
 behaviour, the mockups describe the look; where they disagree, this spec wins. The mockups also show
-things that come in later stages (the *Backup* settings tab, Templates, a database switch); see *Stages*.
+things that come in later stages (the *Backup* settings tab, a database switch); see *Stages*.
 
 ## Product
 
@@ -36,7 +36,7 @@ completely is a goal for later stages.
 
 ### Out of scope for now
 
-Several databases in the list (one database on the phone), backup, the Templates group, managing tags
+Several databases in the list (one database on the phone), backup, managing tags
 (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and
 landscape, Google Play. Importing from another password manager (#152) and exporting to one (#153) are in
 (*Screens*); SafeInCloud's migration stays with `sic2kdbx.py`.
@@ -150,7 +150,7 @@ As in the mockups `1e`–`1j`.
   *Sync now*, *Tools*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
   bottom right: **search** (the search field takes the toolbar's place; Back or ← closes it and clears it;
   search as on Windows: title, user name, URL, tags, notes, within the chosen group or tag) and, from
-  stage A2, **+** under it for a new entry. The sync status line stays at the bottom; only the entries scroll. Pull
+  stage A2, **+** under it for a new entry (in *Templates*, a new template; see *Templates*). The sync status line stays at the bottom; only the entries scroll. Pull
   down to sync. Syncing by hand (*Sync now* here, in the sync sheet and in *Settings → Sync*, and the pull)
   needs a cloud store linked: without one *Sync now* looks disabled and, tapped, says sync is set up in
   *Settings → Sync*, the pull does nothing and the others are not shown (#225, #226). A local file still
@@ -163,8 +163,8 @@ As in the mockups `1e`–`1j`.
   stays Android's Back gesture. *Swipes on the list* in *Settings → Appearance* turns them off (on by
   default). The drawer slides in from ☰ too.
 - **Drawer** (☰ or a swipe to the right on the list): the database's name and sync, the groups *All*,
-  *Favorites*, *Expired*, *2FA*, *Passkey*, *Trash* (as defined in `spec.md`; each with its icon, as in the
-  mockups: layers, star, clock, shield, key, bin), then **Untagged** (entries with no user tags; Favorite
+  *Favorites*, *Expired*, *2FA*, *Passkey*, *Templates*, *Trash* (as defined in `spec.md`; each with its icon, as in the
+  mockups: layers, star, clock, shield, key, the template's layout as on Windows, bin), then **Untagged** (entries with no user tags; Favorite
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
@@ -225,7 +225,8 @@ As in the mockups `1e`–`1j`.
   user name*, *Copy password*, *Copy TOTP code*), **tag** (a sheet: a tag typed or picked among the
   database's is added to them all, or one of theirs taken off; tags keep no history version and go up with
   the next sync) and the **bin** (after a confirmation, all of them to the recycle bin). ✕ or Back clears
-  the choice. In the Trash group a long press is the copy menu, as there is nothing to do to several.
+  the choice. In the Trash group a long press is the copy menu, as there is nothing to do to several; in
+  Templates the bar has no **tag**, as Windows does not tag several templates.
 - **Attachments:** listed with name and size; tapping one, or its **open** icon, hands the file to
   another app (Android's chooser), see *Security behaviour*; its **save** icon writes it to a file the
   user names with Android's save picker (no lasting access is kept). From stage A2 files are added, renamed and
@@ -240,9 +241,20 @@ As in the mockups `1e`–`1j`.
   files (saved with the entry). The scan button by the TOTP secret reads a QR code from a PNG or JPEG picked
   with Android's picker (a screenshot of the site's code; no permission is asked), as `spec.md` *QR code*
   says (#279), or with the **camera** (#280); a sheet asks which. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
-  as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
-  top group, with the database's default user name. Delete moves an entry to the recycle bin after a
+  as Back does) and ✓ (save, then the entry is shown). A new blank entry is in the top group, with the
+  database's default user name; one from a template as *Templates* says. Saved, the entry is listed: when
+  the group or tag chosen, or the search, leaves it out, the list goes back to *All* (a template to
+  *Templates*) without the search, as on Windows. Delete moves an entry to the recycle bin after a
   confirmation.
+- **Templates**: as on Windows (`spec.md` *Groups and tags*, *Templates*). The drawer's *Templates*
+  lists the database's templates (KeePass's templates group); one opens as any entry, without the star,
+  with the pencil (*Edit template*: no favorite and no files, as a template's files are not changed) and
+  ⋮ with *Delete* (to the recycle bin; restored, it goes back among the templates), and **New entry from
+  it** under its lines. **+** asks, in a sheet, for a **Blank entry** or one of the templates when the
+  database has any (else it is a blank entry straight away); in *Templates* it makes a **new template**,
+  kept in the templates group, which is made when the database has none. An entry made from a template
+  gets its fields (names, values, protection), icon and tags, not its title, expiry, TOTP (nor the
+  attributes another client keeps a TOTP in) or star, and no default user name.
 - **QR code with the camera** (#280): a screen of its own (CameraX) with the preview; each frame's brightness is read by
   ZXing in memory and never saved, at 1920×1080 where the camera offers it, trying hard (an export's code is dense). The first QR code read closes it, and the core
   checks it as a picture's (`spec.md` *QR code*), so a code holding something else is said so. The screen cannot be
@@ -374,8 +386,8 @@ Android offers Google first). Android asks it when an app or a site in a browser
   for the package that keeps none yet (made in Keepass2Android, or saved before PswManager kept
   them) is offered, but its login goes, or its password is replaced, only once the user confirmed the
   app (*Trust this app?*, showing its certificate, after the fingerprint); the entry keeps it then.
-  An app whose signing key changed gets its entries again once that attribute is deleted (and the app
-  confirmed again).
+  An app whose signing key changed gets its entries again once that attribute is deleted and the app is
+  confirmed again.
 
 ## Autofill
 
@@ -405,12 +417,14 @@ row, as the phone shows autofill).
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.
-- **Unlocked:** each entry for who asks is offered by its title and user name only. Its values leave the
+- **Unlocked:** each entry for who asks is offered by its title and user name only, at most 10 (all the
+  offers go to Android in one call of limited size; the rest found through *More entries in PswManager…*, below). Its values leave the
   database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
   no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
   fingerprint is not asked again: the database is unlocked, as in the app.
 - **Another entry** (#270): last comes *Choose an entry in PswManager…* (*Another entry in
-  PswManager…* when there are entries for who asks): it opens *Picking an entry* (unlocking first if
+  PswManager…* when there are entries for who asks, *More entries in PswManager…* when more than are
+  offered): it opens *Picking an entry* (unlocking first if
   the database was locked meanwhile), links the entry picked to the app or site, and fills the fields
   from it. An entry made in Keepass2Android with only the server's address, say, is found this way once
   and offered from then on.
@@ -560,5 +574,5 @@ Each stage is a GitHub issue and lands in one or more PRs.
 - **A3 — Biometric unlock:** the Keystore key, the biometric prompt, the master password every 14 days.
 - **A4 — More stores:** OneDrive, then Google Drive (one PR each), with their Android registrations.
 - **Autofill** (#236, #270): the autofill service, filling in and saving logins.
-- **Later:** several databases and creating one; backup; Templates;
+- **Later:** several databases and creating one; backup;
   managing tags; restoring a history version; password health.

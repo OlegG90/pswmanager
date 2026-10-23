@@ -40,7 +40,15 @@ class SaveLogin(
    * password is replaced), or another entry ([pickEntry]).
    */
   fun choose() {
-    val answer = ProviderBridge.loginChoices(ProviderBridge.state(activity), caller.origin, caller.packageName, caller.certificate)
+    // Off the main thread: a sync or a save may hold the database a moment.
+    thread {
+      val answer = ProviderBridge.loginChoices(ProviderBridge.state(activity), caller.origin, caller.packageName, caller.certificate)
+      activity.runOnUiThread { if (!activity.isDestroyed) show(answer) }
+    }
+  }
+
+  /** The choices [choose] read (or why there are none), as buttons. */
+  private fun show(answer: String) {
     if (answer.startsWith(ProviderBridge.FAILED)) return failed(answer.removePrefix(ProviderBridge.FAILED))
     val choices = JSONObject(answer)
     cloud = choices.getBoolean("cloud")
