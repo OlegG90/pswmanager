@@ -386,8 +386,8 @@ Android offers Google first). Android asks it when an app or a site in a browser
   for the package that keeps none yet (made in Keepass2Android, or saved before PswManager kept
   them) is offered, but its login goes, or its password is replaced, only once the user confirmed the
   app (*Trust this app?*, showing its certificate, after the fingerprint); the entry keeps it then.
-  An app whose signing key changed gets its entries again once that attribute is deleted (and the app
-  confirmed again).
+  An app whose signing key changed gets its entries again once that attribute is deleted and the app is
+  confirmed again.
 
 ## Autofill
 
@@ -417,12 +417,14 @@ row, as the phone shows autofill).
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.
-- **Unlocked:** each entry for who asks is offered by its title and user name only. Its values leave the
+- **Unlocked:** each entry for who asks is offered by its title and user name only, at most 10 (all the
+  offers go to Android in one call of limited size; the rest found through *More entries in PswManager…*, below). Its values leave the
   database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
   no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
   fingerprint is not asked again: the database is unlocked, as in the app.
 - **Another entry** (#270): last comes *Choose an entry in PswManager…* (*Another entry in
-  PswManager…* when there are entries for who asks): it opens *Picking an entry* (unlocking first if
+  PswManager…* when there are entries for who asks, *More entries in PswManager…* when more than are
+  offered): it opens *Picking an entry* (unlocking first if
   the database was locked meanwhile), links the entry picked to the app or site, and fills the fields
   from it. An entry made in Keepass2Android with only the server's address, say, is found this way once
   and offered from then on.
