@@ -33,7 +33,7 @@ pub(crate) fn is_encrypted(root: &Value) -> bool {
 /// Reads an export: a plain one as it is, an encrypted one with `password`.
 pub(crate) fn read(root: &Value, password: Option<&str>) -> Result<Import, String> {
     if !is_encrypted(root) {
-        return Ok(entries(root.get("db").ok_or("The Aegis export has no vault")?));
+        return Ok(entries(root.get("db").filter(|db| db.is_object()).ok_or("The Aegis export is damaged")?));
     }
     let password = password.ok_or("This Aegis export is encrypted: its password is needed")?;
     let mut db = decrypt(root, password)?;
@@ -47,10 +47,11 @@ pub(crate) fn read(root: &Value, password: Option<&str>) -> Result<Import, Strin
 fn decrypt(root: &Value, password: &str) -> Result<Value, String> {
     let header = &root["header"];
     let damaged = || "The Aegis export is damaged".to_string();
-    let master = list(header, "slots")
-        .filter(|slot| slot.get("type").and_then(Value::as_u64) == Some(PASSWORD_SLOT))
-        .find_map(|slot| unwrap_master(slot, password))
-        .ok_or("Wrong password for this Aegis export")?;
+    let mut slots = list(header, "slots").filter(|slot| slot.get("type").and_then(Value::as_u64) == Some(PASSWORD_SLOT)).peekable();
+    if slots.peek().is_none() {
+        return Err("This Aegis export has no password to open it with (only a fingerprint's): export it again with a password".into());
+    }
+    let master = slots.find_map(|slot| unwrap_master(slot, password)).ok_or("Wrong password for this Aegis export")?;
     let params = header.get("params").ok_or_else(damaged)?;
     let sealed = base64::engine::general_purpose::STANDARD.decode(text(root, "db").ok_or_else(damaged)?).map_err(|_| damaged())?;
     let plain = Zeroizing::new(open(&master, params, &sealed).ok_or_else(damaged)?);
@@ -62,8 +63,13 @@ fn unwrap_master(slot: &Value, password: &str) -> Option<Zeroizing<Vec<u8>>> {
     let salt = hex(text(slot, "salt")?)?;
     let number = |key| slot.get(key).and_then(Value::as_u64);
     let (n, r, p) = (number("n")?, u32::try_from(number("r")?).ok()?, u32::try_from(number("p")?).ok()?);
-    // scrypt takes N as a power of two.
-    let log_n = u8::try_from(n.trailing_zeros()).ok().filter(|_| n.is_power_of_two())?;
+    // scrypt takes N as a power of two. The cost comes from the file: kept
+    // within what a phone can do (Aegis uses 2^15, r 8, p 1), so a file made
+    // to ask for more memory than there is cannot stop the app.
+    let log_n = u8::try_from(n.trailing_zeros()).ok().filter(|&log_n| n.is_power_of_two() && log_n <= 20)?;
+    if r > 32 || p > 16 || 128 * u64::from(r) * n > 1 << 30 {
+        return None;
+    }
     let params = scrypt::Params::new(log_n, r, p).ok()?;
     let mut derived = Zeroizing::new([0u8; 32]);
     scrypt::scrypt(password.as_bytes(), &salt, &params, derived.as_mut()).ok()?;
@@ -253,6 +259,13 @@ mod tests {
         check(&read(&root, Some("correct horse")).unwrap());
         assert_eq!(read(&root, Some("wrong")).err().unwrap(), "Wrong password for this Aegis export");
         assert!(read(&root, None).err().unwrap().contains("password is needed"));
+        // Only a fingerprint's slot; a cost a phone cannot pay.
+        let mut fingerprint = root.clone();
+        fingerprint["header"]["slots"].as_array_mut().unwrap().remove(1);
+        assert!(read(&fingerprint, Some("correct horse")).err().unwrap().contains("no password"));
+        let mut costly = root.clone();
+        costly["header"]["slots"][1]["n"] = json!(1u64 << 40);
+        assert_eq!(read(&costly, Some("correct horse")).err().unwrap(), "Wrong password for this Aegis export");
     }
 
     #[test]

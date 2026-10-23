@@ -692,10 +692,11 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
     encrypted: an encrypted one waits, read and held in memory, while its password is asked for (a wrong
     one can be typed again; Cancel lets the file go), its key derived with scrypt and the vault opened with
     AES-256-GCM as Aegis documents it. Each token is an entry: the title from the issuer (or the name),
-    the user name from the name, notes, the star, the token's groups as tags, its icon when it is a small
-    PNG or JPEG; TOTP and Steam as an `otpauth://totp/` URI, HOTP as an `otpauth://hotp/` one (kept for
+    the user name from the name, notes, the star, the token's groups as tags, its icon when it is one
+    every client shows (PNG, JPEG, GIF or WebP, 256 KB at most); TOTP and Steam as an `otpauth://totp/` URI, HOTP as an `otpauth://hotp/` one (kept for
     other clients, no code here); mOTP and Yandex tokens are named among what did not come over. *Similar
-    entries* then merges the tokens into the logins they belong to.
+    entries* then merges the tokens into the logins they belong to; after any import that added entries,
+    the page says so. An export with no password slot (a fingerprint's only) is said so.
 - The entries are added as the phone's import adds them: each a **new entry** in the group *Imported
   from <file name> <date>* (as the phone's import, a group rather than a tag), nothing changed or
   replaced, saved and synced as one change, all or nothing.

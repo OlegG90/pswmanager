@@ -1316,16 +1316,21 @@ fn import_file(app: AppHandle, window: Window) -> Result<Option<ImportStep>, Str
 }
 
 /// Imports the file waiting for its password with `password`; a wrong one
-/// leaves it waiting, to be tried again.
+/// leaves it waiting, to be tried again. The slow part (the key from the
+/// password) runs with the file let go of, so Cancel meanwhile still holds.
 #[tauri::command(async)]
 fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
     let password = Zeroizing::new(password);
     let waiting = app.state::<WaitingFile>();
-    let mut waiting = waiting.0.lock().unwrap();
-    let Waiting { file, path, content } = waiting.as_ref().ok_or("No file is waiting for its password")?;
-    let done = import_read(&app, file.clone(), path.clone(), content, Some(&password))?;
-    waiting.take();
-    Ok(ImportStep::Done(Box::new(done)))
+    let (file, path, content) = {
+        let waiting = waiting.0.lock().unwrap();
+        let Waiting { file, path, content } = waiting.as_ref().ok_or("No file is waiting for its password")?;
+        (file.clone(), path.clone(), content.clone())
+    };
+    let import = file_import::parse_with_password(&file, &content, Some(&password))?;
+    drop(content);
+    waiting.0.lock().unwrap().take().ok_or("The import was cancelled")?;
+    add_imported(&app, file, path, import).map(|done| ImportStep::Done(Box::new(done)))
 }
 
 /// Lets go of the file waiting for its password.
@@ -1336,9 +1341,13 @@ fn cancel_import(app: AppHandle) {
 
 /// Adds what the file read holds, as [import_file] says.
 fn import_read(app: &AppHandle, file: String, path: PathBuf, content: &[u8], password: Option<&str>) -> Result<FileImported, String> {
+    let import = file_import::parse_with_password(&file, content, password)?;
+    add_imported(app, file, path, import)
+}
+
+fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Import) -> Result<FileImported, String> {
     let session = app.state::<Session>();
     let imported = app.state::<ImportedFile>();
-    let import = file_import::parse_with_password(&file, content, password)?;
     let group = import.group_name_today();
     let (added, listing) = session.with_mut(|v| {
         let added = v.import(&import, &group)?;

@@ -177,17 +177,21 @@ fn import_read(app: &AppHandle, name: String, content: Zeroizing<Vec<u8>>, path:
 }
 
 /// Imports the file waiting for its password with `password`; a wrong one
-/// leaves it waiting, to be tried again.
+/// leaves it waiting, to be tried again. The slow part (the key from the
+/// password) runs with the file let go of, so Cancel meanwhile still holds.
 #[tauri::command]
 pub async fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
     off_main(move || {
         let password = Zeroizing::new(password);
         let waiting = app.state::<WaitingFile>();
-        let mut waiting = waiting.0.lock().unwrap();
-        let Waiting { name, content, path } = waiting.as_ref().ok_or("No file is waiting for its password")?;
-        let import = file_import::parse_with_password(name, content, Some(&password))?;
-        let path = path.clone();
-        waiting.take();
+        let (name, content, path) = {
+            let waiting = waiting.0.lock().unwrap();
+            let Waiting { name, content, path } = waiting.as_ref().ok_or("No file is waiting for its password")?;
+            (name.clone(), content.clone(), path.clone())
+        };
+        let import = file_import::parse_with_password(&name, &content, Some(&password))?;
+        drop(content);
+        waiting.0.lock().unwrap().take().ok_or("The import was cancelled")?;
         add(&app, import, LOCKED_MEANWHILE, true, path).map(|done| ImportStep::Done(Box::new(done)))
     })
     .await

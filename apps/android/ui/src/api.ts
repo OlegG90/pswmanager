@@ -35,10 +35,10 @@ export interface Skipped {
   why: string
 }
 
-/** What an import from another app brought. */
 /** An import from a file's next step: done, or the file's password is needed (an encrypted Aegis export). */
 export type ImportStep = ({ step: 'done' } & Imported) | { step: 'password'; file: string }
 
+/** What an import from another app brought. */
 export interface Imported {
   exporter: string
   /** The group the entries were put in. */

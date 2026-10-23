@@ -1,6 +1,7 @@
 import { api, type FileImported, type Listing } from './api'
 import { busyButton, button, el, enterPresses, errorLine } from './dom'
 import { fileImportAbout } from './file-import-parts'
+import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
   /** Gets the new listing and the message to show. */
@@ -74,6 +75,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
     )
     page.replaceChildren(header(), el('section', { className: 'tool' },
       el('p', {}, `${message}.`),
+      ...(added ? [el('p', { className: 'muted' }, SIMILAR_AFTER_IMPORT)] : []),
       ...(skipped.length
         ? [el('p', {}, `Not brought over (${skipped.length}):`),
             el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]

@@ -9,7 +9,7 @@ import { siteIconCache } from '../../../../src/site-icons'
 import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TRASH, UNTAGGED, type Filter } from '../../../../src/search'
 import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
-import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
+import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
@@ -1153,6 +1153,7 @@ function importedSheet({ added, exporter, group, skipped, fromFile, deletable }:
   sheet((close) => [
     el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
     el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
+    ...(added ? [el('p', { className: 'muted' }, SIMILAR_AFTER_IMPORT)] : []),
     ...(skipped.length
       ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
       : []),
