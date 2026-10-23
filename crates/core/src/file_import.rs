@@ -15,6 +15,7 @@ use base64::Engine;
 use chrono::{DateTime, NaiveDateTime};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use zeroize::Zeroizing;
 
 /// Reads the file `name` (its name is what the entries' group is called
@@ -40,6 +41,50 @@ pub fn needs_password(content: &[u8]) -> bool {
     let locked = aegis::is_export(&root) && aegis::is_encrypted(&root);
     cxf::wipe(&mut root);
     locked
+}
+
+/// A file waiting for its password ([needs_password]) with what the app keeps
+/// beside it (`T`: where it was read), held in memory until it is imported
+/// ([WaitingFile::open]) or let go of ([WaitingFile::cancel]).
+pub struct WaitingFile<T>(Mutex<Option<Waiting<T>>>);
+
+struct Waiting<T> {
+    name: String,
+    content: Arc<Zeroizing<Vec<u8>>>,
+    beside: T,
+}
+
+impl<T> Default for WaitingFile<T> {
+    fn default() -> Self {
+        WaitingFile(Mutex::new(None))
+    }
+}
+
+impl<T: Clone> WaitingFile<T> {
+    /// Keeps the file `name` waiting, in place of any other.
+    pub fn hold(&self, name: String, content: Zeroizing<Vec<u8>>, beside: T) {
+        *self.0.lock().unwrap() = Some(Waiting { name, content: Arc::new(content), beside });
+    }
+
+    /// Lets go of the waiting file.
+    pub fn cancel(&self) {
+        self.0.lock().unwrap().take();
+    }
+
+    /// Reads the waiting file with `password`: its name, what it holds and
+    /// what was kept beside it. The slow part (the key from the password)
+    /// runs with the file let go of, so a cancel meanwhile still holds; a
+    /// wrong password leaves the file waiting, to be tried again.
+    pub fn open(&self, password: &str) -> Result<(String, Import, T), String> {
+        let (name, content) = {
+            let waiting = self.0.lock().unwrap();
+            let waiting = waiting.as_ref().ok_or("No file is waiting for its password")?;
+            (waiting.name.clone(), Arc::clone(&waiting.content))
+        };
+        let import = parse_with_password(&name, &content, Some(password))?;
+        let waiting = self.0.lock().unwrap().take().ok_or("The import was cancelled")?;
+        Ok((name, import, waiting.beside))
+    }
 }
 
 /// A Bitwarden export, a CXF one, or Aegis'.
@@ -406,6 +451,20 @@ mod tests {
         assert!(parse("aegis.json", locked.as_bytes()).err().unwrap().contains("password is needed"));
         assert!(!needs_password(b"name,url
 "));
+    }
+
+    #[test]
+    fn a_waiting_file_is_opened_once_or_let_go_of() {
+        let waiting = WaitingFile::<u8>::default();
+        assert!(waiting.open("x").err().unwrap().contains("No file is waiting"));
+        let plain = br#"{"version": 1, "header": {"slots": null, "params": null}, "db": {"entries": [], "groups": []}}"#;
+        waiting.hold("aegis.json".into(), Zeroizing::new(plain.to_vec()), 7);
+        let (name, import, beside) = waiting.open("unused").unwrap();
+        assert_eq!((name.as_str(), import.entries.len(), beside), ("aegis.json", 0, 7));
+        assert!(waiting.open("x").is_err());
+        waiting.hold("aegis.json".into(), Zeroizing::new(plain.to_vec()), 7);
+        waiting.cancel();
+        assert!(waiting.open("x").is_err());
     }
 
     #[test]

@@ -83,15 +83,13 @@ fn open(key: &[u8], params: &Value, sealed: &[u8]) -> Option<Vec<u8>> {
     let (nonce, tag) = (hex(text(params, "nonce")?)?, hex(text(params, "tag")?)?);
     let nonce = Nonce::try_from(nonce.as_slice()).ok()?;
     let cipher = Aes256Gcm::new_from_slice(key).ok()?;
-    let joined: Vec<u8> = sealed.iter().chain(&tag).copied().collect();
+    // The tag after the ciphertext, as the cipher takes them.
+    let joined = Zeroizing::new([sealed, &tag].concat());
     cipher.decrypt(&nonce, Payload { msg: &joined, aad: &[] }).ok()
 }
 
 fn hex(text: &str) -> Option<Vec<u8>> {
-    if !text.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok()).collect()
+    crate::otp::decode_hex(text)
 }
 
 /// The tokens of a decrypted (or plain) vault as entries: the title from the
@@ -111,16 +109,14 @@ fn entries(db: &Value) -> Import {
         }
         data.tags.extend(list(token, "groups").filter_map(Value::as_str).filter_map(|id| groups.get(id)).map(|name| name.to_string()));
         data.icon = icon(token);
-        let mut why = Vec::new();
-        match uri(token, &data.title, name) {
+        match uri(token, title, name) {
             Ok(otp) => data.otp = otp,
-            Err(e) => why.push(e),
+            Err(why) => {
+                import.skipped.push(cxf::Skipped { title: title.to_string(), why });
+                continue;
+            }
         }
-        if data.otp.is_empty() {
-            import.skipped.extend(why.into_iter().map(|why| cxf::Skipped { title: title.to_string(), why }));
-            continue;
-        }
-        cxf::finish(&mut import, data, Fields::default(), Vec::new(), why, (None, None));
+        cxf::finish(&mut import, data, Fields::default(), Vec::new(), Vec::new(), (None, None));
     }
     import
 }
@@ -129,10 +125,20 @@ fn entries(db: &Value) -> Import {
 /// as KeePassXC marks it), HOTP as `hotp`, kept for other clients though
 /// PswManager shows no code for it. mOTP and Yandex have no URI to go in.
 fn uri(token: &Value, title: &str, name: &str) -> Result<String, String> {
-    let kind = text(token, "type").unwrap_or("");
     let info = token.get("info").ok_or("A token without its secret")?;
     let secret = text(info, "secret").filter(|s| !s.is_empty()).ok_or("A token without its secret")?;
-    let mut url = url::Url::parse(&format!("otpauth://{}/", if kind == "hotp" { "hotp" } else { "totp" })).expect("constant URL");
+    let number = |key, default: &str| info.get(key).and_then(Value::as_u64).map_or_else(|| default.to_string(), |n| n.to_string());
+    let algorithm = || ("algorithm", text(info, "algo").unwrap_or("SHA1").to_string());
+    // The scheme, and what the token's kind adds to the secret and issuer.
+    let (scheme, pairs) = match text(token, "type").unwrap_or("") {
+        "totp" => ("totp", vec![algorithm(), ("digits", number("digits", "6")), ("period", number("period", "30"))]),
+        "hotp" => ("hotp", vec![algorithm(), ("digits", number("digits", "6")), ("counter", number("counter", "0"))]),
+        "steam" => ("totp", vec![("encoder", "steam".to_string())]),
+        "motp" => return Err("A mOTP token: PswManager has no place for it".into()),
+        "yandex" => return Err("A Yandex token: PswManager has no place for it".into()),
+        kind => return Err(format!("A token of a kind PswManager does not know ({kind})")),
+    };
+    let mut url = url::Url::parse(&format!("otpauth://{scheme}/")).expect("constant URL");
     url.set_path(&if title.is_empty() || title == name { name.to_string() } else { format!("{title}:{name}") });
     {
         let mut query = url.query_pairs_mut();
@@ -140,21 +146,8 @@ fn uri(token: &Value, title: &str, name: &str) -> Result<String, String> {
         if !title.is_empty() {
             query.append_pair("issuer", title);
         }
-        let number = |key| info.get(key).and_then(Value::as_u64).map(|n| n.to_string());
-        match kind {
-            "totp" | "hotp" => {
-                query.append_pair("algorithm", text(info, "algo").unwrap_or("SHA1"));
-                query.append_pair("digits", &number("digits").unwrap_or_else(|| "6".into()));
-                match kind {
-                    "totp" => query.append_pair("period", &number("period").unwrap_or_else(|| "30".into())),
-                    _ => query.append_pair("counter", &number("counter").unwrap_or_else(|| "0".into())),
-                };
-            }
-            "steam" => {
-                query.append_pair("encoder", "steam");
-            }
-            "motp" | "yandex" => return Err(format!("A {} token: PswManager has no place for it", if kind == "motp" { "mOTP" } else { "Yandex" })),
-            _ => return Err(format!("A token of a kind PswManager does not know ({kind})")),
+        for (key, value) in &pairs {
+            query.append_pair(key, value);
         }
     }
     Ok(url.to_string())

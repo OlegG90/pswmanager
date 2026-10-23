@@ -1281,16 +1281,8 @@ enum ImportStep {
 #[derive(Default)]
 struct ImportedFile(Mutex<Option<PathBuf>>);
 
-/// The file waiting for its password, held until it is imported or the
-/// import is cancelled ([cancel_import]).
-#[derive(Default)]
-struct WaitingFile(Mutex<Option<Waiting>>);
-
-struct Waiting {
-    file: String,
-    path: PathBuf,
-    content: Zeroizing<Vec<u8>>,
-}
+/// The file waiting for its password, with where it was read.
+type WaitingFile = file_import::WaitingFile<PathBuf>;
 
 /// Imports a file another password manager exported (#238, see
 /// [file_import]): the user picks it, and everything in it is added as new
@@ -1304,47 +1296,34 @@ fn import_file(app: AppHandle, window: Window) -> Result<Option<ImportStep>, Str
     }
     // Only the file this import reads may be deleted after it.
     app.state::<ImportedFile>().0.lock().unwrap().take();
-    app.state::<WaitingFile>().0.lock().unwrap().take();
+    app.state::<WaitingFile>().cancel();
     let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
     let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
     if file_import::needs_password(&content) {
-        *app.state::<WaitingFile>().0.lock().unwrap() = Some(Waiting { file: file.clone(), path, content });
+        app.state::<WaitingFile>().hold(file.clone(), content, path);
         return Ok(Some(ImportStep::Password { file }));
     }
-    import_read(&app, file, path, &content, None).map(|done| Some(ImportStep::Done(Box::new(done))))
+    let import = file_import::parse(&file, &content)?;
+    drop(content); // wiped now rather than at the end
+    add_imported(&app, file, path, import).map(|done| Some(ImportStep::Done(Box::new(done))))
 }
 
-/// Imports the file waiting for its password with `password`; a wrong one
-/// leaves it waiting, to be tried again. The slow part (the key from the
-/// password) runs with the file let go of, so Cancel meanwhile still holds.
+/// Imports the file waiting for its password with `password` (see
+/// [file_import::WaitingFile::open]).
 #[tauri::command(async)]
 fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
-    let password = Zeroizing::new(password);
-    let waiting = app.state::<WaitingFile>();
-    let (file, path, content) = {
-        let waiting = waiting.0.lock().unwrap();
-        let Waiting { file, path, content } = waiting.as_ref().ok_or("No file is waiting for its password")?;
-        (file.clone(), path.clone(), content.clone())
-    };
-    let import = file_import::parse_with_password(&file, &content, Some(&password))?;
-    drop(content);
-    waiting.0.lock().unwrap().take().ok_or("The import was cancelled")?;
+    let (file, import, path) = app.state::<WaitingFile>().open(&Zeroizing::new(password))?;
     add_imported(&app, file, path, import).map(|done| ImportStep::Done(Box::new(done)))
 }
 
 /// Lets go of the file waiting for its password.
 #[tauri::command(async)]
 fn cancel_import(app: AppHandle) {
-    app.state::<WaitingFile>().0.lock().unwrap().take();
+    app.state::<WaitingFile>().cancel();
 }
 
 /// Adds what the file read holds, as [import_file] says.
-fn import_read(app: &AppHandle, file: String, path: PathBuf, content: &[u8], password: Option<&str>) -> Result<FileImported, String> {
-    let import = file_import::parse_with_password(&file, content, password)?;
-    add_imported(app, file, path, import)
-}
-
 fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Import) -> Result<FileImported, String> {
     let session = app.state::<Session>();
     let imported = app.state::<ImportedFile>();
