@@ -232,7 +232,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
 | All | every entry except the deleted ones and the templates |
 | Favorites | entries marked with the star (the entry view and the list toggle it); stored as the tag `Favorite`, which `sic2kdbx` also writes for SafeInCloud's star and other clients see as a tag — it is not listed among the tags |
 | Expired | entries whose expiry date has passed; those expiring within 14 days are listed too, marked as soon |
-| 2FA | entries with a TOTP secret |
+| 2FA | entries with a TOTP secret (not an HOTP one, which gives no code here) |
 | Passkey | entries with a passkey KeePassXC stored (its `KPEX_PASSKEY_*` attributes); made here only through the browser extension (#285) |
 | Templates | the database's templates (KeePass's templates group) |
 | Trash | the deleted entries (the recycle bin) |
@@ -600,7 +600,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 
   SHA-1, SHA-256 and SHA-512; 6 to 10 digits; any period. **Steam** secrets (`encoder=steam` in the URI,
   `S` in `TOTP Settings`) give Steam's five letters. HOTP (`otpauth://hotp/`, `HmacOtp-*`) has no code and
-  is saved as it is; an `otpauth://hotp/` URI typed or imported (Aegis, #282) goes to `otp` as it is. The editor shows the TOTP as `otp` holds it, or another layout's as an
+  is saved as it is; an `otpauth://hotp/` URI typed or imported (Aegis, #282) goes to `otp` as it is. Such an
+  entry is not one with a TOTP (#298): no TOTP row, no copying, not in the 2FA filter (the editor shows its URI). The editor shows the TOTP as `otp` holds it, or another layout's as an
   `otpauth://totp/` URI. Saved unchanged, the attributes stay exactly as they were; changed, the TOTP is
   written back into the layouts the entry has, as KeePassXC does, so the plugin that wrote each keeps
   working: KeeTrayTOTP's pair and KeePass 2's attributes where they can hold it (removed where they
