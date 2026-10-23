@@ -36,12 +36,14 @@ pub fn copy(text: Zeroizing<String>, clear_after: Duration) -> Result<(), String
     Ok(())
 }
 
-/// The TOTP URI in a QR code the clipboard holds as a picture (a snip of a
-/// site's code); `None` without a picture or such a code in it.
-pub fn totp_qr() -> Option<Zeroizing<String>> {
+/// What `read` finds in the QR code the clipboard holds as a picture (a
+/// snip of the code on the screen): a TOTP URI ([pswm_core::qr::from_rgba]),
+/// a Google Authenticator export code; `None` without a picture or such a
+/// code in it.
+pub fn qr(read: pswm_core::qr::FromPixels) -> Option<Zeroizing<String>> {
     let picture = arboard::Clipboard::new().ok()?.get_image().ok()?;
     let pixels = Zeroizing::new(picture.bytes.into_owned());
-    pswm_core::qr::from_rgba(picture.width as u32, picture.height as u32, &pixels).ok()
+    read(picture.width as u32, picture.height as u32, &pixels).ok()
 }
 
 /// Clears the clipboard if it still holds what we copied last (on lock and quit).

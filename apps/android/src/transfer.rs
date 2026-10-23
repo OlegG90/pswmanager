@@ -11,6 +11,8 @@ use pswm_core::cxf::{self, Import, Skipped};
 use pswm_core::documents::DocumentStore;
 use pswm_core::file_export::{self, Format};
 use pswm_core::file_import;
+use pswm_core::gauth;
+use pswm_core::qr;
 use pswm_core::session::Session;
 use pswm_core::vault::Listing;
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(Transfer(api.register_android_plugin("io.github.olegg90.pswmanager", "TransferPlugin")?));
             app.manage(ImportedFile::default());
             app.manage(WaitingFile::default());
+            app.manage(gauth::Session::default());
             Ok(())
         })
         .build()
@@ -183,6 +186,51 @@ pub async fn import_file_with_password(app: AppHandle, password: String) -> Resu
 #[tauri::command]
 pub fn cancel_import(app: AppHandle) {
     app.state::<WaitingFile>().cancel();
+}
+
+/// The sheet opens: no codes read yet (see [gauth::Session]).
+#[tauri::command]
+pub fn gauth_start(app: AppHandle) {
+    app.state::<gauth::Session>().start();
+}
+
+/// Reads one of Google Authenticator's export codes with the camera
+/// (`camera`) or in a picture the user picks, and adds it to those read so
+/// far. Nothing when cancelled.
+#[tauri::command]
+pub async fn gauth_read(app: AppHandle, camera: bool) -> Result<Option<gauth::Progress>, String> {
+    off_main(move || {
+        let documents = app.state::<Documents<Wry>>();
+        let text = if camera {
+            let Some(text) = documents.scan_qr()? else { return Ok(None) };
+            qr::export_text(text)?
+        } else {
+            let Some((_, content)) = documents.pick_image()? else { return Ok(None) };
+            qr::export_from_image(&Zeroizing::new(content))?
+        };
+        app.state::<gauth::Session>().add(&text)
+    })
+    .await
+}
+
+/// Imports the accounts of the export codes read so far, as [import_from_app]
+/// adds, and lets the codes go.
+#[tauri::command]
+pub async fn gauth_import(app: AppHandle) -> Result<Imported, String> {
+    off_main(move || {
+        if !app.state::<Session>().is_unlocked() {
+            return Err("Unlock the database first".into());
+        }
+        let import = app.state::<gauth::Session>().import()?;
+        add(&app, import, LOCKED_MEANWHILE, false, None)
+    })
+    .await
+}
+
+/// Lets go of the export codes read so far.
+#[tauri::command]
+pub fn gauth_cancel(app: AppHandle) {
+    app.state::<gauth::Session>().cancel();
 }
 
 const LOCKED_MEANWHILE: &str = "The database locked meanwhile: unlock it and import again";

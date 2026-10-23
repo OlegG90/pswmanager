@@ -185,8 +185,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   unfold them all. When the open sections do not fit, the sidebar scrolls.
 - Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
   *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
-  *Export to a file*; chosen again, a tool starts over); for a settings tab, the settings at that tab (see
-  *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
+  *Import from Google Authenticator*, *Export to a file*; chosen again, a tool starts over); for a settings
+  tab, the settings at that tab (see *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
   menu.
 - The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
   room; ← / →, Home and End on the edge too; a double click puts the usual width back) and is kept on this
@@ -707,6 +707,28 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   file (#207): with All files access on, in the phone's folders (exports listed first), and then offers to
   delete it the same way; through Android's picker, it reminds the user to delete it, as the app may not
   delete another app's file.
+
+## Import from Google Authenticator
+
+- *Tools → Import from Google Authenticator* (#281, `docs/totp-research.md`; on the phone a *Tools* item of
+  its own): Google Authenticator's *Transfer accounts → Export accounts* shows one or more QR codes
+  `otpauth-migration://offline?data=…`, each a protobuf of some of the accounts (Google publishes no schema;
+  the field numbers are the community's, as GNOME Authenticator reads them).
+- The page reads the codes one by one, as the editor's scan reads a TOTP code (*QR code*): on Windows the
+  picture on the clipboard (a `Win+Shift+S` snip) or a picked PNG / JPEG; on the phone the camera or a
+  picked screenshot. It says which of the export's codes are read and how many accounts they hold; a code
+  of another export starts over with it, one read again changes nothing (on Windows a snip of a code read
+  already is passed over for the picture picker), a code holding something else (one account's TOTP, a
+  URL) is said so; an export said to have more than 255 codes is taken as damaged.
+- **Import** adds the accounts read (*Import what is read* while codes are missing, which are then named
+  among what did not come over), as *Import from a file* adds a file's entries: each a new entry in the
+  group *Imported from Google Authenticator <date>*, the title from the issuer (or the label's issuer part),
+  the user name from the name, `otp` as an `otpauth://totp/` URI (SHA-1, SHA-256 or SHA-512; 6 or 8 digits;
+  30 seconds, as the export has no period), HOTP accounts as `otpauth://hotp/` with their counter (no code,
+  *TOTP*); MD5 accounts are named among what did not come over. Then *Find similar entries* is pointed to.
+- The codes read are held in memory only, and let go of when the page is left (or the phone's sheet
+  closed), the tool chosen again, the import done or the database locked; a read that ends after that
+  keeps nothing.
 
 ## Export to a file
 

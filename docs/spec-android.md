@@ -168,7 +168,9 @@ As in the mockups `1e`–`1j`.
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
-  database: *Import from another app…*, *Import from a file…*, *Export to a file…* (#240, as on Windows:
+  database: *Import from another app…*, *Import from a file…*, *Import from Google Authenticator…* (#281, a
+  sheet that reads the export's codes with the camera or from screenshots, then imports: `docs/spec.md`,
+  *Import from Google Authenticator*; closing it lets the codes go), *Export to a file…* (#240, as on Windows:
   `docs/spec.md`, *Export to a file*) and *Find similar entries*.
 - **Import from a file** (#238): a sheet says what it takes, then the file is chosen as a key file is
   (#207: the phone's folders with All files access, `.csv` and `.json` first;
@@ -242,7 +244,7 @@ As in the mockups `1e`–`1j`.
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
 - **QR code with the camera** (#280): a screen of its own (CameraX) with the preview; each frame's brightness is read by
-  ZXing in memory and never saved, at 1280×720 where the camera offers it. The first QR code read closes it, and the core
+  ZXing in memory and never saved, at 1920×1080 where the camera offers it, trying hard (an export's code is dense). The first QR code read closes it, and the core
   checks it as a picture's (`spec.md` *QR code*), so a code holding something else is said so. The screen cannot be
   captured, whatever *Allow screenshots* says: it shows the secret's code. The camera permission is asked the first
   time, with what it is for on the screen behind; refused, the editor says so, and a picture still works. A phone

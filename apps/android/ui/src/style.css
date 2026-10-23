@@ -301,6 +301,12 @@ main.list-screen {
   margin-left: -10px;
 }
 
+.sheet .sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .sheet button.item {
   border: 0;
   text-align: left;

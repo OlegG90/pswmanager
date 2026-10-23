@@ -143,6 +143,10 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::transfer::import_file_at,
             crate::transfer::import_file_with_password,
             crate::transfer::cancel_import,
+            crate::transfer::gauth_start,
+            crate::transfer::gauth_read,
+            crate::transfer::gauth_import,
+            crate::transfer::gauth_cancel,
             crate::transfer::delete_imported_file,
             confirm_export,
             crate::transfer::export_to,
@@ -501,6 +505,7 @@ pub(crate) fn lock_and_tell(app: &AppHandle) {
 
 fn lock_now(app: &AppHandle) {
     app.state::<Session>().set(None);
+    app.state::<pswm_core::gauth::Session>().cancel();
     // As on Windows: what has not gone up yet goes now; a merge waits for the next unlock.
     upload_pending(app.clone());
     if let Ok(folder) = open_folder(app) {

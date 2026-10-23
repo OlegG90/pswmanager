@@ -1,6 +1,6 @@
 import { api, type FileImported, type Listing } from './api'
 import { busyButton, button, el, enterPresses, errorLine } from './dom'
-import { fileImportAbout } from './file-import-parts'
+import { fileImportAbout, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
@@ -61,7 +61,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
 
   const done = (result: FileImported) => {
     const { file, group, added, skipped, listing } = result
-    const message = added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported into “${group}”` : 'Nothing was imported'
+    const message = importedMessage(added, group)
     options.imported(listing, message)
     if (!page.isConnected) return
     // The file goes only when the user says so here: it may be wanted again.
@@ -76,10 +76,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
     page.replaceChildren(header(), el('section', { className: 'tool' },
       el('p', {}, `${message}.`),
       ...(added ? [el('p', { className: 'muted' }, SIMILAR_AFTER_IMPORT)] : []),
-      ...(skipped.length
-        ? [el('p', {}, `Not brought over (${skipped.length}):`),
-            el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]
-        : []),
+      ...skippedList(skipped),
       el('p', {}, `${file} holds every password in clear text. Delete it now that its entries are here?`),
       actions))
     actions.querySelector('button')?.focus()

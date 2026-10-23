@@ -389,6 +389,16 @@ export interface FileImported {
   listing: Listing
 }
 
+/** How far reading Google Authenticator's export codes is (#281). */
+export interface GauthProgress {
+  /** The export's codes. */
+  codes: number
+  /** Which were read, counted from 1. */
+  read: number[]
+  /** The accounts they hold. */
+  accounts: number
+}
+
 /** An import's next step: done, or the file's password is needed (an encrypted Aegis export). */
 export type ImportStep = ({ step: 'done' } & FileImported) | { step: 'password'; file: string }
 
@@ -514,6 +524,14 @@ export const api = {
   importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
   /** Lets go of the file waiting for its password. */
   cancelImport: () => invoke<void>('cancel_import'),
+  /** Google Authenticator's import page opens: no codes read yet. */
+  gauthStart: () => invoke<void>('gauth_start'),
+  /** Reads one of Google Authenticator's export codes (the clipboard's picture, or one picked); null when cancelled. */
+  gauthRead: () => invoke<GauthProgress | null>('gauth_read'),
+  /** Imports the accounts of the export codes read so far. */
+  gauthImport: () => invoke<FileImported>('gauth_import'),
+  /** Lets go of the export codes read so far. */
+  gauthCancel: () => invoke<void>('gauth_cancel'),
   /** Deletes the file the last import read. */
   deleteImportedFile: () => invoke<void>('delete_imported_file'),
   /** Checks the user again before an export: the master password, or with null Windows Hello (`cancelled` when closed). */
