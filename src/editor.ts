@@ -1,6 +1,6 @@
-import { api, isTotpLayoutField, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
+import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
+import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -85,15 +85,6 @@ export function changedElsewhere(ids: string[]) {
   active?.changedElsewhere?.(ids)
 }
 
-/** What a new entry takes from a template: everything but its title, expiry,
- *  TOTP secret (every entry has its own) and star. */
-function fromTemplate(template?: EntryData): Partial<EntryData> {
-  if (!template) return {}
-  // Its TOTP stays with it, in whichever layout it is kept (#278).
-  const fields = template.fields.filter((f) => !isTotpLayoutField(f.name))
-  return { ...template, title: '', expires: null, otp: '', fields, tags: template.tags.filter((t) => t !== FAVORITE) }
-}
-
 /** The entry's Auto-Type settings (#272): on or off, its own sequence, and
  *  sequences for windows whose title matches. What the form only trimmed
  *  stays as the file has it, so an untouched entry saves unchanged. */
@@ -133,11 +124,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   let data: EntryData
   let attachments: Attachment[] = []
   try {
-    // A blank new entry (not from a template, not a template) gets the default user name.
-    const blank = !options.from && !options.template
-    data = options.id
-      ? await api.editEntry(options.id)
-      : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
+    data = options.id ? await api.editEntry(options.id) : newEntryData(options.group, options)
     if (options.id) attachments = (await api.entry(options.id)).attachments
   } catch (e) {
     if (active === loading) active = null
