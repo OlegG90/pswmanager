@@ -52,6 +52,8 @@ const MAX_MESSAGE: usize = 1 << 20;
 /// How long a message may take to come whole once it started: a client that
 /// stops halfway is let go, rather than holding the connection.
 const MESSAGE_WITHIN: Duration = Duration::from_secs(10);
+/// How the proxy opens the pipe: its server may learn who connected, not act as them.
+const IDENTIFICATION_ONLY: u32 = SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
 /// The processes of every Windows session, to `WTSEnumerateProcessesExW`.
 const WTS_ANY_SESSION: u32 = 0xFFFF_FFFE;
 
@@ -179,9 +181,8 @@ fn connect() -> Option<File> {
     let start = Instant::now();
     let mut started = false;
     loop {
-        let flags = SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
         // SAFETY: the name is a NUL-terminated wide string; the handle becomes the File's.
-        let handle = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, flags, std::ptr::null_mut()) };
+        let handle = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, IDENTIFICATION_ONLY, std::ptr::null_mut()) };
         if handle != INVALID_HANDLE_VALUE {
             let pipe = unsafe { File::from_raw_handle(handle) };
             if !served_by(handle, &user) {
@@ -333,21 +334,22 @@ fn converse(
             }
         };
         begun = Instant::now();
-        // Answered on a thread of its own, which may wait for the user.
-        let (reply, alive) = std::thread::scope(|scope| {
+        // Answered on a thread of its own, which may wait for the user; none
+        // when the connection went meanwhile.
+        let reply = std::thread::scope(|scope| {
             let (done, answered) = mpsc::channel();
             let (session, request, answer) = (&mut session, &request, &answer);
             scope.spawn(move || done.send(answer(session, request)));
             let mut alive = true;
             loop {
                 match answered.recv_timeout(Duration::from_millis(50)) {
-                    Ok(reply) => return (Some(reply), alive),
+                    Ok(reply) => return Some(reply).filter(|_| alive),
                     Err(RecvTimeoutError::Timeout) => alive = alive && deliver(&mut file, &told),
-                    Err(RecvTimeoutError::Disconnected) => return (None, false),
+                    Err(RecvTimeoutError::Disconnected) => return None,
                 }
             }
         });
-        if !alive || reply.is_none_or(|reply| write_message(&mut file, &reply).is_err()) {
+        if reply.is_none_or(|reply| write_message(&mut file, &reply).is_err()) {
             return;
         }
     }
@@ -542,8 +544,7 @@ mod tests {
         let (server, client) = unsafe {
             let server = CreateNamedPipeW(name.as_ptr(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, &security.attributes);
             assert_ne!(server, INVALID_HANDLE_VALUE);
-            let flags = SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
-            let client = CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, flags, std::ptr::null_mut());
+            let client = CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, IDENTIFICATION_ONLY, std::ptr::null_mut());
             assert_ne!(client, INVALID_HANDLE_VALUE);
             (File::from_raw_handle(server), File::from_raw_handle(client))
         };

@@ -19,7 +19,7 @@ use serde_json::{json, Map, Value};
 pub const VERSION: &str = "2.7.10";
 
 /// Chrome's limit on a message to the browser: a host that sends a longer one is stopped.
-pub const MAX_ANSWER: usize = 1 << 20;
+const MAX_ANSWER: usize = 1 << 20;
 /// What an answer's message may hold, sealed (16 bytes more) and in base64
 /// (a third more) with room for the rest of the answer, to stay within [MAX_ANSWER].
 const MAX_SEALED: usize = (MAX_ANSWER - 1024) / 4 * 3 - 16;
@@ -179,7 +179,10 @@ impl Session {
             message.extend(fields);
         }
         let message = message.to_string();
-        let sealed = (message.len() <= MAX_SEALED).then(|| self.sealed()?.encrypt(GenericArray::from_slice(nonce), message.as_bytes()).ok()).flatten();
+        let sealed = match message.len() <= MAX_SEALED {
+            true => self.sealed().and_then(|b| b.encrypt(GenericArray::from_slice(nonce), message.as_bytes()).ok()),
+            false => None,
+        };
         match sealed {
             Some(sealed) => json!({ "action": action, "message": B64.encode(sealed), "nonce": nonce_text }),
             None => error(action, Failure::CannotEncrypt),
