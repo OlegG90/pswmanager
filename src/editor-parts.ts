@@ -1,5 +1,5 @@
 /** Parts of the entry editor that PswManager for Windows and for Android share. */
-import type { Attachment, EntryData, FieldData, FileChange, GeneratorOptions, StagedFile, Strength } from './api'
+import { isTotpLayoutField, type Attachment, type EntryData, type FieldData, type FileChange, type GeneratorOptions, type StagedFile, type Strength } from './api'
 import { button, el } from './dom'
 import { dateOf, formatSize, formatTags, keep, parseTags, singleLine, startOfDay, textareaLines, trimmedLine } from './entry-text'
 import { FAVORITE } from './search'
@@ -9,6 +9,15 @@ export const EMPTY_ENTRY: EntryData = {
   title: '', username: '', password: '', url: '', notes: '', otp: '', tags: [], group: [], fields: [], icon: { kind: 'auto' }, expires: null,
   autoType: { enabled: true, sequence: '', associations: [] },
 }
+
+/** What a new entry takes from a template: everything but its title, expiry,
+ *  TOTP secret (every entry has its own) and star. */
+export function fromTemplate(template: EntryData): EntryData {
+  // Its TOTP stays with it, in whichever layout it is kept (#278).
+  const fields = template.fields.filter((f) => !isTotpLayoutField(f.name))
+  return { ...template, title: '', expires: null, otp: '', fields, tags: template.tags.filter((t) => t !== FAVORITE) }
+}
+
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
 
 /** Kept for the session, so the generator opens as it was last used. */

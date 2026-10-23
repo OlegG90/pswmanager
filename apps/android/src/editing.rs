@@ -51,6 +51,7 @@ pub fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, Stri
 
 /// Creates (no `id`) or changes an entry with its `files`; `base` is the
 /// entry as the editor opened it, so only what the editor changed is applied.
+/// A new `template` goes among the templates (an edited one stays there).
 #[tauri::command(async)]
 pub fn save_entry(
     app: AppHandle,
@@ -58,11 +59,12 @@ pub fn save_entry(
     id: Option<String>,
     base: Option<EntryData>,
     data: EntryData,
+    template: bool,
     files: Vec<FileChange>,
 ) -> Result<Saved, String> {
     let edits = session.staged().resolve(&files)?;
     let saved = session.with_mut(|v| {
-        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, false, &edits)?;
+        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template, &edits)?;
         Ok(Saved { id, listing: v.listing(), conflicts })
     })?;
     session.staged().release_changes(&files);

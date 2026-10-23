@@ -239,7 +239,8 @@ export const api = {
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   icon: (host: string) => invoke<string | null>('icon', { host }),
   editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
-  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, files: FileChange[]) => invoke<Saved>('save_entry', { id, base, data, files }),
+  saveEntry: (id: string | null, base: EntryData | null, data: EntryData, template: boolean, files: FileChange[]) =>
+    invoke<Saved>('save_entry', { id, base, data, template, files }),
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
   /** A TOTP URI from a QR code, read with the camera or in a picked picture; null when cancelled. */
   scanTotpQr: (camera: boolean) => invoke<string | null>('scan_totp_qr', { camera }),

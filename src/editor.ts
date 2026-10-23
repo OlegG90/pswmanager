@@ -1,6 +1,6 @@
 import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
+import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, fromTemplate, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -85,12 +85,6 @@ export function changedElsewhere(ids: string[]) {
   active?.changedElsewhere?.(ids)
 }
 
-/** What a new entry takes from a template: everything but its title, expiry,
- *  TOTP secret (every entry has its own) and star. */
-function fromTemplate(template?: EntryData): Partial<EntryData> {
-  return template ? { ...template, title: '', expires: null, otp: '', tags: template.tags.filter((t) => t !== FAVORITE) } : {}
-}
-
 /** The entry's Auto-Type settings (#272): on or off, its own sequence, and
  *  sequences for windows whose title matches. What the form only trimmed
  *  stays as the file has it, so an untouched entry saves unchanged. */
@@ -134,7 +128,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     const blank = !options.from && !options.template
     data = options.id
       ? await api.editEntry(options.id)
-      : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...fromTemplate(options.from), group: options.group }
+      : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...(options.from && fromTemplate(options.from)), group: options.group }
     if (options.id) attachments = (await api.entry(options.id)).attachments
   } catch (e) {
     if (active === loading) active = null
