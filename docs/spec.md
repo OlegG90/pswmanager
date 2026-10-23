@@ -414,8 +414,10 @@ It works in any app, browsers included, with no extension.
   - in a **browser**, those that fit the page its address bar shows, as in KeePassXC (see *Pages and
     entries* under *Browser integration*). The address is read through UI Automation: Firefox's (and
     the browsers made from it) by its id, the Chromium browsers' as the window's first text field
-    outside the page, so a field the page shows never counts. A browser is Chrome, Edge, Firefox,
-    Brave, Vivaldi or Opera, or any window of those engines that shows an address. Browsers leave the
+    outside the page, so a field the page shows never counts. A browser is any window of Firefox's
+    engine (Firefox, LibreWolf, Zen, Floorp…; not Thunderbird), a known Chromium browser (Chrome, Edge,
+    Brave, Vivaldi, Opera, Yandex, Arc, Thorium, Whale…), or any Chromium window that shows an address
+    (apps made with Electron share its windows but show none). Browsers leave the
     scheme out of the address bar, so it is compared only when the address shows it. Never by the
     window's title, which the page chooses: a page titled like a bank gets nothing. No address read:
     nothing fits;
@@ -443,7 +445,8 @@ It works in any app, browsers included, with no extension.
   it. Values are typed as they are (placeholders inside them are not read); a line break presses Enter.
 - **Typing**: once the hotkey's keys are let go, characters are typed as Unicode (`SendInput`), whatever
   the keyboard layout; a key with modifiers uses the window's layout. Before every key the window must
-  still be in front: if another comes forward, typing stops and says so. A window whose program runs as
+  still be in front, and before every step a browser must still show the same page (not one it went
+  on to after an Enter or a pause, nor another tab): otherwise typing stops and says so. A window whose program runs as
   administrator gets nothing (Windows drops the keys) and the app says why. Apps that read only virtual
   keys (remote desktops, virtual machines, some games) may not take the Unicode characters.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
