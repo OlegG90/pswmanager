@@ -343,7 +343,7 @@ fn converse(
             let mut alive = true;
             loop {
                 match answered.recv_timeout(Duration::from_millis(50)) {
-                    Ok(reply) => return Some(reply).filter(|_| alive),
+                    Ok(reply) => return alive.then_some(reply),
                     Err(RecvTimeoutError::Timeout) => alive = alive && deliver(&mut file, &told),
                     Err(RecvTimeoutError::Disconnected) => return None,
                 }
