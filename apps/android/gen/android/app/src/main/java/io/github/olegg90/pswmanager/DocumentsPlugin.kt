@@ -129,6 +129,22 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     startActivityForResult(invoke, intent, "pickedToRead")
   }
 
+  /** A TOTP QR code read with the camera ([ScanActivity], #280), here beside
+   *  [pickImage], the other way to it: `text` is null when the user went back;
+   *  refused or failing, the call is rejected with why. */
+  @Command
+  fun scanQr(invoke: Invoke) {
+    startActivityForResult(invoke, Intent(activity, ScanActivity::class.java), "scanned")
+  }
+
+  @ActivityCallback
+  fun scanned(invoke: Invoke, result: ActivityResult) {
+    val data = result.data
+    val error = data?.getStringExtra(ScanActivity.ERROR)
+    if (error != null) return invoke.reject(error)
+    invoke.resolve(JSObject().put("text", data?.getStringExtra(ScanActivity.TEXT)))
+  }
+
   /** The file picked to read, with its size (-1 when the provider does not say); `uri` is null when the user cancelled. */
   @ActivityCallback
   fun pickedToRead(invoke: Invoke, result: ActivityResult) {

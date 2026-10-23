@@ -1951,12 +1951,18 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
     release: api.releaseFiles,
     askName,
   }, (message) => showError(message))
-  // A TOTP secret from a QR code in a picture (#279), a screenshot of the site's code.
-  const scanQr = iconAction('scanQr', 'Read a QR code from a picture', () => {
-    api.scanTotpQr().then((uri) => {
+  // A TOTP secret from a QR code: with the camera (#280), or in a picture,
+  // a screenshot of the site's code (#279).
+  const scan = (camera: boolean) => {
+    api.scanTotpQr(camera).then((uri) => {
       if (uri !== null) otp.value = uri
     }).catch((e) => showError(String(e)))
-  }, 'state')
+  }
+  const scanQr = iconAction('scanQr', 'Read a QR code', () => sheet((close) => [
+    el('b', {}, 'Read a QR code'),
+    button('With the camera', 'Point the camera at the code the site shows', () => (close(), scan(true)), 'item'),
+    button('From a picture…', 'A screenshot of the code', () => (close(), scan(false)), 'item'),
+  ]), 'state')
 
   const strength = strengthMeter(password, api.passwordStrength)
   const generator = generatorPanel(api.generatePassword, (chosen) => {
