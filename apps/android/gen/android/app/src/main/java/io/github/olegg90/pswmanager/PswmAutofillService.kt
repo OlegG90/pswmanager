@@ -58,7 +58,7 @@ class PswmAutofillService : AutofillService() {
   private fun respond(fields: AutofillFields): FillResponse? {
     val caller = Caller.forAutofill(this, fields) ?: return null
     if (ProviderBridge.isUnlocked()) return offers(this, fields, caller)
-    val unlock = Intent(this, AutofillUnlockActivity::class.java).setIdentifier(fields.packageName).putFields(fields, caller)
+    val unlock = Intent(this, AutofillUnlockActivity::class.java).putFields(fields, caller, "unlock")
     val sender = pendingIntent(this, unlock, 1).intentSender
     val response = FillResponse.Builder().setAuthentication(fields.ids.toTypedArray(), sender, presentation(this, "Unlock PswManager"))
     // A login typed in while locked is offered to save too: the save screen unlocks.
@@ -78,7 +78,7 @@ class PswmAutofillService : AutofillService() {
     if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
     val save = Intent(this, AutofillSaveActivity::class.java)
-      .putFields(fields, caller)
+      .putFields(fields, caller, "save")
       .putExtra(EXTRA_TYPED_USERNAME, typedUsername(request, fields))
       .putExtra(EXTRA_TYPED_PASSWORD, password)
     // Immutable and once: nothing is added to it, and the password in it is not sent twice.
@@ -97,27 +97,30 @@ class PswmAutofillService : AutofillService() {
   companion object {
     /**
      * The entries for who asks, each a dataset that fills the fields once it
-     * is picked and [AutofillLoginActivity] has its values; last, choosing
-     * another entry ([AutofillPickActivity]); and the save info for a login
-     * typed in.
+     * is picked and [AutofillLoginActivity] has its values, at most
+     * [MAX_OFFERS]; last, choosing another entry ([AutofillPickActivity]),
+     * which finds the rest too; and the save info for a login typed in.
      */
     fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse {
       val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
       val response = FillResponse.Builder()
       saveInfo(fields)?.let { response.setSaveInfo(it) }
-      for (i in 0 until found.length()) {
+      // Capped: every offer goes to Android in one binder call, whose size is limited.
+      for (i in 0 until minOf(found.length(), MAX_OFFERS)) {
         val login = found.getJSONObject(i)
         val id = login.getString("id")
-        // One intent per app and entry: an offer to another app does not replace this one.
         val pick = Intent(context, AutofillLoginActivity::class.java)
-          .setIdentifier("${fields.packageName}/$id")
           .putExtra(ProviderBridge.EXTRA_ENTRY, id)
           .putExtra(ProviderBridge.EXTRA_TITLE, login.optString("title"))
-          .putFields(fields, caller)
+          .putFields(fields, caller, "login/$id")
         response.addDataset(offer(context, fields, entryLabel(login).ifEmpty { "PswManager entry" }, pick, 2))
       }
-      val choose = Intent(context, AutofillPickActivity::class.java).setIdentifier("${fields.packageName}/pick").putFields(fields, caller)
-      val label = if (found.length() == 0) "Choose an entry in PswManager…" else "Another entry in PswManager…"
+      val choose = Intent(context, AutofillPickActivity::class.java).putFields(fields, caller, "pick")
+      val label = when {
+        found.length() == 0 -> "Choose an entry in PswManager…"
+        found.length() > MAX_OFFERS -> "More entries in PswManager…"
+        else -> "Another entry in PswManager…"
+      }
       response.addDataset(offer(context, fields, label, choose, 4))
       return response.build()
     }
@@ -172,7 +175,18 @@ class PswmAutofillService : AutofillService() {
     internal const val EXTRA_TYPED_USERNAME = "typedUsername"
     internal const val EXTRA_TYPED_PASSWORD = "typedPassword"
 
-    private fun Intent.putFields(fields: AutofillFields, caller: Caller): Intent = putExtra(EXTRA_PACKAGE, fields.packageName)
+    /** The most entries offered under the fields; the rest are found through [AutofillPickActivity]. */
+    private const val MAX_OFFERS = 10
+
+    /**
+     * The fields and who asks, into an intent for `what` the offer does. Its
+     * identity is the app, the page and the fields too: a pending intent with
+     * the same identity takes the newest extras, and an offer for another site
+     * still on screen in a browser would fill from them.
+     */
+    private fun Intent.putFields(fields: AutofillFields, caller: Caller, what: String): Intent =
+      setIdentifier("$what|${fields.packageName}|${caller.origin}|${fields.username}|${fields.password}")
+      .putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)
       .putExtra(EXTRA_SCHEME, fields.webScheme)
       .putExtra(EXTRA_USERNAME, fields.username)
@@ -202,9 +216,14 @@ class AutofillUnlockActivity : UnlockScreen() {
 
   override fun done() {
     val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
-    val offers = PswmAutofillService.offers(this, fields, caller)
-    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
-    finish()
+    // Off the main thread: a sync or a save may hold the database a moment.
+    thread {
+      val offers = PswmAutofillService.offers(this, fields, caller)
+      runOnUiThread {
+        setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+        finish()
+      }
+    }
   }
 }
 

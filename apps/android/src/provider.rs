@@ -408,8 +408,9 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_logins<'
     })
 }
 
-/// Entry `id`'s login, as JSON (`{username, password}`), after the user was
-/// verified, when the entry is for the app or site asking; [UNCONFIRMED] and
+/// Entry `id`'s login, as JSON (`{username, password}`), when the entry is
+/// for the app or site asking (Credential Manager verifies the user first;
+/// autofill does not, the database being unlocked); [UNCONFIRMED] and
 /// the app's certificate while the user has not confirmed the app for it
 /// (`confirmed`: the entry keeps the certificate first, and is saved); null
 /// while locked, when the entry is gone or is not for who asks.
