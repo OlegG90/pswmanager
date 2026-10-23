@@ -20,7 +20,6 @@ import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type E
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
 
-
 /** The database on this phone: what the screens say about it. */
 let database: Status['database'] = null
 let filter: Filter = ALL
@@ -2017,12 +2016,13 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   let data: EntryData
   let attachments: EntryDetail['attachments'] = []
   try {
-    // A new entry goes to the top group (a template among the templates); a
-    // blank one (not from a template, not a template) gets the default user name.
+    // A new entry goes to the top group, not the template's (a template goes
+    // among the templates); a blank one (not from a template, not a template)
+    // gets the default user name.
     const blank = !start.from && !template
     data = id
       ? await api.editEntry(id)
-      : { ...EMPTY_ENTRY, username: blank ? listing.database.defaultUsername : '', ...(start.from && fromTemplate(start.from)) }
+      : { ...EMPTY_ENTRY, username: blank ? listing.database.defaultUsername : '', ...(start.from && fromTemplate(start.from)), group: [] }
     if (id) attachments = (await api.entry(id)).attachments
   } catch (e) {
     snack(String(e))

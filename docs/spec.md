@@ -264,7 +264,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
   by sseemayer/keepass-rs#374 and #375.)
 - **Templates:** **New entry** (`Ctrl+N`) asks for a blank entry or one of the templates. An entry made
   from a template gets its fields (names, values, protection), icon and tags, not its title, expiry, TOTP
-  secret (each entry has its own) or star; a
+  secret (each entry has its own, nor the attributes another client keeps a TOTP in) or star; a
   template's own view also offers **New entry from it**. Templates are edited like entries in the Templates
   group (and deleted into the trash, restored among the templates), and **New template** (the list's button
   and `Ctrl+N` there) makes one there, in KeePass's templates group, made when the database has none.
