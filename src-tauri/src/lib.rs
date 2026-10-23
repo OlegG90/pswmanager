@@ -868,14 +868,14 @@ fn lock_now(app: &AppHandle) {
         window::set_title(app, None);
         app.state::<gauth::Session>().cancel();
         browser_host::forget_questions(app);
-        // A window chosen before the lock is not typed into after it.
-        app.state::<AutoTypeTarget>().0.lock().unwrap().take();
         let _ = app.emit("locked", ());
         // What changed here goes up; a merge waits for the next unlock.
         sync::request(app);
     }
     clipboard::clear_if_ours();
     opened::clean(&opened::folder());
+    // A window chosen before the lock (or while locked) is not typed into after it.
+    app.state::<AutoTypeTarget>().0.lock().unwrap().take();
 }
 
 /// The window reports use, which keeps the database unlocked.

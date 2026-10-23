@@ -88,23 +88,24 @@ pub fn foreground() -> Option<Target> {
         let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0) as usize;
         let title = String::from_utf16_lossy(&title[..len]);
         let engine = Engine::of(&class);
+        let program = program(pid);
+        let gecko_browser = engine == Some(Engine::Gecko) && !program.as_deref().is_some_and(|p| GECKO_APPS.contains(&p));
+        let known_browser = gecko_browser || program.as_deref().is_some_and(|p| BROWSERS.contains(&p));
         // On a browser's first call (a cold start) UI Automation may not have
-        // its tree yet: asked again a few times before giving up.
-        let mut shown = engine.and_then(|e| address(hwnd, e));
+        // its tree yet: a known browser is asked again a few times. An app
+        // made with Electron shows no address ever, so it is not.
+        let mut read = engine.and_then(|e| address(hwnd, e));
         for _ in 0..3 {
-            if shown.is_some() || engine.is_none() {
+            if read.is_some() || !known_browser {
                 break;
             }
             std::thread::sleep(Duration::from_millis(150));
-            shown = engine.and_then(|e| address(hwnd, e));
+            read = engine.and_then(|e| address(hwnd, e));
         }
-        let address = shown;
         // A browser not in the list counts as one when it shows an address:
         // its title, which the page chooses, must never pick the entry.
-        let program = program(pid);
-        let gecko_browser = engine == Some(Engine::Gecko) && !program.as_deref().is_some_and(|p| GECKO_APPS.contains(&p));
-        let browser = address.is_some() || gecko_browser || program.is_some_and(|p| BROWSERS.contains(&p.as_str()));
-        let page = address.as_deref().and_then(Page::of_address);
+        let browser = read.is_some() || known_browser;
+        let page = read.as_deref().and_then(Page::of_address);
         Some(Target { hwnd: hwnd as usize, engine, window: Window { title, browser, page }, since: Instant::now() })
     }
 }
@@ -352,12 +353,14 @@ fn type_char(c: char) {
         inputs[2 * n + 1] = unicode(*unit, KEYEVENTF_KEYUP);
     }
     send(&inputs[..2 * units.len()]);
+    // SAFETY: an INPUT and a u16 are plain data; written through volatile
+    // pointers so the wiping is not left out as unused.
     for input in &mut inputs {
-        // SAFETY: an INPUT is plain data; written through a volatile pointer
-        // so the wiping is not left out as unused.
         unsafe { std::ptr::write_volatile(input, unicode(0, 0)) };
     }
-    units.fill(0);
+    for unit in units.iter_mut() {
+        unsafe { std::ptr::write_volatile(unit, 0) };
+    }
 }
 
 fn pause(ms: u32) {

@@ -201,10 +201,12 @@ fn parse(sequence: &str) -> Result<Vec<Token>, String> {
                     }
                 }
                 // The modifiers before `{TAB 3}` hold for every one of its
-                // keys, as in KeePass.
+                // keys, as in KeePass; `{CLEARFIELD}`'s keys are no repeat.
                 let held = mods;
-                for token in placeholder(&inner)? {
-                    if matches!(token, Token::Key(..)) {
+                let keys = placeholder(&inner)?;
+                let repeat = keys.windows(2).all(|pair| pair[0] == pair[1]);
+                for token in keys {
+                    if repeat && matches!(token, Token::Key(..)) {
                         mods = held;
                     }
                     push(&mut tokens, &mut mods, token)?;
@@ -416,6 +418,8 @@ mod tests {
         // A modifier holds for every repeat, as in KeePass.
         let shift = Mods { shift: true, ..NONE };
         assert_eq!(typed("+{TAB 2}x").unwrap(), vec![Step::Key(Key::Tab, shift), Step::Key(Key::Tab, shift), text("x")]);
+        let clear = typed("%{CLEARFIELD}").unwrap();
+        assert!(matches!(clear[0], Step::Key(_, Mods { alt: true, .. })) && !matches!(clear[2], Step::Key(_, Mods { alt: true, .. })));
         assert_eq!(typed("{DELAY 250}{DELAY=40}x").unwrap(), vec![Step::Pause(250), Step::KeyDelay(40), text("x")]);
         assert_eq!(typed("{CLEARFIELD}").unwrap().len(), 3);
     }

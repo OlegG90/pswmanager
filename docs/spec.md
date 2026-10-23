@@ -440,7 +440,8 @@ It works in any app, browsers included, with no extension.
   `{BACKSPACE}` `{DELETE}` `{ESC}` `{INSERT}` `{HOME}` `{END}` `{PGUP}` `{PGDN}` `{UP}` `{DOWN}` `{LEFT}`
   `{RIGHT}` `{CAPSLOCK}` `{F1}`–`{F16}`, repeated as `{TAB 3}` (up to 100); `{DELAY 500}` waits,
   `{DELAY=50}` sets the pause between keys (up to 10 s; 10 ms by default); `{CLEARFIELD}` empties the
-  field; `+` Shift, `^` Ctrl, `%` Alt, `#` Win hold for the next key or character (for every key of `+{TAB 3}`); `{{}` `{}}` `{+}`
+  field; `+` Shift, `^` Ctrl, `%` Alt, `#` Win hold for the next key or character (for every key of
+  a repeat, `+{TAB 3}`); `{{}` `{}}` `{+}`
   `{^}` `{%}` `{~}` `{#}` and the like type those characters. Anything else (`{CMD:…}`, `{REF:…}`,
   `{APPACTIVATE …}`, `{VKEY …}`, `{PICKCHARS}` …) refuses the whole sequence rather than typing part of
   it. Values are typed as they are (placeholders inside them are not read); a line break presses Enter.
@@ -450,9 +451,9 @@ It works in any app, browsers included, with no extension.
   still be in front, and before every step a browser must still show the same page (not one it went
   on to after an Enter or a pause, nor another tab): otherwise typing stops and says so. A window whose program runs as
   administrator gets nothing (Windows drops the keys) and the app says why. Keys go with their scan codes,
-  which remote desktops and some apps read; apps that read only keys (remote desktops, virtual machines,
-  some games) may still not take the Unicode characters. A window chosen before a lock is not typed into
-  after it. The values typed are wiped from memory as they go.
+  which remote desktops and some apps read; apps that take keys but not Unicode characters (remote
+  desktops, virtual machines, some games) may still not type the values. A window chosen before a lock
+  is not typed into after it. The copies of the values the app keeps for typing are wiped as they go.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
   and window associations (a window title and a sequence each; one without a title is dropped). An
   entry that never had settings gets none written unless they are changed; KeePass's obfuscation
