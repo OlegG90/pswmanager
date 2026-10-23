@@ -987,7 +987,10 @@ pub fn keep_ours(theirs: &mut Database, ours: &Database, taking: Taking, older_k
         Taking::Merged => merge(theirs, ours),
     };
     let meta = keep_our_meta(theirs, ours, taking, older_key);
-    !entries.is_empty() || meta || older_key
+    // Browser associations made on this device (#273): the copy is written
+    // again when it lacked one, or the association would live in memory only.
+    let custom_data = crate::browser::merge_custom_data(theirs, ours);
+    !entries.is_empty() || meta || custom_data || older_key
 }
 
 /// The database's own metadata that stays this device's: each setting `ours`
@@ -1039,8 +1042,6 @@ fn is_binned(db: &Database, entry: &EntryRef<'_>) -> bool {
 /// including this device's edit where the other device's later edit won.
 /// Returns the ids of the entries it changed in `theirs`.
 pub fn merge(theirs: &mut Database, ours: &Database) -> Vec<EntryId> {
-    // Browser associations made on either device (#273).
-    crate::browser::merge_custom_data(theirs, ours);
     let mut changed = keep_newer(theirs, ours);
     for id in join_history(theirs, ours) {
         if !changed.contains(&id) {
@@ -1652,14 +1653,16 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_keeps_browser_associations_made_on_either_device() {
+    fn a_sync_keeps_browser_associations_made_on_either_device() {
         let mut theirs = Database::new();
         let mut ours = theirs.clone();
         crate::browser::associate(&mut theirs, "Edge", "a2V5LTE=");
         crate::browser::associate(&mut ours, "Chrome", "a2V5LTI=");
-        merge(&mut theirs, &ours);
+        assert!(keep_ours(&mut theirs, &ours, Taking::Merged, false), "the copy is written again with this device's association");
         let names: Vec<String> = crate::browser::associations(&theirs).into_iter().map(|a| a.name).collect();
         assert_eq!(names, ["Chrome", "Edge"]);
+        let again = theirs.clone();
+        assert!(!keep_ours(&mut theirs, &again, Taking::Adopted, false), "nothing new: nothing to write");
     }
 
     #[test]

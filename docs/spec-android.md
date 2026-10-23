@@ -233,7 +233,7 @@ As in the mockups `1e`–`1j`.
 - **Theme:** light or dark, or as the system is set (the default).
 - **Editor** (stage A2): as in `spec.md` *Editing*: title, user name, password with the generator and the
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
-  files (saved with the entry). The scan button by the TOTP secret reads a QR code from a picture picked
+  files (saved with the entry). The scan button by the TOTP secret reads a QR code from a PNG or JPEG picked
   with Android's picker (a screenshot of the site's code; no permission is asked), as `spec.md` *QR code*
   says (#279), or with the **camera** (#280); a sheet asks which. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the

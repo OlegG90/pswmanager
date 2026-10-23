@@ -233,7 +233,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
 | Favorites | entries marked with the star (the entry view and the list toggle it); stored as the tag `Favorite`, which `sic2kdbx` also writes for SafeInCloud's star and other clients see as a tag — it is not listed among the tags |
 | Expired | entries whose expiry date has passed; those expiring within 14 days are listed too, marked as soon |
 | 2FA | entries with a TOTP secret |
-| Passkey | entries with a passkey KeePassXC stored (its `KPEX_PASSKEY_*` attributes); shown, not made by the app |
+| Passkey | entries with a passkey KeePassXC stored (its `KPEX_PASSKEY_*` attributes); made here only through the browser extension (#285) |
 | Templates | the database's templates (KeePass's templates group) |
 | Trash | the deleted entries (the recycle bin) |
 
