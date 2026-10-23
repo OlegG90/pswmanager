@@ -6,8 +6,11 @@
 //!
 //! ES256 only (P-256 with SHA-256), attestation "none", the signature counter
 //! always 0 (as KeePassXC and other synced passkeys), and the backup flags on.
-//! The user is always verified (UV): the caller asks for the fingerprint or
-//! the master password before making or signing, whatever the site prefers.
+//! The user is always verified (UV), whatever the site prefers (even
+//! `discouraged`): Android's caller asks for the fingerprint or the master
+//! password before making or signing; for the browser extension the choice is
+//! made in the window of a database unlocked with the master password or
+//! Windows Hello, as KeePassXC does.
 
 use crate::edit::{passkey, FieldData};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;

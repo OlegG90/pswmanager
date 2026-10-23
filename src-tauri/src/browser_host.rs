@@ -202,9 +202,13 @@ impl Host for AppHost {
         }
         let user = public_key["user"]["name"].as_str().unwrap_or_default();
         let answer = ask(&self.0, "browser-passkey-register", json!({ "site": rp_id, "user": user, "entries": entries }));
-        // Null: cancelled; `{ "entry": null }`: a new entry; `{ "entry": id }`: that entry.
-        let Some(entry) = answer.get("entry") else { return failed(Failure::PasskeyCancelled) };
-        let entry = entry.as_str().filter(|id| entries.iter().any(|c| c.id == *id));
+        // Null: cancelled; `{ "entry": null }`: a new entry; `{ "entry": id }`:
+        // that entry, which must be one offered.
+        let entry = match answer.get("entry") {
+            Some(Value::Null) => None,
+            Some(Value::String(id)) if entries.iter().any(|c| c.id == *id) => Some(id.as_str()),
+            _ => return failed(Failure::PasskeyCancelled),
+        };
         let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin }) else { return failed(Failure::PasskeyFailed) };
         let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return failed(Failure::PasskeyFailed) };
         crate::show_changes(&self.0, vec![id]);

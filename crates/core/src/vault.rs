@@ -1168,9 +1168,10 @@ impl Vault {
         self.visible_entries().filter(|e| page.fits_entry(e) && browser::offered(e, page.host())).map(|e| browser::Login::of(&e)).collect()
     }
 
-    /// The current TOTP code of entry `id` (any UUID form), when it is in use and has one.
+    /// The current TOTP code of entry `id` (any UUID form), when it is in use,
+    /// not hidden from the extension ([browser::hidden]) and has one.
     pub fn browser_totp(&self, id: &str) -> Option<String> {
-        self.entry(id).filter(|e| kind(e) == Kind::Entry)?;
+        self.entry(id).filter(|e| kind(e) == Kind::Entry && !browser::hidden(e))?;
         self.totp(id).ok().flatten().map(|c| c.code)
     }
 
@@ -1189,7 +1190,8 @@ impl Vault {
     }
 
     /// Keeps a login the extension offers for a page at `url`: the user name
-    /// and password of entry `id`, which must be in use and fit the page, or a
+    /// and password of entry `id`, which must be in use, fit the page and be
+    /// one the extension may have there ([browser::offered]), or a
     /// new entry titled after the page's host with the page's address, in
     /// the group with UUID `group` (none or unknown: [browser::NEW_LOGINS_GROUP]).
     /// Saved like an edit (the old version goes to history). Returns its id.
@@ -1201,7 +1203,7 @@ impl Vault {
         let (base, mut data) = match id {
             Some(id) => {
                 let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
-                if !page.fits_entry(&entry) {
+                if !page.fits_entry(&entry) || !browser::offered(&entry, page.host()) {
                     return Err("This login is not for the page".into());
                 }
                 let data = self.edit_data(id).ok_or(NOT_FOUND)?;
@@ -1584,6 +1586,19 @@ pub mod tests {
         assert_eq!(vault.browser_logins("https://mail.example/")[0].password, "pw-2");
         assert!(vault.browser_save_login(Some(&uuid), "https://evil.example/", "me", "pw-3", None).is_err());
         assert_eq!(vault.history(&id).unwrap().len(), 1, "the old password is in the history");
+
+        // Hidden from the extension, or denied to the page's host: neither updated nor its code read.
+        let entry = parse_id(&uuid).unwrap();
+        let mark = |value: &str| keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String(value.into())), last_modification_time: None };
+        vault.db.entry_mut(entry).unwrap().custom_data.insert("KeePassXC-Browser Settings".into(), mark(r#"{"Deny":["mail.example"]}"#));
+        assert!(vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-3", None).is_err(), "denied");
+        vault.db.entry_mut(entry).unwrap().custom_data.clear();
+        vault.db.entry_mut(entry).unwrap().set_protected("otp", "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP");
+        assert!(vault.browser_totp(&uuid).is_some());
+        vault.db.entry_mut(entry).unwrap().custom_data.insert("BrowserHideEntry".into(), mark("true"));
+        assert!(vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-3", None).is_err(), "hidden");
+        assert_eq!(vault.browser_totp(&uuid), None);
+        vault.db.entry_mut(entry).unwrap().custom_data.clear();
 
         let (name, group) = vault.browser_create_group("Web/Shops").unwrap();
         assert_eq!(name, "Shops");

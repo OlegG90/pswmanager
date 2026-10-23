@@ -12,11 +12,18 @@ use crypto_box::aead::Aead;
 use crypto_box::{PublicKey, SalsaBox, SecretKey};
 use pswm_core::browser::{Group, Login};
 use serde_json::{json, Map, Value};
+use std::collections::HashSet;
 
 /// The KeePassXC version reported: the extension turns its features on by it.
 /// 2.7.10 has the password generator, the new TOTP, and passkeys with a
 /// default group (#285).
 pub const VERSION: &str = "2.7.10";
+
+/// Chrome's limit on a message to the browser: a host that sends a longer one is stopped.
+pub const MAX_ANSWER: usize = 1 << 20;
+/// What an answer's message may hold, sealed (16 bytes more) and in base64
+/// (a third more) with room for the rest of the answer, to stay within [MAX_ANSWER].
+const MAX_SEALED: usize = (MAX_ANSWER - 1024) / 4 * 3 - 16;
 
 /// KeePassXC's error codes, as the extension knows them: a request's, and
 /// those a passkey answer carries (#285).
@@ -99,11 +106,15 @@ pub trait Host {
 /// and key. It is checked again on every request that needs it, so another
 /// database opened since, or the association removed (here, or on another
 /// device and synced), gives the extension nothing until it proves one again.
+/// `get-totp` gives codes only of the entries `get-logins` gave this
+/// connection, so an entry kept from a page (hidden, or denied to its host)
+/// is not reached by its UUID.
 #[derive(Default)]
 pub struct Session {
     client: Option<PublicKey>,
     secret: Option<SecretKey>,
     associated: Option<Proved>,
+    given: HashSet<String>,
 }
 
 struct Proved {
@@ -164,14 +175,16 @@ impl Session {
         Some((map, increment(&nonce)))
     }
 
-    /// An encrypted answer carrying `fields`.
+    /// An encrypted answer carrying `fields`; one too long for the browser
+    /// ([MAX_ANSWER]) is an error.
     fn answer(&self, action: &str, nonce: &[u8], fields: Value) -> Value {
         let nonce_text = B64.encode(nonce);
         let mut message = json!({ "version": VERSION, "success": "true", "nonce": nonce_text });
         if let (Value::Object(message), Value::Object(fields)) = (&mut message, fields) {
             message.extend(fields);
         }
-        let sealed = self.sealed().and_then(|b| b.encrypt(GenericArray::from_slice(nonce), message.to_string().as_bytes()).ok());
+        let message = message.to_string();
+        let sealed = (message.len() <= MAX_SEALED).then(|| self.sealed()?.encrypt(GenericArray::from_slice(nonce), message.as_bytes()).ok()).flatten();
         match sealed {
             Some(sealed) => json!({ "action": action, "message": B64.encode(sealed), "nonce": nonce_text }),
             None => error(action, Failure::CannotEncrypt),
@@ -237,10 +250,20 @@ impl Session {
                 if url.is_empty() {
                     return error(action, Failure::NoUrl);
                 }
-                let logins = host.logins(url);
+                let mut logins = host.logins(url);
                 if logins.is_empty() {
                     return error(action, Failure::NoLogins);
                 }
+                // As many as fit in one answer: the browser takes no longer one.
+                let mut room = MAX_SEALED.saturating_sub(1024 + hash.len() + text("id").len());
+                let fit = logins.iter().take_while(|login| {
+                    let size = serde_json::to_string(login).map_or(usize::MAX, |s| s.len() + 1);
+                    let fits = size <= room;
+                    room = room.saturating_sub(size);
+                    fits
+                });
+                logins.truncate(fit.count());
+                self.given.extend(logins.iter().map(|login| login.uuid.to_lowercase()));
                 self.answer(action, &nonce, json!({ "count": logins.len(), "entries": logins, "hash": hash, "id": text("id") }))
             }
             "get-totp" => {
@@ -248,7 +271,8 @@ impl Session {
                 if !is_uuid(uuid) {
                     return error(action, Failure::NoValidUuid);
                 }
-                self.answer(action, &nonce, json!({ "totp": host.totp(uuid).unwrap_or_default() }))
+                let totp = Some(uuid).filter(|uuid| self.given.contains(&uuid.to_lowercase())).and_then(|uuid| host.totp(uuid));
+                self.answer(action, &nonce, json!({ "totp": totp.unwrap_or_default() }))
             }
             "generate-password" => match host.generate_password() {
                 Some(password) => self.answer(action, &nonce, json!({ "password": password })),
@@ -306,6 +330,7 @@ impl Session {
         let secret = new_secret();
         let public = B64.encode(secret.public_key().as_bytes());
         (self.client, self.secret, self.associated) = (Some(client), Some(secret), None);
+        self.given.clear();
         json!({ "action": action, "version": VERSION, "publicKey": public, "success": "true", "nonce": B64.encode(increment(&nonce)) })
     }
 }
@@ -349,10 +374,15 @@ mod tests {
             Some("New".into())
         }
         fn logins(&self, url: &str) -> Vec<Login> {
+            let login = |uuid: String, password: String| Login { login: "me".into(), password, name: "Mail".into(), uuid, group: "Root".into(), totp: None, expired: None, skip_auto_submit: None };
+            if url.contains("many.example") {
+                // Some 3 MB of logins: more than one answer holds.
+                return (0..3000).map(|i| login(format!("{i:032x}"), "p".repeat(1000))).collect();
+            }
             if !url.contains("mail.example") {
                 return Vec::new();
             }
-            vec![Login { login: "me".into(), password: "pw".into(), name: "Mail".into(), uuid: "0".repeat(32), group: "Root".into(), totp: None, expired: None, skip_auto_submit: None }]
+            vec![login("0".repeat(32), "pw".into())]
         }
         fn totp(&self, _uuid: &str) -> Option<String> {
             Some("123456".into())
@@ -448,6 +478,8 @@ mod tests {
         assert_eq!(none["errorCode"], "15");
         let totp = extension.send(&mut session, &host, json!({ "action": "get-totp", "uuid": "0".repeat(32) }));
         assert_eq!(totp["totp"], "123456");
+        let not_given = extension.send(&mut session, &host, json!({ "action": "get-totp", "uuid": "1".repeat(32) }));
+        assert_eq!(not_given["totp"], "", "only of an entry get-logins gave");
         // The association removed (here, or synced from another device): nothing more.
         let kept = host.keys.replace(Vec::new());
         let removed = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));
@@ -457,6 +489,18 @@ mod tests {
         *host.hash.borrow_mut() = "other".into();
         let other = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));
         assert_eq!(other["errorCode"], "8");
+    }
+
+    #[test]
+    fn the_logins_fit_in_one_answer_the_browser_takes() {
+        let (host, mut session, mut extension) = (fake(true), Session::default(), Extension::new());
+        extension.change_keys(&mut session, &host);
+        extension.send(&mut session, &host, json!({ "action": "test-associate", "id": "Chrome", "key": "aWQta2V5" }));
+        let logins = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://many.example/" }));
+        assert!(logins.to_string().len() <= MAX_SEALED, "sealed and in base64, within the browser's limit");
+        let count = logins["count"].as_u64().unwrap();
+        assert!(count > 500 && count < 3000, "as many as fit: {count}");
+        assert_eq!(logins["entries"].as_array().unwrap().len() as u64, count);
     }
 
     #[test]

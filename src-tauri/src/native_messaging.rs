@@ -6,23 +6,29 @@
 //! (hidden, locked) when it is not running. The extension knows only
 //! KeePassXC's host name, so PswManager registers under it, in place of
 //! KeePassXC's registration.
+//!
+//! The pipe is named by the user's SID, and the proxy talks only to a server
+//! running as the same user: another account on the PC that made a pipe of
+//! that name first gets nothing from the browser.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX};
+use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
 use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
 use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
 use windows_sys::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, WaitNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
+    PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegGetValueW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE,
@@ -42,6 +48,9 @@ const BROWSER_KEYS: [&str; 4] = ["Google\\Chrome", "Chromium", "Microsoft\\Edge"
 const DESCRIPTION: &str = "PswManager for the KeePassXC-Browser extension";
 /// The largest message taken (the browser sends at most 4 GB, answers 1 MB).
 const MAX_MESSAGE: usize = 1 << 20;
+/// How long a message may take to come whole once it started: a client that
+/// stops halfway is let go, rather than holding the connection.
+const MESSAGE_WITHIN: Duration = Duration::from_secs(10);
 
 /// Whether this launch is a browser starting the host: Chromium browsers pass
 /// the extension's origin first, Firefox the manifest and the extension's id.
@@ -49,10 +58,61 @@ pub fn started_by_browser(args: &[String]) -> bool {
     args.first().is_some_and(|a| a.starts_with("chrome-extension://")) || args.iter().any(|a| a == FIREFOX_EXTENSION)
 }
 
-/// The pipe of this Windows user's PswManager.
-fn pipe_name() -> Vec<u16> {
-    let user = std::env::var("USERNAME").unwrap_or_default();
+/// The pipe of the PswManager of the Windows user with SID `user`.
+fn pipe_name(user: &str) -> Vec<u16> {
     wide(&format!(r"\\.\pipe\pswmanager-browser-{user}"))
+}
+
+/// The SID of the Windows user this process runs as (`S-1-5-21-…`).
+fn this_user() -> Option<String> {
+    // SAFETY: the pseudo handle of this process needs no closing.
+    process_user(unsafe { GetCurrentProcess() })
+}
+
+/// The SID of the Windows user a process runs as.
+fn process_user(process: HANDLE) -> Option<String> {
+    // SAFETY: the token is closed below; the SID string is freed with
+    // LocalFree; the buffer is as long as said.
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+            return None;
+        }
+        let mut buffer = [0u64; 64];
+        let mut len = 0;
+        let read = GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), std::mem::size_of_val(&buffer) as u32, &mut len) != 0;
+        CloseHandle(token);
+        if !read {
+            return None;
+        }
+        let user = (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let mut text: *mut u16 = std::ptr::null_mut();
+        if ConvertSidToStringSidW(user, &mut text) == 0 {
+            return None;
+        }
+        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, (0..).take_while(|&i| *text.add(i) != 0).count()));
+        LocalFree(text.cast());
+        Some(sid)
+    }
+}
+
+/// Whether the program serving the pipe runs as `user`.
+fn served_by(pipe: HANDLE, user: &str) -> bool {
+    let mut id = 0;
+    // SAFETY: asks for the server's process id, then opens that process only
+    // to read its user, and closes it.
+    unsafe {
+        if GetNamedPipeServerProcessId(pipe, &mut id) == 0 {
+            return false;
+        }
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
+        if process.is_null() {
+            return false;
+        }
+        let owner = process_user(process);
+        CloseHandle(process);
+        owner.as_deref() == Some(user)
+    }
 }
 
 fn wide(text: &str) -> Vec<u16> {
@@ -101,16 +161,25 @@ fn waiting(pipe: HANDLE) -> Option<u32> {
 }
 
 /// The pipe to the tray app; the app is started (hidden, locked) when it does
-/// not answer, and waited for up to 15 seconds.
+/// not answer, and waited for up to 15 seconds. A pipe another user's program
+/// serves is left at once; that program may only learn who connected, not act
+/// as them (identification only).
 fn connect() -> Option<File> {
-    let name = pipe_name();
+    let user = this_user()?;
+    let name = pipe_name(&user);
     let start = Instant::now();
     let mut started = false;
     loop {
+        let flags = SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
         // SAFETY: the name is a NUL-terminated wide string; the handle becomes the File's.
-        let handle = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, 0, std::ptr::null_mut()) };
+        let handle = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, flags, std::ptr::null_mut()) };
         if handle != INVALID_HANDLE_VALUE {
-            return Some(unsafe { File::from_raw_handle(handle) });
+            let pipe = unsafe { File::from_raw_handle(handle) };
+            if !served_by(handle, &user) {
+                eprintln!("The browser pipe is served by another Windows user's program");
+                return None;
+            }
+            return Some(pipe);
         }
         if !started {
             started = true;
@@ -137,12 +206,35 @@ fn connect() -> Option<File> {
 /// What the tray app keeps: a way to tell every connected extension that the
 /// database locked or unlocked.
 #[derive(Default)]
-pub struct Clients(Mutex<Vec<Sender<serde_json::Value>>>);
+pub struct Clients {
+    next: AtomicU64,
+    connected: Mutex<HashMap<u64, Sender<serde_json::Value>>>,
+}
 
 impl Clients {
     /// Tells every connected extension `message`; ones gone are forgotten.
     pub fn tell(&self, message: serde_json::Value) {
-        self.0.lock().unwrap().retain(|client| client.send(message.clone()).is_ok());
+        self.connected.lock().unwrap().retain(|_, client| client.send(message.clone()).is_ok());
+    }
+
+    /// A new connection, and what it is told.
+    fn join(&'static self) -> (Joined, Receiver<serde_json::Value>) {
+        let (tell, told) = mpsc::channel();
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        self.connected.lock().unwrap().insert(id, tell);
+        (Joined { clients: self, id }, told)
+    }
+}
+
+/// A connection among the [Clients], forgotten when it ends.
+struct Joined {
+    clients: &'static Clients,
+    id: u64,
+}
+
+impl Drop for Joined {
+    fn drop(&mut self) {
+        self.clients.connected.lock().unwrap().remove(&self.id);
     }
 }
 
@@ -150,8 +242,12 @@ impl Clients {
 /// `answer` (a fresh protocol session per connection) while `allowed` says so.
 pub fn serve(clients: &'static Clients, failed: impl FnOnce() + Send + 'static, allowed: impl Fn() -> bool + Send + Sync + Clone + 'static, answer: impl Fn(&mut crate::browser::Session, &serde_json::Value) -> serde_json::Value + Send + Sync + Clone + 'static) {
     std::thread::spawn(move || {
-        let name = pipe_name();
-        let Some(security) = this_user_only() else {
+        let Some(user) = this_user() else {
+            eprintln!("Cannot serve the browser extension: no Windows user");
+            return failed();
+        };
+        let name = pipe_name(&user);
+        let Some(security) = this_user_only(&user) else {
             eprintln!("Cannot serve the browser extension: no security for the pipe");
             return failed();
         };
@@ -176,56 +272,96 @@ pub fn serve(clients: &'static Clients, failed: impl FnOnce() + Send + 'static, 
                 unsafe { CloseHandle(pipe) };
                 continue;
             }
-            let (tell, told) = mpsc::channel();
-            clients.0.lock().unwrap().push(tell);
+            let (joined, told) = clients.join();
             let (allowed, answer) = (allowed.clone(), answer.clone());
             // SAFETY: the handle is this connection's; the File closes it.
             let file = unsafe { File::from_raw_handle(pipe) };
-            std::thread::spawn(move || converse(file, told, allowed, answer));
+            std::thread::spawn(move || {
+                converse(file, told, allowed, answer);
+                drop(joined);
+            });
         }
     });
 }
 
 /// One extension's connection: its messages answered in turn, and what the
-/// app tells it in between. Looked at every 50 ms rather than read in a
+/// app tells it in between, also while an answer waits for the user. Looked
+/// at every 50 ms, and only the bytes there read, rather than read in a
 /// blocking call, which would hold the pipe from being written to.
 fn converse(
     mut file: File,
     told: Receiver<serde_json::Value>,
     allowed: impl Fn() -> bool,
-    answer: impl Fn(&mut crate::browser::Session, &serde_json::Value) -> serde_json::Value,
+    answer: impl Fn(&mut crate::browser::Session, &serde_json::Value) -> serde_json::Value + Sync,
 ) {
     let pipe = file.as_raw_handle() as HANDLE;
     let mut session = crate::browser::Session::default();
+    let mut incoming = Vec::new();
+    // When the message being read began to come.
+    let mut begun = Instant::now();
     loop {
-        match told.try_recv() {
-            Ok(message) if write_message(&mut file, &message).is_err() => return,
-            Err(TryRecvError::Disconnected) => return,
-            _ => {}
+        if !deliver(&mut file, &told) {
+            return;
         }
         let Some(bytes) = waiting(pipe).filter(|_| allowed()) else { return };
-        if bytes < 4 {
-            std::thread::sleep(Duration::from_millis(50));
-            continue;
+        if bytes > 0 {
+            if incoming.is_empty() {
+                begun = Instant::now();
+            }
+            let start = incoming.len();
+            incoming.resize(start + bytes as usize, 0);
+            if file.read_exact(&mut incoming[start..]).is_err() {
+                return;
+            }
         }
-        let Ok(request) = read_message(&mut file) else { return };
-        let reply = answer(&mut session, &request);
-        if write_message(&mut file, &reply).is_err() {
+        let request = match next_message(&mut incoming) {
+            Some(Ok(request)) => request,
+            Some(Err(_)) => return,
+            None if !incoming.is_empty() && begun.elapsed() > MESSAGE_WITHIN => return,
+            None => {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        };
+        begun = Instant::now();
+        let (reply, alive) = std::thread::scope(|scope| {
+            let answering = scope.spawn(|| answer(&mut session, &request));
+            let mut alive = true;
+            while alive && !answering.is_finished() {
+                std::thread::sleep(Duration::from_millis(50));
+                alive = deliver(&mut file, &told);
+            }
+            (answering.join(), alive)
+        });
+        let Ok(reply) = reply.map_err(|_| eprintln!("Answering the browser extension failed")) else { return };
+        if !alive || write_message(&mut file, &reply).is_err() {
             return;
         }
     }
 }
 
-fn read_message(file: &mut File) -> std::io::Result<serde_json::Value> {
-    let mut length = [0u8; 4];
-    file.read_exact(&mut length)?;
+/// Writes what the app told the connection since; false when it is gone.
+fn deliver(file: &mut File, told: &Receiver<serde_json::Value>) -> bool {
+    loop {
+        match told.try_recv() {
+            Ok(message) if write_message(file, &message).is_err() => return false,
+            Ok(_) => {}
+            Err(TryRecvError::Empty) => return true,
+            Err(TryRecvError::Disconnected) => return false,
+        }
+    }
+}
+
+/// Takes the first message off the bytes come so far, once it is whole.
+fn next_message(incoming: &mut Vec<u8>) -> Option<std::io::Result<serde_json::Value>> {
+    let length: [u8; 4] = incoming.get(..4)?.try_into().ok()?;
     let length = u32::from_le_bytes(length) as usize;
     if length > MAX_MESSAGE {
-        return Err(std::io::Error::other("message too long"));
+        return Some(Err(std::io::Error::other("message too long")));
     }
-    let mut body = vec![0u8; length];
-    file.read_exact(&mut body)?;
-    serde_json::from_slice(&body).map_err(std::io::Error::other)
+    let message = serde_json::from_slice(incoming.get(4..4 + length)?).map_err(std::io::Error::other);
+    incoming.drain(..4 + length);
+    Some(message)
 }
 
 fn write_message(file: &mut File, message: &serde_json::Value) -> std::io::Result<()> {
@@ -251,29 +387,11 @@ impl Drop for ThisUserOnly {
     }
 }
 
-fn this_user_only() -> Option<ThisUserOnly> {
-    // SAFETY: the token is closed below; the SID string and the descriptor
-    // are freed with LocalFree; the buffer is as long as said.
+/// [ThisUserOnly] for the user with SID `user`.
+fn this_user_only(user: &str) -> Option<ThisUserOnly> {
+    // SAFETY: the descriptor is freed with LocalFree when dropped.
     unsafe {
-        let mut token: HANDLE = std::ptr::null_mut();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
-            return None;
-        }
-        let mut buffer = [0u64; 64];
-        let mut len = 0;
-        let read = GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), std::mem::size_of_val(&buffer) as u32, &mut len) != 0;
-        CloseHandle(token);
-        if !read {
-            return None;
-        }
-        let user = (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid;
-        let mut text: *mut u16 = std::ptr::null_mut();
-        if ConvertSidToStringSidW(user, &mut text) == 0 {
-            return None;
-        }
-        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, (0..).take_while(|&i| *text.add(i) != 0).count()));
-        LocalFree(text.cast());
-        let sddl = wide(&format!("D:P(A;;GA;;;SY)(A;;GA;;;{sid})"));
+        let sddl = wide(&format!("D:P(A;;GA;;;SY)(A;;GA;;;{user})"));
         let mut descriptor = std::ptr::null_mut();
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) == 0 {
             return None;
@@ -384,5 +502,50 @@ mod tests {
         assert!(started_by_browser(&args(&[r"C:\x\org.keepassxc.keepassxc_browser.firefox.json", "keepassxc-browser@keepassxc.org"])));
         assert!(!started_by_browser(&args(&[r"C:\db.kdbx"])));
         assert!(!started_by_browser(&args(&["--autostart"])));
+    }
+
+    #[test]
+    fn a_message_is_taken_once_it_is_whole() {
+        let framed = |body: &str| [&(body.len() as u32).to_le_bytes()[..], body.as_bytes()].concat();
+        let mut incoming = [framed(r#"{"action":"a"}"#), framed(r#"{"action":"b"}"#)].concat();
+        let second = incoming.split_off(incoming.len() - 3);
+        assert_eq!(next_message(&mut incoming).unwrap().unwrap()["action"], "a");
+        assert!(next_message(&mut incoming).is_none(), "the second has not all come");
+        incoming.extend(second);
+        assert_eq!(next_message(&mut incoming).unwrap().unwrap()["action"], "b");
+        assert!(incoming.is_empty() && next_message(&mut incoming).is_none());
+        let mut long = ((MAX_MESSAGE + 1) as u32).to_le_bytes().to_vec();
+        assert!(next_message(&mut long).unwrap().is_err());
+    }
+
+    #[test]
+    fn the_pipe_is_this_user_s_and_its_server_is_checked() {
+        let user = this_user().unwrap();
+        assert!(user.starts_with("S-1-"));
+        assert!(String::from_utf16_lossy(&pipe_name(&user)).ends_with(&format!("pswmanager-browser-{user}\0")));
+        let security = this_user_only(&user).unwrap();
+        let name = wide(&format!(r"\\.\pipe\pswmanager-test-{}", std::process::id()));
+        // SAFETY: a pipe of this test's, and a client of it; both closed by their Files.
+        let (server, client) = unsafe {
+            let server = CreateNamedPipeW(name.as_ptr(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, &security.attributes);
+            assert_ne!(server, INVALID_HANDLE_VALUE);
+            let flags = SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
+            let client = CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null(), OPEN_EXISTING, flags, std::ptr::null_mut());
+            assert_ne!(client, INVALID_HANDLE_VALUE);
+            (File::from_raw_handle(server), File::from_raw_handle(client))
+        };
+        assert!(served_by(client.as_raw_handle(), &user));
+        assert!(!served_by(client.as_raw_handle(), "S-1-5-18"), "not the system's");
+        drop(server);
+    }
+
+    #[test]
+    fn a_connection_that_ends_is_forgotten() {
+        let clients: &'static Clients = Box::leak(Box::default());
+        let (joined, told) = clients.join();
+        clients.tell(serde_json::json!({ "action": "database-locked" }));
+        assert_eq!(told.try_recv().unwrap()["action"], "database-locked");
+        drop(joined);
+        assert!(clients.connected.lock().unwrap().is_empty());
     }
 }

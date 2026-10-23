@@ -381,12 +381,18 @@ fn option(entry: &EntryRef<'_>, name: &str) -> Option<String> {
 /// Whether the extension may have the entry on a page of `host`: not hidden
 /// from it, and not denied to the host in KeePassXC.
 pub fn offered(entry: &EntryRef<'_>, host: &str) -> bool {
-    if option(entry, HIDE_ENTRY).as_deref() == Some("true") {
+    if hidden(entry) {
         return false;
     }
     let settings = entry.custom_data.get(ENTRY_SETTINGS).and_then(text).and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
     let denied = settings.as_ref().and_then(|s| s.get("Deny")).and_then(|d| d.as_array()).is_some_and(|hosts| hosts.iter().any(|h| h.as_str() == Some(host)));
     !denied
+}
+
+/// Whether the entry is hidden from the extension (`BrowserHideEntry` on it
+/// or its nearest group that says), whatever the page.
+pub fn hidden(entry: &EntryRef<'_>) -> bool {
+    option(entry, HIDE_ENTRY).as_deref() == Some("true")
 }
 
 /// A group as `get-database-groups` lists it.
