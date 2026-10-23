@@ -606,7 +606,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   picks. A picture without a QR code, a code holding something else, or Google Authenticator's export
   (`otpauth-migration://`, not read yet: #281) is said so; a picture with several codes gives the first
   TOTP one. Pictures over 20 MB or 16,384 pixels a side are not read. The file's bytes are wiped once
-  read; the code's text goes to the editor as a typed secret does, and is never logged.
+  read; the code's text goes to the editor as a typed secret does, and is never logged. The phone also reads
+  the code with its camera (`spec-android.md`, #280).
 
 ## Password health
 

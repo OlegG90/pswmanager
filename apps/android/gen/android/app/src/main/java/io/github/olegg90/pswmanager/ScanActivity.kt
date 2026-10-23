@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Size
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -14,6 +15,8 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -28,19 +31,24 @@ import java.util.concurrent.Executors
 
 /**
  * Reads a TOTP QR code with the camera (#280): the preview, and each frame's
- * brightness handed to ZXing in memory, never saved. The first code holding
- * an `otpauth:` URI is the result ([TEXT]); the core checks it. The screen
- * cannot be captured whatever the settings say: it shows the secret's code.
- * The camera permission is asked the first time; refused, the result says
- * why ([ERROR]).
+ * brightness handed to ZXing in memory, never saved. The first QR code read
+ * is the result ([TEXT]); the core checks it as it checks a picture's, so a
+ * code holding something else is explained rather than passed over. The
+ * screen cannot be captured whatever *Allow screenshots* says ([Screenshots]
+ * is not used): it shows the secret's code. The camera permission is asked
+ * the first time, with what it is for on the screen behind the question;
+ * refused, the result says why ([ERROR]).
  */
 class ScanActivity : AppCompatActivity() {
   companion object {
     const val TEXT = "text"
     const val ERROR = "error"
+    private const val CANNOT_OPEN = "The camera cannot be opened"
   }
 
   private lateinit var analysis: ExecutorService
+  private lateinit var preview: PreviewView
+  private var frames: ImageAnalysis? = null
   private var done = false
 
   private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -51,66 +59,75 @@ class ScanActivity : AppCompatActivity() {
     super.onCreate(savedInstanceState)
     window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
     analysis = Executors.newSingleThreadExecutor()
-    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-      start()
-    } else {
-      permission.launch(Manifest.permission.CAMERA)
-    }
-  }
-
-  override fun onDestroy() {
-    super.onDestroy()
-    analysis.shutdown()
-  }
-
-  private fun start() {
-    val preview = PreviewView(this)
+    preview = PreviewView(this)
     val hint = TextView(this).apply {
-      text = "Point the camera at the QR code"
+      text = "Point the camera at the QR code. Only the code is read; no picture is kept."
       setTextColor(0xFFFFFFFF.toInt())
       setShadowLayer(4f, 0f, 0f, 0xFF000000.toInt())
       textSize = 18f
+      gravity = Gravity.CENTER
       setPadding(32, 48, 32, 48)
     }
     setContentView(FrameLayout(this).apply {
       addView(preview)
-      addView(hint, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+      addView(hint, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
     })
+    when {
+      ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> start()
+      // Recreated while the question is up (a foldable unfolded, say): its
+      // answer still comes to this one.
+      savedInstanceState == null -> permission.launch(Manifest.permission.CAMERA)
+    }
+  }
+
+  override fun onDestroy() {
+    frames?.clearAnalyzer()
+    analysis.shutdown()
+    super.onDestroy()
+  }
+
+  private fun start() {
     val providing = ProcessCameraProvider.getInstance(this)
     providing.addListener({
       val camera = try {
         providing.get()
       } catch (e: Exception) {
-        return@addListener fail("The camera cannot be opened: ${e.message}")
+        return@addListener fail("$CANNOT_OPEN: ${e.message}")
       }
       val shown = Preview.Builder().build().also { it.setSurfaceProvider(preview.surfaceProvider) }
-      val frames = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+      // Larger than the default 640×480, so a dense code shown small on a
+      // screen still reads.
+      val size = ResolutionSelector.Builder()
+        .setResolutionStrategy(ResolutionStrategy(Size(1280, 720), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+        .build()
+      val analyzed = ImageAnalysis.Builder()
+        .setResolutionSelector(size)
+        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        .build()
       val reader = MultiFormatReader().apply { setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE))) }
-      frames.setAnalyzer(analysis) { frame -> read(reader, frame)?.let { runOnUiThread { found(it) } } }
+      analyzed.setAnalyzer(analysis) { frame -> read(reader, frame)?.let { runOnUiThread { found(it) } } }
+      frames = analyzed
       try {
         camera.unbindAll()
-        camera.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, shown, frames)
+        camera.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, shown, analyzed)
       } catch (e: Exception) {
-        fail("The camera cannot be opened: ${e.message}")
+        fail("$CANNOT_OPEN: ${e.message}")
       }
     }, ContextCompat.getMainExecutor(this))
   }
 
-  /** The `otpauth:` text of a QR code in `frame`, or null; the frame's copy is wiped. */
-  private fun read(reader: MultiFormatReader, frame: ImageProxy): String? {
-    frame.use {
-      val plane = it.planes[0]
-      val luma = ByteArray(plane.buffer.remaining()).also { bytes -> plane.buffer.get(bytes) }
-      try {
-        val source = PlanarYUVLuminanceSource(luma, plane.rowStride, it.height, 0, 0, it.width, it.height, false)
-        val text = reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
-        return text.takeIf { t -> t.regionMatches(0, "otpauth:", 0, 8, ignoreCase = true) }
-      } catch (_: Exception) {
-        return null // no code in this frame (NotFoundException), or one ZXing cannot read
-      } finally {
-        reader.reset()
-        luma.fill(0)
-      }
+  /** The text of a QR code in `frame`, or null; the frame's copy is wiped. */
+  private fun read(reader: MultiFormatReader, frame: ImageProxy): String? = frame.use {
+    val plane = it.planes[0]
+    val luma = ByteArray(plane.buffer.remaining()).also { bytes -> plane.buffer.get(bytes) }
+    try {
+      val source = PlanarYUVLuminanceSource(luma, plane.rowStride, it.height, 0, 0, it.width, it.height, false)
+      reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
+    } catch (_: Exception) {
+      null // no code in this frame (NotFoundException), or one ZXing cannot read
+    } finally {
+      reader.reset()
+      luma.fill(0)
     }
   }
 

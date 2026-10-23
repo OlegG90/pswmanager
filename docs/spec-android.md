@@ -235,13 +235,16 @@ As in the mockups `1e`–`1j`.
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
   files (saved with the entry). The scan button by the TOTP secret reads a QR code from a picture picked
   with Android's picker (a screenshot of the site's code; no permission is asked), as `spec.md` *QR code*
-  says (#279), or with the **camera** (#280): a screen of its own (CameraX), each frame read by ZXing in memory and never
-  saved, closed by the first code holding an `otpauth:` URI, which the core then checks as a picture's; it cannot be captured,
-  whatever *Allow screenshots* says, as it shows the secret's code. The camera permission is asked the first time;
-  refused, the editor says so and a picture still works. A phone without a camera still installs the app. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  says (#279), or with the **camera** (#280); a sheet asks which. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
+- **QR code with the camera** (#280): a screen of its own (CameraX) with the preview; each frame's brightness is read by
+  ZXing in memory and never saved, at 1280×720 where the camera offers it. The first QR code read closes it, and the core
+  checks it as a picture's (`spec.md` *QR code*), so a code holding something else is said so. The screen cannot be
+  captured, whatever *Allow screenshots* says: it shows the secret's code. The camera permission is asked the first
+  time, with what it is for on the screen behind; refused, the editor says so, and a picture still works. A phone
+  without a camera still installs the app.
 - **Trash** (#171): the entries in the database's recycle bin. One opens read only, as any entry, with
   **Restore** (back to its group) and **Delete permanently…** (after a confirmation) instead of the star,
   the pencil and ⋮. Above the list, **Empty the recycle bin…** asks first, naming how many entries go. Each
