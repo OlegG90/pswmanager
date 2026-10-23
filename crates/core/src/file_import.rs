@@ -1,12 +1,14 @@
 //! Importing a file another password manager exported (#238): CSV as
 //! browsers and managers write it (the columns found by their names),
-//! Bitwarden's unencrypted JSON (passkeys included), or a CXF JSON file. It
+//! Bitwarden's unencrypted JSON (passkeys included), a CXF JSON file, or an
+//! authenticator's: Aegis' export, plain or encrypted (#282, [crate::aegis]). It
 //! is read into the same [Import] as Android's Credential Transfer, so the
 //! entries are added the same way: new ones, in a group of their own.
 //!
 //! Such a file holds every secret in clear: its content is wiped once read,
 //! and never logged.
 
+use crate::aegis;
 use crate::cxf::{self, list, text, Fields, Import, Passkey, MORE_URLS};
 use crate::edit::{EntryData, FAVORITE};
 use base64::Engine;
@@ -18,24 +20,41 @@ use zeroize::Zeroizing;
 /// Reads the file `name` (its name is what the entries' group is called
 /// after) with `content`. The caller wipes `content` itself.
 pub fn parse(name: &str, content: &[u8]) -> Result<Import, String> {
+    parse_with_password(name, content, None)
+}
+
+/// [parse], for a file that needs its `password` to be read ([needs_password]).
+pub fn parse_with_password(name: &str, content: &[u8], password: Option<&str>) -> Result<Import, String> {
     let text = std::str::from_utf8(content).map_err(|_| "The file is not text (UTF-8): export it again as CSV or JSON".to_string())?;
     let text = text.trim_start_matches('\u{feff}');
-    let mut import = if text.trim_start().starts_with('{') { json(text)? } else { csv(text)? };
+    let mut import = if text.trim_start().starts_with('{') { json(text, password)? } else { csv(text)? };
     import.exporter = name.to_string();
     Ok(import)
 }
 
-/// A Bitwarden export, or a CXF one.
-fn json(text: &str) -> Result<Import, String> {
+/// Whether the file is one only its password opens: an encrypted Aegis
+/// export. The app asks for it, then reads the file with
+/// [parse_with_password].
+pub fn needs_password(content: &[u8]) -> bool {
+    let Ok(mut root) = serde_json::from_slice::<Value>(content) else { return false };
+    let locked = aegis::is_export(&root) && aegis::is_encrypted(&root);
+    cxf::wipe(&mut root);
+    locked
+}
+
+/// A Bitwarden export, a CXF one, or Aegis'.
+fn json(text: &str, password: Option<&str>) -> Result<Import, String> {
     let mut root: Value = serde_json::from_str(text).map_err(|e| format!("Not a JSON file PswManager knows: {e}"))?;
-    let import = if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
+    let import = if aegis::is_export(&root) {
+        aegis::read(&root, password)
+    } else if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
         Err("An encrypted Bitwarden export: export it again as JSON, not the encrypted kind".into())
     } else if root.get("items").is_some_and(Value::is_array) {
         Ok(bitwarden(&root))
     } else if root.get("accounts").is_some() {
         cxf::read_header(&root)
     } else {
-        Err("Not a JSON file PswManager knows (Bitwarden's export, or Credential Exchange)".into())
+        Err("Not a JSON file PswManager knows (Bitwarden's export, Credential Exchange, or Aegis')".into())
     };
     cxf::wipe(&mut root);
     import
@@ -372,6 +391,21 @@ mod tests {
     fn a_csv_without_known_columns_is_refused() {
         assert!(parse("other.csv", b"a,b,c\n1,2,3\n").is_err());
         assert!(parse("binary.csv", &[0xff, 0xfe, 0x00]).is_err());
+    }
+
+    #[test]
+    fn aegis_exports_are_recognised() {
+        let plain = r#"{"version": 1, "header": {"slots": null, "params": null}, "db": {"version": 3, "entries": [
+            {"type": "totp", "name": "alice", "issuer": "Example", "info": {"secret": "JBSWY3DP", "algo": "SHA1", "digits": 6, "period": 30}}],
+            "groups": []}}"#;
+        assert!(!needs_password(plain.as_bytes()));
+        let import = parse("aegis.json", plain.as_bytes()).unwrap();
+        assert_eq!(import.entries[0].data.title, "Example");
+        let locked = r#"{"version": 1, "header": {"slots": [], "params": {}}, "db": "AAAA"}"#;
+        assert!(needs_password(locked.as_bytes()));
+        assert!(parse("aegis.json", locked.as_bytes()).err().unwrap().contains("password is needed"));
+        assert!(!needs_password(b"name,url
+"));
     }
 
     #[test]

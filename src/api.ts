@@ -389,6 +389,9 @@ export interface FileImported {
   listing: Listing
 }
 
+/** An import's next step: done, or the file's password is needed (an encrypted Aegis export). */
+export type ImportStep = ({ step: 'done' } & FileImported) | { step: 'password'; file: string }
+
 /** A file format an export writes (#240). */
 export type ExportFormat = 'csv' | 'cxf'
 
@@ -506,7 +509,11 @@ export const api = {
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
   /** Picks a file another password manager exported and imports it; null when none was picked. */
-  importFile: () => invoke<FileImported | null>('import_file'),
+  importFile: () => invoke<ImportStep | null>('import_file'),
+  /** Imports the file waiting for its password; a wrong one leaves it waiting. */
+  importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
+  /** Lets go of the file waiting for its password. */
+  cancelImport: () => invoke<void>('cancel_import'),
   /** Deletes the file the last import read. */
   deleteImportedFile: () => invoke<void>('delete_imported_file'),
   /** Checks the user again before an export: the master password, or with null Windows Hello (`cancelled` when closed). */

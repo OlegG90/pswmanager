@@ -14,7 +14,7 @@ import { fileImportAbout } from '../../../../src/file-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
-import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type Exported, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type ImportStep, type Exported, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -1043,6 +1043,32 @@ async function runImport() {
   showImported(await api.importFromApp().catch((e) => (snack(String(e)), null)))
 }
 
+/** A file's import done, or its password asked for (an encrypted Aegis
+ *  export, #282): the file waits in the backend until it is imported or the
+ *  sheet is closed; a wrong password can be typed again. */
+function afterFileImport(step: ImportStep | null) {
+  if (step?.step !== 'password') return showImported(step)
+  sheet((close) => {
+    const password = el('input', { type: 'password', autocomplete: 'off', placeholder: 'The export’s password', className: 'field' })
+    const error = errorLine()
+    error.hideOnInput(password)
+    const importIt = busyButton('Import', `Import ${step.file}`, async () => {
+      try {
+        const done = await api.importFileWithPassword(password.value)
+        close()
+        afterFileImport(done)
+      } catch (e) {
+        error.show(String(e))
+        password.select()
+      }
+    }, (message) => error.show(message), 'primary')
+    enterPresses(importIt, password)
+    setTimeout(() => password.focus())
+    return [el('b', {}, 'The export’s password'), el('p', {}, `${step.file} is encrypted: type the password it was exported with.`),
+      password, error.line, importIt, button('Cancel', 'Do not import this file', close, 'link')]
+  }, () => void api.cancelImport())
+}
+
 /** The list with what an import brought, and the sheet saying so. */
 function showImported(imported: Imported | null) {
   if (!imported) return
@@ -1060,8 +1086,8 @@ function fileImportSheet() {
     ...fileImportAbout(),
     button('Choose the file', 'Choose the file to import', () => {
       close()
-      onPhone<Imported>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
-        .then(showImported, (e) => snack(String(e)))
+      onPhone<ImportStep>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
+        .then(afterFileImport, (e) => snack(String(e)))
     }, 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
   ])

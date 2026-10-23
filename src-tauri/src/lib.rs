@@ -1267,40 +1267,89 @@ struct FileImported {
     listing: Listing,
 }
 
+/// An import's next step: done, or the file's password is needed (an
+/// encrypted Aegis export, #282), which [import_file_with_password] takes.
+#[derive(Serialize)]
+#[serde(tag = "step", rename_all = "camelCase")]
+enum ImportStep {
+    Done(Box<FileImported>),
+    Password { file: String },
+}
+
 /// The file the last import read: the window offers to delete it, as it holds
 /// every secret in clear.
 #[derive(Default)]
 struct ImportedFile(Mutex<Option<PathBuf>>);
 
+/// The file waiting for its password, held until it is imported or the
+/// import is cancelled ([cancel_import]).
+#[derive(Default)]
+struct WaitingFile(Mutex<Option<Waiting>>);
+
+struct Waiting {
+    file: String,
+    path: PathBuf,
+    content: Zeroizing<Vec<u8>>,
+}
+
 /// Imports a file another password manager exported (#238, see
 /// [file_import]): the user picks it, and everything in it is added as new
 /// entries in the group `Imported from <file> <date>`, saved and synced as
-/// one change. `None` when no file was picked.
+/// one change. `None` when no file was picked; a file only its password opens
+/// waits for it ([ImportStep::Password]).
 #[tauri::command(async)]
-fn import_file(app: AppHandle, window: Window) -> Result<Option<FileImported>, String> {
-    let session = app.state::<Session>();
-    if !session.is_unlocked() {
+fn import_file(app: AppHandle, window: Window) -> Result<Option<ImportStep>, String> {
+    if !app.state::<Session>().is_unlocked() {
         return Err("Unlock the database first".into());
     }
     // Only the file this import reads may be deleted after it.
-    let imported = app.state::<ImportedFile>();
-    imported.0.lock().unwrap().take();
+    app.state::<ImportedFile>().0.lock().unwrap().take();
+    app.state::<WaitingFile>().0.lock().unwrap().take();
     let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
     let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
-    let import = file_import::parse(&file, &content)?;
-    drop(content); // wiped now rather than at the end
+    if file_import::needs_password(&content) {
+        *app.state::<WaitingFile>().0.lock().unwrap() = Some(Waiting { file: file.clone(), path, content });
+        return Ok(Some(ImportStep::Password { file }));
+    }
+    import_read(&app, file, path, &content, None).map(|done| Some(ImportStep::Done(Box::new(done))))
+}
+
+/// Imports the file waiting for its password with `password`; a wrong one
+/// leaves it waiting, to be tried again.
+#[tauri::command(async)]
+fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
+    let password = Zeroizing::new(password);
+    let waiting = app.state::<WaitingFile>();
+    let mut waiting = waiting.0.lock().unwrap();
+    let Waiting { file, path, content } = waiting.as_ref().ok_or("No file is waiting for its password")?;
+    let done = import_read(&app, file.clone(), path.clone(), content, Some(&password))?;
+    waiting.take();
+    Ok(ImportStep::Done(Box::new(done)))
+}
+
+/// Lets go of the file waiting for its password.
+#[tauri::command(async)]
+fn cancel_import(app: AppHandle) {
+    app.state::<WaitingFile>().0.lock().unwrap().take();
+}
+
+/// Adds what the file read holds, as [import_file] says.
+fn import_read(app: &AppHandle, file: String, path: PathBuf, content: &[u8], password: Option<&str>) -> Result<FileImported, String> {
+    let session = app.state::<Session>();
+    let imported = app.state::<ImportedFile>();
+    let import = file_import::parse_with_password(&file, content, password)?;
     let group = import.group_name_today();
     let (added, listing) = session.with_mut(|v| {
         let added = v.import(&import, &group)?;
         Ok((added, v.listing()))
     })?;
     if added > 0 {
-        fetch_icons(&app, &listing);
-        sync::upload_soon(&app);
+        fetch_icons(app, &listing);
+        sync::upload_soon(app);
     }
     *imported.0.lock().unwrap() = Some(path);
-    Ok(Some(FileImported { file, group, added, skipped: import.skipped, listing }))
+    Ok(FileImported { file, group, added, skipped: import.skipped, listing })
 }
 
 /// Deletes the file the last import read (the user confirmed): only that one.
@@ -1774,6 +1823,7 @@ pub fn run() {
         .manage(Notice::default())
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
+        .manage(WaitingFile::default())
         .manage(AutoTypeTarget::default())
         .manage(browser_host::Questions::default())
         .manage(sync::Syncer::default())
@@ -1807,6 +1857,8 @@ pub fn run() {
             hello_ready,
             unlock_with_hello,
             import_file,
+            import_file_with_password,
+            cancel_import,
             delete_imported_file,
             confirm_export,
             export_file,

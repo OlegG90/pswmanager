@@ -1,5 +1,5 @@
-import { api, type Listing } from './api'
-import { busyButton, button, el } from './dom'
+import { api, type FileImported, type Listing } from './api'
+import { busyButton, button, el, enterPresses, errorLine } from './dom'
 import { fileImportAbout } from './file-import-parts'
 
 export interface ImportOptions {
@@ -28,8 +28,37 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
   }
 
   const choose = async () => {
-    const result = await api.importFile()
-    if (!result) return
+    const step = await api.importFile()
+    if (!step) return
+    if (step.step === 'done') done(step)
+    else askPassword(step.file)
+  }
+
+  // An encrypted Aegis export (#282): the file waits in the backend for its
+  // password; a wrong one can be typed again.
+  const askPassword = (file: string) => {
+    const password = el('input', { type: 'password', autocomplete: 'off' })
+    const error = errorLine()
+    error.hideOnInput(password)
+    const importIt = busyButton('Import', `Import ${file}`, async () => {
+      try {
+        const step = await api.importFileWithPassword(password.value)
+        if (step.step === 'done') done(step)
+      } catch (e) {
+        error.show(String(e))
+        password.select()
+      }
+    }, options.fail, 'primary')
+    enterPresses(importIt, password)
+    page.replaceChildren(header(), el('section', { className: 'tool' },
+      el('p', {}, `${file} is encrypted. Its password, the one it was exported with:`),
+      password, error.line,
+      el('div', { className: 'tool-actions' }, importIt,
+        button('Cancel', 'Do not import this file', () => void api.cancelImport().then(start, (e) => options.fail(String(e)))))))
+    password.focus()
+  }
+
+  const done = (result: FileImported) => {
     const { file, group, added, skipped, listing } = result
     const message = added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported into “${group}”` : 'Nothing was imported'
     options.imported(listing, message)

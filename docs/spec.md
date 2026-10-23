@@ -688,6 +688,14 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
     bytes), notes, cards and identities as additional fields, SSH keys, folders as groups, the star, and
     the times.
   - A **CXF** JSON file reads as the phone's Credential Transfer does.
+  - An **Aegis** export (#282, the authenticator's vault JSON, `docs/totp-research.md`), plain or
+    encrypted: an encrypted one waits, read and held in memory, while its password is asked for (a wrong
+    one can be typed again; Cancel lets the file go), its key derived with scrypt and the vault opened with
+    AES-256-GCM as Aegis documents it. Each token is an entry: the title from the issuer (or the name),
+    the user name from the name, notes, the star, the token's groups as tags, its icon when it is a small
+    PNG or JPEG; TOTP and Steam as an `otpauth://totp/` URI, HOTP as an `otpauth://hotp/` one (kept for
+    other clients, no code here); mOTP and Yandex tokens are named among what did not come over. *Similar
+    entries* then merges the tokens into the logins they belong to.
 - The entries are added as the phone's import adds them: each a **new entry** in the group *Imported
   from <file name> <date>* (as the phone's import, a group rather than a tag), nothing changed or
   replaced, saved and synced as one change, all or nothing.
