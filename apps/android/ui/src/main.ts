@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { el, button, busyButton, errorLine, enterPresses } from '../../../../src/dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, fromTemplate, generatorPanel, input, showHide, strengthMeter } from '../../../../src/editor-parts'
+import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from '../../../../src/editor-parts'
 import { beforeExtension, dateOf, describeEntries, formatDateTime, formatSize, labelOf, splitCode, titleOf } from '../../../../src/entry-text'
 import { OTP, PASSWORD, URL_FIELD, USERNAME, type DatabaseSetting, type DatabaseSettings, type Encryption } from '../../../../src/api'
 import { describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from '../../../../src/database-settings'
@@ -2016,13 +2016,8 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   let data: EntryData
   let attachments: EntryDetail['attachments'] = []
   try {
-    // A new entry goes to the top group, not the template's (a template goes
-    // among the templates); a blank one (not from a template, not a template)
-    // gets the default user name.
-    const blank = !start.from && !template
-    data = id
-      ? await api.editEntry(id)
-      : { ...EMPTY_ENTRY, username: blank ? listing.database.defaultUsername : '', ...(start.from && fromTemplate(start.from)), group: [] }
+    // A new entry goes to the top group (a template among the templates).
+    data = id ? await api.editEntry(id) : newEntryData([], { ...start, defaultUsername: listing.database.defaultUsername })
     if (id) attachments = (await api.entry(id)).attachments
   } catch (e) {
     snack(String(e))

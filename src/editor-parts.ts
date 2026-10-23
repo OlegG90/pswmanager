@@ -10,12 +10,16 @@ export const EMPTY_ENTRY: EntryData = {
   autoType: { enabled: true, sequence: '', associations: [] },
 }
 
-/** What a new entry takes from a template: everything but its title, expiry,
- *  TOTP secret (every entry has its own) and star. */
-export function fromTemplate(template: EntryData): EntryData {
+/** A new entry as the editor starts it, in `group`. From a template it takes
+ *  everything but the template's title, expiry, TOTP secret (every entry has
+ *  its own) and star; a blank one (not a template either) gets the database's
+ *  default user name. */
+export function newEntryData(group: string[], start: { from?: EntryData; template?: boolean; defaultUsername?: string }): EntryData {
+  const { from, template, defaultUsername = '' } = start
+  if (!from) return { ...EMPTY_ENTRY, username: template ? '' : defaultUsername, group }
   // Its TOTP stays with it, in whichever layout it is kept (#278).
-  const fields = template.fields.filter((f) => !isTotpLayoutField(f.name))
-  return { ...template, title: '', expires: null, otp: '', fields, tags: template.tags.filter((t) => t !== FAVORITE) }
+  const fields = from.fields.filter((f) => !isTotpLayoutField(f.name))
+  return { ...from, title: '', expires: null, otp: '', fields, tags: from.tags.filter((t) => t !== FAVORITE), group }
 }
 
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']

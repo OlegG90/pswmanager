@@ -1,6 +1,6 @@
 import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, fromTemplate, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
+import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -124,11 +124,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   let data: EntryData
   let attachments: Attachment[] = []
   try {
-    // A blank new entry (not from a template, not a template) gets the default user name.
-    const blank = !options.from && !options.template
-    data = options.id
-      ? await api.editEntry(options.id)
-      : { ...EMPTY_ENTRY, username: blank ? (options.defaultUsername ?? '') : '', ...(options.from && fromTemplate(options.from)), group: options.group }
+    data = options.id ? await api.editEntry(options.id) : newEntryData(options.group, options)
     if (options.id) attachments = (await api.entry(options.id)).attachments
   } catch (e) {
     if (active === loading) active = null
