@@ -952,7 +952,8 @@ function toolsSheet(listing: Listing) {
 function gauthSheet() {
   void api.gauthStart()
   sheet((close) => {
-    const body = el('div')
+    // Redrawn in place as codes are read, so the sheet stays open.
+    const body = el('div', { className: 'sheet-body' })
     const read = async (camera: boolean) => {
       const next = await api.gauthRead(camera)
       if (next) draw(next)
