@@ -604,7 +604,7 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   QR code into the field, as if it had been typed: from the picture on the clipboard (a `Win+Shift+S`
   snip of the code a site shows), or, when the clipboard holds no such code, from a PNG or JPEG the user
   picks. A picture without a QR code, a code holding something else, or Google Authenticator's export
-  (`otpauth-migration://`, not read yet: #281) is said so; a picture with several codes gives the first
+  (`otpauth-migration://`, read by *Import from Google Authenticator* instead) is said so; a picture with several codes gives the first
   TOTP one. Pictures over 20 MB or 16,384 pixels a side are not read. The file's bytes are wiped once
   read; the code's text goes to the editor as a typed secret does, and is never logged. The phone also reads
   the code with its camera (`spec-android.md`, #280).

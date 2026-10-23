@@ -468,6 +468,24 @@ mod tests {
     }
 
     #[test]
+    fn an_unreadable_totp_does_not_stop_the_import() {
+        let csv = "name,url,username,password,totp
+Good,https://a.example.com,a,pw,JBSWY3DPEHPK3PXP
+Odd,https://b.example.com,b,pw,not base32!
+Game,https://c.example.com,c,pw,steam://JBSWY3DPEHPK3PXP
+";
+        let import = parse("export.csv", csv.as_bytes()).unwrap();
+        let odd = &import.entries[1].data;
+        assert!(odd.otp.is_empty());
+        assert!(odd.fields.iter().any(|f| f.name == "TOTP" && f.value == "not base32!" && f.protected));
+        assert!(import.skipped.iter().any(|s| s.title == "Odd" && s.why.contains("cannot read")));
+        assert!(crate::otp::Totp::parse(&import.entries[2].data.otp).unwrap().is_steam());
+        let mut db = keepass::Database::new();
+        let hidden = crate::edit::hidden_groups(&db);
+        assert_eq!(cxf::add(&mut db, &import, &["Imported".into()], &hidden).unwrap(), 3);
+    }
+
+    #[test]
     fn bitwarden_json() {
         // A made-up P-256 key (PKCS#8, base64url) and ids.
         let key = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2OF_2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz-jn65BtOMvdyHKcvjBeBSDZH2r1RTwjmYSi9R_zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G";

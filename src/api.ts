@@ -469,6 +469,8 @@ export const PASSWORD = 'Password'
 export const USERNAME = 'UserName'
 export const URL_FIELD = 'URL'
 export const OTP = 'otp'
+/** The attributes other KeePass clients keep a TOTP in (KeeTrayTOTP's pair, KeePass 2's `TimeOtp-*`): they go with `otp`. */
+export const isTotpLayoutField = (name: string) => name === 'TOTP Seed' || name === 'TOTP Settings' || name.startsWith('TimeOtp-')
 
 export const api = {
   status: () => invoke<Status>('status'),

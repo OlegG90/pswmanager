@@ -388,6 +388,14 @@ pub(crate) fn finish(
     (created, modified): (Option<NaiveDateTime>, Option<NaiveDateTime>),
 ) {
     let title = data.title.clone();
+    // A TOTP value saving would refuse goes along as a field, with a word on
+    // why, rather than stop the whole import.
+    data.otp = otp::from_steam_scheme(&data.otp);
+    if !data.otp.is_empty() && !otp::is_storable(&data.otp) {
+        fields.add("TOTP", &data.otp, true);
+        why.push("A TOTP value PswManager cannot read: kept as the field TOTP".into());
+        data.otp.clear();
+    }
     let extra = place_passkeys(passkeys, &mut data, &mut fields);
     data.fields = fields.0;
     if data.title.is_empty() {
@@ -940,6 +948,8 @@ mod tests {
         assert_eq!(totp["username"], "bob@mail");
         // The issuer parameter wins over the label's.
         let totp = write_totp("otpauth://totp/Old:bob?secret=JBSWY3DPEHPK3PXP&issuer=New", "x").unwrap();
+        // CXF has no Steam codes: such a secret goes along as a field instead.
+        assert!(write_totp("otpauth://totp/s?secret=JBSWY3DP&encoder=steam", "x").is_none());
         assert_eq!(totp["issuer"], "New");
     }
 
