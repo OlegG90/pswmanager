@@ -18,6 +18,12 @@ use serde_json::{json, Map, Value};
 /// default group (#285).
 pub const VERSION: &str = "2.7.10";
 
+/// Chrome's limit on a message to the browser: a host that sends a longer one is stopped.
+const MAX_ANSWER: usize = 1 << 20;
+/// What an answer's message may hold, sealed (16 bytes more) and in base64
+/// (a third more) with room for the rest of the answer, to stay within [MAX_ANSWER].
+const MAX_SEALED: usize = (MAX_ANSWER - 1024) / 4 * 3 - 16;
+
 /// KeePassXC's error codes, as the extension knows them: a request's, and
 /// those a passkey answer carries (#285).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -164,14 +170,19 @@ impl Session {
         Some((map, increment(&nonce)))
     }
 
-    /// An encrypted answer carrying `fields`.
+    /// An encrypted answer carrying `fields`; one too long for the browser
+    /// ([MAX_ANSWER]) is an error.
     fn answer(&self, action: &str, nonce: &[u8], fields: Value) -> Value {
         let nonce_text = B64.encode(nonce);
         let mut message = json!({ "version": VERSION, "success": "true", "nonce": nonce_text });
         if let (Value::Object(message), Value::Object(fields)) = (&mut message, fields) {
             message.extend(fields);
         }
-        let sealed = self.sealed().and_then(|b| b.encrypt(GenericArray::from_slice(nonce), message.to_string().as_bytes()).ok());
+        let message = message.to_string();
+        let sealed = match message.len() <= MAX_SEALED {
+            true => self.sealed().and_then(|b| b.encrypt(GenericArray::from_slice(nonce), message.as_bytes()).ok()),
+            false => None,
+        };
         match sealed {
             Some(sealed) => json!({ "action": action, "message": B64.encode(sealed), "nonce": nonce_text }),
             None => error(action, Failure::CannotEncrypt),
@@ -237,10 +248,26 @@ impl Session {
                 if url.is_empty() {
                     return error(action, Failure::NoUrl);
                 }
-                let logins = host.logins(url);
+                let mut logins = host.logins(url);
                 if logins.is_empty() {
                     return error(action, Failure::NoLogins);
                 }
+                // As many as fit in one answer, beside its other fields: the
+                // browser takes no longer one.
+                let mut room = MAX_SEALED.saturating_sub(256 + hash.len() + text("id").len());
+                let mut fit = 0;
+                for login in &logins {
+                    let size = serde_json::to_string(login).map_or(usize::MAX, |s| s.len() + 1);
+                    if size > room {
+                        break;
+                    }
+                    room -= size;
+                    fit += 1;
+                }
+                if fit == 0 {
+                    return error(action, Failure::NoLogins);
+                }
+                logins.truncate(fit);
                 self.answer(action, &nonce, json!({ "count": logins.len(), "entries": logins, "hash": hash, "id": text("id") }))
             }
             "get-totp" => {
@@ -349,10 +376,15 @@ mod tests {
             Some("New".into())
         }
         fn logins(&self, url: &str) -> Vec<Login> {
+            let login = |uuid: String, password: String| Login { login: "me".into(), password, name: "Mail".into(), uuid, group: "Root".into(), totp: None, expired: None, skip_auto_submit: None };
+            if url.contains("many.example") {
+                // Some 3 MB of logins: more than one answer holds.
+                return (0..3000).map(|i| login(format!("{i:032x}"), "p".repeat(1000))).collect();
+            }
             if !url.contains("mail.example") {
                 return Vec::new();
             }
-            vec![Login { login: "me".into(), password: "pw".into(), name: "Mail".into(), uuid: "0".repeat(32), group: "Root".into(), totp: None, expired: None, skip_auto_submit: None }]
+            vec![login("0".repeat(32), "pw".into())]
         }
         fn totp(&self, _uuid: &str) -> Option<String> {
             Some("123456".into())
@@ -457,6 +489,18 @@ mod tests {
         *host.hash.borrow_mut() = "other".into();
         let other = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));
         assert_eq!(other["errorCode"], "8");
+    }
+
+    #[test]
+    fn the_logins_fit_in_one_answer_the_browser_takes() {
+        let (host, mut session, mut extension) = (fake(true), Session::default(), Extension::new());
+        extension.change_keys(&mut session, &host);
+        extension.send(&mut session, &host, json!({ "action": "test-associate", "id": "Chrome", "key": "aWQta2V5" }));
+        let logins = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://many.example/" }));
+        assert!(logins.to_string().len() <= MAX_SEALED, "sealed and in base64, within the browser's limit");
+        let count = logins["count"].as_u64().unwrap();
+        assert!(count > 500 && count < 3000, "as many as fit: {count}");
+        assert_eq!(logins["entries"].as_array().unwrap().len() as u64, count);
     }
 
     #[test]

@@ -475,10 +475,15 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   PswManager's registration (never another program's) and ends the connections.
 - **The connection**: the browser starts `pswm.exe` as the extension's host (it passes the extension's
   origin, or Firefox's manifest and extension id), which only hands the messages on to the tray app over
-  a named pipe of this Windows user's, `\\.\pipe\pswmanager-browser-<user>` (only this user and the system
-  may open it; no other PC). PswManager not running: it is started hidden in the tray, locked. The messages are
-  KeePassXC's: temporary X25519 keys swapped in the clear, then every message NaCl `crypto_box`. PswManager
-  reports KeePassXC version 2.7.10, so the extension offers the password generator, TOTP and passkeys.
+  a named pipe of this Windows user's, `\\.\pipe\pswmanager-browser-<SID>` (only this user and the system
+  may open it; no other PC). The host talks only to a pipe served by a program of the same Windows user,
+  and lets it identify the host but not act as it (#295): another account on the PC that made a pipe of
+  that name first gets nothing from the browser (PswManager then cannot serve it). PswManager
+  not running: it is started hidden in the tray, locked. The messages are KeePassXC's: temporary X25519
+  keys swapped in the clear, then every message NaCl `crypto_box`. PswManager reports KeePassXC version
+  2.7.10, so the extension offers the password generator, TOTP and passkeys. A message that stops coming
+  halfway ends the connection after 10 seconds; no answer is longer than the 1 MB a browser takes from
+  its host.
 - **Connecting an extension** (`associate`): the window asks *A browser extension asks to connect to
   "<database>"* and a name for the connection (a name in use is replaced after asking; Cancel refuses).
   The extension's identification key is kept in the database file as KeePassXC keeps it, so an extension
@@ -497,17 +502,21 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   from the browser, not from the page. Entries KeePassXC's settings keep from the site are left out: hidden from the
   extension (`BrowserHideEntry` on the entry or its nearest group saying so) or denied to the host (the
   entry's `KeePassXC-Browser Settings`). There is no question per entry, unlike KeePassXC. Each login
-  carries its current TOTP code; `get-totp` gives it again.
+  carries its current TOTP code; `get-totp` gives it again, never of an entry hidden from the extension
+  (it names no page, so the per-host Deny list counts when `get-logins` gives the entry). More logins
+  than 1 MB holds: the first that fit.
 - **Saving** (`set-login`): a new login becomes an entry titled after the page's host, with its address,
   in the group the extension names, else `KeePassXC-Browser Passwords` (made when missing), saved and
   synced like an edit. Replacing the password (and user name) of a login the database has is asked in
-  the window first, only for an entry that fits the page; the old version goes into its history. The extension
+  the window first, only for an entry that fits the page and that the extension may have there (not
+  hidden from it nor denied to the host); the old version goes into its history. The extension
   can list the groups and make one (`get-database-groups`, `create-new-group`).
 - **Generating** (`generate-password`): 20 characters of every kind without look-alikes, as the editor's
   generator starts.
 - **Locked**: the extension is told the database is not open; when it asks to unlock (the user clicked
   it), the window comes up to unlock. Every connected extension is told when the database locks or
-  unlocks; `lock-database` (from a connected extension) locks it.
+  unlocks, also while a question of its own waits in the window; `lock-database` (from a connected
+  extension) locks it.
 - **Passkeys** (#285), when the extension's own *Passkeys* option is on (off by default): the extension
   takes over the page's `navigator.credentials` and asks PswManager, which answers as KeePassXC does, with
   the passkeys kept as KeePassXC keeps them (made and signed by the core, ES256, as on Android).
@@ -525,7 +534,11 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   - **Making one** (`passkeys-register`): refused when a credential the site excludes is in the database
     already. The window asks where to keep it: a new entry (titled with the site's name, its user name
     and `https://<site>`, in the group the extension names, else `KeePassXC-Browser Passkeys`), or one of
-    the site's entries that has no passkey yet. It is saved and synced like an edit.
+    the site's entries that has no passkey yet (an answer naming another entry cancels). It is saved and
+    synced like an edit.
+  - The authenticator data always says the user is verified (UV), even when the site prefers
+    `discouraged`, as KeePassXC does: the database was unlocked with the master password or Windows
+    Hello, and the user chooses in the window.
   - Refusals and Cancel answer KeePassXC's error codes, so the extension says why or falls back. Not
     done: PRF and other WebAuthn extensions (answered empty), keys other than ES256 (the site is
     refused), passkeys on localhost or `file://`.
