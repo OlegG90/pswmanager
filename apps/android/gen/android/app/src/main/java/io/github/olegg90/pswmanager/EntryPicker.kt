@@ -19,6 +19,9 @@ import kotlin.concurrent.thread
 fun entryLabel(entry: JSONObject): String =
   listOf(entry.optString("title"), entry.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ")
 
+/** How long the search waits after a keystroke for the next one. */
+private const val SEARCH_DELAY_MS = 250L
+
 /**
  * Lets the user pick any entry in use for a login no entry is for yet
  * (#270), as Keepass2Android does: a search over titles, user names and URLs,
@@ -31,24 +34,28 @@ fun pickEntry(activity: AppCompatActivity, heading: String, picked: (id: String,
   val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
   // One pick: a second tap meanwhile would link and fill twice.
   var chosen = false
-  // The latest search: an earlier one that ends after it does not replace its matches.
-  var searches = 0
-  fun show(query: String) {
-    val search = ++searches
-    // Off the main thread: a sync or a save may hold the database a moment.
-    thread {
-      val found = JSONArray(ProviderBridge.searchLogins(query) ?: "[]")
-      activity.runOnUiThread {
-        if (search != searches || activity.isDestroyed) return@runOnUiThread
-        results.removeAllViews()
-        if (found.length() == 0) results.addView(TextView(activity).apply { text = "No entry holds this." })
-        for (i in 0 until found.length()) {
-          val entry = found.getJSONObject(i)
-          val label = entryLabel(entry).ifEmpty { "Untitled entry" }
-          results.addView(Button(activity).apply { text = label; isAllCaps = false; setOnClickListener { if (!chosen) { chosen = true; picked(entry.getString("id"), label) } } })
-        }
-      }
+  fun list(found: JSONArray) {
+    results.removeAllViews()
+    if (found.length() == 0) results.addView(TextView(activity).apply { text = "No entry holds this." })
+    for (i in 0 until found.length()) {
+      val entry = found.getJSONObject(i)
+      val label = entryLabel(entry).ifEmpty { "Untitled entry" }
+      results.addView(Button(activity).apply { text = label; isAllCaps = false; setOnClickListener { if (!chosen) { chosen = true; picked(entry.getString("id"), label) } } })
     }
+  }
+  // The latest query: an earlier search that ends after it does not replace its matches.
+  var latest = 0
+  fun show(query: String) {
+    val ticket = ++latest
+    // Off the main thread, as a sync or a save may hold the database a moment;
+    // a moment after the last keystroke, so typing does not queue a search per letter.
+    results.postDelayed({
+      if (ticket != latest) return@postDelayed
+      thread {
+        val found = JSONArray(ProviderBridge.searchLogins(query) ?: "[]")
+        activity.runOnUiThread { if (ticket == latest && !activity.isDestroyed) list(found) }
+      }
+    }, if (query.isEmpty()) 0L else SEARCH_DELAY_MS)
   }
   val search = EditText(activity).apply {
     hint = "Search title, user name or URL"
