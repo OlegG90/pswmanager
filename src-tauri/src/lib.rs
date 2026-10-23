@@ -874,6 +874,8 @@ fn lock_now(app: &AppHandle) {
     }
     clipboard::clear_if_ours();
     opened::clean(&opened::folder());
+    // A window chosen before the lock (or while locked) is not typed into after it.
+    app.state::<AutoTypeTarget>().0.lock().unwrap().take();
 }
 
 /// The window reports use, which keeps the database unlocked.
@@ -1690,6 +1692,10 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
 /// back when typing fails.
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
+    // A browser whose address cannot be read gets nothing: no page, no entry fits it.
+    if target.window.browser && target.window.page.is_none() {
+        return Err("The browser's address cannot be read: Auto-Type does not type into it".into());
+    }
     // The browser may show another page by now (a redirect, another tab).
     if !autotype::on_same_page(target) {
         return Err("The browser shows another page now: press the Auto-Type hotkey there again".into());
@@ -1805,10 +1811,8 @@ fn change_hotkey(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(
         }
         let _ = app.global_shortcut().unregister(old.as_str());
     } else if !same(&old, combination) {
-        let modified = combination.parse::<Shortcut>().is_ok_and(|s| {
-            s.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER)
-        });
-        if !modified {
+        let shortcut = combination.parse::<Shortcut>().map_err(|_| format!("\"{combination}\" is not a key combination"))?;
+        if !shortcut.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER) {
             return Err("A hotkey needs Ctrl, Alt or Win, so typing does not trigger it".into());
         }
         if Hotkey::ALL.into_iter().any(|other| other != hotkey && same(&other.combination(app), combination)) {
