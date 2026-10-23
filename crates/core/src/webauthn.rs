@@ -40,13 +40,17 @@ pub enum Caller {
     /// A browser trusted to speak for a site (`origin`): it made the client
     /// data itself and gives its hash, which is what is signed.
     Browser { origin: String, client_data_hash: Vec<u8> },
+    /// A page of a browser, for the KeePassXC-Browser extension (#285): the
+    /// client data is made here, as KeePassXC makes it. The origin and the
+    /// site were checked before ([crate::browser::check_passkey_request]).
+    Page { origin: String },
 }
 
 impl Caller {
     /// The client data for a request of `kind` (`webauthn.create` / `.get`).
     /// A browser's own is what counts: this one only fills the field.
     fn client_data(&self, kind: &str, challenge: &str) -> String {
-        let (Caller::App { origin, .. } | Caller::Browser { origin, .. }) = self;
+        let (Caller::App { origin, .. } | Caller::Browser { origin, .. } | Caller::Page { origin }) = self;
         let mut data = json!({ "type": kind, "challenge": challenge, "origin": origin, "crossOrigin": false });
         if let Caller::App { package, .. } = self {
             data["androidPackageName"] = json!(package);
@@ -57,7 +61,7 @@ impl Caller {
     /// The hash of the client data that is signed.
     fn client_data_hash(&self, client_data: &str) -> Vec<u8> {
         match self {
-            Caller::App { .. } => Sha256::digest(client_data.as_bytes()).to_vec(),
+            Caller::App { .. } | Caller::Page { .. } => Sha256::digest(client_data.as_bytes()).to_vec(),
             Caller::Browser { client_data_hash, .. } => client_data_hash.clone(),
         }
     }

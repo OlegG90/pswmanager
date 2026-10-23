@@ -35,6 +35,75 @@ const SKIP_AUTO_SUBMIT: &str = "BrowserSkipAutoSubmit";
 /// Where a login the extension saves goes when it names no group, as in KeePassXC.
 pub const NEW_LOGINS_GROUP: &str = "KeePassXC-Browser Passwords";
 
+/// Where a passkey the extension makes goes when it names no group, as in KeePassXC (#285).
+pub const NEW_PASSKEYS_GROUP: &str = "KeePassXC-Browser Passkeys";
+
+/// Why a passkey request from a page is refused: KeePassXC's error codes,
+/// which the extension knows (and then falls back to the browser's own WebAuthn).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasskeyRefusal {
+    OriginNotAllowed = 26,
+    DomainNotValid = 27,
+    RpIdMismatch = 28,
+    NoSupportedAlgorithms = 29,
+    InvalidChallenge = 32,
+    InvalidUserId = 33,
+}
+
+/// Checks a passkey request (WebAuthn's `publicKey` options, as the extension
+/// sends them) from a page at `origin` as KeePassXC does, and returns the site
+/// (RP id) it is for, which the options then name if they did not, and the
+/// page's origin as the client data names it:
+///
+/// - the origin is an https page on a named host;
+/// - the RP id is a registrable domain (never a public suffix such as
+///   `co.uk`), the page's host or a parent of it (WebAuthn's rule), or any
+///   when the page is one of the site's `related` origins (which the
+///   extension reads from the site, when making one);
+/// - to make one (`creating`): a challenge of 16 characters or more, a user id
+///   of 1 to 64 bytes, and ES256 among the algorithms when the site lists some.
+pub fn check_passkey_request(options: &mut serde_json::Value, origin: &str, related: &[String], creating: bool) -> Result<(String, String), PasskeyRefusal> {
+    let page = url::Url::parse(origin).map_err(|_| PasskeyRefusal::OriginNotAllowed)?;
+    let origin = page.origin().ascii_serialization();
+    if page.scheme() != "https" {
+        return Err(PasskeyRefusal::OriginNotAllowed);
+    }
+    let host = match page.host() {
+        Some(url::Host::Domain(name)) if name.contains('.') => name.to_string(),
+        _ => return Err(PasskeyRefusal::DomainNotValid),
+    };
+    // The options are written to below: a page's odd shapes are refused, not trusted.
+    if !options.is_object() || (creating && !options["rp"].is_object()) {
+        return Err(PasskeyRefusal::RpIdMismatch);
+    }
+    let named = if creating { options["rp"]["id"].as_str() } else { options["rpId"].as_str() };
+    let rp_id = named.filter(|id| !id.is_empty()).unwrap_or(&host).to_lowercase();
+    let related = related.iter().any(|r| r.trim_end_matches('/') == origin);
+    if psl::domain_str(&rp_id).is_none() || (!related && !crate::webauthn::on_site(&host, &rp_id)) {
+        return Err(PasskeyRefusal::RpIdMismatch);
+    }
+    if creating {
+        if options["challenge"].as_str().is_none_or(|c| c.len() < 16) {
+            return Err(PasskeyRefusal::InvalidChallenge);
+        }
+        let user_id = options["user"]["id"].as_str().and_then(crate::webauthn::credential_id_bytes);
+        if !user_id.is_some_and(|id| (1..=64).contains(&id.len())) {
+            return Err(PasskeyRefusal::InvalidUserId);
+        }
+        let algorithms = options["pubKeyCredParams"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if !algorithms.is_empty() && !algorithms.iter().any(|a| a["alg"].as_i64() == Some(-7)) {
+            return Err(PasskeyRefusal::NoSupportedAlgorithms);
+        }
+        options["rp"]["id"] = rp_id.clone().into();
+    } else {
+        if options["challenge"].as_str().is_none_or(str::is_empty) {
+            return Err(PasskeyRefusal::InvalidChallenge);
+        }
+        options["rpId"] = rp_id.clone().into();
+    }
+    Ok((rp_id, origin))
+}
+
 /// A page a browser shows, whose logins are found as KeePassXC finds them:
 /// the extension and Auto-Type give the same entries KeePassXC would. An
 /// entry's URL (or one of its further URLs, `KP2A_URL_n`) fits the page when
@@ -326,6 +395,40 @@ pub fn split_path(path: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passkey_requests_are_checked_as_in_keepassxc() {
+        use serde_json::json;
+        let create = || json!({ "rp": { "name": "Example" }, "challenge": "c2l4dGVlbi1ieXRlcy0tLQ", "user": { "id": "dXNlcg", "name": "me" }, "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }] });
+        let mut options = create();
+        let page = |rp: &str| Ok((rp.to_string(), "https://login.example.com".to_string()));
+        assert_eq!(check_passkey_request(&mut options, "https://login.example.com/", &[], true), page("login.example.com"), "the origin as the client data names it");
+        assert_eq!(options["rp"]["id"], "login.example.com", "the options name the site now");
+        let mut parent = create();
+        parent["rp"]["id"] = "example.com".into();
+        assert_eq!(check_passkey_request(&mut parent, "https://login.example.com", &[], true), page("example.com"));
+        let mut suffix = create();
+        suffix["rp"]["id"] = "co.uk".into();
+        assert_eq!(check_passkey_request(&mut suffix, "https://shop.co.uk", &[], true), Err(PasskeyRefusal::RpIdMismatch), "not a public suffix");
+        let mut odd = create();
+        odd["rp"] = "x".into();
+        assert_eq!(check_passkey_request(&mut odd, "https://example.com", &[], true), Err(PasskeyRefusal::RpIdMismatch), "refused, not a panic");
+        let mut other = create();
+        other["rp"]["id"] = "evil.com".into();
+        assert_eq!(check_passkey_request(&mut other.clone(), "https://example.com", &[], true), Err(PasskeyRefusal::RpIdMismatch));
+        assert!(check_passkey_request(&mut other, "https://example.com", &["https://example.com".into()], true).is_ok(), "a related origin");
+        assert_eq!(check_passkey_request(&mut create(), "http://example.com", &[], true), Err(PasskeyRefusal::OriginNotAllowed));
+        assert_eq!(check_passkey_request(&mut create(), "https://192.168.1.10", &[], true), Err(PasskeyRefusal::DomainNotValid));
+        let mut short = create();
+        short["challenge"] = "c2hvcnQ".into();
+        assert_eq!(check_passkey_request(&mut short, "https://example.com", &[], true), Err(PasskeyRefusal::InvalidChallenge));
+        let mut rsa = create();
+        rsa["pubKeyCredParams"] = json!([{ "type": "public-key", "alg": -257 }]);
+        assert_eq!(check_passkey_request(&mut rsa, "https://example.com", &[], true), Err(PasskeyRefusal::NoSupportedAlgorithms));
+        let mut get = json!({ "challenge": "Y2hhbGxlbmdl" });
+        assert_eq!(check_passkey_request(&mut get, "https://example.com", &[], false), Ok(("example.com".into(), "https://example.com".into())));
+        assert_eq!(get["rpId"], "example.com");
+    }
 
     #[test]
     fn pages_fit_entries_as_in_keepassxc() {

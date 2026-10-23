@@ -614,6 +614,19 @@ impl Vault {
     /// or in a new entry for the site (its name, user name and address), and
     /// saves the file. The entry gets KeePassXC's tag. Returns its id.
     pub fn add_passkey(&mut self, id: Option<&str>, made: &crate::webauthn::Made) -> Result<String, String> {
+        self.keep_passkey(id, made, Vec::new())
+    }
+
+    /// [Vault::add_passkey] for the browser extension (#285): a new entry goes
+    /// into the group the extension names (`Parent/Child`, made where
+    /// missing), else KeePassXC's [browser::NEW_PASSKEYS_GROUP].
+    pub fn add_browser_passkey(&mut self, id: Option<&str>, made: &crate::webauthn::Made, group: Option<&str>) -> Result<String, String> {
+        let path = group.map(browser::split_path).filter(|p| !p.is_empty()).unwrap_or_else(|| vec![browser::NEW_PASSKEYS_GROUP.to_string()]);
+        self.keep_passkey(id, made, path)
+    }
+
+    /// [Vault::add_passkey], a new entry in the group at `path` (empty: the top).
+    fn keep_passkey(&mut self, id: Option<&str>, made: &crate::webauthn::Made, path: Vec<String>) -> Result<String, String> {
         let (base, mut data) = match id {
             Some(id) => {
                 let data = self.edit_data(id).ok_or(NOT_FOUND)?;
@@ -627,6 +640,7 @@ impl Vault {
                 data.title = made.rp_name.clone();
                 data.username = made.user_name.clone();
                 data.url = format!("https://{}", made.rp_id);
+                data.group = path;
                 (None, data)
             }
         };
@@ -1969,6 +1983,28 @@ pub mod tests {
         assert_eq!(json["id"], credential_id.as_str());
         assert_eq!(json["response"]["userHandle"], "dQ");
         assert!(vault.sign_with_passkey(&id, r#"{"rpId": "other.com", "challenge": "Yw"}"#, &caller).is_err());
+    }
+
+    #[test]
+    fn a_page_s_passkey_goes_to_keepassxc_s_group_and_signs_with_client_data_made_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = fixture("sic2kdbx.kdbx", dir.path());
+        let page = crate::webauthn::Caller::Page { origin: "https://shop.example".into() };
+        let made = crate::webauthn::make(r#"{"rp": {"id": "shop.example", "name": "Shop"}, "user": {"id": "dQ", "name": "bob"}, "challenge": "Yw"}"#, &page).unwrap();
+        let id = vault.add_browser_passkey(None, &made, None).unwrap();
+        assert_eq!(vault.edit_data(&id).unwrap().group, [browser::NEW_PASSKEYS_GROUP]);
+        let named = vault.add_browser_passkey(None, &made, Some("Web/Passkeys")).unwrap();
+        assert_eq!(vault.edit_data(&named).unwrap().group, ["Web", "Passkeys"], "the group the extension names");
+        let decode = |text: &serde_json::Value| base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, text.as_str().unwrap()).unwrap();
+        let made_json: serde_json::Value = serde_json::from_str(&made.response).unwrap();
+        assert!(made_json["response"]["attestationObject"].is_string() && made_json["response"]["publicKey"].is_string());
+        let created: serde_json::Value = serde_json::from_slice(&decode(&made_json["response"]["clientDataJSON"])).unwrap();
+        assert_eq!((created["type"].as_str(), created.get("androidPackageName")), (Some("webauthn.create"), None));
+
+        let response = vault.sign_with_passkey(&id, r#"{"rpId": "shop.example", "challenge": "c2lnbg"}"#, &page).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let client_data: serde_json::Value = serde_json::from_slice(&decode(&json["response"]["clientDataJSON"])).unwrap();
+        assert_eq!(client_data, serde_json::json!({ "type": "webauthn.get", "challenge": "c2lnbg", "origin": "https://shop.example", "crossOrigin": false }));
     }
 
     #[test]

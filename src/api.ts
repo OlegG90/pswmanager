@@ -268,6 +268,23 @@ export interface BrowserUpdate {
   site: string
 }
 
+/** A page asks to sign in with a passkey (`browser-passkey-get`, #285). */
+export interface BrowserPasskeyGet {
+  id: number
+  /** The site (RP id). */
+  site: string
+  choices: EntryChoice[]
+}
+
+/** A page asks to make a passkey (`browser-passkey-register`): a new entry or one of `entries`. */
+export interface BrowserPasskeyRegister {
+  id: number
+  site: string
+  user: string
+  /** The site's entries without a passkey. */
+  entries: EntryChoice[]
+}
+
 /** An entry offered for a window. */
 export interface EntryChoice {
   id: string
@@ -585,7 +602,7 @@ export const api = {
   autoTypeEntry: (id: string, typed: Typed) => invoke<void>('auto_type_entry', { id, typed }),
   cancelAutoType: () => invoke<void>('cancel_auto_type'),
   /** The window's answer to a question the browser extension's request raised. */
-  browserAnswer: (id: number, answer: string | boolean | null) => invoke<void>('browser_answer', { id, answer }),
+  browserAnswer: (id: number, answer: string | boolean | null | { entry: string | null }) => invoke<void>('browser_answer', { id, answer }),
   /** The browser extensions associated with the open database. */
   browserAssociations: () => invoke<BrowserAssociation[]>('browser_associations'),
   forgetBrowserAssociation: (name: string) => invoke<BrowserAssociation[]>('forget_browser_association', { name }),
