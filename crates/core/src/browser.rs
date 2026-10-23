@@ -292,13 +292,17 @@ pub fn associations(db: &Database) -> Vec<Association> {
 /// Takes into `theirs` the database custom data `ours` has that `theirs`
 /// lacks or has older (associations made on this device), as a sync merges
 /// two copies. One removed on either side may come back from the other.
-pub fn merge_custom_data(theirs: &mut Database, ours: &Database) {
+/// True when `theirs` changed.
+pub fn merge_custom_data(theirs: &mut Database, ours: &Database) -> bool {
+    let mut changed = false;
     for (key, mine) in &ours.meta.custom_data {
         let newer = theirs.meta.custom_data.get(key).is_none_or(|other| mine.last_modification_time > other.last_modification_time);
         if newer {
             theirs.meta.custom_data.insert(key.clone(), mine.clone());
+            changed = true;
         }
     }
+    changed
 }
 
 /// A login as `get-logins` gives it, with KeePassXC's names.
@@ -325,7 +329,8 @@ pub struct Login {
 impl Login {
     pub fn of(entry: &EntryRef<'_>) -> Login {
         let value = |name: &str| entry.get(name).unwrap_or_default().to_string();
-        let totp = entry.get(fields::OTP).and_then(|v| otp::Totp::parse(v).ok()).map(|t| t.code_now().code);
+        // In whatever layout the entry keeps it (KeePassXC's, KeePass 2's, …).
+        let totp = otp::find(&entry.fields).and_then(|v| otp::Totp::parse(&v).ok()).map(|t| t.code_now().code);
         let expired = entry.times.expires == Some(true) && entry.times.expiry < Times::now();
         Login {
             login: value(fields::USERNAME),
@@ -543,6 +548,12 @@ mod tests {
         assert_eq!(json["skipAutoSubmit"], "true");
         assert_eq!(json["uuid"].as_str().unwrap().len(), 32);
         assert!(json.get("totp").is_none() && json.get("expired").is_none());
+
+        // A TOTP kept as KeePass 2 keeps it gives a code too.
+        let mut db = Database::new();
+        db.root_mut().add_entry().set_protected("TimeOtp-Secret-Base32", "JBSWY3DPEHPK3PXP");
+        let login = Login::of(&db.iter_all_entries().next().unwrap());
+        assert_eq!(login.totp.map(|code| code.len()), Some(6));
     }
 
     #[test]

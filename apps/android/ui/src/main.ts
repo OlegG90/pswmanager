@@ -2043,18 +2043,25 @@ function totpLine(id: string): [HTMLElement, () => void] {
       fetching = true
       try {
         const now = await api.totp(id)
-        if (!now) return
+        if (!now) return stop()
         code.textContent = splitCode(now.code)
         remaining = now.remaining
+      } catch (e) {
+        // A secret no code is made from (HOTP, an unreadable value): said once, not every second.
+        stop()
+        code.textContent = String(e)
+        left.textContent = ''
+        return
       } finally {
         fetching = false
       }
     } else remaining--
     left.textContent = ` ${remaining} s`
   }
-  void tick()
+  const stop = () => clearInterval(timer)
   const timer = window.setInterval(() => void tick(), 1000)
-  return [line('TOTP', el('span', {}, code, left), () => api.copyTotp(id)), () => clearInterval(timer)]
+  void tick()
+  return [line('TOTP', el('span', {}, code, left), () => api.copyTotp(id)), stop]
 }
 
 // ------------------------------------------------------------ sync

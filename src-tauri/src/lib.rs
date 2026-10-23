@@ -1495,6 +1495,8 @@ struct AutoTypeAsk {
 /// entry alone fits it: typed at once (unless the user wants to be asked).
 /// Otherwise, or while locked, the window comes up to unlock or choose.
 fn auto_type_pressed(app: &AppHandle) {
+    // A press while one is typing (the hotkey held, pressed twice) types nothing more.
+    let Some(_typing) = Typing::start() else { return };
     let Some(target) = autotype::foreground() else { return }; // PswManager's own window, the desktop
     *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
     if !app.state::<Session>().is_unlocked() {
@@ -1540,9 +1542,28 @@ fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>
     Ok(Some(ask))
 }
 
+/// Auto-Type typing now: one at a time, so keys of two are never mixed.
+struct Typing;
+
+static TYPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+impl Typing {
+    /// The turn to type; `None` while another typing runs.
+    fn start() -> Option<Typing> {
+        (!TYPING.swap(true, std::sync::atomic::Ordering::SeqCst)).then_some(Typing)
+    }
+}
+
+impl Drop for Typing {
+    fn drop(&mut self) {
+        TYPING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Types the entry the user chose into the window waiting for it.
 #[tauri::command(async)]
 fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
+    let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
     let target = take_waiting(&app).ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
     type_entry(&app, &target, &id, typed)
 }
@@ -1562,6 +1583,7 @@ fn take_waiting(app: &AppHandle) -> Option<autotype::Target> {
 /// the window that comes forward then (the one in front before PswManager).
 #[tauri::command(async)]
 fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
+    let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
     // An entry that cannot be typed (Auto-Type off, no TOTP secret) says so
     // before the window steps aside.
     app.state::<Session>().read(|v| v.auto_type_steps(&id, "", typed))??;

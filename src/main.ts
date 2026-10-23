@@ -278,6 +278,10 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
+  // A question still open (a passkey or login to choose for a browser, the
+  // Auto-Type picker) shows entries: it is answered Cancel, not left over
+  // the unlock screen.
+  document.querySelectorAll('dialog[open]').forEach((d) => d.dispatchEvent(new Event('cancel')))
   closeMenus()
   closeReport()
   closeEditor()
