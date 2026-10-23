@@ -11,10 +11,11 @@ import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
 import { fileImportAbout } from '../../../../src/file-import-parts'
+import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
-import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type ImportStep, type Exported, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
+import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type ImportStep, type Exported, type GauthProgress, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -939,9 +940,38 @@ function toolsSheet(listing: Listing) {
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
     button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), fileImportSheet()), 'item'),
+    button('Import from Google Authenticator…', 'The accounts of its export, read from its QR codes', () => (close(), gauthSheet()), 'item'),
     button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
   ])
+}
+
+/** Import from Google Authenticator (#281): the export's QR codes read one
+ *  by one (the camera, or a screenshot), then their accounts imported. The
+ *  codes read go when the sheet closes, imported or not. */
+function gauthSheet() {
+  sheet((close) => {
+    const body = el('div')
+    const draw = (progress: GauthProgress | null) => {
+      const read = (camera: boolean) => api.gauthRead(camera).then((next) => next && draw(next), (e) => snack(String(e)))
+      body.replaceChildren(
+        el('b', {}, 'Import from Google Authenticator'),
+        ...gauthAbout('Read each code with the camera, or pick a screenshot of it.'),
+        ...(progress ? [el('p', { className: 'progress' }, progressText(progress))] : []),
+        button(progress ? 'Next code with the camera' : 'With the camera', 'Point the camera at the code', () => void read(true), 'item'),
+        button('From a picture…', 'A screenshot of the code', () => void read(false), 'item'),
+        ...(progress?.accounts
+          ? [busyButton(importLabel(progress), 'Import the accounts read', async () => {
+              const done = await api.gauthImport()
+              close()
+              showImported(done)
+            }, (message) => snack(message), 'primary')]
+          : []),
+        button('Cancel', 'Let the codes read go', close, 'link'))
+    }
+    draw(null)
+    return [body]
+  }, () => void api.gauthCancel())
 }
 
 /** Find similar (#215): the entries that are for the same site and account, as

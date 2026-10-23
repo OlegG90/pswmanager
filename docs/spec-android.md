@@ -168,7 +168,9 @@ As in the mockups `1e`–`1j`.
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
-  database: *Import from another app…*, *Import from a file…*, *Export to a file…* (#240, as on Windows:
+  database: *Import from another app…*, *Import from a file…*, *Import from Google Authenticator…* (#281, a
+  sheet that reads the export's codes with the camera or from screenshots, then imports: `docs/spec.md`,
+  *Import from Google Authenticator*; closing it lets the codes go), *Export to a file…* (#240, as on Windows:
   `docs/spec.md`, *Export to a file*) and *Find similar entries*.
 - **Import from a file** (#238): a sheet says what it takes, then the file is chosen as a key file is
   (#207: the phone's folders with All files access, `.csv` and `.json` first;

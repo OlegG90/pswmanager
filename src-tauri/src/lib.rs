@@ -1,5 +1,5 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, generator, health, icons, oauth, opened, otp, qr, remote, settings, similar, staged, store, updates, vault};
+use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, gauth, generator, health, icons, oauth, opened, otp, qr, remote, settings, similar, staged, store, updates, vault};
 use pswm_core::autotype::Typed;
 use pswm_core::session::{KeyNeeded, Session};
 
@@ -1146,12 +1146,19 @@ fn pick_file_to_attach(window: Window, session: State<Session>) -> Result<Option
 /// such code, a picture the user picks. Nothing when they cancel.
 #[tauri::command(async)]
 fn scan_totp_qr(window: Window) -> Result<Option<String>, String> {
-    if let Some(uri) = clipboard::totp_qr() {
-        return Ok(Some(uri.to_string()));
+    Ok(read_qr(&window, qr::from_rgba, qr::from_image)?.map(|uri| uri.to_string()))
+}
+
+/// A QR code's text for `from_clipboard` / `from_file` to take: from the
+/// picture on the clipboard, or, when it holds no such code, a picture the
+/// user picks. Nothing when they cancel.
+fn read_qr(window: &Window, from_clipboard: qr::FromPixels, from_file: qr::FromFile) -> Result<Option<Zeroizing<String>>, String> {
+    if let Some(text) = clipboard::qr(from_clipboard) {
+        return Ok(Some(text));
     }
-    let Some(path) = pick(&window, "Pictures", &["png", "jpg", "jpeg"])? else { return Ok(None) };
+    let Some(path) = pick(window, "Pictures", &["png", "jpg", "jpeg"])? else { return Ok(None) };
     let content = read_picked(&path, qr::check_size)?;
-    qr::from_image(&content).map(|uri| Some(uri.to_string()))
+    from_file(&content).map(Some)
 }
 
 /// A file the user picked, read whole; `check_size` refuses one too big
@@ -1325,10 +1332,16 @@ fn cancel_import(app: AppHandle) {
 
 /// Adds what the file read holds, as [import_file] says.
 fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Import) -> Result<FileImported, String> {
-    let session = app.state::<Session>();
-    let imported = app.state::<ImportedFile>();
+    let done = add_entries(app, file, import)?;
+    *app.state::<ImportedFile>().0.lock().unwrap() = Some(path);
+    Ok(done)
+}
+
+/// Adds `import`'s entries in a group of their own (`from` names where they
+/// came from), saved and synced as one change.
+fn add_entries(app: &AppHandle, from: String, import: cxf::Import) -> Result<FileImported, String> {
     let group = import.group_name_today();
-    let (added, listing) = session.with_mut(|v| {
+    let (added, listing) = app.state::<Session>().with_mut(|v| {
         let added = v.import(&import, &group)?;
         Ok((added, v.listing()))
     })?;
@@ -1336,8 +1349,39 @@ fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Impor
         fetch_icons(app, &listing);
         sync::upload_soon(app);
     }
-    *imported.0.lock().unwrap() = Some(path);
-    Ok(FileImported { file, group, added, skipped: import.skipped, listing })
+    Ok(FileImported { file: from, group, added, skipped: import.skipped, listing })
+}
+
+/// Google Authenticator's export codes read so far (#281), in memory only
+/// until they are imported or let go of ([gauth_cancel]).
+#[derive(Default)]
+struct GauthExport(Mutex<gauth::Collected>);
+
+/// Reads one of Google Authenticator's export codes (as [scan_totp_qr]
+/// reads one) and adds it to those read so far. Nothing when cancelled.
+#[tauri::command(async)]
+fn gauth_read(app: AppHandle, window: Window) -> Result<Option<gauth::Progress>, String> {
+    let Some(text) = read_qr(&window, qr::export_from_rgba, qr::export_from_image)? else { return Ok(None) };
+    app.state::<GauthExport>().0.lock().unwrap().add(&text).map(Some)
+}
+
+/// Imports the accounts of the export codes read so far, as a file's
+/// entries are imported, and lets the codes go.
+#[tauri::command(async)]
+fn gauth_import(app: AppHandle) -> Result<FileImported, String> {
+    if !app.state::<Session>().is_unlocked() {
+        return Err("Unlock the database first".into());
+    }
+    let import = app.state::<GauthExport>().0.lock().unwrap().import();
+    let done = add_entries(&app, import.exporter.clone(), import)?;
+    gauth_cancel(app);
+    Ok(done)
+}
+
+/// Lets go of the export codes read so far.
+#[tauri::command(async)]
+fn gauth_cancel(app: AppHandle) {
+    *app.state::<GauthExport>().0.lock().unwrap() = gauth::Collected::default();
 }
 
 /// Deletes the file the last import read (the user confirmed): only that one.
@@ -1834,6 +1878,7 @@ pub fn run() {
         .manage(FileWatch::default())
         .manage(ImportedFile::default())
         .manage(WaitingFile::default())
+        .manage(GauthExport::default())
         .manage(AutoTypeTarget::default())
         .manage(browser_host::Questions::default())
         .manage(sync::Syncer::default())
@@ -1869,6 +1914,9 @@ pub fn run() {
             import_file,
             import_file_with_password,
             cancel_import,
+            gauth_read,
+            gauth_import,
+            gauth_cancel,
             delete_imported_file,
             confirm_export,
             export_file,

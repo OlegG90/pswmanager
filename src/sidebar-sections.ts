@@ -16,6 +16,7 @@ export const SIDEBAR_PATHS = {
   similar: 'M18 15a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM6 3a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM6 21V9a9 9 0 0 0 9 9',
   import: 'M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4',
   export: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
+  authenticator: 'M17 12v4a1 1 0 0 1-1 1h-4M17 3h2a2 2 0 0 1 2 2v2M17 8V7M21 17v2a2 2 0 0 1-2 2h-2M3 7V5a2 2 0 0 1 2-2h2M7 17h.01M7 21H5a2 2 0 0 1-2-2v-2M8 7h3a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z',
   // The settings' tabs.
   general: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4',
   window: 'M3 5h18v14H3zM3 9h18',

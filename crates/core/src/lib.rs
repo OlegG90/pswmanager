@@ -16,6 +16,7 @@ pub mod edit;
 pub mod encryption;
 pub mod file_export;
 pub mod file_import;
+pub mod gauth;
 pub mod generator;
 pub mod google;
 pub mod health;

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported, GauthProgress } from '../../../../src/api'
 
-export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported }
+export type { Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported, GauthProgress }
 
 export interface Database {
   title: string
@@ -183,6 +183,12 @@ export const api = {
   importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
   /** Lets go of the file waiting for its password. */
   cancelImport: () => invoke<void>('cancel_import'),
+  /** Reads one of Google Authenticator's export codes with the camera or in a picked picture; null when cancelled. */
+  gauthRead: (camera: boolean) => invoke<GauthProgress | null>('gauth_read', { camera }),
+  /** Imports the accounts of the export codes read so far. */
+  gauthImport: () => invoke<Imported>('gauth_import'),
+  /** Lets go of the export codes read so far. */
+  gauthCancel: () => invoke<void>('gauth_cancel'),
   /** Imports the file `name` in a browsed folder (All files access). */
   importFileAt: (folder: string, name: string) => invoke<ImportStep>('import_file_at', { folder, name }),
   /** Deletes the file the last import read by its path. */

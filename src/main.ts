@@ -21,6 +21,7 @@ import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
 import { renderImport } from './file-import'
+import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import { clicked, type Choice } from './selection'
@@ -55,7 +56,7 @@ let settingsOpen = false
 /** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
 /** The tools, each shown beside the sidebar. */
-type Tool = 'health' | 'similar' | 'import' | 'export'
+type Tool = 'health' | 'similar' | 'import' | 'gauth' | 'export'
 /** The tool whose report is shown, marked in the sidebar. */
 let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
@@ -1243,6 +1244,7 @@ function fillTools() {
     sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
     sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
     sideCommand('Import from a file', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import', openImport, 'tool:import'),
+    sideCommand('Import from Google Authenticator', 'Add the accounts of its export, read from its QR codes', 'authenticator', openGauth, 'tool:gauth'),
     sideCommand('Export to a file', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export', openExport, 'tool:export'),
   )
   // Each tab's icon has the tab's name.
@@ -1275,6 +1277,13 @@ const openImport = () =>
   openReport('import', async () =>
     renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
 
+// Chosen again, it starts over: the codes read before are let go of.
+const openGauth = () =>
+  openReport('gauth', async () => {
+    await api.gauthCancel()
+    renderGauthImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) })
+  })
+
 const openExport = () =>
   // Without an answer about Windows Hello, the master password is asked for instead.
   openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
@@ -1291,6 +1300,8 @@ const openSimilar = () =>
 
 function closeReport() {
   if (!reportOpen) return
+  // Google Authenticator's codes read so far go with the page.
+  if (reportTool === 'gauth') void api.gauthCancel()
   reportOpen = false
   reportTool = null
   reportView.replaceChildren()
