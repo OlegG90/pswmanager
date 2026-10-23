@@ -17,14 +17,15 @@ use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT};
 use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
-use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
+use windows_sys::Win32::System::RemoteDesktop::{WTSEnumerateProcessesExW, WTSFreeMemoryExW, WTSTypeProcessInfoLevel1, WTS_CURRENT_SERVER_HANDLE, WTS_PROCESS_INFO_EXW};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
@@ -51,6 +52,8 @@ const MAX_MESSAGE: usize = 1 << 20;
 /// How long a message may take to come whole once it started: a client that
 /// stops halfway is let go, rather than holding the connection.
 const MESSAGE_WITHIN: Duration = Duration::from_secs(10);
+/// The processes of every Windows session, to `WTSEnumerateProcessesExW`.
+const WTS_ANY_SESSION: u32 = 0xFFFF_FFFE;
 
 /// Whether this launch is a browser starting the host: Chromium browsers pass
 /// the extension's origin first, Firefox the manifest and the extension's id.
@@ -63,19 +66,12 @@ fn pipe_name(user: &str) -> Vec<u16> {
     wide(&format!(r"\\.\pipe\pswmanager-browser-{user}"))
 }
 
-/// The SID of the Windows user this process runs as (`S-1-5-21-…`).
+/// The SID of the Windows user this process runs as (`S-1-5-21-...`).
 fn this_user() -> Option<String> {
-    // SAFETY: the pseudo handle of this process needs no closing.
-    process_user(unsafe { GetCurrentProcess() })
-}
-
-/// The SID of the Windows user a process runs as.
-fn process_user(process: HANDLE) -> Option<String> {
-    // SAFETY: the token is closed below; the SID string is freed with
-    // LocalFree; the buffer is as long as said.
+    // SAFETY: the token is closed below; the buffer is as long as said.
     unsafe {
         let mut token: HANDLE = std::ptr::null_mut();
-        if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return None;
         }
         let mut buffer = [0u64; 64];
@@ -85,9 +81,19 @@ fn process_user(process: HANDLE) -> Option<String> {
         if !read {
             return None;
         }
-        let user = (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        sid_text((*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid)
+    }
+}
+
+/// A SID in its string form.
+///
+/// # Safety
+/// `sid` must point to a valid SID.
+unsafe fn sid_text(sid: PSID) -> Option<String> {
+    // SAFETY: the string is NUL-terminated and freed with LocalFree.
+    unsafe {
         let mut text: *mut u16 = std::ptr::null_mut();
-        if ConvertSidToStringSidW(user, &mut text) == 0 {
+        if ConvertSidToStringSidW(sid, &mut text) == 0 {
             return None;
         }
         let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, (0..).take_while(|&i| *text.add(i) != 0).count()));
@@ -96,21 +102,24 @@ fn process_user(process: HANDLE) -> Option<String> {
     }
 }
 
-/// Whether the program serving the pipe runs as `user`.
+/// Whether the program serving the pipe runs as `user`. Its user comes from
+/// the list of processes rather than its token, which a program run as
+/// administrator does not let this one read.
 fn served_by(pipe: HANDLE, user: &str) -> bool {
     let mut id = 0;
-    // SAFETY: asks for the server's process id, then opens that process only
-    // to read its user, and closes it.
+    // SAFETY: asks for the server's process id, then for the processes with
+    // their users (Task Manager's list), freed after.
     unsafe {
         if GetNamedPipeServerProcessId(pipe, &mut id) == 0 {
             return false;
         }
-        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
-        if process.is_null() {
+        let (mut level, mut list, mut count) = (1u32, std::ptr::null_mut(), 0u32);
+        if WTSEnumerateProcessesExW(WTS_CURRENT_SERVER_HANDLE, &mut level, WTS_ANY_SESSION, &mut list, &mut count) == 0 {
             return false;
         }
-        let owner = process_user(process);
-        CloseHandle(process);
+        let processes = std::slice::from_raw_parts(list.cast::<WTS_PROCESS_INFO_EXW>(), count as usize);
+        let owner = processes.iter().find(|p| p.ProcessId == id).filter(|p| !p.pUserSid.is_null()).and_then(|p| sid_text(p.pUserSid));
+        WTSFreeMemoryExW(WTSTypeProcessInfoLevel1, list.cast(), count);
         owner.as_deref() == Some(user)
     }
 }
@@ -277,8 +286,8 @@ pub fn serve(clients: &'static Clients, failed: impl FnOnce() + Send + 'static, 
             // SAFETY: the handle is this connection's; the File closes it.
             let file = unsafe { File::from_raw_handle(pipe) };
             std::thread::spawn(move || {
+                let _among_clients = joined;
                 converse(file, told, allowed, answer);
-                drop(joined);
             });
         }
     });
@@ -324,17 +333,21 @@ fn converse(
             }
         };
         begun = Instant::now();
+        // Answered on a thread of its own, which may wait for the user.
         let (reply, alive) = std::thread::scope(|scope| {
-            let answering = scope.spawn(|| answer(&mut session, &request));
+            let (done, answered) = mpsc::channel();
+            let (session, request, answer) = (&mut session, &request, &answer);
+            scope.spawn(move || done.send(answer(session, request)));
             let mut alive = true;
-            while alive && !answering.is_finished() {
-                std::thread::sleep(Duration::from_millis(50));
-                alive = deliver(&mut file, &told);
+            loop {
+                match answered.recv_timeout(Duration::from_millis(50)) {
+                    Ok(reply) => return (Some(reply), alive),
+                    Err(RecvTimeoutError::Timeout) => alive = alive && deliver(&mut file, &told),
+                    Err(RecvTimeoutError::Disconnected) => return (None, false),
+                }
             }
-            (answering.join(), alive)
         });
-        let Ok(reply) = reply.map_err(|_| eprintln!("Answering the browser extension failed")) else { return };
-        if !alive || write_message(&mut file, &reply).is_err() {
+        if !alive || reply.is_none_or(|reply| write_message(&mut file, &reply).is_err()) {
             return;
         }
     }

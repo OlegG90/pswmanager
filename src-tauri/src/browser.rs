@@ -12,7 +12,6 @@ use crypto_box::aead::Aead;
 use crypto_box::{PublicKey, SalsaBox, SecretKey};
 use pswm_core::browser::{Group, Login};
 use serde_json::{json, Map, Value};
-use std::collections::HashSet;
 
 /// The KeePassXC version reported: the extension turns its features on by it.
 /// 2.7.10 has the password generator, the new TOTP, and passkeys with a
@@ -106,15 +105,11 @@ pub trait Host {
 /// and key. It is checked again on every request that needs it, so another
 /// database opened since, or the association removed (here, or on another
 /// device and synced), gives the extension nothing until it proves one again.
-/// `get-totp` gives codes only of the entries `get-logins` gave this
-/// connection, so an entry kept from a page (hidden, or denied to its host)
-/// is not reached by its UUID.
 #[derive(Default)]
 pub struct Session {
     client: Option<PublicKey>,
     secret: Option<SecretKey>,
     associated: Option<Proved>,
-    given: HashSet<String>,
 }
 
 struct Proved {
@@ -254,16 +249,22 @@ impl Session {
                 if logins.is_empty() {
                     return error(action, Failure::NoLogins);
                 }
-                // As many as fit in one answer: the browser takes no longer one.
-                let mut room = MAX_SEALED.saturating_sub(1024 + hash.len() + text("id").len());
-                let fit = logins.iter().take_while(|login| {
+                // As many as fit in one answer, beside its other fields: the
+                // browser takes no longer one.
+                let mut room = MAX_SEALED.saturating_sub(256 + hash.len() + text("id").len());
+                let mut fit = 0;
+                for login in &logins {
                     let size = serde_json::to_string(login).map_or(usize::MAX, |s| s.len() + 1);
-                    let fits = size <= room;
-                    room = room.saturating_sub(size);
-                    fits
-                });
-                logins.truncate(fit.count());
-                self.given.extend(logins.iter().map(|login| login.uuid.to_lowercase()));
+                    if size > room {
+                        break;
+                    }
+                    room -= size;
+                    fit += 1;
+                }
+                if fit == 0 {
+                    return error(action, Failure::NoLogins);
+                }
+                logins.truncate(fit);
                 self.answer(action, &nonce, json!({ "count": logins.len(), "entries": logins, "hash": hash, "id": text("id") }))
             }
             "get-totp" => {
@@ -271,8 +272,7 @@ impl Session {
                 if !is_uuid(uuid) {
                     return error(action, Failure::NoValidUuid);
                 }
-                let totp = Some(uuid).filter(|uuid| self.given.contains(&uuid.to_lowercase())).and_then(|uuid| host.totp(uuid));
-                self.answer(action, &nonce, json!({ "totp": totp.unwrap_or_default() }))
+                self.answer(action, &nonce, json!({ "totp": host.totp(uuid).unwrap_or_default() }))
             }
             "generate-password" => match host.generate_password() {
                 Some(password) => self.answer(action, &nonce, json!({ "password": password })),
@@ -330,7 +330,6 @@ impl Session {
         let secret = new_secret();
         let public = B64.encode(secret.public_key().as_bytes());
         (self.client, self.secret, self.associated) = (Some(client), Some(secret), None);
-        self.given.clear();
         json!({ "action": action, "version": VERSION, "publicKey": public, "success": "true", "nonce": B64.encode(increment(&nonce)) })
     }
 }
@@ -478,8 +477,6 @@ mod tests {
         assert_eq!(none["errorCode"], "15");
         let totp = extension.send(&mut session, &host, json!({ "action": "get-totp", "uuid": "0".repeat(32) }));
         assert_eq!(totp["totp"], "123456");
-        let not_given = extension.send(&mut session, &host, json!({ "action": "get-totp", "uuid": "1".repeat(32) }));
-        assert_eq!(not_given["totp"], "", "only of an entry get-logins gave");
         // The association removed (here, or synced from another device): nothing more.
         let kept = host.keys.replace(Vec::new());
         let removed = extension.send(&mut session, &host, json!({ "action": "get-logins", "url": "https://mail.example/" }));

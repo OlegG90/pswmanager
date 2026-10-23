@@ -497,8 +497,9 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   from the browser, not from the page. Entries KeePassXC's settings keep from the site are left out: hidden from the
   extension (`BrowserHideEntry` on the entry or its nearest group saying so) or denied to the host (the
   entry's `KeePassXC-Browser Settings`). There is no question per entry, unlike KeePassXC. Each login
-  carries its current TOTP code; `get-totp` gives it again, only for an entry `get-logins` gave the
-  connection (and not hidden since). More logins than 1 MB holds: the first that fit.
+  carries its current TOTP code; `get-totp` gives it again, never of an entry hidden from the extension
+  (it names no page, so the per-host Deny list counts when `get-logins` gives the entry). More logins
+  than 1 MB holds: the first that fit.
 - **Saving** (`set-login`): a new login becomes an entry titled after the page's host, with its address,
   in the group the extension names, else `KeePassXC-Browser Passwords` (made when missing), saved and
   synced like an edit. Replacing the password (and user name) of a login the database has is asked in
