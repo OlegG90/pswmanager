@@ -26,9 +26,17 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
 };
 
-/// Browsers by their program's file name: one of them is a browser even when
-/// its address cannot be read (and then nothing fits it).
-const BROWSERS: [&str; 6] = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe", "opera.exe"];
+/// Browsers made from Chromium, by their program's file name: one of them is
+/// a browser even when its address cannot be read (and then nothing fits
+/// it). Apps made with Electron share Chromium's window class but show no
+/// address, so the class alone cannot tell.
+const BROWSERS: [&str; 14] = [
+    "chrome.exe", "msedge.exe", "brave.exe", "vivaldi.exe", "opera.exe", "browser.exe", "chromium.exe", "thorium.exe", "whale.exe", "arc.exe",
+    "iridium.exe", "slimjet.exe", "maxthon.exe", "yandex.exe",
+];
+/// Programs with Firefox's window class that are no browser: every other
+/// window of that class is one (Firefox, LibreWolf, Zen, Floorp, Waterfox…).
+const GECKO_APPS: [&str; 2] = ["thunderbird.exe", "betterbird.exe"];
 /// Windows that are no app to type into: the desktop and the taskbar.
 const NOT_APPS: [&str; 4] = ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"];
 /// How long a window waits to be typed into while the user unlocks or chooses.
@@ -83,7 +91,9 @@ pub fn foreground() -> Option<Target> {
         let address = engine.and_then(|e| address(hwnd, e));
         // A browser not in the list counts as one when it shows an address:
         // its title, which the page chooses, must never pick the entry.
-        let browser = address.is_some() || program(pid).is_some_and(|p| BROWSERS.contains(&p.as_str()));
+        let program = program(pid);
+        let gecko_browser = engine == Some(Engine::Gecko) && !program.as_deref().is_some_and(|p| GECKO_APPS.contains(&p));
+        let browser = address.is_some() || gecko_browser || program.is_some_and(|p| BROWSERS.contains(&p.as_str()));
         let page = address.as_deref().and_then(Page::of_address);
         Some(Target { hwnd: hwnd as usize, engine, window: Window { title, browser, page }, since: Instant::now() })
     }
@@ -102,8 +112,21 @@ pub fn behind() -> Option<Target> {
 
 /// The page the target's browser shows now; `None` when it is no browser or
 /// its address cannot be read.
-pub fn page_now(target: &Target) -> Option<Page> {
+fn page_now(target: &Target) -> Option<Page> {
     target.engine.and_then(|e| address(target.hwnd(), e)).as_deref().and_then(Page::of_address)
+}
+
+/// Whether the target still shows the page it showed when the hotkey was
+/// pressed (a browser may have gone on: a redirect after Enter, another tab);
+/// any other window always does.
+pub fn on_same_page(target: &Target) -> bool {
+    if !target.window.browser {
+        return true;
+    }
+    match (page_now(target), &target.window.page) {
+        (Some(now), Some(then)) => now.same_place(then),
+        (now, then) => now.is_none() && then.is_none(),
+    }
 }
 
 /// The browser engines whose address bar can be read, by their windows' class.
@@ -221,10 +244,11 @@ unsafe fn integrity(process: HANDLE) -> Option<u32> {
 }
 
 /// Brings the window forward and types the steps into it, checking before
-/// each key that it is still in front: if another window comes forward,
-/// typing stops there.
+/// each key that it is still in front, and before each step that a browser
+/// still shows the same page: otherwise typing stops there.
 pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
     const MOVED: &str = "Another window came forward: Auto-Type stopped";
+    const PAGE: &str = "The browser went on to another page: Auto-Type stopped";
     if !target.is_current() {
         return Err("The window to type into is gone".into());
     }
@@ -249,8 +273,13 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
     for step in steps {
         // Every key goes to the window only while it is in front; a text's
         // before each of its characters too.
-        if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) && !in_front() {
-            return Err(MOVED.into());
+        if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) {
+            if !in_front() {
+                return Err(MOVED.into());
+            }
+            if !on_same_page(target) {
+                return Err(PAGE.into());
+            }
         }
         match step {
             Step::Text(text) => {

@@ -1,4 +1,4 @@
-import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
+import { api, isTotpLayoutField, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
 import { EMPTY_ENTRY, chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, showHide, strengthMeter } from './editor-parts'
 import { dateOf, keep, trimmedLine } from './entry-text'
@@ -88,7 +88,10 @@ export function changedElsewhere(ids: string[]) {
 /** What a new entry takes from a template: everything but its title, expiry,
  *  TOTP secret (every entry has its own) and star. */
 function fromTemplate(template?: EntryData): Partial<EntryData> {
-  return template ? { ...template, title: '', expires: null, otp: '', tags: template.tags.filter((t) => t !== FAVORITE) } : {}
+  if (!template) return {}
+  // Its TOTP stays with it, in whichever layout it is kept (#278).
+  const fields = template.fields.filter((f) => !isTotpLayoutField(f.name))
+  return { ...template, title: '', expires: null, otp: '', fields, tags: template.tags.filter((t) => t !== FAVORITE) }
 }
 
 /** The entry's Auto-Type settings (#272): on or off, its own sequence, and

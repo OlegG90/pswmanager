@@ -867,6 +867,7 @@ fn lock_now(app: &AppHandle) {
         *app.state::<FileWatch>().0.lock().unwrap() = None;
         window::set_title(app, None);
         app.state::<gauth::Session>().cancel();
+        browser_host::forget_questions(app);
         let _ = app.emit("locked", ());
         // What changed here goes up; a merge waits for the next unlock.
         sync::request(app);
@@ -1690,11 +1691,7 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
     // The browser may show another page by now (a redirect, another tab).
-    let same_page = match (autotype::page_now(target), &target.window.page) {
-        (Some(now), Some(then)) => now.same_place(then),
-        (now, then) => now.is_none() && then.is_none(),
-    };
-    if target.window.browser && !same_page {
+    if !autotype::on_same_page(target) {
         return Err("The browser shows another page now: press the Auto-Type hotkey there again".into());
     }
     if autotype::runs_higher(target) {
