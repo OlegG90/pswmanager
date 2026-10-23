@@ -10,6 +10,10 @@
          tells it apart from another app taking its package name. Android 11
          hides other apps otherwise; PswManager reads only that app's. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+    <!-- Reading a TOTP QR code (#280), asked the first time it is used; a
+         phone without a camera still installs the app. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -125,6 +129,11 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.pswm_android.Translucent" />
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".UnlockActivity"
             android:exported="false"

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{Manager, Runtime};
+use zeroize::Zeroizing;
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
@@ -129,6 +130,16 @@ impl<R: Runtime> Documents<R> {
     /// it is read, when the provider tells its size.
     pub fn pick_to_read(&self) -> Result<Option<(String, Vec<u8>)>, String> {
         self.read_picked("pickToRead", pswm_core::edit::check_size)
+    }
+
+    /// What the QR code the camera reads holds (`ScanActivity.kt`, #280);
+    /// `None` when the user went back. A refused permission is an error.
+    pub fn scan_qr(&self) -> Result<Option<Zeroizing<String>>, String> {
+        #[derive(Deserialize)]
+        struct Scanned {
+            text: Option<String>,
+        }
+        Ok(self.call::<Scanned>("scanQr", ())?.text.map(Zeroizing::new))
     }
 
     /// A picture the user picks (a TOTP QR code), read once as

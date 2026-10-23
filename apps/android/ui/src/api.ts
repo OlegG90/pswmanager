@@ -226,8 +226,8 @@ export const api = {
   editEntry: (id: string) => invoke<EntryData>('edit_entry', { id }),
   saveEntry: (id: string | null, base: EntryData | null, data: EntryData, files: FileChange[]) => invoke<Saved>('save_entry', { id, base, data, files }),
   pickFileToAttach: () => invoke<StagedFile | null>('pick_file_to_attach'),
-  /** A TOTP URI from a QR code in a picked picture; null when cancelled. */
-  scanTotpQr: () => invoke<string | null>('scan_totp_qr'),
+  /** A TOTP URI from a QR code, read with the camera or in a picked picture; null when cancelled. */
+  scanTotpQr: (camera: boolean) => invoke<string | null>('scan_totp_qr', { camera }),
   releaseFiles: (files: number[]) => invoke<void>('release_files', { files }),
   /** The settings kept in the open database's file (#193). */
   databaseSettings: () => invoke<DatabaseSettings>('database_settings'),

@@ -62,19 +62,25 @@ fn read_codes(width: u32, height: u32, gray: impl FnMut(usize, usize) -> u8) -> 
     let mut why = "No QR code found in the picture".to_string();
     for grid in prepared.detect_grids() {
         let Ok((_, content)) = grid.decode() else { continue };
-        let content = Zeroizing::new(content);
-        if content.get(..MIGRATION.len()).is_some_and(|start| start.eq_ignore_ascii_case(MIGRATION)) {
-            why = "This is Google Authenticator's export: importing it is not supported yet".into();
-        } else if otp::is_uri(&content) {
-            match otp::Totp::parse(&content) {
-                Ok(_) => return Ok(content),
-                Err(e) => why = e,
-            }
-        } else {
-            why = "The QR code holds no TOTP secret (otpauth://totp/)".into();
+        match from_text(Zeroizing::new(content)) {
+            Ok(uri) => return Ok(uri),
+            Err(e) => why = e,
         }
     }
     Err(why)
+}
+
+/// What a QR code holds, when it is a TOTP URI; otherwise why not. The
+/// camera's codes come here as text (#280).
+pub fn from_text(content: Zeroizing<String>) -> Result<Zeroizing<String>, String> {
+    if content.get(..MIGRATION.len()).is_some_and(|start| start.eq_ignore_ascii_case(MIGRATION)) {
+        return Err("This is Google Authenticator's export: importing it is not supported yet".into());
+    }
+    if !otp::is_uri(&content) {
+        return Err("The QR code holds no TOTP secret (otpauth://totp/)".into());
+    }
+    otp::Totp::parse(&content)?;
+    Ok(content)
 }
 
 #[cfg(test)]
@@ -134,6 +140,8 @@ mod tests {
         assert!(from_image(&png(&picture("otpauth-migration://offline?data=AAAA"))).unwrap_err().contains("Google Authenticator"));
         assert_eq!(from_image(&png(&picture("otpauth://hotp/x?secret=JBSWY3DP"))).unwrap_err(), "Only time-based codes (otpauth://totp/) are supported");
         assert!(from_image(b"not a picture").is_err());
+        assert_eq!(from_text(Zeroizing::new(URI.into())).unwrap().as_str(), URI);
+        assert!(from_text(Zeroizing::new("otpauth://totp/x".into())).unwrap_err().contains("no secret"));
         assert!(from_rgba(MAX_SIDE + 1, 1, &[]).is_err());
         assert!(from_rgba(10, 10, &[0; 12]).is_err());
     }

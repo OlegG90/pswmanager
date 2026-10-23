@@ -88,14 +88,21 @@ pub async fn pick_file_to_attach(app: AppHandle) -> Result<Option<StagedFile>, S
     .await
 }
 
-/// A TOTP secret from a QR code in a picture the user picks (#279), for the
-/// editor; nothing when they cancel.
+/// A TOTP secret from a QR code, for the editor: read with the camera
+/// (`camera`, #280) or in a picture the user picks (#279); nothing when they
+/// cancel.
 #[tauri::command]
-pub async fn scan_totp_qr(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn scan_totp_qr(app: AppHandle, camera: bool) -> Result<Option<String>, String> {
     crate::app::off_main(move || {
-        let Some((_, content)) = app.state::<Documents<Wry>>().pick_image()? else { return Ok(None) };
-        let content = Zeroizing::new(content);
-        pswm_core::qr::from_image(&content).map(|uri| Some(uri.to_string()))
+        let documents = app.state::<Documents<Wry>>();
+        let uri = if camera {
+            let Some(text) = documents.scan_qr()? else { return Ok(None) };
+            pswm_core::qr::from_text(text)?
+        } else {
+            let Some((_, content)) = documents.pick_image()? else { return Ok(None) };
+            pswm_core::qr::from_image(&Zeroizing::new(content))?
+        };
+        Ok(Some(uri.to_string()))
     })
     .await
 }

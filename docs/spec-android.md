@@ -235,7 +235,10 @@ As in the mockups `1e`–`1j`.
   strength indicator, URL, notes, tags as chips, favorite, expiry date, TOTP secret, additional attributes,
   files (saved with the entry). The scan button by the TOTP secret reads a QR code from a picture picked
   with Android's picker (a screenshot of the site's code; no permission is asked), as `spec.md` *QR code*
-  says (#279); the camera is #280. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
+  says (#279), or with the **camera** (#280): a screen of its own (CameraX), each frame read by ZXing in memory and never
+  saved, closed by the first code holding an `otpauth:` URI, which the core then checks as a picture's; it cannot be captured,
+  whatever *Allow screenshots* says, as it shows the secret's code. The camera permission is asked the first time;
+  refused, the editor says so and a picture still works. A phone without a camera still installs the app. Showing a password or TOTP secret is the eye, a field's *protected* switch a padlock (closed when protected), as in the entry view. A full screen, each label above its field; the toolbar has ← (cancel; it asks before discarding changes,
   as Back does) and ✓ (save, then the entry is shown). A new entry is blank (not from a template), in the
   top group, with the database's default user name. Delete moves an entry to the recycle bin after a
   confirmation.
