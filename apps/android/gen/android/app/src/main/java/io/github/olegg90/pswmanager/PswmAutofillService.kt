@@ -79,9 +79,8 @@ class PswmAutofillService : AutofillService() {
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
     val save = Intent(this, AutofillSaveActivity::class.java)
       .putFields(fields, caller, "save")
-      .putExtra(EXTRA_TYPED_USERNAME, typedUsername(request, fields))
-      .putExtra(EXTRA_TYPED_PASSWORD, password)
-    // Immutable and once: nothing is added to it, and the password in it is not sent twice.
+      .putExtra(EXTRA_TYPED, keepTyped(typedUsername(request, fields), password))
+    // Immutable and once: nothing is added to it, and it is not answered twice.
     val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
     callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
   }
@@ -171,9 +170,31 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_ORIGIN = "origin"
     private const val EXTRA_CERTIFICATE = "certificate"
 
-    /** The user name and password typed in, for [AutofillSaveActivity]. */
-    internal const val EXTRA_TYPED_USERNAME = "typedUsername"
-    internal const val EXTRA_TYPED_PASSWORD = "typedPassword"
+    /** Which login typed in [AutofillSaveActivity] saves ([takeTyped]). */
+    internal const val EXTRA_TYPED = "typed"
+
+    /**
+     * The login typed in, held in memory for [AutofillSaveActivity] rather
+     * than in its intent: the system keeps an activity's extras and gives
+     * them back to a process started again, so the password would outlive
+     * it there. Only the latest, under a token of its own.
+     */
+    private var typed: Triple<String, String, String>? = null
+
+    @Synchronized
+    private fun keepTyped(username: String, password: String): String {
+      val token = java.util.UUID.randomUUID().toString()
+      typed = Triple(token, username, password)
+      return token
+    }
+
+    /** The user name and password kept under `token`, taken: none once taken, or after the process started again. */
+    @Synchronized
+    fun takeTyped(token: String): Pair<String, String>? {
+      val (_, username, password) = typed?.takeIf { it.first == token } ?: return null
+      typed = null
+      return username to password
+    }
 
     /** The most entries offered under the fields; the rest are found through [AutofillPickActivity]. */
     private const val MAX_OFFERS = 10
@@ -218,9 +239,16 @@ class AutofillUnlockActivity : UnlockScreen() {
     val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
     // Off the main thread: a sync or a save may hold the database a moment.
     thread {
-      val offers = PswmAutofillService.offers(this, fields, caller)
+      // As onFillRequest: a failure here offers nothing rather than ending the app.
+      val offers = try {
+        PswmAutofillService.offers(this, fields, caller)
+      } catch (e: Exception) {
+        android.util.Log.w("PswmAutofill", "No offer: ${e.javaClass.simpleName}")
+        null
+      }
       runOnUiThread {
-        setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
+        if (offers == null) setResult(RESULT_CANCELED)
+        else setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
         finish()
       }
     }
@@ -271,8 +299,8 @@ class AutofillSaveActivity : UnlockScreen() {
 
   override fun done() {
     val (_, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
-    val username = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_USERNAME).orEmpty()
-    val password = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED_PASSWORD) ?: return finish()
+    val token = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED) ?: return finish()
+    val (username, password) = PswmAutofillService.takeTyped(token) ?: return tell("The password typed in is gone: type it again to save it")
     SaveLogin(this, caller, username, password, { tell("Saved in PswManager") }, ::finish, ::tell).choose()
   }
 

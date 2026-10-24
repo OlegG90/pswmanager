@@ -110,6 +110,7 @@
         </service>
         <activity
             android:name=".AutofillUnlockActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"
             android:excludeFromRecents="true"
             android:screenOrientation="portrait" />
