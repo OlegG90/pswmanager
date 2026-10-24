@@ -2,7 +2,7 @@ import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { siteIconCache } from './site-icons'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type AutoTypeAsk, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { closeMenus, contextMenu, menuButton, type MenuItem } from './menu'
@@ -15,7 +15,6 @@ import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
 import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
-import { chooseToType } from './auto-type'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
@@ -242,28 +241,9 @@ function showVault(next: Listing) {
     showContent()
     searchInput.focus()
   }
-  // Auto-Type's hotkey was pressed while locked: its window still waits.
-  api.autoTypeResume().then(offerAutoType, (e) => notify(String(e), 6))
 }
 
 // ---------------------------------------------------------------- Auto-Type
-
-/** Asks which entry to type into the window Auto-Type's hotkey was pressed in
- *  (#272), then types it there; cancelled, nothing waits any more. */
-async function offerAutoType(ask: AutoTypeAsk | null) {
-  if (!ask || !unlocked) return
-  // Another question is on screen: the window does not wait to be typed into later.
-  if (isAsking()) {
-    notify('Answer the question on screen first, then press the Auto-Type hotkey again', 6)
-    return api.cancelAutoType()
-  }
-  const choice = await chooseToType(ask, listing.entries)
-  try {
-    await (choice ? api.autoType(choice.id, choice.typed) : api.cancelAutoType())
-  } catch (e) {
-    notify(String(e), 6)
-  }
-}
 
 /** Entry-level Auto-Type: the entry shown, typed into the window behind PswManager. */
 function autoTypeEntry(id = current?.id) {
@@ -279,9 +259,8 @@ function lock() {
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
   unlocked = false
-  // A question still open (a passkey or login to choose for a browser, the
-  // Auto-Type picker) shows entries: it is answered Cancel, not left over
-  // the unlock screen.
+  // A question still open (a passkey or login to choose for a browser) shows
+  // entries: it is answered Cancel, not left over the unlock screen.
   document.querySelectorAll('dialog[open]').forEach((d) => d.dispatchEvent(new Event('cancel')))
   closeMenus()
   closeReport()
@@ -1561,7 +1540,10 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 }
 
 listen('locked', showLocked)
-listen<AutoTypeAsk>('auto-type', (e) => offerAutoType(e.payload))
+// Unlocked in Auto-Type's chooser (#307).
+listen('unlocked', async () => {
+  if (!unlocked) showVault(await api.listing())
+})
 // The browser extension's requests that need the user (#273).
 listen<BrowserAssociate>('browser-associate', (e) => answerAssociate(e.payload).catch((err) => notify(String(err))))
 listen<BrowserUpdate>('browser-update', (e) => answerUpdate(e.payload).catch((err) => notify(String(err))))

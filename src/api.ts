@@ -292,7 +292,7 @@ export interface EntryChoice {
   username: string
 }
 
-/** Auto-Type's hotkey was pressed and the window asks which entry to type. */
+/** Auto-Type's hotkey was pressed and the chooser asks which entry to type. */
 export interface AutoTypeAsk {
   /** The title of the window typed into. */
   window: string
@@ -620,13 +620,15 @@ export const api = {
   mergeEntries: (keep: string, others: string[]) => invoke<Listing>('merge_entries', { keep, others }),
   /** What `mergeEntries` would change in `keep`; nothing changes. */
   mergePreview: (keep: string, others: string[]) => invoke<MergePreview>('merge_preview', { keep, others }),
-  /** After an unlock: the choice for the window waiting to be typed into;
-   *  null when none waits, or one entry alone fit it and was typed. */
-  autoTypeResume: () => invoke<AutoTypeAsk | null>('auto_type_resume'),
-  /** Types the chosen entry into the window waiting for it. */
+  /** What Auto-Type's chooser shows, unlocked: the choice for the window
+   *  waiting to be typed into, or null when none waits; fails with why that
+   *  window was not typed into. */
+  autoTypeWaiting: () => invoke<AutoTypeAsk | null>('auto_type_waiting'),
+  /** Types the chosen entry into the window waiting for it; the chooser steps aside. */
   autoType: (id: string, typed: Typed) => invoke<void>('auto_type', { id, typed }),
   /** Types the entry into the window behind PswManager's (entry-level Auto-Type). */
   autoTypeEntry: (id: string, typed: Typed) => invoke<void>('auto_type_entry', { id, typed }),
+  /** Nothing waits to be typed into any more, and the chooser goes. */
   cancelAutoType: () => invoke<void>('cancel_auto_type'),
   /** The window's answer to a question the browser extension's request raised. */
   browserAnswer: (id: number, answer: string | boolean | null | { entry: string | null }) => invoke<void>('browser_answer', { id, answer }),

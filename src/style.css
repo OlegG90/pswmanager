@@ -2016,22 +2016,70 @@ dialog.modal.shortcuts {
   background: var(--color-control);
 }
 
-/* Auto-Type's choice of entry (#272): the search, then the entries. */
-dialog.modal.auto-type {
-  width: min(520px, 90vw);
+/* Auto-Type's chooser (#307): a window of its own, laid out as a dialog —
+   what it asks on the card, its buttons on the window's ground below. The
+   entries take the height left. */
+#chooser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
-.modal.auto-type input.text {
+#chooser .content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 0;
+  background: var(--color-card);
+}
+
+#chooser .content > p {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+#chooser input.text {
   width: 100%;
   margin-bottom: 8px;
 }
 
-.modal.auto-type p.muted {
+#chooser p.muted {
   margin: 0 0 8px;
 }
 
+#chooser .unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#chooser .unlock p {
+  margin: 0;
+  font-size: 12px;
+}
+
+#chooser .unlock .error {
+  color: var(--color-danger);
+}
+
+#chooser .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 16px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-stroke);
+}
+
+#chooser .buttons button {
+  min-width: 80px;
+}
+
 ul.type-choices {
-  max-height: 40vh;
+  flex: 1;
+  min-height: 0;
   margin: 0 0 16px;
   padding: 0;
   overflow-y: auto;

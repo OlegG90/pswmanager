@@ -407,9 +407,11 @@ It works in any app, browsers included, with no extension.
 
 - **The hotkey** (default `Ctrl+Alt+A`, as in KeePass; changed or turned off in *Settings → General →
   Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own, the
-  desktop or the taskbar. While locked, the window comes up to unlock, then asks which entry to type
-  (always: the unlock may have been for something else); the window waits to be typed into for two
-  minutes, and a browser that shows another page by the time the entry is typed gets nothing.
+  desktop or the taskbar. While locked, the chooser (below) asks for the master password (or Windows
+  Hello, which asks at once where it is set up; the key file the unlock screen has goes with it), then
+  which entry to type (always: the unlock may have been for something else); an unlock in the main
+  window does as well. The window waits to be typed into for two minutes, and a browser that shows
+  another page by the time the entry is typed gets nothing.
 - **Which entries fit**, among the entries in use with Auto-Type on:
   - in a **browser**, those that fit the page its address bar shows, as in KeePassXC (see *Pages and
     entries* under *Browser integration*). The address is read through UI Automation: Firefox's (and
@@ -425,10 +427,15 @@ It works in any app, browsers included, with no extension.
   - in **another app**, those whose title is part of the window's title (ignoring case), or one of whose
     window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
     ignoring case; without `*` the whole title must match.
-- **One entry fits**: it is typed at once, unless **Always ask** is on (off by default). Otherwise a
-  dialog *Type into "<title>"* (with the site, in a browser) lists those that fit; typing searches every
-  entry in use. ↑ / ↓ choose, Enter or **Type** types the entry's sequence; **User name**, **Password**
-  and **TOTP** type that value alone. Cancel or Esc types nothing.
+- **One entry fits**: it is typed at once, unless **Always ask** is on (off by default). Otherwise the
+  **chooser** asks (#307): a small window of its own, centred over the window the hotkey was pressed
+  in, so the main window never covers it; the main window stays as it was, hidden or shown. It says
+  *Type into "<title>"* (with the site, in a browser) and lists the entries that fit; typing searches
+  every entry in use. ↑ / ↓ choose, Enter or **Type** types the entry's sequence; **User name**,
+  **Password** and **TOTP** type that value alone. Cancel, Esc or closing it types nothing. It steps
+  aside to type and comes back to say why typing failed; typed with the main window hidden, the
+  database locks or syncs as hiding the window does (*Lock when hidden*). Why the hotkey's window was
+  not typed into at once (one entry fit, but it cannot be typed there) is said in the chooser too.
 - **Entry-level Auto-Type**: `Ctrl+Shift+V` or *Auto-Type* in the entry's menu hides the window and types
   the entry into the window that comes forward then (the one in front before PswManager).
 - **The sequence** is that of the entry's first window association matching the window's title; else
