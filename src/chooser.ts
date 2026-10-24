@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { api, type AutoTypeAsk, type Entry, type Status } from './api'
 import { typeChoice, typeTarget } from './auto-type'
-import { button, el, errorLine } from './dom'
+import { busyButton, button, el, errorLine } from './dom'
 
 // Auto-Type's chooser (#307): a window of its own over the window the hotkey
 // was pressed in. It unlocks the database if it must, then asks which entry
@@ -34,9 +34,9 @@ async function refresh() {
   try {
     const status = await api.status()
     if (!status.unlocked) return showUnlock(status)
-    const ask = await api.autoTypeWaiting()
+    const [ask, listing] = await Promise.all([api.autoTypeWaiting(), api.listing()])
     if (!ask) return cancel()
-    showChoice(ask, (await api.listing()).entries)
+    showChoice(ask, listing.entries)
   } catch (e) {
     showMessage(String(e))
   }
@@ -73,13 +73,8 @@ async function showUnlock(status: Status) {
     keyFile.textContent = keyFile.title = path ?? 'No key file'
   }
   showKeyFile(status.keyFile)
-  const pickKeyFile = button('Key file…', 'A KeePass key file (.keyx or .key), needed only if this database was set up with one', async () => {
-    try {
-      showKeyFile((await api.pickKeyFile()).keyFile)
-    } catch (e) {
-      error.show(String(e))
-    }
-  })
+  const pickKeyFile = busyButton('Key file…', 'A KeePass key file (.keyx or .key), needed only if this database was set up with one',
+    async () => showKeyFile((await api.pickKeyFile()).keyFile), error.show)
   const form = el('form', { className: 'unlock', autocomplete: 'off' },
     el('label', { className: 'field' }, el('span', {}, 'Master password'), password),
     el('div', { className: 'file-row' }, keyFile, pickKeyFile),

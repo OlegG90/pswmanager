@@ -1663,9 +1663,7 @@ impl Drop for Typing {
 }
 
 /// Types the entry the user chose in the chooser into the window waiting for
-/// it. The chooser steps aside first and comes back when typing fails, to say
-/// why; typed with the main window hidden, the database locks or syncs as
-/// hiding it does.
+/// it. The chooser steps aside first and comes back when typing fails, to say why.
 #[tauri::command(async)]
 fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
     let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
@@ -1673,23 +1671,26 @@ fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
     chooser::hide(&app);
     let done = type_entry(&app, &target, &id, typed);
     match done {
-        Ok(()) if !window::is_shown(&app) => window::settle(&app),
-        Ok(()) => {}
+        Ok(()) => chooser_gone(&app),
         Err(_) => chooser::show(&app),
     }
     done
 }
 
-/// The user chose no entry: nothing waits to be typed into, and the chooser
-/// goes. With the main window hidden, that is hiding PswManager: a database
-/// unlocked in the chooser locks or syncs as it would.
+/// The user chose no entry: nothing waits to be typed into, and the chooser goes.
 #[tauri::command(async)]
 fn cancel_auto_type(app: AppHandle) {
     take_waiting(&app);
     app.state::<AutoTypeNotice>().0.lock().unwrap().take();
     chooser::hide(&app);
-    if !window::is_shown(&app) {
-        window::settle(&app);
+    chooser_gone(&app);
+}
+
+/// The chooser has gone. With the main window hidden, PswManager is put away:
+/// it locks or syncs as hiding the main window does.
+fn chooser_gone(app: &AppHandle) {
+    if !window::is_shown(app) {
+        window::settle(app);
     }
 }
 
