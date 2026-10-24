@@ -314,7 +314,7 @@ pub fn merge_custom_data(theirs: &mut Database, ours: &Database) -> bool {
         // One of theirs with no time (KeePassXC writes KDBX 4.0 custom data
         // without) may be newer, an association made again there: it stays.
         let newer = theirs.meta.custom_data.get(key).is_none_or(|other| {
-            matches!((mine.last_modification_time, other.last_modification_time), (Some(mine), Some(other)) if mine > other)
+            mine.last_modification_time.zip(other.last_modification_time).is_some_and(|(made_here, made_there)| made_here > made_there)
         });
         if newer {
             theirs.meta.custom_data.insert(key.clone(), mine.clone());

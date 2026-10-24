@@ -463,7 +463,8 @@ It works in any app, browsers included, with no extension.
   administrator gets nothing (Windows drops the keys) and the app says why. Keys go with their scan codes,
   which remote desktops and some apps read; apps that take keys but not Unicode characters (remote
   desktops, virtual machines, some games) may still not type the values. A window chosen before a lock
-  is not typed into after it, and a lock while typing stops it before the next key. The copies of the values the app keeps for typing are wiped as they go.
+  is not typed into after it, and a lock while typing stops it before the next key. The copies of the
+  values the app keeps for typing are wiped as they go.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
   and window associations (a window title and a sequence each; one without a title is dropped). An
   entry that never had settings gets none written unless they are changed; KeePass's obfuscation
@@ -541,16 +542,15 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
     here, for the page's origin.
   - **Signing in** (`passkeys-get`): the site's passkeys among the entries in use, but those hidden from
     the extension (`BrowserHideEntry`, as in KeePassXC, #306; they are still offered on the phone), and
-    only those the request allows, when it names some. The window asks *Sign in to <site> with a passkey:*; choosing
-    one is the user's verification, as in KeePassXC. With none in the database, the extension falls back
-    to the browser's own WebAuthn (Windows Hello, a phone, a key) when its fallback option is on (on by
-    default).
+    only those the request allows, when it names some. The window asks *Sign in to <site> with a
+    passkey:*; choosing one is the user's verification, as in KeePassXC. With none in the database, the
+    extension falls back to the browser's own WebAuthn (Windows Hello, a phone, a key) when its fallback
+    option is on (on by default).
   - **Making one** (`passkeys-register`): refused when a credential the site excludes is in the database
     already. The window asks where to keep it: a new entry (titled with the site's name, its user name
     and `https://<site>`, in the group the extension names, else `KeePassXC-Browser Passkeys`), or one of
     the site's entries that has no passkey yet and is not hidden from the extension (an answer naming
-    another entry cancels). It is saved and
-    synced like an edit.
+    another entry cancels). It is saved and synced like an edit.
   - The authenticator data always says the user is verified (UV), even when the site prefers
     `discouraged`, as KeePassXC does: the database was unlocked with the master password or Windows
     Hello, and the user chooses in the window.

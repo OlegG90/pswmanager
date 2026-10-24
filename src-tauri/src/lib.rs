@@ -1650,8 +1650,8 @@ fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>
     let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
     // A newer press meanwhile is the one that waits. Locked meanwhile, none
     // does: checked under the lock lock_now takes the window with.
-    let target_state = app.state::<AutoTypeTarget>();
-    let mut waiting = target_state.0.lock().unwrap();
+    let waiting_target = app.state::<AutoTypeTarget>();
+    let mut waiting = waiting_target.0.lock().unwrap();
     if !app.state::<Session>().is_unlocked() {
         return Ok(None);
     }

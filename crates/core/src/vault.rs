@@ -589,21 +589,22 @@ impl Vault {
     /// works with: only those with a credential id in `allowed` when the
     /// request names some (WebAuthn's `allowCredentials`).
     pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<EntryChoice> {
-        self.passkeys(rp_id, allowed, false)
+        self.passkeys(rp_id, allowed, |_| true)
     }
 
     /// [Vault::passkeys_for] for the browser extension: not those hidden from
     /// it ([browser::hidden]), as KeePassXC leaves them out.
     pub fn browser_passkeys(&self, rp_id: &str, allowed: &[String]) -> Vec<EntryChoice> {
-        self.passkeys(rp_id, allowed, true)
+        self.passkeys(rp_id, allowed, |e| !browser::hidden(e))
     }
 
-    fn passkeys(&self, rp_id: &str, allowed: &[String], for_browser: bool) -> Vec<EntryChoice> {
+    /// The passkeys for `rp_id`, among the entries in use that `offered` keeps.
+    fn passkeys(&self, rp_id: &str, allowed: &[String], offered: impl Fn(&EntryRef<'_>) -> bool) -> Vec<EntryChoice> {
         // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
         let restricted = !allowed.is_empty();
         let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| crate::webauthn::credential_id_bytes(id)).collect();
         self.visible_entries()
-            .filter(|e| !for_browser || !browser::hidden(e))
+            .filter(|e| offered(e))
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
             .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
             .map(|e| EntryChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
@@ -614,18 +615,19 @@ impl Vault {
     /// user's entries whose URL is the site's (or under it) and that hold no
     /// passkey yet (KeePassXC keeps one per entry).
     pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<EntryChoice> {
-        self.entries_for_passkey(rp_id, false)
+        self.entries_for_passkey(rp_id, |_| true)
     }
 
     /// [Vault::entries_for_new_passkey] for the browser extension: not those
     /// hidden from it ([browser::hidden]).
     pub fn browser_entries_for_new_passkey(&self, rp_id: &str) -> Vec<EntryChoice> {
-        self.entries_for_passkey(rp_id, true)
+        self.entries_for_passkey(rp_id, |e| !browser::hidden(e))
     }
 
-    fn entries_for_passkey(&self, rp_id: &str, for_browser: bool) -> Vec<EntryChoice> {
+    /// The entries a new passkey for `rp_id` can go into, among those `offered` keeps.
+    fn entries_for_passkey(&self, rp_id: &str, offered: impl Fn(&EntryRef<'_>) -> bool) -> Vec<EntryChoice> {
         self.visible_entries()
-            .filter(|e| !for_browser || !browser::hidden(e))
+            .filter(|e| offered(e))
             .filter(|e| !e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)))
             .filter(|e| e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| crate::webauthn::on_site(&host, rp_id)))
             .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
@@ -1566,6 +1568,11 @@ pub mod tests {
     use crate::edit::{FileChange, FileEdit};
     use zeroize::Zeroizing;
 
+    /// A custom data item holding `value`, with no time, as KeePassXC writes it.
+    fn mark(value: &str) -> keepass::db::CustomDataItem {
+        keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String(value.into())), last_modification_time: None }
+    }
+
     /// A small database like the ones `sic2kdbx` writes.
     pub fn sample() -> Database {
         let mut db = Database::new();
@@ -1630,7 +1637,6 @@ pub mod tests {
 
         // Hidden from the extension, or denied to the page's host: neither updated nor its code read.
         let entry = parse_id(&uuid).unwrap();
-        let mark = |value: &str| keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String(value.into())), last_modification_time: None };
         vault.db.entry_mut(entry).unwrap().custom_data.insert("KeePassXC-Browser Settings".into(), mark(r#"{"Deny":["mail.example"]}"#));
         assert!(vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-3", None).is_err(), "denied");
         vault.db.entry_mut(entry).unwrap().custom_data.clear();
@@ -2044,8 +2050,7 @@ pub mod tests {
 
         // Hidden from the browser extension: offered everywhere else.
         let mut vault = vault;
-        let hide = keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String("true".into())), last_modification_time: None };
-        vault.db.entry_mut(parse_id(&id).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), hide);
+        vault.db.entry_mut(parse_id(&id).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), mark("true"));
         assert!(vault.browser_passkeys("example.com", &[]).is_empty());
         assert_eq!(vault.passkeys_for("example.com", &[]).len(), 1);
     }
@@ -2087,8 +2092,7 @@ pub mod tests {
         // The site's entry is offered, until it has a passkey.
         let offered = vault.entries_for_new_passkey("shop.example");
         assert_eq!(offered.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [shop.as_str()]);
-        let hide = keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String("true".into())), last_modification_time: None };
-        vault.db.entry_mut(parse_id(&shop).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), hide);
+        vault.db.entry_mut(parse_id(&shop).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), mark("true"));
         assert!(vault.browser_entries_for_new_passkey("shop.example").is_empty(), "hidden from the extension");
         vault.db.entry_mut(parse_id(&shop).unwrap()).unwrap().custom_data.clear();
         let made = crate::webauthn::make(request, &caller).unwrap();

@@ -311,13 +311,13 @@ fn take(into: &mut EntryData, from: &EntryData) -> bool {
     let mut urls: Vec<&String> = Vec::new();
     // A TOTP secret this app cannot read is kept, but not as the entry's;
     // an HOTP URI is the entry's, as saving keeps it for other clients.
-    let otp_works = otp::is_storable(&from.otp);
+    let otp_storable = otp::is_storable(&from.otp);
     let theirs = [&from.username, &from.password, &from.url, &from.notes, &from.otp];
     for ((label, ours, protected), theirs) in standard(into).into_iter().zip(theirs) {
         if theirs.is_empty() || ours == theirs {
             continue;
         }
-        let fills = label != "TOTP" || otp_works;
+        let fills = label != "TOTP" || otp_storable;
         if ours.is_empty() && fills {
             *ours = theirs.clone();
         } else if label == "URL" {

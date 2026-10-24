@@ -275,7 +275,7 @@ pub fn type_into(target: &Target, steps: &[Step], unlocked: impl Fn() -> bool) -
     let hwnd = target.hwnd();
     // SAFETY: plain Win32 calls with the window's handle.
     let in_front = || unsafe { GetForegroundWindow() } == hwnd;
-    let may_go_on = || {
+    let still_allowed = || {
         if !in_front() {
             return Err(MOVED.to_string());
         }
@@ -310,7 +310,7 @@ pub fn type_into(target: &Target, steps: &[Step], unlocked: impl Fn() -> bool) -
         // Every key goes to the window only while it is in front; a text's
         // before each of its characters too.
         if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) {
-            may_go_on()?;
+            still_allowed()?;
             if !on_same_page(target) {
                 return Err(PAGE.into());
             }
@@ -318,7 +318,7 @@ pub fn type_into(target: &Target, steps: &[Step], unlocked: impl Fn() -> bool) -
         match step {
             Step::Text(text) => {
                 for c in text.chars() {
-                    may_go_on()?;
+                    still_allowed()?;
                     match c {
                         '\r' => continue,
                         '\n' => press(VK_RETURN, Mods::default()),

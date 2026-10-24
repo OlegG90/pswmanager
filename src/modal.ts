@@ -7,7 +7,7 @@ export const isAsking = () => document.querySelector('dialog[open]') !== null
  * Shows `message` in a modal dialog with what `build` adds, and resolves to
  * what the user picked. The Cancel button gives `cancelled`, has the focus and is what
  * Esc gives, so a key pressed by habit never loses anything. `className`
- * styles the box beside `modal`.
+ * styles the box beside `modal`; `signal` aborted closes it as cancelled.
  * (`window.confirm` cannot be used: in this webview it answers "yes" unasked.)
  */
 export function dialog<T>(
@@ -16,8 +16,10 @@ export function dialog<T>(
   build: (answer: (value: T) => void) => { body?: Node[]; buttons?: Node[]; focus?: HTMLElement },
   cancelLabel = 'Cancel',
   className = '',
+  signal?: AbortSignal,
 ): Promise<T> {
   return new Promise((resolve) => {
+    if (signal?.aborted) return resolve(cancelled)
     const box = el('dialog', { className: `modal ${className}`.trim() })
     const answer = (value: T) => {
       box.close()
@@ -32,6 +34,7 @@ export function dialog<T>(
       e.preventDefault()
       answer(cancelled)
     })
+    signal?.addEventListener('abort', () => answer(cancelled), { once: true })
     document.body.append(box)
     box.showModal()
     focus.focus()
@@ -39,15 +42,15 @@ export function dialog<T>(
 }
 
 /** Asks a yes / no question; the confirming button is marked as dangerous. */
-export function ask(message: string, confirmLabel: string, cancelLabel = 'Cancel'): Promise<boolean> {
-  return dialog(message, false, (answer) => ({ buttons: [button(confirmLabel, confirmLabel, () => answer(true), 'danger')] }), cancelLabel)
+export function ask(message: string, confirmLabel: string, cancelLabel = 'Cancel', signal?: AbortSignal): Promise<boolean> {
+  return dialog(message, false, (answer) => ({ buttons: [button(confirmLabel, confirmLabel, () => answer(true), 'danger')] }), cancelLabel, '', signal)
 }
 
 /** Asks to pick one of `choices`; resolves to its index, or `null` for Cancel. */
-export function choose(message: string, choices: string[]): Promise<number | null> {
+export function choose(message: string, choices: string[], signal?: AbortSignal): Promise<number | null> {
   return dialog<number | null>(message, null, (answer) => ({
     body: [el('div', { className: 'choices' }, ...choices.map((label, i) => button(label, label, () => answer(i))))],
-  }))
+  }), 'Cancel', '', signal)
 }
 
 export { beforeExtension } from './entry-text'
@@ -61,6 +64,7 @@ export function askText(
   confirmLabel: string,
   selected = value.length,
   suggestions: string[] = [],
+  signal?: AbortSignal,
 ): Promise<string | null> {
   return dialog<string | null>(message, null, (answer) => {
     const input = el('input', { value, spellcheck: false, className: `text${suggestions.length ? ' with-suggestions' : ''}` })
@@ -131,5 +135,5 @@ export function askText(
     enterPresses(confirm, input)
     requestAnimationFrame(() => input.setSelectionRange(0, selected))
     return { body: [input, ...(list ? [list] : [])], buttons: [confirm], focus: input }
-  })
+  }, 'Cancel', '', signal)
 }
