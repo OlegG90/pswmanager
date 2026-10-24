@@ -45,7 +45,10 @@ fn ask(app: &AppHandle, event: &str, mut details: Value) -> Value {
     crate::window::show(app);
     let _ = app.emit(event, details);
     let reply = answered.recv_timeout(ANSWER_WITHIN).unwrap_or(Value::Null);
-    questions.waiting.lock().unwrap().remove(&id);
+    // Unanswered in time: the dialog goes, so the user does not answer in vain.
+    if questions.waiting.lock().unwrap().remove(&id).is_some() {
+        let _ = app.emit("browser-expired", id);
+    }
     reply
 }
 
@@ -146,11 +149,12 @@ impl Host for AppHost {
     }
 
     fn save_login(&self, uuid: Option<&str>, url: &str, login: &str, password: &str, group: Option<&str>) -> bool {
-        // Replacing a login the database has is the user's call.
+        // Replacing a login the database has is the user's call, asked only
+        // about an entry the extension may change.
         if let Some(uuid) = uuid {
-            let Ok(Some(entry)) = self.vault().read(|v| v.detail(uuid)) else { return false };
+            let Ok(Ok((title, username))) = self.vault().read(|v| v.browser_replaced(uuid, url)) else { return false };
             let site = pswm_core::browser::Page::of_tab(url).map(|p| p.place()).unwrap_or_default();
-            let details = json!({ "title": entry.summary.title, "username": entry.summary.username, "newUsername": login, "site": site });
+            let details = json!({ "title": title, "username": username, "newUsername": login, "site": site });
             if ask(&self.0, "browser-update", details) != Value::Bool(true) {
                 return false;
             }
@@ -176,7 +180,7 @@ impl Host for AppHost {
         };
         let request = public_key.to_string();
         let allowed = webauthn::sign_in_scope(&request).map(|scope| scope.allowed).unwrap_or_default();
-        let Ok(offered) = self.vault().read(|v| v.passkeys_for(&rp_id, &allowed)) else { return failed(Failure::DatabaseNotOpened) };
+        let Ok(offered) = self.vault().read(|v| v.browser_passkeys(&rp_id, &allowed)) else { return failed(Failure::DatabaseNotOpened) };
         // None here: the extension falls back to the browser's own passkeys.
         if offered.is_empty() {
             return failed(Failure::NoLogins);
@@ -195,7 +199,7 @@ impl Host for AppHost {
         };
         let request = public_key.to_string();
         let excluded = webauthn::excluded_ids(&request);
-        let found = self.vault().read(|v| (!excluded.is_empty() && !v.passkeys_for(&rp_id, &excluded).is_empty(), v.entries_for_new_passkey(&rp_id)));
+        let found = self.vault().read(|v| (!excluded.is_empty() && !v.browser_passkeys(&rp_id, &excluded).is_empty(), v.browser_entries_for_new_passkey(&rp_id)));
         let Ok((already, entries)) = found else { return failed(Failure::DatabaseNotOpened) };
         if already {
             return failed(Failure::CredentialIsExcluded);
@@ -246,11 +250,24 @@ pub fn apply(app: &AppHandle) -> Result<(), String> {
         let (on, host) = (app.clone(), app.clone());
         let allowed = move || Settings::of(&on.state::<Store>()).browser_integration();
         let answer = move |session: &mut Session, request: &Value| session.handle(&AppHost(host.clone()), request);
-        // A pipe another program holds: tried again the next time the setting is turned on.
-        let failed = || SERVING.store(false, Ordering::SeqCst);
+        // A pipe another program (or another user, who may know the name)
+        // holds: tried again the next time the setting is turned on.
+        let told = app.clone();
+        let failed = move || {
+            SERVING.store(false, Ordering::SeqCst);
+            let _ = told.emit("notice", UNSERVED);
+        };
         native_messaging::serve(clients, failed, allowed, answer);
     }
     Ok(())
+}
+
+/// What the user is told when the extension cannot be served.
+const UNSERVED: &str = "The browser extension cannot connect: another program holds its connection. Turn the integration off and on again in the settings";
+
+/// Whether the integration is on but the extension cannot be served (see [apply]).
+pub fn unserved(app: &AppHandle) -> bool {
+    Settings::of(&app.state::<Store>()).browser_integration() && !SERVING.load(Ordering::SeqCst)
 }
 
 /// Tells the connected extensions that the database locked or unlocked.

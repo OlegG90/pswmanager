@@ -83,9 +83,15 @@ impl Session {
         self.0.lock().unwrap().as_mut().map(|read| read.add(text)).transpose()
     }
 
-    /// The accounts read as entries ([Collected::import]); the codes go.
-    pub fn import(&self) -> Result<Import, String> {
-        Ok(self.0.lock().unwrap().take().ok_or("No codes were read")?.import())
+    /// The accounts read as entries ([Collected::import]), for `add` to keep;
+    /// the codes go once it has, so a save that fails does not cost the user
+    /// reading them all again. Held meanwhile: a second import, or a code
+    /// read, waits for it.
+    pub fn import<R>(&self, add: impl FnOnce(Import) -> Result<R, String>) -> Result<R, String> {
+        let mut read = self.0.lock().unwrap();
+        let added = add(read.as_ref().ok_or("No codes were read")?.import())?;
+        *read = None;
+        Ok(added)
     }
 }
 
@@ -410,12 +416,15 @@ mod tests {
         let session = Session::default();
         let text = code(&[account(RFC_SECRET, "a", "A", [1, 1, 2, 0])], 1, 0, 4);
         assert_eq!(session.add(&text).unwrap(), None);
-        assert!(session.import().is_err());
+        let count = |import: Import| Ok(import.entries.len());
+        assert!(session.import(count).is_err());
         session.start();
         assert_eq!(session.add(&text).unwrap().unwrap().accounts, 1);
         assert!(session.is_read(&text));
-        assert_eq!(session.import().unwrap().entries.len(), 1);
-        assert!(session.import().is_err());
+        // Kept while the entries are not.
+        assert!(session.import(|_| Err::<(), _>("The file cannot be saved".into())).is_err());
+        assert_eq!(session.import(count).unwrap(), 1);
+        assert!(session.import(count).is_err());
         session.start();
         session.cancel();
         assert_eq!(session.add(&text).unwrap(), None);

@@ -41,6 +41,11 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(LABEL)
 }
 
+/// Whether the main window has the focus.
+pub fn is_focused(app: &AppHandle) -> bool {
+    main_window(app).is_some_and(|w| w.is_focused().unwrap_or(false))
+}
+
 /// The open database's name before the app's, or the app's alone.
 pub fn set_title(app: &AppHandle, database: Option<&str>) {
     if let Some(window) = main_window(app) {

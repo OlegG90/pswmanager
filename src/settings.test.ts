@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comboOf } from './settings'
+import { comboOf, withAltGrNote } from './settings'
 
 const press = (key: string, code: string, mods: Partial<KeyboardEvent> = {}) =>
   ({ key, code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods }) as KeyboardEvent
@@ -15,5 +15,15 @@ describe('comboOf', () => {
   it('waits while only modifiers are down', () => {
     expect(comboOf(press('Control', 'ControlLeft', { ctrlKey: true }))).toBeNull()
     expect(comboOf(press('Alt', 'AltLeft', { altKey: true }))).toBeNull()
+  })
+})
+
+describe('withAltGrNote', () => {
+  it('warns about Ctrl+Alt, which Windows reads as AltGr', () => {
+    expect(withAltGrNote('Hint', 'Ctrl+Alt+A')).toContain('AltGr')
+    expect(withAltGrNote('Hint', 'Ctrl+Alt+Shift+A')).toContain('AltGr')
+    expect(withAltGrNote('Hint', 'Ctrl+Shift+A')).toBe('Hint')
+    expect(withAltGrNote('Hint', 'Super+Shift+A')).toBe('Hint')
+    expect(withAltGrNote('Hint', '')).toBe('Hint')
   })
 })

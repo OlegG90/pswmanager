@@ -1393,8 +1393,7 @@ fn gauth_import(app: AppHandle) -> Result<FileImported, String> {
     if !app.state::<Session>().is_unlocked() {
         return Err("Unlock the database first".into());
     }
-    let import = app.state::<gauth::Session>().import()?;
-    add_entries(&app, import.exporter.clone(), import)
+    app.state::<gauth::Session>().import(|import| add_entries(&app, import.exporter.clone(), import))
 }
 
 /// Lets go of the export codes read so far.
@@ -1532,6 +1531,8 @@ struct SettingsView {
     windows_hello: bool,
     /// Another program (KeePassXC) is registered for the browser extension.
     other_browser_host: bool,
+    /// The integration is on, but another program holds the extension's pipe.
+    browser_unserved: bool,
 }
 
 fn settings_view(app: &AppHandle) -> SettingsView {
@@ -1540,6 +1541,7 @@ fn settings_view(app: &AppHandle) -> SettingsView {
         start_with_windows: tray::autostart_enabled(app),
         windows_hello: hello::available(),
         other_browser_host: browser_host::other_registered(app),
+        browser_unserved: browser_host::unserved(app),
     }
 }
 
@@ -1598,7 +1600,14 @@ struct AutoTypeAsk {
 fn auto_type_pressed(app: &AppHandle) {
     // A press while one is typing (the hotkey held, pressed twice) types nothing more.
     let Some(_typing) = Typing::start() else { return };
-    let Some(target) = autotype::foreground() else { return }; // PswManager's own window, the desktop
+    let Some(target) = autotype::foreground() else {
+        // Pressed in the main window: said so, rather than nothing happening
+        // (in the chooser, which asks already, nothing needs saying).
+        if window::is_focused(app) {
+            let _ = app.emit("notice", "Auto-Type types into another window: press the hotkey there, or use the entry's Auto-Type (Ctrl+Shift+V)");
+        }
+        return; // the desktop, the taskbar
+    };
     let over = target.bounds();
     *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
     *app.state::<AutoTypeNotice>().0.lock().unwrap() = None;
@@ -1639,8 +1648,14 @@ fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>
     }
     let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
     let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
-    // A newer press meanwhile is the one that waits.
-    app.state::<AutoTypeTarget>().0.lock().unwrap().get_or_insert(target);
+    // A newer press meanwhile is the one that waits. Locked meanwhile, none
+    // does: checked under the lock lock_now takes the window with.
+    let waiting_target = app.state::<AutoTypeTarget>();
+    let mut waiting = waiting_target.0.lock().unwrap();
+    if !app.state::<Session>().is_unlocked() {
+        return Ok(None);
+    }
+    waiting.get_or_insert(target);
     Ok(Some(ask))
 }
 
@@ -1729,7 +1744,7 @@ fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed
     if autotype::runs_higher(target) {
         return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
     }
-    autotype::type_into(target, &steps)
+    autotype::type_into(target, &steps, || app.state::<Session>().is_unlocked())
 }
 
 /// Locks once the database has been left alone for `lockAfterMinutes`.

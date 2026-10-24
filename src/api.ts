@@ -369,6 +369,8 @@ export interface Settings {
   browserIntegration: boolean
   /** Another program (KeePassXC) is registered for the extension (not a setting). */
   otherBrowserHost: boolean
+  /** The integration is on, but another program holds its connection (not a setting). */
+  browserUnserved: boolean
   startWithWindows: boolean
   /** Unlock with Windows Hello once the master password was given (#235). */
   biometricUnlock: boolean

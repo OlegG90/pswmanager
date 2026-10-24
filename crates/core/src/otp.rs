@@ -281,8 +281,10 @@ pub(crate) fn is_hotp(value: &str) -> bool {
         && url.query_pairs().find(|(key, _)| key.eq_ignore_ascii_case("secret")).is_some_and(|(_, secret)| decode_secret(&secret).is_ok())
 }
 
+/// Whether `value` is a KeeOtp string (`key=…&size=…`): its key holds more
+/// than the padding a bare base32 secret `KEY===…` ends in.
 fn is_keeotp(value: &str) -> bool {
-    url::form_urlencoded::parse(value.as_bytes()).any(|(name, _)| name.eq_ignore_ascii_case("key"))
+    url::form_urlencoded::parse(value.as_bytes()).any(|(name, key)| name.eq_ignore_ascii_case("key") && !key.trim_matches('=').is_empty())
 }
 
 /// How KeePass 2 may encode the secret.
@@ -556,6 +558,8 @@ mod tests {
         assert_eq!(totp.code_at(59).code, "94287082");
         assert_eq!(Totp::parse(&format!("key={RFC_SECRET}")).unwrap().code_at(59).code, "287082");
         assert!(Totp::parse(&format!("key={RFC_SECRET}&type=Hotp&counter=1")).is_err());
+        assert!(is_keeotp(&format!("KEY={RFC_SECRET}")));
+        assert!(!is_keeotp("KEY=====") && !is_keeotp(RFC_SECRET), "bare secrets");
         // RFC 6238's SHA-512 vector: its own 64-byte secret.
         let sha512 = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
         let totp = Totp::parse(&format!("key={sha512}&size=8&otpHashMode=Sha512")).unwrap();
