@@ -71,6 +71,20 @@ pub fn show(app: &AppHandle) {
     let _ = window.set_focus();
 }
 
+/// Runs `prompt`, which opens Windows Hello's prompt, with the chooser no
+/// longer on top: the prompt is a window of its own, which the chooser would cover.
+pub fn below<T>(app: &AppHandle, prompt: impl FnOnce() -> T) -> T {
+    let window = chooser(app);
+    if let Some(window) = &window {
+        let _ = window.set_always_on_top(false);
+    }
+    let answer = prompt();
+    if let Some(window) = &window {
+        let _ = window.set_always_on_top(true);
+    }
+    answer
+}
+
 pub fn hide(app: &AppHandle) {
     if let Some(window) = chooser(app) {
         let _ = window.hide();

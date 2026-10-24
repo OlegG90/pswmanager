@@ -686,7 +686,7 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
         // After the window has the database: Windows Hello's prompt waits for the user.
         let password = password.map(|p| Zeroizing::new(p.to_string()));
-        std::thread::spawn(move || hello::seal(&database, password.as_deref().map(String::as_str)));
+        std::thread::spawn(move || chooser::below(&app, || hello::seal(&database, password.as_deref().map(String::as_str))));
     }
     Ok(listing)
 }
@@ -719,7 +719,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
         return Err(MASTER.into());
     }
     let database = current_file(&app.state()).ok_or("Choose a database first")?;
-    let password = hello::unseal(&database).map_err(|failure| match failure {
+    let password = chooser::below(&app, || hello::unseal(&database)).map_err(|failure| match failure {
         hello::Failure::Cancelled => CANCELLED.to_string(),
         hello::Failure::NotSealed => MASTER.into(),
         hello::Failure::Other(message) => message,
