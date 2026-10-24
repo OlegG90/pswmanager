@@ -221,8 +221,7 @@ pub async fn gauth_import(app: AppHandle) -> Result<Imported, String> {
         if !app.state::<Session>().is_unlocked() {
             return Err("Unlock the database first".into());
         }
-        let import = app.state::<gauth::Session>().import()?;
-        add(&app, import, LOCKED_MEANWHILE, false, None)
+        app.state::<gauth::Session>().import(|import| add(&app, import, LOCKED_MEANWHILE, false, None))
     })
     .await
 }

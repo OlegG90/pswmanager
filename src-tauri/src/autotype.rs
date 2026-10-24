@@ -262,10 +262,12 @@ unsafe fn integrity(process: HANDLE) -> Option<u32> {
 }
 
 /// Brings the window forward and types the steps into it, checking before
-/// each key that it is still in front, and before each step that a browser
-/// still shows the same page: otherwise typing stops there.
-pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
+/// each key that it is still in front and the database still `unlocked`, and
+/// before each step that a browser still shows the same page: otherwise
+/// typing stops there.
+pub fn type_into(target: &Target, steps: &[Step], unlocked: impl Fn() -> bool) -> Result<(), String> {
     const MOVED: &str = "Another window came forward: Auto-Type stopped";
+    const LOCKED: &str = "The database locked: Auto-Type stopped";
     const PAGE: &str = "The browser went on to another page: Auto-Type stopped";
     if !target.is_current() {
         return Err("The window to type into is gone".into());
@@ -273,6 +275,15 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
     let hwnd = target.hwnd();
     // SAFETY: plain Win32 calls with the window's handle.
     let in_front = || unsafe { GetForegroundWindow() } == hwnd;
+    let may_go_on = || {
+        if !in_front() {
+            return Err(MOVED.to_string());
+        }
+        if !unlocked() {
+            return Err(LOCKED.to_string());
+        }
+        Ok(())
+    };
     if !in_front() {
         // SAFETY: as above.
         unsafe { SetForegroundWindow(hwnd) };
@@ -299,9 +310,7 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
         // Every key goes to the window only while it is in front; a text's
         // before each of its characters too.
         if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) {
-            if !in_front() {
-                return Err(MOVED.into());
-            }
+            may_go_on()?;
             if !on_same_page(target) {
                 return Err(PAGE.into());
             }
@@ -309,9 +318,7 @@ pub fn type_into(target: &Target, steps: &[Step]) -> Result<(), String> {
         match step {
             Step::Text(text) => {
                 for c in text.chars() {
-                    if !in_front() {
-                        return Err(MOVED.into());
-                    }
+                    may_go_on()?;
                     match c {
                         '\r' => continue,
                         '\n' => press(VK_RETURN, Mods::default()),

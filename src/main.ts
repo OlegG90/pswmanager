@@ -15,7 +15,7 @@ import { actionFor, type Action } from './keys'
 import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
 import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
-import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate } from './browser'
+import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
@@ -1561,6 +1561,7 @@ listen<BrowserAssociate>('browser-associate', (e) => answerAssociate(e.payload).
 listen<BrowserUpdate>('browser-update', (e) => answerUpdate(e.payload).catch((err) => notify(String(err))))
 listen<BrowserPasskeyGet>('browser-passkey-get', (e) => answerPasskeyGet(e.payload).catch((err) => notify(String(err))))
 listen<BrowserPasskeyRegister>('browser-passkey-register', (e) => answerPasskeyRegister(e.payload).catch((err) => notify(String(err))))
+listen<number>('browser-expired', (e) => expire(e.payload))
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))

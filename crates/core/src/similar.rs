@@ -309,8 +309,9 @@ fn take(into: &mut EntryData, from: &EntryData) -> bool {
     let mut differing: Vec<FieldData> = Vec::new();
     // Other addresses: `into`'s further URLs.
     let mut urls: Vec<&String> = Vec::new();
-    // A TOTP secret this app cannot read is kept, but not as the entry's.
-    let otp_works = otp::normalize(&from.otp, &into.title).is_ok();
+    // A TOTP secret this app cannot read is kept, but not as the entry's;
+    // an HOTP URI is the entry's, as saving keeps it for other clients.
+    let otp_works = otp::is_storable(&from.otp);
     let theirs = [&from.username, &from.password, &from.url, &from.notes, &from.otp];
     for ((label, ours, protected), theirs) in standard(into).into_iter().zip(theirs) {
         if theirs.is_empty() || ours == theirs {
@@ -452,6 +453,18 @@ mod tests {
         assert_eq!(field(&db, keep, "TOTP (Bank app)").as_deref(), Some("otpauth://totp/?secret=GEZDGNBV"));
         // Without one of its own, the kept entry takes the other's.
         assert_eq!(otp::find(&db.entry(empty).unwrap().fields).unwrap().as_str(), "otpauth://totp/?secret=GEZDGNBV");
+    }
+
+    #[test]
+    fn an_hotp_uri_comes_over_as_the_kept_entrys_own() {
+        let mut db = Database::new();
+        let hotp = "otpauth://hotp/Bank?secret=JBSWY3DP&counter=4";
+        let keep = add(&mut db, "Bank", "https://bank.example.com", |_| {});
+        let other = add(&mut db, "Bank 2", "https://bank.example.com", |e| e.set_protected(fields::OTP, hotp));
+        let hidden = edit::hidden_groups(&db);
+        merge(&mut db, keep, &[other], &hidden).unwrap();
+        assert_eq!(field(&db, keep, fields::OTP).as_deref(), Some(hotp));
+        assert_eq!(field(&db, keep, "TOTP (Bank 2)"), None);
     }
 
     #[test]

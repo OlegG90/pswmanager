@@ -131,6 +131,12 @@ export function comboOf(e: KeyboardEvent): string | null {
   return [...mods, key].join('+')
 }
 
+/** A hotkey's hint, warning that Windows reads Ctrl+Alt as AltGr, which some
+ *  keyboard layouts type characters with (Polish ą is AltGr+A). */
+export function withAltGrNote(hint: string, hotkey: string): string {
+  return hotkey.startsWith('Ctrl+Alt+') ?`${hint}. Ctrl+Alt is AltGr in some keyboard layouts: change it if it takes a character you type` : hint
+}
+
 /** The hotkey, and a button that takes the next key combination pressed;
  *  with `canTurnOff`, one that turns it off (an empty combination). */
 function hotkeyControl(hotkey: string, change: (value: string) => void, canTurnOff = false): HTMLElement {
@@ -334,7 +340,7 @@ export async function renderSettings(
           row('Clear clipboard after copying', 'Only if it still holds the copied value',
             select('Clear clipboard after copying', s.clearClipboard, CLEAR_AFTER, 's', set('clearClipboard')))),
         group('Auto-Type',
-          row('Auto-Type hotkey', 'Types an entry into the window in front: in a browser the entry for its site, elsewhere one whose title is in the window\'s',
+          row('Auto-Type hotkey', withAltGrNote('Types an entry into the window in front: in a browser the entry for its site, elsewhere one whose title is in the window\'s', s.autoTypeHotkey),
             hotkeyControl(s.autoTypeHotkey, set('autoTypeHotkey'), true)),
           row('Always ask', 'Asks which entry to type even when one alone fits the window',
             toggle('Always ask which entry to type', s.autoTypeAlwaysAsk, set('autoTypeAlwaysAsk')))),
@@ -342,13 +348,15 @@ export async function renderSettings(
           row('KeePassXC-Browser extension',
             s.otherBrowserHost
               ? (s.browserIntegration ? 'KeePassXC took the extension back: turn this off and on again' : 'Replaces KeePassXC\'s browser integration; KeePassXC takes it back when it starts with its own on')
-              : 'Fills in logins in Chrome, Edge and Firefox through the KeePassXC-Browser extension',
+              : s.browserUnserved
+                ? 'Another program holds the extension\'s connection: turn this off and on again'
+                : 'Fills in logins in Chrome, Edge and Firefox through the KeePassXC-Browser extension',
             toggle('KeePassXC-Browser extension', s.browserIntegration, set('browserIntegration')))),
       ],
       window: () => [
         group('Window and tray',
           row('Theme', 'Light or dark, or as Windows is set', pick('Theme', s.theme, THEMES, set('theme'))),
-          row('Global hotkey', 'Shows or hides the window from any app', hotkeyControl(s.hotkey, set('hotkey'))),
+          row('Global hotkey', withAltGrNote('Shows or hides the window from any app', s.hotkey), hotkeyControl(s.hotkey, set('hotkey'))),
           row('Start with Windows', 'Starts hidden in the tray, locked',
             toggle('Start with Windows', s.startWithWindows, set('startWithWindows'))),
           row('Download site icons', 'Directly from each site, never through a third party',

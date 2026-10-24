@@ -406,12 +406,15 @@ Windows has no system autofill for passwords, so PswManager types them, as KeePa
 It works in any app, browsers included, with no extension.
 
 - **The hotkey** (default `Ctrl+Alt+A`, as in KeePass; changed or turned off in *Settings → General →
-  Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own, the
-  desktop or the taskbar. While locked, the chooser (below) asks for the master password (or Windows
-  Hello, which asks at once where it is set up) and the key file (the unlock screen's, or one chosen there), then
-  which entry to type (always: the unlock may have been for something else); an unlock in the main
-  window does as well. The window waits to be typed into for two minutes, and a browser that shows
-  another page by the time the entry is typed gets nothing.
+  Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own (pressed
+  there, it says to press it in the other window, or to use entry-level Auto-Type), the desktop or the
+  taskbar. Windows reads `Ctrl+Alt` as `AltGr`, which some keyboard layouts type characters with (Polish
+  `ą` is `AltGr+A`): the settings say so beside a hotkey with `Ctrl+Alt`, which then is better changed
+  (the defaults stay KeePass's, #306). While locked, the chooser (below) asks for the master password (or
+  Windows Hello, which asks at once where it is set up) and the key file (the unlock screen's, or one
+  chosen there), then which entry to type (always: the unlock may have been for something else); an
+  unlock in the main window does as well. The window waits to be typed into for two minutes, and a
+  browser that shows another page by the time the entry is typed gets nothing.
 - **Which entries fit**, among the entries in use with Auto-Type on:
   - in a **browser**, those that fit the page its address bar shows, as in KeePassXC (see *Pages and
     entries* under *Browser integration*). The address is read through UI Automation: Firefox's (and
@@ -460,7 +463,7 @@ It works in any app, browsers included, with no extension.
   administrator gets nothing (Windows drops the keys) and the app says why. Keys go with their scan codes,
   which remote desktops and some apps read; apps that take keys but not Unicode characters (remote
   desktops, virtual machines, some games) may still not type the values. A window chosen before a lock
-  is not typed into after it. The copies of the values the app keeps for typing are wiped as they go.
+  is not typed into after it, and a lock while typing stops it before the next key. The copies of the values the app keeps for typing are wiped as they go.
 - **Editing**: the editor's *Auto-Type* part turns it on or off for the entry and sets its own sequence
   and window associations (a window title and a sequence each; one without a title is dropped). An
   entry that never had settings gets none written unless they are changed; KeePass's obfuscation
@@ -485,7 +488,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   a named pipe of this Windows user's, `\\.\pipe\pswmanager-browser-<SID>` (only this user and the system
   may open it; no other PC). The host talks only to a pipe served by a program of the same Windows user,
   and lets it identify the host but not act as it (#295): another account on the PC that made a pipe of
-  that name first gets nothing from the browser (PswManager then cannot serve it). PswManager
+  that name first gets nothing from the browser (PswManager then cannot serve it: it says so, in a notice
+  and in the setting, and turning the setting off and on tries again, #306). PswManager
   not running: it is started hidden in the tray, locked. The messages are KeePassXC's: temporary X25519
   keys swapped in the clear, then every message NaCl `crypto_box`. PswManager reports KeePassXC version
   2.7.10, so the extension offers the password generator, TOTP and passkeys. A message that stops coming
@@ -524,6 +528,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   it), the window comes up to unlock. Every connected extension is told when the database locks or
   unlocks, also while a question of its own waits in the window; `lock-database` (from a connected
   extension) locks it.
+- **Questions** in the window wait two minutes for the user; one unanswered by then closes as cancelled
+  (#306), as the extension has given up.
 - **Passkeys** (#285), when the extension's own *Passkeys* option is on (off by default): the extension
   takes over the page's `navigator.credentials` and asks PswManager, which answers as KeePassXC does, with
   the passkeys kept as KeePassXC keeps them (made and signed by the core, ES256, as on Android).
@@ -533,15 +539,17 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
     reads them from the site only then), and the request needs a challenge of 16 characters or more, a
     user id of 1 to 64 bytes, and ES256 among the algorithms the site lists. The client data is made
     here, for the page's origin.
-  - **Signing in** (`passkeys-get`): the site's passkeys among the entries in use (only those the
-    request allows, when it names some). The window asks *Sign in to <site> with a passkey:*; choosing
+  - **Signing in** (`passkeys-get`): the site's passkeys among the entries in use, but those hidden from
+    the extension (`BrowserHideEntry`, as in KeePassXC, #306; they are still offered on the phone), and
+    only those the request allows, when it names some. The window asks *Sign in to <site> with a passkey:*; choosing
     one is the user's verification, as in KeePassXC. With none in the database, the extension falls back
     to the browser's own WebAuthn (Windows Hello, a phone, a key) when its fallback option is on (on by
     default).
   - **Making one** (`passkeys-register`): refused when a credential the site excludes is in the database
     already. The window asks where to keep it: a new entry (titled with the site's name, its user name
     and `https://<site>`, in the group the extension names, else `KeePassXC-Browser Passkeys`), or one of
-    the site's entries that has no passkey yet (an answer naming another entry cancels). It is saved and
+    the site's entries that has no passkey yet and is not hidden from the extension (an answer naming
+    another entry cancels). It is saved and
     synced like an edit.
   - The authenticator data always says the user is verified (UV), even when the site prefers
     `discouraged`, as KeePassXC does: the database was unlocked with the master password or Windows
@@ -683,7 +691,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   - **Merge**: what the ticked ones have goes into the kept entry, as one edit (its previous version goes to its
     history), and they go to the recycle bin. An empty field of the kept entry is filled from them; a
     value that differs from its own becomes an additional field named after the entry it came from
-    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected), but for an address:
+    (`Password (Gmail)`, numbered when taken; a password or TOTP secret protected; a TOTP fills the kept
+    entry's only when it works, or is an HOTP URI), but for an address:
     another URL (and the other's own further URLs) becomes one of its further URLs, `KP2A_URL_1`,
     `KP2A_URL_2`… as Keepass2Android and KeePassXC keep them, so their autofill finds it. A value
     already there (under any name) is not added again. Tags are joined; files are carried over (a name
@@ -756,8 +765,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   30 seconds, as the export has no period), HOTP accounts as `otpauth://hotp/` with their counter (no code,
   *TOTP*); MD5 accounts are named among what did not come over. Then *Find similar entries* is pointed to.
 - The codes read are held in memory only, and let go of when the page is left (or the phone's sheet
-  closed), the tool chosen again, the import done or the database locked; a read that ends after that
-  keeps nothing.
+  closed), the tool chosen again, the import saved or the database locked; a read that ends after that
+  keeps nothing. An import whose save fails keeps them, to import again (#306).
 
 ## Export to a file
 

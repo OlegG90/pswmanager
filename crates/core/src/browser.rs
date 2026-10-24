@@ -304,12 +304,18 @@ pub fn associations(db: &Database) -> Vec<Association> {
 /// Takes into `theirs` the database custom data `ours` has that `theirs`
 /// lacks or has older (associations made on this device), as a sync merges
 /// two copies; then an association removed on either side ([forget]) after
-/// it was made goes, so the other copy does not bring it back. True when
-/// `theirs` changed.
+/// it was made goes, so the other copy does not bring it back. Times count
+/// in seconds: a removal and an association within the same second keep
+/// the removal, so an extension the user turned away does not come back.
+/// True when `theirs` changed.
 pub fn merge_custom_data(theirs: &mut Database, ours: &Database) -> bool {
     let mut changed = false;
     for (key, mine) in &ours.meta.custom_data {
-        let newer = theirs.meta.custom_data.get(key).is_none_or(|other| mine.last_modification_time > other.last_modification_time);
+        // One of theirs with no time (KeePassXC writes KDBX 4.0 custom data
+        // without) may be newer, an association made again there: it stays.
+        let newer = theirs.meta.custom_data.get(key).is_none_or(|other| {
+            matches!((mine.last_modification_time, other.last_modification_time), (Some(mine), Some(other)) if mine > other)
+        });
         if newer {
             theirs.meta.custom_data.insert(key.clone(), mine.clone());
             changed = true;
@@ -543,6 +549,17 @@ mod tests {
         associate(&mut ours, "Chrome", "a2V5LTI=");
         merge_custom_data(&mut theirs, &ours);
         assert_eq!(associations(&theirs).len(), 2);
+    }
+
+    #[test]
+    fn a_merge_keeps_keepassxc_s_association_written_without_a_time() {
+        let mut ours = Database::new();
+        associate(&mut ours, "Chrome", "a2V5LTE=");
+        // Associated again in KeePassXC, which writes no times.
+        let mut theirs = ours.clone();
+        theirs.meta.custom_data.insert(key_name("Chrome"), CustomDataItem { value: item("a2V5LTI=").value, last_modification_time: None });
+        merge_custom_data(&mut theirs, &ours);
+        assert_eq!(key(&theirs, "Chrome").as_deref(), Some("a2V5LTI="));
     }
 
     #[test]

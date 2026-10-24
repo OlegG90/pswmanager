@@ -589,10 +589,21 @@ impl Vault {
     /// works with: only those with a credential id in `allowed` when the
     /// request names some (WebAuthn's `allowCredentials`).
     pub fn passkeys_for(&self, rp_id: &str, allowed: &[String]) -> Vec<EntryChoice> {
+        self.passkeys(rp_id, allowed, false)
+    }
+
+    /// [Vault::passkeys_for] for the browser extension: not those hidden from
+    /// it ([browser::hidden]), as KeePassXC leaves them out.
+    pub fn browser_passkeys(&self, rp_id: &str, allowed: &[String]) -> Vec<EntryChoice> {
+        self.passkeys(rp_id, allowed, true)
+    }
+
+    fn passkeys(&self, rp_id: &str, allowed: &[String], for_browser: bool) -> Vec<EntryChoice> {
         // Ids compared as bytes: exporters write base64url or plain base64, padded or not.
         let restricted = !allowed.is_empty();
         let allowed: Vec<Vec<u8>> = allowed.iter().filter_map(|id| crate::webauthn::credential_id_bytes(id)).collect();
         self.visible_entries()
+            .filter(|e| !for_browser || !browser::hidden(e))
             .filter(|e| e.get(edit::passkey::RELYING_PARTY).is_some_and(|rp| rp.eq_ignore_ascii_case(rp_id)))
             .filter(|e| !restricted || e.get(edit::passkey::CREDENTIAL_ID).and_then(crate::webauthn::credential_id_bytes).is_some_and(|id| allowed.contains(&id)))
             .map(|e| EntryChoice::of(&e, e.get(edit::passkey::USERNAME).filter(|u| !u.is_empty()).or(e.get(fields::USERNAME))))
@@ -603,7 +614,18 @@ impl Vault {
     /// user's entries whose URL is the site's (or under it) and that hold no
     /// passkey yet (KeePassXC keeps one per entry).
     pub fn entries_for_new_passkey(&self, rp_id: &str) -> Vec<EntryChoice> {
+        self.entries_for_passkey(rp_id, false)
+    }
+
+    /// [Vault::entries_for_new_passkey] for the browser extension: not those
+    /// hidden from it ([browser::hidden]).
+    pub fn browser_entries_for_new_passkey(&self, rp_id: &str) -> Vec<EntryChoice> {
+        self.entries_for_passkey(rp_id, true)
+    }
+
+    fn entries_for_passkey(&self, rp_id: &str, for_browser: bool) -> Vec<EntryChoice> {
         self.visible_entries()
+            .filter(|e| !for_browser || !browser::hidden(e))
             .filter(|e| !e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)))
             .filter(|e| e.get(fields::URL).and_then(icons::host_of).is_some_and(|host| crate::webauthn::on_site(&host, rp_id)))
             .map(|e| EntryChoice::of(&e, e.get(fields::USERNAME)))
@@ -1202,10 +1224,7 @@ impl Vault {
         }
         let (base, mut data) = match id {
             Some(id) => {
-                let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
-                if !page.fits_entry(&entry) || !browser::offered(&entry, page.host()) {
-                    return Err("This login is not for the page".into());
-                }
+                self.browser_entry(id, &page)?;
                 let data = self.edit_data(id).ok_or(NOT_FOUND)?;
                 (Some(data.clone()), data)
             }
@@ -1222,6 +1241,26 @@ impl Vault {
         data.username = username.to_string();
         data.password = password.to_string();
         self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
+    }
+
+    /// The title and user name of entry `id`, for the user to confirm that a
+    /// login the extension offers for a page at `url` replaces its own; an
+    /// error when [Vault::browser_save_login] would refuse it, so the user is
+    /// not asked about an entry the extension may not have.
+    pub fn browser_replaced(&self, id: &str, url: &str) -> Result<(String, String), String> {
+        let page = browser::Page::of_tab(url).ok_or("Logins are saved for web pages only")?;
+        let entry = self.browser_entry(id, &page)?;
+        let text = |name: &str| entry.get(name).unwrap_or_default().to_string();
+        Ok((text(fields::TITLE), text(fields::USERNAME)))
+    }
+
+    /// Entry `id`, when it is in use, fits `page` and the extension may have it there.
+    fn browser_entry(&self, id: &str, page: &browser::Page) -> Result<EntryRef<'_>, String> {
+        let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
+        if !page.fits_entry(&entry) || !browser::offered(&entry, page.host()) {
+            return Err("This login is not for the page".into());
+        }
+        Ok(entry)
     }
 
     /// The entries Auto-Type offers for `window` (#272), by title: those with
@@ -1582,8 +1621,10 @@ pub mod tests {
 
         // Updated by the UUID the extension has, only for its own site.
         let uuid = logins[0].uuid.clone();
+        assert_eq!(vault.browser_replaced(&uuid, "https://mail.example/").unwrap(), ("mail.example".to_string(), "me".to_string()));
         vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-2", None).unwrap();
         assert_eq!(vault.browser_logins("https://mail.example/")[0].password, "pw-2");
+        assert!(vault.browser_replaced(&uuid, "https://evil.example/").is_err(), "not asked about");
         assert!(vault.browser_save_login(Some(&uuid), "https://evil.example/", "me", "pw-3", None).is_err());
         assert_eq!(vault.history(&id).unwrap().len(), 1, "the old password is in the history");
 
@@ -1597,6 +1638,7 @@ pub mod tests {
         assert!(vault.browser_totp(&uuid).is_some());
         vault.db.entry_mut(entry).unwrap().custom_data.insert("BrowserHideEntry".into(), mark("true"));
         assert!(vault.browser_save_login(Some(&uuid), "https://mail.example/", "me", "pw-3", None).is_err(), "hidden");
+        assert!(vault.browser_replaced(&uuid, "https://mail.example/").is_err(), "hidden: not asked about");
         assert_eq!(vault.browser_totp(&uuid), None);
         vault.db.entry_mut(entry).unwrap().custom_data.clear();
 
@@ -1992,12 +2034,20 @@ pub mod tests {
         assert!(vault.passkeys_for("example.com", &["c29tZXRoaW5nLWVsc2U".into()]).is_empty());
         let credential_id = made.fields.iter().find(|f| f.name == edit::passkey::CREDENTIAL_ID).unwrap().value.clone();
         assert_eq!(vault.passkeys_for("example.com", std::slice::from_ref(&credential_id)).len(), 1);
+        assert_eq!(vault.browser_passkeys("example.com", &[]).len(), 1);
 
         let response = vault.sign_with_passkey(&id, r#"{"rpId": "example.com", "challenge": "c2lnbg"}"#, &caller).unwrap();
         let json: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(json["id"], credential_id.as_str());
         assert_eq!(json["response"]["userHandle"], "dQ");
         assert!(vault.sign_with_passkey(&id, r#"{"rpId": "other.com", "challenge": "Yw"}"#, &caller).is_err());
+
+        // Hidden from the browser extension: offered everywhere else.
+        let mut vault = vault;
+        let hide = keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String("true".into())), last_modification_time: None };
+        vault.db.entry_mut(parse_id(&id).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), hide);
+        assert!(vault.browser_passkeys("example.com", &[]).is_empty());
+        assert_eq!(vault.passkeys_for("example.com", &[]).len(), 1);
     }
 
     #[test]
@@ -2037,6 +2087,10 @@ pub mod tests {
         // The site's entry is offered, until it has a passkey.
         let offered = vault.entries_for_new_passkey("shop.example");
         assert_eq!(offered.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [shop.as_str()]);
+        let hide = keepass::db::CustomDataItem { value: Some(keepass::db::CustomDataValue::String("true".into())), last_modification_time: None };
+        vault.db.entry_mut(parse_id(&shop).unwrap()).unwrap().custom_data.insert("BrowserHideEntry".into(), hide);
+        assert!(vault.browser_entries_for_new_passkey("shop.example").is_empty(), "hidden from the extension");
+        vault.db.entry_mut(parse_id(&shop).unwrap()).unwrap().custom_data.clear();
         let made = crate::webauthn::make(request, &caller).unwrap();
         assert_eq!(vault.add_passkey(Some(&shop), &made).unwrap(), shop);
         assert!(vault.entries_for_new_passkey("shop.example").is_empty());
