@@ -413,7 +413,8 @@ row, as the phone shows autofill).
   browser, as an app. On a form that changes the password (current, new, again), the one saved is the
   new one: the field marked `new-password`, else the last. To read the
   certificate of the app being filled, the APK asks for `QUERY_ALL_PACKAGES` (Android 11 hides other apps
-  otherwise; fine for this APK, which is not on Google Play): only that app's certificate is read.
+  otherwise; fine for this APK, which is not on Google Play, where it would need a declaration, #306):
+  only that app's certificate is read.
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.
@@ -438,6 +439,8 @@ row, as the phone shows autofill).
   password replaced, the old version in history, the user name kept when the entry has one), or
   **another entry** picked among all and linked, verified with the fingerprint or the phone's screen
   lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast tells it was saved, or why not.
+  What was typed is held in memory only until the save screen takes it, not in the screen's intent,
+  which Android would give back to the app started again (#306): then it is gone, and said so.
 - **Not yet:** inline offers in the keyboard, and filling other fields (cards, addresses, TOTP codes).
 
 ## Synchronisation
