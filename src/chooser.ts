@@ -14,16 +14,16 @@ let state: 'idle' | 'busy' | 'unlock' | 'choose' | 'message' = 'idle'
 
 /** The chooser's look: what it is about, what it asks, and its buttons with Cancel last. */
 function draw(message: string, body: Node[], buttons: Node[], focus?: HTMLElement) {
-  const cancel = button('Cancel', 'Cancel (Esc)', goAway)
+  const cancelButton = button('Cancel', 'Cancel (Esc)', cancel)
   root.replaceChildren(
     el('div', { className: 'content' }, el('p', {}, message), ...body),
-    el('div', { className: 'buttons' }, ...buttons, cancel),
+    el('div', { className: 'buttons' }, ...buttons, cancelButton),
   )
-  ;(focus ?? cancel).focus()
+  ;(focus ?? cancelButton).focus()
 }
 
 /** Nothing waits to be typed into any more, and the chooser goes. */
-function goAway() {
+function cancel() {
   state = 'idle'
   root.replaceChildren()
   api.cancelAutoType().catch(() => {})
@@ -35,7 +35,7 @@ async function refresh() {
     const status = await api.status()
     if (!status.unlocked) return showUnlock(status)
     const ask = await api.autoTypeWaiting()
-    if (!ask) return goAway()
+    if (!ask) return cancel()
     showChoice(ask, (await api.listing()).entries)
   } catch (e) {
     showMessage(String(e))
@@ -57,8 +57,8 @@ function showChoice(ask: AutoTypeAsk, entries: Entry[]) {
   draw(typeTarget(ask), body, buttons, focus)
 }
 
-/** The master password, for the database the main window's unlock screen
- *  opens; a key file chosen there goes with it. */
+/** The master password and key file, for the database the main window's
+ *  unlock screen opens; the key file is the one chosen for it there, or here. */
 async function showUnlock(status: Status) {
   if (!status.database) return showMessage('Choose a database in PswManager first, then press the Auto-Type hotkey again')
   state = 'unlock'
@@ -68,9 +68,21 @@ async function showUnlock(status: Status) {
   error.hideOnInput(password)
   const hello = button('Windows Hello', 'Unlock with Windows Hello: face, fingerprint or PIN', () => unlockWith(api.unlockWithHello))
   hello.hidden = true
+  const keyFile = el('span', { className: 'path muted' })
+  const showKeyFile = (path: string | null) => {
+    keyFile.textContent = keyFile.title = path ?? 'No key file'
+  }
+  showKeyFile(status.keyFile)
+  const pickKeyFile = button('Key file…', 'A KeePass key file (.keyx or .key), needed only if this database was set up with one', async () => {
+    try {
+      showKeyFile((await api.pickKeyFile()).keyFile)
+    } catch (e) {
+      error.show(String(e))
+    }
+  })
   const form = el('form', { className: 'unlock', autocomplete: 'off' },
     el('label', { className: 'field' }, el('span', {}, 'Master password'), password),
-    ...(status.keyFile ? [el('p', { className: 'muted path', title: status.keyFile }, `Key file: ${status.keyFile}`)] : []),
+    el('div', { className: 'file-row' }, keyFile, pickKeyFile),
     error.line,
   )
   form.addEventListener('submit', (e) => {
@@ -108,19 +120,22 @@ async function showUnlock(status: Status) {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault()
-    goAway()
+    cancel()
   }
 })
 
-// The hotkey was pressed again, with the chooser made before.
-listen('auto-type-waiting', refresh)
+// The hotkey was pressed again, with the chooser made before. While it
+// unlocks, the window that waits is asked for once unlocked.
+listen('auto-type-waiting', () => {
+  if (state !== 'unlock' && state !== 'busy') void refresh()
+})
 // Unlocked in the main window meanwhile.
 listen('unlocked', () => {
   if (state === 'unlock') void refresh()
 })
 // A lock takes the window that waited: there is nothing left to choose.
 listen('locked', () => {
-  if (state === 'choose' || state === 'message') goAway()
+  if (state === 'choose' || state === 'message') cancel()
 })
 
 void refresh()

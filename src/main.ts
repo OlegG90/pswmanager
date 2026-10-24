@@ -143,6 +143,18 @@ function showUnlock(status: Status) {
 let helloReady = false
 /** Windows Hello's prompt is open: another one waits for it. */
 let helloOpen = false
+/** This window is unlocking: the `unlocked` it causes is not the chooser's. */
+let unlocking = false
+
+/** Unlocks with `open` and shows the vault. */
+async function unlockWith(open: () => Promise<Listing>) {
+  unlocking = true
+  try {
+    showVault(await open())
+  } finally {
+    unlocking = false
+  }
+}
 
 /** Shows Unlock with Windows Hello when it can unlock the current database. */
 async function offerHello() {
@@ -157,7 +169,7 @@ function unlockWithHello() {
   helloOpen = true
   run(async () => {
     try {
-      showVault(await api.unlockWithHello())
+      await unlockWith(api.unlockWithHello)
     } catch (e) {
       if (String(e) !== 'cancelled') throw e
     }
@@ -211,7 +223,7 @@ unlockForm.addEventListener('submit', (e) => {
   run(async () => {
     const password = passwordInput.value
     passwordInput.value = ''
-    showVault(await api.unlock(password))
+    await unlockWith(() => api.unlock(password))
   }).finally(() => {
     button.disabled = false
     if (!unlockForm.hidden) passwordInput.focus()
@@ -1542,7 +1554,7 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 listen('locked', showLocked)
 // Unlocked in Auto-Type's chooser (#307).
 listen('unlocked', async () => {
-  if (!unlocked) showVault(await api.listing())
+  if (!unlocked && !unlocking) showVault(await api.listing())
 })
 // The browser extension's requests that need the user (#273).
 listen<BrowserAssociate>('browser-associate', (e) => answerAssociate(e.payload).catch((err) => notify(String(err))))

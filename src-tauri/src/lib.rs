@@ -1680,12 +1680,17 @@ fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
     done
 }
 
-/// The user chose no entry: nothing waits to be typed into, and the chooser goes.
-#[tauri::command]
+/// The user chose no entry: nothing waits to be typed into, and the chooser
+/// goes. With the main window hidden, that is hiding PswManager: a database
+/// unlocked in the chooser locks or syncs as it would.
+#[tauri::command(async)]
 fn cancel_auto_type(app: AppHandle) {
     take_waiting(&app);
     app.state::<AutoTypeNotice>().0.lock().unwrap().take();
     chooser::hide(&app);
+    if !window::is_shown(&app) {
+        window::settle(&app);
+    }
 }
 
 /// The window waiting to be typed into, if it still is, taken: no other call gets it.
@@ -2010,7 +2015,9 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 if window.label() == chooser::LABEL {
-                    cancel_auto_type(window.app_handle().clone());
+                    // Off the event loop: it may lock, which waits for a save.
+                    let app = window.app_handle().clone();
+                    std::thread::spawn(move || cancel_auto_type(app));
                 } else {
                     window::hide(window.app_handle());
                 }

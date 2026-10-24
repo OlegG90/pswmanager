@@ -408,7 +408,7 @@ It works in any app, browsers included, with no extension.
 - **The hotkey** (default `Ctrl+Alt+A`, as in KeePass; changed or turned off in *Settings → General →
   Auto-Type*; it cannot be the window's hotkey) takes the window in front — not PswManager's own, the
   desktop or the taskbar. While locked, the chooser (below) asks for the master password (or Windows
-  Hello, which asks at once where it is set up; the key file the unlock screen has goes with it), then
+  Hello, which asks at once where it is set up) and the key file (the unlock screen's, or one chosen there), then
   which entry to type (always: the unlock may have been for something else); an unlock in the main
   window does as well. The window waits to be typed into for two minutes, and a browser that shows
   another page by the time the entry is typed gets nothing.
@@ -428,13 +428,13 @@ It works in any app, browsers included, with no extension.
     window associations matches it: `*` stands for any text, `//…//` is a regular expression, both
     ignoring case; without `*` the whole title must match.
 - **One entry fits**: it is typed at once, unless **Always ask** is on (off by default). Otherwise the
-  **chooser** asks (#307): a small window of its own, centred over the window the hotkey was pressed
-  in, so the main window never covers it; the main window stays as it was, hidden or shown. It says
+  **chooser** asks (#307): a small window of its own, on top and centred over the window the hotkey was
+  pressed in, so the main window never covers it; the main window stays as it was, hidden or shown. It says
   *Type into "<title>"* (with the site, in a browser) and lists the entries that fit; typing searches
   every entry in use. ↑ / ↓ choose, Enter or **Type** types the entry's sequence; **User name**,
   **Password** and **TOTP** type that value alone. Cancel, Esc or closing it types nothing. It steps
-  aside to type and comes back to say why typing failed; typed with the main window hidden, the
-  database locks or syncs as hiding the window does (*Lock when hidden*). Why the hotkey's window was
+  aside to type and comes back to say why typing failed. Once it has gone (typed or cancelled) with
+  the main window hidden, the database locks or syncs as hiding the window does (*Lock when hidden*). Why the hotkey's window was
   not typed into at once (one entry fit, but it cannot be typed there) is said in the chooser too.
 - **Entry-level Auto-Type**: `Ctrl+Shift+V` or *Auto-Type* in the entry's menu hides the window and types
   the entry into the window that comes forward then (the one in front before PswManager).

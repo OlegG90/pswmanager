@@ -25,6 +25,9 @@ pub fn ask(app: &AppHandle, over: Option<(i32, i32, i32, i32)>) {
                 .title("PswManager — Auto-Type")
                 .inner_size(WIDTH, HEIGHT)
                 .min_inner_size(360.0, 320.0)
+                // Above the window it is over, which may take the focus back; it goes when answered.
+                .always_on_top(true)
+                .skip_taskbar(true)
                 .visible(false)
                 .build();
             match built {
@@ -42,13 +45,17 @@ pub fn ask(app: &AppHandle, over: Option<(i32, i32, i32, i32)>) {
     }
 }
 
-/// Centres the chooser over `(left, top, right, bottom)`, kept on that window's screen.
+/// Centres the chooser over `(left, top, right, bottom)`, kept on that window's
+/// screen. Its size is the one it takes there: a screen of another scale
+/// resizes it as it arrives.
 fn place(window: &WebviewWindow, (left, top, right, bottom): (i32, i32, i32, i32)) {
-    let Ok(size) = window.outer_size() else { return };
-    let (width, height) = (size.width as i32, size.height as i32);
+    let (Ok(size), Ok(scale)) = (window.outer_size(), window.scale_factor()) else { return };
     let (cx, cy) = ((left + right) / 2, (top + bottom) / 2);
+    let monitor = window.monitor_from_point(cx.into(), cy.into()).ok().flatten();
+    let rescale = monitor.as_ref().map_or(1.0, |m| m.scale_factor() / scale);
+    let (width, height) = ((size.width as f64 * rescale) as i32, (size.height as f64 * rescale) as i32);
     let (mut x, mut y) = (cx - width / 2, cy - height / 2);
-    if let Ok(Some(monitor)) = window.monitor_from_point(cx.into(), cy.into()) {
+    if let Some(monitor) = monitor {
         let area = monitor.work_area();
         x = x.clamp(area.position.x, (area.position.x + area.size.width as i32 - width).max(area.position.x));
         y = y.clamp(area.position.y, (area.position.y + area.size.height as i32 - height).max(area.position.y));
