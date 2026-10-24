@@ -67,6 +67,7 @@ pub fn apply_theme(app: &AppHandle) {
     if let Some(window) = main_window(app) {
         let _ = window.set_theme(window_theme(&Settings::of(&app.state())));
     }
+    crate::chooser::apply_theme(app);
 }
 
 /// Hides the window to the tray, remembering where it was.
@@ -91,6 +92,11 @@ pub fn come_back(app: &AppHandle, typed: bool) {
     } else {
         show(app);
     }
+}
+
+/// Whether the window is shown (minimized counts: it is not put away).
+pub fn is_shown(app: &AppHandle) -> bool {
+    main_window(app).is_some_and(|w| w.is_visible().unwrap_or(false))
 }
 
 /// What hiding the window does after it is hidden: locking, or syncing.
@@ -152,7 +158,7 @@ fn remember_geometry(window: &WebviewWindow) {
 }
 
 /// The window's theme; `None` follows Windows.
-fn window_theme(settings: &Settings) -> Option<tauri::Theme> {
+pub fn window_theme(settings: &Settings) -> Option<tauri::Theme> {
     match settings.theme() {
         "light" => Some(tauri::Theme::Light),
         "dark" => Some(tauri::Theme::Dark),

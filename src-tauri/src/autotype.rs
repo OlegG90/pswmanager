@@ -12,7 +12,7 @@ use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationValuePattern, TreeScope_Descendants, UIA_AutomationIdPropertyId, UIA_DocumentControlTypeId,
     UIA_ControlTypePropertyId, UIA_EditControlTypeId, UIA_ValuePatternId,
 };
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND, RECT};
 use windows_sys::Win32::Security::{GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel, TOKEN_MANDATORY_LABEL, TOKEN_QUERY};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     VK_HOME, VK_INSERT, VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+    GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
 };
 
 /// Browsers made from Chromium, by their program's file name: one of them is
@@ -64,6 +64,13 @@ impl Target {
     pub fn is_current(&self) -> bool {
         // SAFETY: IsWindow takes any value.
         self.since.elapsed() < KEPT_FOR && unsafe { IsWindow(self.hwnd()) } != 0
+    }
+
+    /// Where the window is on screen, in pixels: its left, top, right and bottom.
+    pub fn bounds(&self) -> Option<(i32, i32, i32, i32)> {
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        // SAFETY: the handle may be gone, which the call reports.
+        (unsafe { GetWindowRect(self.hwnd(), &mut rect) } != 0).then_some((rect.left, rect.top, rect.right, rect.bottom))
     }
 }
 

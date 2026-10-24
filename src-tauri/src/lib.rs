@@ -7,6 +7,7 @@ mod activity;
 mod autotype;
 mod browser;
 mod browser_host;
+mod chooser;
 mod cli;
 mod clipboard;
 mod credentials;
@@ -56,6 +57,11 @@ struct FileWatch(Mutex<Option<notify::RecommendedWatcher>>);
 /// entry (#272).
 #[derive(Default)]
 struct AutoTypeTarget(Mutex<Option<autotype::Target>>);
+
+/// Why the hotkey's window was not typed into, for the chooser to say once it
+/// is up (#307).
+#[derive(Default)]
+struct AutoTypeNotice(Mutex<Option<String>>);
 
 /// Something the user should know that happened before the window could say
 /// it (the global hotkey could not be registered).
@@ -680,7 +686,7 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
         // After the window has the database: Windows Hello's prompt waits for the user.
         let password = password.map(|p| Zeroizing::new(p.to_string()));
-        std::thread::spawn(move || hello::seal(&database, password.as_deref().map(String::as_str)));
+        std::thread::spawn(move || chooser::below(&app, || hello::seal(&database, password.as_deref().map(String::as_str))));
     }
     Ok(listing)
 }
@@ -713,7 +719,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
         return Err(MASTER.into());
     }
     let database = current_file(&app.state()).ok_or("Choose a database first")?;
-    let password = hello::unseal(&database).map_err(|failure| match failure {
+    let password = chooser::below(&app, || hello::unseal(&database)).map_err(|failure| match failure {
         hello::Failure::Cancelled => CANCELLED.to_string(),
         hello::Failure::NotSealed => MASTER.into(),
         hello::Failure::Other(message) => message,
@@ -743,6 +749,8 @@ fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), S
     app.state::<Activity>().touch();
     session.set(Some(vault));
     browser_host::tell(true);
+    // The main window and Auto-Type's chooser each unlock; the other follows.
+    let _ = app.emit("unlocked", ());
     if synced {
         // Only this app writes the working copy; the remote file is what changes.
         sync::request(app);
@@ -1585,33 +1593,35 @@ struct AutoTypeAsk {
 
 /// Auto-Type's hotkey (#272): the window in front waits to be typed into. One
 /// entry alone fits it: typed at once (unless the user wants to be asked).
-/// Otherwise, or while locked, the window comes up to unlock or choose.
+/// Otherwise, or while locked, the chooser comes up over it to unlock or
+/// choose (#307); the main window stays as it is.
 fn auto_type_pressed(app: &AppHandle) {
     // A press while one is typing (the hotkey held, pressed twice) types nothing more.
     let Some(_typing) = Typing::start() else { return };
     let Some(target) = autotype::foreground() else { return }; // PswManager's own window, the desktop
+    let over = target.bounds();
     *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
-    if !app.state::<Session>().is_unlocked() {
-        // Once unlocked, the window asks for what is waiting (auto_type_resume).
-        return window::show(app);
-    }
-    match waiting_window(app, true) {
-        Ok(None) => {}
-        Ok(Some(ask)) => {
-            window::show(app);
-            let _ = app.emit("auto-type", ask);
-        }
-        Err(message) => {
-            window::show(app);
-            let _ = app.emit("notice", message);
+    *app.state::<AutoTypeNotice>().0.lock().unwrap() = None;
+    if app.state::<Session>().is_unlocked() {
+        match waiting_window(app, true) {
+            // Typed: a chooser still up from an earlier press has nothing to ask now.
+            Ok(None) => return chooser::hide(app),
+            Ok(Some(_)) => {}
+            Err(message) => *app.state::<AutoTypeNotice>().0.lock().unwrap() = Some(message),
         }
     }
+    // Once up (and unlocked), the chooser asks for what waits (auto_type_waiting).
+    chooser::ask(app, over);
 }
 
-/// After an unlock: the choice for the window waiting to be typed into, if
-/// one waits. It is always asked: the user may have unlocked for something else.
+/// What the chooser shows once it is up and unlocked: why the hotkey's window
+/// was not typed into, or the choice for it; nothing when none waits. Asked
+/// after every unlock: the user may have unlocked for something else.
 #[tauri::command(async)]
-fn auto_type_resume(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
+fn auto_type_waiting(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
+    if let Some(message) = app.state::<AutoTypeNotice>().0.lock().unwrap().take() {
+        return Err(message);
+    }
     waiting_window(&app, false)
 }
 
@@ -1652,18 +1662,36 @@ impl Drop for Typing {
     }
 }
 
-/// Types the entry the user chose into the window waiting for it.
+/// Types the entry the user chose in the chooser into the window waiting for
+/// it. The chooser steps aside first and comes back when typing fails, to say why.
 #[tauri::command(async)]
 fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
     let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
     let target = take_waiting(&app).ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
-    type_entry(&app, &target, &id, typed)
+    chooser::hide(&app);
+    let done = type_entry(&app, &target, &id, typed);
+    match done {
+        Ok(()) => chooser_gone(&app),
+        Err(_) => chooser::show(&app),
+    }
+    done
 }
 
-/// The user chose no entry: nothing waits to be typed into.
-#[tauri::command]
+/// The user chose no entry: nothing waits to be typed into, and the chooser goes.
+#[tauri::command(async)]
 fn cancel_auto_type(app: AppHandle) {
     take_waiting(&app);
+    app.state::<AutoTypeNotice>().0.lock().unwrap().take();
+    chooser::hide(&app);
+    chooser_gone(&app);
+}
+
+/// The chooser has gone. With the main window hidden, PswManager is put away:
+/// it locks or syncs as hiding the main window does.
+fn chooser_gone(app: &AppHandle) {
+    if !window::is_shown(app) {
+        window::settle(app);
+    }
 }
 
 /// The window waiting to be typed into, if it still is, taken: no other call gets it.
@@ -1687,9 +1715,7 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
     done
 }
 
-/// Types `typed` of entry `id` into `target`. A window that is shown steps
-/// aside first, and does what hiding it does after (lock or sync); it comes
-/// back when typing fails.
+/// Types `typed` of entry `id` into `target`.
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
     // A browser whose address cannot be read gets nothing: no page, no entry fits it.
@@ -1703,13 +1729,7 @@ fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed
     if autotype::runs_higher(target) {
         return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
     }
-    let aside = window::step_aside(app);
-    let done = autotype::type_into(target, &steps);
-    drop(steps);
-    if aside {
-        window::come_back(app, done.is_ok());
-    }
-    done
+    autotype::type_into(target, &steps)
 }
 
 /// Locks once the database has been left alone for `lockAfterMinutes`.
@@ -1889,6 +1909,7 @@ pub fn run() {
         .manage(WaitingFile::default())
         .manage(gauth::Session::default())
         .manage(AutoTypeTarget::default())
+        .manage(AutoTypeNotice::default())
         .manage(browser_host::Questions::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
@@ -1981,7 +2002,7 @@ pub fn run() {
             similar_entries,
             merge_entries,
             merge_preview,
-            auto_type_resume,
+            auto_type_waiting,
             auto_type,
             auto_type_entry,
             cancel_auto_type,
@@ -1990,10 +2011,17 @@ pub fn run() {
             browser_host::forget_browser_association,
         ])
         .on_window_event(|window, event| {
-            // Closing the window only hides it; Quit is in the tray menu.
+            // Closing the window only hides it; Quit is in the tray menu. Closing
+            // the chooser is its Cancel.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                window::hide(window.app_handle());
+                if window.label() == chooser::LABEL {
+                    // Off the event loop: it may lock, which waits for a save.
+                    let app = window.app_handle().clone();
+                    std::thread::spawn(move || cancel_auto_type(app));
+                } else {
+                    window::hide(window.app_handle());
+                }
             }
         })
         .setup(move |app| {
