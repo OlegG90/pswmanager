@@ -3824,7 +3824,7 @@ checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
 
 [[package]]
 name = "pswm-android"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "base64 0.23.1",
  "jni 0.22.4",
@@ -3871,7 +3871,7 @@ dependencies = [
 
 [[package]]
 name = "pswmanager"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "arboard",
  "base64 0.23.1",
