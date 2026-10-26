@@ -66,6 +66,20 @@ pub fn show(app: &AppHandle) {
     crate::check_disk(app);
 }
 
+/// Runs `prompt` with window `label` no longer on top: a prompt of its own
+/// (Windows Hello's) would be covered by it. For any always-on-top window.
+pub fn without_topmost<T>(app: &AppHandle, label: &str, prompt: impl FnOnce() -> T) -> T {
+    let window = app.get_webview_window(label);
+    if let Some(window) = &window {
+        let _ = window.set_always_on_top(false);
+    }
+    let answer = prompt();
+    if let Some(window) = &window {
+        let _ = window.set_always_on_top(true);
+    }
+    answer
+}
+
 /// Applies the theme setting. The window passes it on to the page, whose
 /// light and dark looks follow `prefers-color-scheme`.
 pub fn apply_theme(app: &AppHandle) {

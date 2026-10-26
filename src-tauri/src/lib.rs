@@ -686,7 +686,7 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
         // After the window has the database: Windows Hello's prompt waits for the user.
         let password = password.map(|p| Zeroizing::new(p.to_string()));
-        std::thread::spawn(move || chooser::below(&app, || hello::seal(&database, password.as_deref().map(String::as_str))));
+        std::thread::spawn(move || window::without_topmost(&app, chooser::LABEL, || hello::seal(&database, password.as_deref().map(String::as_str))));
     }
     Ok(listing)
 }
@@ -719,7 +719,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
         return Err(MASTER.into());
     }
     let database = current_file(&app.state()).ok_or("Choose a database first")?;
-    let password = chooser::below(&app, || hello::unseal(&database)).map_err(|failure| match failure {
+    let password = window::without_topmost(&app, chooser::LABEL, || hello::unseal(&database)).map_err(|failure| match failure {
         hello::Failure::Cancelled => CANCELLED.to_string(),
         hello::Failure::NotSealed => MASTER.into(),
         hello::Failure::Other(message) => message,
@@ -1639,24 +1639,50 @@ fn auto_type_waiting(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
 /// wants to be asked); else the choice to show, and the window waits on. Taken
 /// while deciding, so two calls never both type.
 fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>, String> {
-    let Some(target) = take_waiting(app) else { return Ok(None) };
-    let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
-    if let [only] = &matches[..] {
-        if may_type && !Settings::of(&app.state()).auto_type_always_ask() {
-            return type_entry(app, &target, &only.id, Typed::Sequence).map(|()| None);
+    let target = take_waiting(app);
+    // A notice still standing is said first, as `auto_type_waiting` says it;
+    // with no window, nothing is taken, as before.
+    let notice = if target.is_some() {
+        app.state::<AutoTypeNotice>().0.lock().unwrap().take()
+    } else {
+        None
+    };
+    let unlocked = app.state::<Session>().is_unlocked();
+    let matches = target
+        .as_ref()
+        .map(|target| app.state::<Session>().read(|v| v.auto_type_matches(&target.window)))
+        .transpose()?
+        .unwrap_or_default();
+    let always_ask = Settings::of(&app.state()).auto_type_always_ask();
+    match chooser::plan(target.is_some(), notice.as_deref(), unlocked, may_type, always_ask, &matches) {
+        // Said once, then gone: the window keeps waiting meanwhile.
+        chooser::Plan::Notice => {
+            if let Some(target) = target {
+                *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
+            }
+            Err(notice.unwrap_or_default())
+        }
+        // Locked meanwhile, none does; no window, none waits.
+        chooser::Plan::Nothing | chooser::Plan::Unlock => Ok(None),
+        chooser::Plan::Type { id } => {
+            let Some(target) = target else { return Ok(None) };
+            type_entry(app, &target, &id, Typed::Sequence).map(|()| None)
+        }
+        chooser::Plan::Ask => {
+            let Some(target) = target else { return Ok(None) };
+            let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
+            let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
+            // A newer press meanwhile is the one that waits. Locked meanwhile, none
+            // does: checked under the lock lock_now takes the window with.
+            let waiting_target = app.state::<AutoTypeTarget>();
+            let mut waiting = waiting_target.0.lock().unwrap();
+            if !app.state::<Session>().is_unlocked() {
+                return Ok(None);
+            }
+            waiting.get_or_insert(target);
+            Ok(Some(ask))
         }
     }
-    let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
-    let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
-    // A newer press meanwhile is the one that waits. Locked meanwhile, none
-    // does: checked under the lock lock_now takes the window with.
-    let waiting_target = app.state::<AutoTypeTarget>();
-    let mut waiting = waiting_target.0.lock().unwrap();
-    if !app.state::<Session>().is_unlocked() {
-        return Ok(None);
-    }
-    waiting.get_or_insert(target);
-    Ok(Some(ask))
 }
 
 /// Auto-Type typing now: one at a time, so keys of two are never mixed.
