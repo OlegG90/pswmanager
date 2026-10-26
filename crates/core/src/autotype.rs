@@ -33,6 +33,33 @@ pub struct Window {
     pub page: Option<Page>,
 }
 
+/// Whether the browser went on to another page since the hotkey was pressed
+/// (a redirect after Enter, another tab); any other window always shows the
+/// same. Pure over the pressed window and the page shown now (`None` when it
+/// is no browser or its address cannot be read): the one table both the
+/// pre-typing refusal and the typing loop read.
+pub fn drifted(then: &Window, now: Option<&Page>) -> bool {
+    if !then.browser {
+        return false;
+    }
+    match (&now, &then.page) {
+        (Some(now), Some(then)) => !now.same_place(then),
+        (None, None) => false,
+        _ => true,
+    }
+}
+
+/// Why typing into `then` must not happen, given the page shown `now`: a
+/// browser whose address cannot be read gets nothing (no page, no entry fits
+/// it), and a browser gone on is typed into there, not here. `None` when
+/// typing may go on.
+pub fn refusal(then: &Window, now: Option<&Page>) -> Option<String> {
+    if then.browser && then.page.is_none() {
+        return Some("The browser's address cannot be read: Auto-Type does not type into it".into());
+    }
+    drifted(then, now).then(|| "The browser shows another page now: press the Auto-Type hotkey there again".into())
+}
+
 /// What to type of the entry: its sequence, or one value alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -513,5 +540,46 @@ mod tests {
         assert!(fits_title(&entry, "Inbox - MAIL"));
         assert!(fits_title(&entry, "Outlook — Sign in"));
         assert!(!fits_title(&entry, "Notepad"));
+    }
+
+    fn window(title: &str, browser: bool, site: Option<&str>) -> Window {
+        Window { title: title.into(), browser, page: site.and_then(Page::of_address) }
+    }
+
+    #[test]
+    fn a_browser_without_an_address_is_refused() {
+        let pressed = window("", true, None);
+        assert_eq!(
+            refusal(&pressed, None),
+            Some("The browser's address cannot be read: Auto-Type does not type into it".into())
+        );
+        assert!(!drifted(&pressed, None), "no drift: refused as unreadable, not as gone on");
+    }
+
+    #[test]
+    fn a_browser_gone_on_to_another_page_is_refused() {
+        let pressed = window("", true, Some("https://mail.example/inbox"));
+        let now = Page::of_address("https://other.example/");
+        assert_eq!(
+            refusal(&pressed, now.as_ref()),
+            Some("The browser shows another page now: press the Auto-Type hotkey there again".into())
+        );
+        assert!(drifted(&pressed, now.as_ref()));
+    }
+
+    #[test]
+    fn the_same_page_may_be_typed_into() {
+        let pressed = window("", true, Some("https://mail.example/inbox"));
+        let now = Page::of_address("https://mail.example/other");
+        assert_eq!(refusal(&pressed, now.as_ref()), None);
+        assert!(!drifted(&pressed, now.as_ref()));
+    }
+
+    #[test]
+    fn no_browser_is_never_refused() {
+        let pressed = window("Notepad", false, None);
+        let now = Page::of_address("https://mail.example/");
+        assert_eq!(refusal(&pressed, now.as_ref()), None);
+        assert!(!drifted(&pressed, now.as_ref()));
     }
 }

@@ -130,21 +130,8 @@ pub fn behind() -> Option<Target> {
 
 /// The page the target's browser shows now; `None` when it is no browser or
 /// its address cannot be read.
-fn page_now(target: &Target) -> Option<Page> {
+pub fn page_now(target: &Target) -> Option<Page> {
     target.engine.and_then(|e| address(target.hwnd(), e)).as_deref().and_then(Page::of_address)
-}
-
-/// Whether the target still shows the page it showed when the hotkey was
-/// pressed (a browser may have gone on: a redirect after Enter, another tab);
-/// any other window always does.
-pub fn on_same_page(target: &Target) -> bool {
-    if !target.window.browser {
-        return true;
-    }
-    match (page_now(target), &target.window.page) {
-        (Some(now), Some(then)) => now.same_place(then),
-        (now, then) => now.is_none() && then.is_none(),
-    }
 }
 
 /// The browser engines whose address bar can be read, by their windows' class.
@@ -311,7 +298,7 @@ pub fn type_into(target: &Target, steps: &[Step], unlocked: impl Fn() -> bool) -
         // before each of its characters too.
         if !matches!(step, Step::Pause(_) | Step::KeyDelay(_)) {
             still_allowed()?;
-            if !on_same_page(target) {
+            if pswm_core::autotype::drifted(&target.window, page_now(target).as_ref()) {
                 return Err(PAGE.into());
             }
         }
