@@ -151,7 +151,11 @@ impl Host for AppHost {
             }
         }
         let Some(id) = self.change(|v| v.browser_save_login(uuid, url, login, password, group)) else { return false };
-        crate::databases::show_changes(&self.0, vec![id]);
+        crate::databases::show_changes(&self.0, vec![id.clone()]);
+        // The extension says only that the login was saved: the window shows
+        // the entry it went to, so it can be found again (#322).
+        let _ = self.0.emit("browser-saved", id);
+        crate::window::show(&self.0);
         true
     }
 

@@ -519,7 +519,9 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   than 1 MB holds: the first that fit.
 - **Saving** (`set-login`): a new login becomes an entry titled after the page's host, with its address,
   in the group the extension names, else `KeePassXC-Browser Passwords` (made when missing), saved and
-  synced like an edit. Replacing the password (and user name) of a login the database has is asked in
+  synced like an edit. The window then comes up with the entry the login went to, new or replaced,
+  among All when the chosen group, tag or search leaves it out (an open editor stays): the extension
+  only says the login was saved (#322). Replacing the password (and user name) of a login the database has is asked in
   the window first, only for an entry that fits the page and that the extension may have there (not
   hidden from it nor denied to the host); the old version goes into its history. The extension
   can list the groups and make one (`get-database-groups`, `create-new-group`).
