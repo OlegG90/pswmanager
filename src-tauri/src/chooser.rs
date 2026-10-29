@@ -85,36 +85,21 @@ pub fn apply_theme(app: &AppHandle) {
     }
 }
 
-/// What the chooser shows for the hotkey's window: the decision behind the
-/// wait, as pure data (windows and locks stay out), so tests read the same
-/// table the window follows.
+/// What the chooser does for the hotkey's window, unlocked: the decision
+/// behind the wait, as pure data (windows and locks stay out), so tests read
+/// the same table the window follows. A standing notice and the unlock are
+/// settled before it, by the callers and by the database's lock.
 #[derive(Debug, PartialEq)]
 pub enum Plan {
     /// One entry alone fits and may be typed at once: its id.
     Type { id: String },
     /// The choice to show.
     Ask,
-    /// Why the window was not typed into, said once.
-    Notice,
-    /// Locked: the chooser unlocks first (nothing waits meanwhile).
-    Unlock,
-    /// No window waits.
-    Nothing,
 }
 
-/// What waits for the hotkey's window: a notice still standing is said first,
-/// as `auto_type_waiting` says it; then nothing without a window, the unlock
-/// without it, one fitting entry typed at once unless asked, else the choice.
-pub fn plan(has_target: bool, notice: Option<&str>, unlocked: bool, may_type: bool, always_ask: bool, matches: &[EntryChoice]) -> Plan {
-    if notice.is_some() {
-        return Plan::Notice;
-    }
-    if !has_target {
-        return Plan::Nothing;
-    }
-    if !unlocked {
-        return Plan::Unlock;
-    }
+/// One fitting entry is typed at once (when `may_type`, unless the user
+/// wants to be asked); else the choice.
+pub fn plan(may_type: bool, always_ask: bool, matches: &[EntryChoice]) -> Plan {
     if let [only] = matches {
         if may_type && !always_ask {
             return Plan::Type { id: only.id.clone() };
@@ -131,36 +116,21 @@ mod tests {
         EntryChoice { id: id.into(), title: "Mail".into(), username: "user".into() }
     }
 
-    fn planned(has_target: bool, notice: Option<&str>, unlocked: bool, may_type: bool, always_ask: bool, ids: &[&str]) -> Plan {
+    fn planned(may_type: bool, always_ask: bool, ids: &[&str]) -> Plan {
         let matches: Vec<EntryChoice> = ids.iter().map(|id| choice(id)).collect();
-        plan(has_target, notice, unlocked, may_type, always_ask, &matches)
-    }
-
-    #[test]
-    fn a_standing_notice_is_said_first() {
-        assert_eq!(planned(true, Some("gone"), true, true, false, &["a"]), Plan::Notice);
-    }
-
-    #[test]
-    fn with_no_window_nothing_waits() {
-        assert_eq!(planned(false, None, true, true, false, &[]), Plan::Nothing);
-    }
-
-    #[test]
-    fn locked_unlocks_first() {
-        assert_eq!(planned(true, None, false, true, false, &["a"]), Plan::Unlock);
+        plan(may_type, always_ask, &matches)
     }
 
     #[test]
     fn one_fitting_entry_types_at_once() {
-        assert_eq!(planned(true, None, true, true, false, &["a"]), Plan::Type { id: "a".into() });
+        assert_eq!(planned(true, false, &["a"]), Plan::Type { id: "a".into() });
     }
 
     #[test]
     fn asked_when_set_or_several_fit() {
-        assert_eq!(planned(true, None, true, true, true, &["a"]), Plan::Ask, "always ask");
-        assert_eq!(planned(true, None, true, false, false, &["a"]), Plan::Ask, "only looking");
-        assert_eq!(planned(true, None, true, true, false, &["a", "b"]), Plan::Ask, "several fit");
-        assert_eq!(planned(true, None, true, true, false, &[]), Plan::Ask, "none fits: search");
+        assert_eq!(planned(true, true, &["a"]), Plan::Ask, "always ask");
+        assert_eq!(planned(false, false, &["a"]), Plan::Ask, "only looking");
+        assert_eq!(planned(true, false, &["a", "b"]), Plan::Ask, "several fit");
+        assert_eq!(planned(true, false, &[]), Plan::Ask, "none fits: search");
     }
 }
