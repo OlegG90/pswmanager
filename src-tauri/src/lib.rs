@@ -1734,13 +1734,10 @@ fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), Strin
 /// Types `typed` of entry `id` into `target`.
 fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
     let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
-    // A browser whose address cannot be read gets nothing: no page, no entry fits it.
-    if target.window.browser && target.window.page.is_none() {
-        return Err("The browser's address cannot be read: Auto-Type does not type into it".into());
-    }
-    // The browser may show another page by now (a redirect, another tab).
-    if !autotype::on_same_page(target) {
-        return Err("The browser shows another page now: press the Auto-Type hotkey there again".into());
+    // What the window shows now may refuse the typing: an unreadable
+    // browser's address, or a page gone on since.
+    if let Some(refusal) = pswm_core::autotype::refusal(&target.window, autotype::page_now(target).as_ref()) {
+        return Err(refusal);
     }
     if autotype::runs_higher(target) {
         return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
