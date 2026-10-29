@@ -81,3 +81,9 @@ jobs:
           name: pswmanager-apk
           path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      # The Kotlin unit tests (app/src/test), after the upload: a failing test
+      # still leaves the APK to look at. The Android Gradle plugin makes them
+      # for the debug build only.
+      - working-directory: apps/android/gen/android
+        run: ./gradlew --no-daemon :app:testUniversalDebugUnitTest

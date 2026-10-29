@@ -3,7 +3,6 @@ package io.github.olegg90.pswmanager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
 import android.service.autofill.Dataset
@@ -17,8 +16,6 @@ import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
@@ -79,7 +76,7 @@ class PswmAutofillService : AutofillService() {
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
     val save = Intent(this, AutofillSaveActivity::class.java)
       .putFields(fields, caller, "save")
-      .putExtra(EXTRA_TYPED, keepTyped(typedUsername(request, fields), password))
+      .putExtra(EXTRA_TYPED, typed.keep(typedUsername(request, fields), password))
     // Immutable and once: nothing is added to it, and it is not answered twice.
     val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
     callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
@@ -170,31 +167,11 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_ORIGIN = "origin"
     private const val EXTRA_CERTIFICATE = "certificate"
 
-    /** Which login typed in [AutofillSaveActivity] saves ([takeTyped]). */
+    /** Which login typed in [AutofillSaveActivity] saves ([TypedLogins.take]). */
     internal const val EXTRA_TYPED = "typed"
 
-    /**
-     * The login typed in, held in memory for [AutofillSaveActivity] rather
-     * than in its intent: the system keeps an activity's extras and gives
-     * them back to a process started again, so the password would outlive
-     * it there. Only the latest, under a token of its own.
-     */
-    private var typed: Triple<String, String, String>? = null
-
-    @Synchronized
-    private fun keepTyped(username: String, password: String): String {
-      val token = java.util.UUID.randomUUID().toString()
-      typed = Triple(token, username, password)
-      return token
-    }
-
-    /** The user name and password kept under `token`, taken: none once taken, or after the process started again. */
-    @Synchronized
-    fun takeTyped(token: String): Pair<String, String>? {
-      val (_, username, password) = typed?.takeIf { it.first == token } ?: return null
-      typed = null
-      return username to password
-    }
+    /** The login typed in, until [AutofillSaveActivity] takes it. */
+    internal val typed = TypedLogins()
 
     /** The most entries offered under the fields; the rest are found through [AutofillPickActivity]. */
     private const val MAX_OFFERS = 10
@@ -228,122 +205,5 @@ class PswmAutofillService : AutofillService() {
       )
       return fields to Caller(intent.getStringExtra(EXTRA_ORIGIN), packageName, intent.getByteArrayExtra(EXTRA_CERTIFICATE))
     }
-  }
-}
-
-/** Unlocking for an autofill request: the fields then offer the entries for who asks. */
-class AutofillUnlockActivity : UnlockScreen() {
-  override val purpose = "To fill in a password another app asks for."
-
-  override fun done() {
-    val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
-    // Off the main thread: a sync or a save may hold the database a moment.
-    thread {
-      // As onFillRequest: a failure here offers nothing rather than ending the app.
-      val offers = try {
-        PswmAutofillService.offers(this, fields, caller)
-      } catch (e: Exception) {
-        android.util.Log.w("PswmAutofill", "No offer: ${e.javaClass.simpleName}")
-        null
-      }
-      runOnUiThread {
-        if (offers == null) setResult(RESULT_CANCELED)
-        else setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, offers))
-        finish()
-      }
-    }
-  }
-}
-
-/**
- * Picking any entry for an app or site that none is for yet, or another one
- * (#270): unlocked first if need be, the user searches the entries, and the
- * one picked is linked to who asks ([linkEntry]; an app only once the user
- * confirmed it) and fills the fields.
- */
-class AutofillPickActivity : UnlockScreen() {
-  override val purpose = "To fill in a password another app asks for."
-
-  override fun done() {
-    val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
-    pickEntry(this, "Fill in from which entry?", { id, label ->
-      linkEntry(this, id, label, caller, { fill(id, fields, caller) }, ::finish, ::fail)
-    }, ::finish)
-  }
-
-  /** The entry is for who asks now: its login fills the fields. */
-  private fun fill(id: String, fields: AutofillFields, caller: Caller) {
-    thread {
-      val answer = Answer.of(ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, false))
-      runOnUiThread {
-        if (answer is Answer.Ok) setResult(RESULT_OK, PswmAutofillService.filled(this, fields, answer.json))
-        finish()
-      }
-    }
-  }
-
-  private fun fail(why: String) {
-    Toast.makeText(applicationContext, why, Toast.LENGTH_SHORT).show()
-    finish()
-  }
-}
-
-/**
- * Saving a login typed into another app (#270), once the user chose *Save*
- * in Android's *Save to PswManager?*: unlocked first if need be, then where
- * it goes ([SaveLogin]), as for a login offered through Credential Manager.
- */
-class AutofillSaveActivity : UnlockScreen() {
-  override val purpose = "To save a password typed into another app."
-
-  override fun done() {
-    val (_, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
-    val token = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED) ?: return finish()
-    val (username, password) = PswmAutofillService.takeTyped(token) ?: return tell("The password typed in is gone: type it again to save it")
-    SaveLogin(this, caller, username, password, ::finish, ::finish, ::tell).choose()
-  }
-
-  /** Android's save sheet is gone by now: the outcome is told in a toast. */
-  private fun tell(text: String) {
-    Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT).show()
-    finish()
-  }
-}
-
-/**
- * Filling in the entry the user picked: its user name and password go to the
- * fields, if the entry is for who asks. An entry for the app's package that
- * keeps no certificate goes only once the user confirmed the app
- * ([confirmApp]), as for the credential provider.
- */
-class AutofillLoginActivity : AppCompatActivity() {
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    Screenshots.apply(this)
-    if (savedInstanceState != null) return cancel()
-    val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return cancel()
-    val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return cancel()
-    release(id, intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", fields, caller, false)
-  }
-
-  private fun release(id: String, title: String, fields: AutofillFields, caller: Caller, confirmed: Boolean) {
-    thread {
-      val answer = Answer.of(ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed))
-      runOnUiThread {
-        when (answer) {
-          is Answer.Ok -> {
-            setResult(RESULT_OK, PswmAutofillService.filled(this, fields, answer.json))
-            finish()
-          }
-          is Answer.Unconfirmed -> confirmApp(this, caller.packageName, title, answer.certificate, { release(id, title, fields, caller, true) }, ::cancel)
-          is Answer.Failed -> cancel()
-        }
-      }
-    }
-  }
-
-  private fun cancel() {
-    setResult(RESULT_CANCELED)
-    finish()
   }
 }
