@@ -440,8 +440,7 @@ row, as the phone shows autofill).
   entry** (named after the app, or the site's host), **updating** one of the entries for who asks (the
   password replaced, the old version in history, the user name kept when the entry has one), or
   **another entry** picked among all and linked, verified with the fingerprint or the phone's screen
-  lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast names the entry it went to (its title and
-  user name, #322), or tells why it was not saved.
+  lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast names the entry it went to (its title and user name, #322), or tells why it was not saved.
   What was typed is held in memory only until the save screen takes it, not in the screen's intent,
   which Android would give back to the app started again (#306): then it is gone, and said so.
 - **Not yet:** inline offers in the keyboard, and filling other fields (cards, addresses, TOTP codes).
