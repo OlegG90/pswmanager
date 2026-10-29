@@ -687,7 +687,7 @@ fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
         // After the window has the database: Windows Hello's prompt waits for the user.
         let password = password.map(|p| Zeroizing::new(p.to_string()));
-        std::thread::spawn(move || chooser::below(&app, || hello::seal(&database, password.as_deref().map(String::as_str))));
+        std::thread::spawn(move || window::without_topmost(&app, chooser::LABEL, || hello::seal(&database, password.as_deref().map(String::as_str))));
     }
     Ok(listing)
 }
@@ -720,7 +720,7 @@ fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
         return Err(MASTER.into());
     }
     let database = current_file(&app.state()).ok_or("Choose a database first")?;
-    let password = chooser::below(&app, || hello::unseal(&database)).map_err(|failure| match failure {
+    let password = window::without_topmost(&app, chooser::LABEL, || hello::unseal(&database)).map_err(|failure| match failure {
         hello::Failure::Cancelled => CANCELLED.to_string(),
         hello::Failure::NotSealed => MASTER.into(),
         hello::Failure::Other(message) => message,
@@ -1642,10 +1642,9 @@ fn auto_type_waiting(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
 fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>, String> {
     let Some(target) = take_waiting(app) else { return Ok(None) };
     let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
-    if let [only] = &matches[..] {
-        if may_type && !Settings::of(&app.state()).auto_type_always_ask() {
-            return type_entry(app, &target, &only.id, Typed::Sequence).map(|()| None);
-        }
+    let always_ask = Settings::of(&app.state()).auto_type_always_ask();
+    if let chooser::Plan::Type { id } = chooser::plan(may_type, always_ask, &matches) {
+        return type_entry(app, &target, &id, Typed::Sequence).map(|()| None);
     }
     let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
     let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };

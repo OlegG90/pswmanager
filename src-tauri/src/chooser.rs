@@ -3,6 +3,7 @@
 //! window is left as it is, so it never covers the window typed into.
 
 use crate::settings::Settings;
+use pswm_core::vault::EntryChoice;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 pub const LABEL: &str = "chooser";
@@ -71,20 +72,6 @@ pub fn show(app: &AppHandle) {
     let _ = window.set_focus();
 }
 
-/// Runs `prompt`, which opens Windows Hello's prompt, with the chooser no
-/// longer on top: the prompt is a window of its own, which the chooser would cover.
-pub fn below<T>(app: &AppHandle, prompt: impl FnOnce() -> T) -> T {
-    let window = chooser(app);
-    if let Some(window) = &window {
-        let _ = window.set_always_on_top(false);
-    }
-    let answer = prompt();
-    if let Some(window) = &window {
-        let _ = window.set_always_on_top(true);
-    }
-    answer
-}
-
 pub fn hide(app: &AppHandle) {
     if let Some(window) = chooser(app) {
         let _ = window.hide();
@@ -95,5 +82,55 @@ pub fn hide(app: &AppHandle) {
 pub fn apply_theme(app: &AppHandle) {
     if let Some(window) = chooser(app) {
         let _ = window.set_theme(crate::window::window_theme(&Settings::of(&app.state())));
+    }
+}
+
+/// What the chooser does for the hotkey's window, unlocked: the decision
+/// behind the wait, as pure data (windows and locks stay out), so tests read
+/// the same table the window follows. A standing notice and the unlock are
+/// settled before it, by the callers and by the database's lock.
+#[derive(Debug, PartialEq)]
+pub enum Plan {
+    /// One entry alone fits and may be typed at once: its id.
+    Type { id: String },
+    /// The choice to show.
+    Ask,
+}
+
+/// One fitting entry is typed at once (when `may_type`, unless the user
+/// wants to be asked); else the choice.
+pub fn plan(may_type: bool, always_ask: bool, matches: &[EntryChoice]) -> Plan {
+    if let [only] = matches {
+        if may_type && !always_ask {
+            return Plan::Type { id: only.id.clone() };
+        }
+    }
+    Plan::Ask
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn choice(id: &str) -> EntryChoice {
+        EntryChoice { id: id.into(), title: "Mail".into(), username: "user".into() }
+    }
+
+    fn planned(may_type: bool, always_ask: bool, ids: &[&str]) -> Plan {
+        let matches: Vec<EntryChoice> = ids.iter().map(|id| choice(id)).collect();
+        plan(may_type, always_ask, &matches)
+    }
+
+    #[test]
+    fn one_fitting_entry_types_at_once() {
+        assert_eq!(planned(true, false, &["a"]), Plan::Type { id: "a".into() });
+    }
+
+    #[test]
+    fn asked_when_set_or_several_fit() {
+        assert_eq!(planned(true, true, &["a"]), Plan::Ask, "always ask");
+        assert_eq!(planned(false, false, &["a"]), Plan::Ask, "only looking");
+        assert_eq!(planned(true, false, &["a", "b"]), Plan::Ask, "several fit");
+        assert_eq!(planned(true, false, &[]), Plan::Ask, "none fits: search");
     }
 }
