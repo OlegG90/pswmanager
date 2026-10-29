@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Synced } from './api'
-import { Screens } from './screens'
+import { screens as screensOf } from './screens'
 
 const synced = { text: 'Synced', changed: true } as Synced
 
 describe('Screens', () => {
   it('goes back to where a screen came from, then leaves the app', () => {
-    const screens = new Screens()
+    const screens = screensOf()
     const toList = vi.fn()
     screens.show(toList)
     expect(screens.back()).toBe(true)
@@ -17,10 +17,11 @@ describe('Screens', () => {
   })
 
   it('undoes the innermost step first', () => {
-    const screens = new Screens()
+    const screens = screensOf()
     const order: string[] = []
     screens.show(() => order.push('screen'))
     const closeSearch = () => order.push('search')
+    // Pushed twice, undone once: a step is on the stack at most once.
     screens.push(closeSearch)
     screens.push(closeSearch)
     screens.overlay(() => order.push('sheet'))
@@ -28,8 +29,25 @@ describe('Screens', () => {
     expect(order).toEqual(['sheet', 'search', 'screen'])
   })
 
+  it('keeps a step that puts itself back when undone', () => {
+    // The editor's Back asks before leaving and stays when the changes are kept.
+    const screens = screensOf()
+    const leaveEditor = vi.fn()
+    screens.show(leaveEditor)
+    const ask = vi.fn()
+    const onBack = () => {
+      screens.push(onBack)
+      ask()
+    }
+    screens.push(onBack)
+    screens.back()
+    screens.back()
+    expect(ask).toHaveBeenCalledTimes(2)
+    expect(leaveEditor).not.toHaveBeenCalled()
+  })
+
   it('forgets a step dropped', () => {
-    const screens = new Screens()
+    const screens = screensOf()
     const clearSelection = vi.fn()
     screens.show()
     screens.push(clearSelection)
@@ -39,7 +57,7 @@ describe('Screens', () => {
   })
 
   it('closes an overlay once, from Back or its own close', () => {
-    const screens = new Screens()
+    const screens = screensOf()
     const back = vi.fn()
     screens.show(back)
     const [remove, closed] = [vi.fn(), vi.fn()]
@@ -53,23 +71,23 @@ describe('Screens', () => {
   })
 
   it('stops what a screen ran and drops its answers when another comes', () => {
-    const screens = new Screens()
+    const screens = screensOf()
     const [stop, onSynced, onReturn, overlayBack] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()]
     screens.show()
     const first = screens.current
     screens.onLeave(stop)
     screens.onSynced(onSynced)
     screens.onReturn(onReturn)
-    screens.synced(synced)
-    screens.returned()
+    screens.runSynced(synced)
+    screens.runReturn()
     expect(onSynced).toHaveBeenCalledWith(synced)
     expect(onReturn).toHaveBeenCalledOnce()
     screens.overlay(overlayBack)
     screens.show()
     expect(screens.current).not.toBe(first)
     expect(stop).toHaveBeenCalledOnce()
-    screens.synced(synced)
-    screens.returned()
+    screens.runSynced(synced)
+    screens.runReturn()
     expect(onSynced).toHaveBeenCalledOnce()
     expect(onReturn).toHaveBeenCalledOnce()
     expect(screens.back()).toBe(false)

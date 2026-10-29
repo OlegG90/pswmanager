@@ -16,7 +16,7 @@ import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-pa
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type ImportStep, type Exported, type GauthProgress, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
-import { Screens } from './screens'
+import { screens as screensOf } from './screens'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -41,7 +41,7 @@ let unlocked = false
 let returnedAt = 0
 
 /** The screen shown, what it runs and what Back does there. */
-const screens = new Screens()
+const screens = screensOf()
 
 /** Called by Android's Back: true when the page did something with it. */
 ;(window as unknown as { pswmBack: () => boolean }).pswmBack = () => screens.back()
@@ -652,7 +652,7 @@ function applySync(synced: Synced) {
   otherKey = synced.otherKey
   if (!otherKey) keyAsked = false
   lastSynced = Date.now()
-  screens.synced(synced)
+  screens.runSynced(synced)
 }
 
 const entriesCount = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
@@ -2175,8 +2175,8 @@ document.addEventListener('visibilitychange', () => {
   } else {
     returnedAt = Date.now()
     // Unlocked meanwhile for a passkey (the credential provider shares the session).
-    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : screens.returned()), () => screens.returned())
-    else screens.returned()
+    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : screens.runReturn()), () => screens.runReturn())
+    else screens.runReturn()
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.
