@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::Mutex;
@@ -31,22 +30,15 @@ use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
     PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
-use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegGetValueW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE,
-    REG_SZ, RRF_RT_REG_SZ,
-};
+
+mod registration;
+
+pub use registration::{other_registered, register, unregister};
 
 /// The name the extension asks the browser for: KeePassXC's.
 const HOST_NAME: &str = "org.keepassxc.keepassxc_browser";
-/// The extension in the Chrome Web Store and in Edge Add-ons.
-const CHROMIUM_ORIGINS: [&str; 2] = ["chrome-extension://pdffhmdngciaglkoonimfcmckehcpafo/", "chrome-extension://oboonakemofpalcgghocfoadofidjkkk/"];
 /// The extension in Firefox Add-ons.
 const FIREFOX_EXTENSION: &str = "keepassxc-browser@keepassxc.org";
-/// Where each browser looks for the host, under `HKCU\Software`: Brave and
-/// Vivaldi read Chrome's. The last is Firefox's, which needs its own manifest.
-const BROWSER_KEYS: [&str; 4] = ["Google\\Chrome", "Chromium", "Microsoft\\Edge", "Mozilla"];
-/// The manifests' description, which tells PswManager's apart from KeePassXC's.
-const DESCRIPTION: &str = "PswManager for the KeePassXC-Browser extension";
 /// The largest message taken (the browser sends at most 4 GB, answers 1 MB).
 const MAX_MESSAGE: usize = 1 << 20;
 /// How long a message may take to come whole once it started: a client that
@@ -288,46 +280,60 @@ pub fn serve(clients: &'static Clients, failed: impl FnOnce() + Send + 'static, 
             let file = unsafe { File::from_raw_handle(pipe) };
             std::thread::spawn(move || {
                 let _among_clients = joined;
-                converse(file, told, allowed, answer);
+                converse(file, told, allowed, answer, MESSAGE_WITHIN);
             });
         }
     });
 }
 
+/// The bytes of one connection both ways, and how many wait to be read: the
+/// pipe, or bytes in memory in the tests, so [converse] runs without one.
+trait Connection: Read + Write {
+    /// How many bytes wait to be read; `None` when the other end is gone.
+    fn waiting(&self) -> Option<u32>;
+}
+
+impl Connection for File {
+    fn waiting(&self) -> Option<u32> {
+        waiting(self.as_raw_handle() as HANDLE)
+    }
+}
+
 /// One extension's connection: its messages answered in turn, and what the
 /// app tells it in between, also while an answer waits for the user. Looked
 /// at every 50 ms, and only the bytes there read, rather than read in a
-/// blocking call, which would hold the pipe from being written to.
+/// blocking call, which would hold the pipe from being written to. A message
+/// must come whole `within` once it started ([MESSAGE_WITHIN]).
 fn converse(
-    mut file: File,
+    mut connection: impl Connection,
     told: Receiver<serde_json::Value>,
     allowed: impl Fn() -> bool,
     answer: impl Fn(&mut crate::browser::Session, &serde_json::Value) -> serde_json::Value + Sync,
+    within: Duration,
 ) {
-    let pipe = file.as_raw_handle() as HANDLE;
     let mut session = crate::browser::Session::default();
     let mut incoming = Vec::new();
     // When the message being read began to come.
     let mut begun = Instant::now();
     loop {
-        if !deliver(&mut file, &told) {
+        if !deliver(&mut connection, &told) {
             return;
         }
-        let Some(bytes) = waiting(pipe).filter(|_| allowed()) else { return };
+        let Some(bytes) = connection.waiting().filter(|_| allowed()) else { return };
         if bytes > 0 {
             if incoming.is_empty() {
                 begun = Instant::now();
             }
             let start = incoming.len();
             incoming.resize(start + bytes as usize, 0);
-            if file.read_exact(&mut incoming[start..]).is_err() {
+            if connection.read_exact(&mut incoming[start..]).is_err() {
                 return;
             }
         }
         let request = match next_message(&mut incoming) {
             Some(Ok(request)) => request,
             Some(Err(_)) => return,
-            None if !incoming.is_empty() && begun.elapsed() > MESSAGE_WITHIN => return,
+            None if !incoming.is_empty() && begun.elapsed() > within => return,
             None => {
                 std::thread::sleep(Duration::from_millis(50));
                 continue;
@@ -344,22 +350,22 @@ fn converse(
             loop {
                 match answered.recv_timeout(Duration::from_millis(50)) {
                     Ok(reply) => return alive.then_some(reply),
-                    Err(RecvTimeoutError::Timeout) => alive = alive && deliver(&mut file, &told),
+                    Err(RecvTimeoutError::Timeout) => alive = alive && deliver(&mut connection, &told),
                     Err(RecvTimeoutError::Disconnected) => return None,
                 }
             }
         });
-        if reply.is_none_or(|reply| write_message(&mut file, &reply).is_err()) {
+        if reply.is_none_or(|reply| write_message(&mut connection, &reply).is_err()) {
             return;
         }
     }
 }
 
 /// Writes what the app told the connection since; false when it is gone.
-fn deliver(file: &mut File, told: &Receiver<serde_json::Value>) -> bool {
+fn deliver(connection: &mut impl Write, told: &Receiver<serde_json::Value>) -> bool {
     loop {
         match told.try_recv() {
-            Ok(message) if write_message(file, &message).is_err() => return false,
+            Ok(message) if write_message(connection, &message).is_err() => return false,
             Ok(_) => {}
             Err(TryRecvError::Empty) => return true,
             Err(TryRecvError::Disconnected) => return false,
@@ -379,11 +385,11 @@ fn next_message(incoming: &mut Vec<u8>) -> Option<std::io::Result<serde_json::Va
     Some(message)
 }
 
-fn write_message(file: &mut File, message: &serde_json::Value) -> std::io::Result<()> {
+fn write_message(connection: &mut impl Write, message: &serde_json::Value) -> std::io::Result<()> {
     let body = message.to_string();
-    file.write_all(&(body.len() as u32).to_le_bytes())?;
-    file.write_all(body.as_bytes())?;
-    file.flush()
+    connection.write_all(&(body.len() as u32).to_le_bytes())?;
+    connection.write_all(body.as_bytes())?;
+    connection.flush()
 }
 
 /// Security that lets only this Windows user (and the system) open the pipe:
@@ -414,96 +420,6 @@ fn this_user_only(user: &str) -> Option<ThisUserOnly> {
         let attributes = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: descriptor, bInheritHandle: 0 };
         Some(ThisUserOnly { attributes })
     }
-}
-
-// ---------------------------------------------------------------- registration
-
-/// The manifests, in the app's data folder: Chromium's and Firefox's.
-fn manifests(data_dir: &Path) -> (PathBuf, PathBuf) {
-    let dir = data_dir.join("browser");
-    (dir.join(format!("{HOST_NAME}.chromium.json")), dir.join(format!("{HOST_NAME}.firefox.json")))
-}
-
-/// Registers `exe` as the extension's host in every browser: the manifests,
-/// and the registry keys that point to them (written again at each start,
-/// so a portable copy that moved is found).
-pub fn register(data_dir: &Path, exe: &Path) -> Result<(), String> {
-    let (chromium, firefox) = manifests(data_dir);
-    std::fs::create_dir_all(chromium.parent().expect("in a folder")).map_err(|e| format!("Cannot write the browser manifest: {e}"))?;
-    let manifest = |allowed: serde_json::Value| {
-        let mut m = serde_json::json!({ "name": HOST_NAME, "description": DESCRIPTION, "path": exe, "type": "stdio" });
-        m.as_object_mut().expect("an object").extend(allowed.as_object().expect("an object").clone());
-        serde_json::to_string_pretty(&m).expect("JSON")
-    };
-    let write = |path: &Path, text: String| std::fs::write(path, text).map_err(|e| format!("Cannot write {}: {e}", path.display()));
-    write(&chromium, manifest(serde_json::json!({ "allowed_origins": CHROMIUM_ORIGINS })))?;
-    write(&firefox, manifest(serde_json::json!({ "allowed_extensions": [FIREFOX_EXTENSION] })))?;
-    for browser in BROWSER_KEYS {
-        let file = if browser == "Mozilla" { &firefox } else { &chromium };
-        set_default(&host_key(browser), &file.display().to_string())?;
-    }
-    Ok(())
-}
-
-/// Whether a manifest is PswManager's: one this copy wrote, or one a copy
-/// elsewhere (a portable one that moved) wrote, by its description.
-fn is_ours(manifest: &Path, data_dir: &Path) -> bool {
-    let (chromium, firefox) = manifests(data_dir);
-    manifest == chromium || manifest == firefox || std::fs::read_to_string(manifest).is_ok_and(|text| text.contains(DESCRIPTION))
-}
-
-/// Removes PswManager's registration, leaving another program's (KeePassXC's) alone.
-pub fn unregister(data_dir: &Path) {
-    for browser in BROWSER_KEYS {
-        let key = host_key(browser);
-        if registered(&key).is_some_and(|path| is_ours(&path, data_dir)) {
-            let key = wide(&key);
-            // SAFETY: a NUL-terminated wide key name under HKCU.
-            unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, key.as_ptr()) };
-        }
-    }
-}
-
-/// Whether another program (KeePassXC) is registered for the extension in a
-/// browser: turning PswManager's on replaces it, and KeePassXC takes it back
-/// when it starts with its browser integration on.
-pub fn other_registered(data_dir: &Path) -> bool {
-    BROWSER_KEYS.iter().filter_map(|b| registered(&host_key(b))).any(|path| !is_ours(&path, data_dir))
-}
-
-fn host_key(browser: &str) -> String {
-    format!("Software\\{browser}\\NativeMessagingHosts\\{HOST_NAME}")
-}
-
-/// The manifest a browser key points to, if it is there.
-fn registered(key: &str) -> Option<PathBuf> {
-    let key = wide(key);
-    let mut buffer = [0u16; 1024];
-    let mut size = std::mem::size_of_val(&buffer) as u32;
-    // SAFETY: reads the key's default value into the buffer, as long as said.
-    let read = unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), std::ptr::null(), RRF_RT_REG_SZ, std::ptr::null_mut(), buffer.as_mut_ptr().cast(), &mut size) };
-    if read != 0 {
-        return None;
-    }
-    let len = (size as usize / 2).saturating_sub(1);
-    Some(PathBuf::from(String::from_utf16_lossy(&buffer[..len])))
-}
-
-fn set_default(key: &str, value: &str) -> Result<(), String> {
-    let (key_name, value) = (wide(key), wide(value));
-    let mut handle: HKEY = std::ptr::null_mut();
-    // SAFETY: creates or opens the key under HKCU and writes its default value; the key is closed after.
-    unsafe {
-        if RegCreateKeyExW(HKEY_CURRENT_USER, key_name.as_ptr(), 0, std::ptr::null(), REG_OPTION_NON_VOLATILE, KEY_WRITE, std::ptr::null(), &mut handle, std::ptr::null_mut()) != 0 {
-            return Err(format!("Cannot register with the browsers ({key})"));
-        }
-        let written = RegSetValueExW(handle, std::ptr::null(), 0, REG_SZ, value.as_ptr().cast(), (value.len() * 2) as u32);
-        RegCloseKey(handle);
-        if written != 0 {
-            return Err(format!("Cannot register with the browsers ({key})"));
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -551,6 +467,142 @@ mod tests {
         assert!(served_by(client.as_raw_handle(), &user));
         assert!(!served_by(client.as_raw_handle(), "S-1-5-18"), "not the system's");
         drop(server);
+    }
+
+    /// A connection in memory: what the extension sends waits in `incoming`,
+    /// what the app writes lands in `written`.
+    #[derive(Clone, Default)]
+    struct Memory {
+        incoming: std::sync::Arc<Mutex<std::collections::VecDeque<u8>>>,
+        written: std::sync::Arc<Mutex<Vec<u8>>>,
+        gone: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Read for Memory {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let mut incoming = self.incoming.lock().unwrap();
+            let n = buffer.len().min(incoming.len());
+            for (to, from) in buffer.iter_mut().zip(incoming.drain(..n)) {
+                *to = from;
+            }
+            Ok(n)
+        }
+    }
+
+    impl Write for Memory {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.written.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Connection for Memory {
+        fn waiting(&self) -> Option<u32> {
+            let gone = self.gone.load(Ordering::Relaxed);
+            (!gone).then(|| self.incoming.lock().unwrap().len() as u32)
+        }
+    }
+
+    impl Memory {
+        fn send(&self, bytes: &[u8]) {
+            self.incoming.lock().unwrap().extend(bytes);
+        }
+
+        /// The messages the app wrote so far.
+        fn replies(&self) -> Vec<serde_json::Value> {
+            let mut written = self.written.lock().unwrap().clone();
+            std::iter::from_fn(|| next_message(&mut written).map(Result::unwrap)).collect()
+        }
+    }
+
+    fn framed(body: &str) -> Vec<u8> {
+        [&(body.len() as u32).to_le_bytes()[..], body.as_bytes()].concat()
+    }
+
+    /// A conversation on its own thread, answering each request with its
+    /// action; `slow` takes a while, as one waiting for the user does.
+    fn conversation(within: Duration) -> (Memory, Sender<serde_json::Value>, std::thread::JoinHandle<()>) {
+        let (memory, (tell, told)) = (Memory::default(), mpsc::channel());
+        let connection = memory.clone();
+        let answer = |_: &mut crate::browser::Session, request: &serde_json::Value| {
+            if request["action"] == "slow" {
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            serde_json::json!({ "answered": request["action"] })
+        };
+        let ended = std::thread::spawn(move || converse(connection, told, || true, answer, within));
+        (memory, tell, ended)
+    }
+
+    /// Waits up to two seconds for `done`.
+    fn soon(done: impl Fn() -> bool) -> bool {
+        let start = Instant::now();
+        while !done() {
+            if start.elapsed() > Duration::from_secs(2) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        true
+    }
+
+    #[test]
+    fn a_message_in_pieces_is_answered_once_whole() {
+        let (memory, _tell, ended) = conversation(MESSAGE_WITHIN);
+        let message = framed(r#"{"action":"a"}"#);
+        memory.send(&message[..3]);
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(memory.replies().is_empty(), "not whole yet");
+        memory.send(&message[3..]);
+        assert!(soon(|| memory.replies() == [serde_json::json!({ "answered": "a" })]));
+        memory.send(&[framed(r#"{"action":"b"}"#), framed(r#"{"action":"c"}"#)].concat());
+        assert!(soon(|| memory.replies().len() == 3), "two at once, answered in turn");
+        assert_eq!(memory.replies()[2]["answered"], "c");
+        assert!(!ended.is_finished());
+    }
+
+    #[test]
+    fn what_the_app_tells_goes_out_while_an_answer_waits() {
+        let (memory, tell, _ended) = conversation(MESSAGE_WITHIN);
+        memory.send(&framed(r#"{"action":"slow"}"#));
+        std::thread::sleep(Duration::from_millis(100));
+        tell.send(serde_json::json!({ "action": "database-locked" })).unwrap();
+        assert!(soon(|| memory.replies().len() == 2));
+        assert_eq!(memory.replies()[0]["action"], "database-locked", "before the answer");
+        assert_eq!(memory.replies()[1]["answered"], "slow");
+    }
+
+    #[test]
+    fn a_message_that_stops_halfway_ends_the_connection() {
+        let (memory, _tell, ended) = conversation(Duration::from_millis(200));
+        memory.send(&framed(r#"{"action":"a"}"#)[..6]);
+        assert!(soon(|| ended.is_finished()));
+        assert!(memory.replies().is_empty());
+    }
+
+    #[test]
+    fn a_broken_message_ends_the_connection() {
+        let (memory, _tell, ended) = conversation(MESSAGE_WITHIN);
+        memory.send(&framed("not JSON"));
+        assert!(soon(|| ended.is_finished()));
+        let (memory, _tell, ended) = conversation(MESSAGE_WITHIN);
+        memory.send(&((MAX_MESSAGE + 1) as u32).to_le_bytes());
+        assert!(soon(|| ended.is_finished()), "too long, before its body comes");
+        assert!(memory.replies().is_empty());
+    }
+
+    #[test]
+    fn the_connection_ends_when_the_extension_or_the_app_lets_go() {
+        let (memory, _tell, ended) = conversation(MESSAGE_WITHIN);
+        memory.gone.store(true, Ordering::Relaxed);
+        assert!(soon(|| ended.is_finished()), "the extension went");
+        let (_memory, tell, ended) = conversation(MESSAGE_WITHIN);
+        drop(tell);
+        assert!(soon(|| ended.is_finished()), "the app let go of the connection");
     }
 
     #[test]
