@@ -121,7 +121,7 @@ fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
     };
     let outcome = sync(location.open().as_ref(), &store, &app.state::<Session>())?;
     if let Outcome::Downloaded(changed) | Outcome::Merged(changed) = &outcome {
-        crate::show_changes(app, changed.clone());
+        crate::databases::show_changes(app, changed.clone());
     }
     Ok(outcome)
 }

@@ -1,10 +1,12 @@
 // The database, merge, sync and stores live in the shared core.
-use pswm_core::{backup, cxf, dbfile, edit, encryption, file_export, file_import, gauth, generator, health, icons, oauth, opened, otp, qr, remote, settings, similar, staged, store, updates, vault};
-use pswm_core::autotype::Typed;
+use pswm_core::{qr, gauth, icons, opened, settings, store, updates};
 use pswm_core::session::{KeyNeeded, Session};
 
 mod activity;
+mod app_settings;
+mod auto_type_flow;
 mod autotype;
+mod backups;
 mod browser;
 mod browser_host;
 mod chooser;
@@ -12,18 +14,25 @@ mod cli;
 mod clipboard;
 mod credentials;
 mod data_dir;
+mod databases;
+mod entries;
+mod exchange;
 mod file_watch;
 mod hello;
 mod native_messaging;
 mod questions;
 mod session_watch;
 mod sync;
+mod syncing;
 mod tray;
 mod window;
 
 use activity::Activity;
-use dbfile::OpenError;
-use serde::{Deserialize, Serialize};
+use app_settings::register_hotkeys;
+use auto_type_flow::cancel_auto_type;
+use backups::start_backup_clock;
+use databases::{lock_now, open_from_command_line};
+use exchange::{ImportedFile, WaitingFile};
 use settings::Settings;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -31,10 +40,7 @@ use std::time::Duration;
 use store::Store;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
-use edit::EntryData;
-use vault::{EntryDetail, Kind, Listing, Saved, Vault, Version, VersionDetail};
 use zeroize::Zeroizing;
 
 /// How often the inactivity check runs.
@@ -69,1097 +75,12 @@ struct AutoTypeNotice(Mutex<Option<String>>);
 #[derive(Default)]
 struct Notice(OnceLock<String>);
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Status {
-    /// The file of the database the unlock screen opens.
-    database: Option<String>,
-    /// Where it is synced to, if anywhere.
-    synced_with: Option<String>,
-    /// The kind of store it is synced with: `folder`, `dropbox`, `google` or `onedrive`.
-    sync_kind: Option<&'static str>,
-    key_file: Option<String>,
-    /// Every database in the list, the current one among them.
-    databases: Vec<DatabaseInfo>,
-    unlocked: bool,
-    notice: Option<String>,
-}
-
-/// A database in the list, as the unlock screen names it.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DatabaseInfo {
-    file: String,
-    /// Its name as last unlocked, or the file name.
-    name: String,
-    file_name: String,
-    /// As last unlocked; empty when it has none.
-    description: String,
-    sync_kind: Option<&'static str>,
-}
-
-#[tauri::command(async)]
-fn status(store: State<Store>, session: State<Session>, notice: State<Notice>) -> Status {
-    let shown = |p: &Path| p.display().to_string();
-    let (database, synced_with, sync_kind, key_file, databases) = store.read(|s| {
-        let current = s.current();
-        let location = s.remote().map(|r| &r.location);
-        let databases = s
-            .databases
-            .iter()
-            .map(|d| DatabaseInfo {
-                file: shown(&d.file),
-                name: d.title(),
-                file_name: remote::file_name(&d.file),
-                description: d.description.clone().unwrap_or_default(),
-                sync_kind: d.remote.as_ref().map(|r| r.location.kind()),
-            })
-            .collect();
-        (
-            current.map(|d| shown(&d.file)),
-            location.map(|l| l.describe()),
-            location.map(|l| l.kind()),
-            current.and_then(|d| d.key_file.as_deref()).map(shown),
-            databases,
-        )
-    });
-    let notice = notice.0.get().cloned();
-    Status { database, synced_with, sync_kind, key_file, databases, unlocked: session.is_unlocked(), notice }
-}
-
 fn pick(window: &Window, name: &str, extensions: &[&str]) -> Result<Option<PathBuf>, String> {
     let mut dialog = window.dialog().file().set_parent(window);
     if !extensions.is_empty() {
         dialog = dialog.add_filter(name, extensions);
     }
     dialog.blocking_pick_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()
-}
-
-/// Records a change to the chosen files and returns the new status.
-fn choose(app: AppHandle, change: impl FnOnce(&mut store::State)) -> Result<Status, String> {
-    app.state::<Store>().update(change).map_err(|e| e.to_string())?;
-    Ok(status(app.state(), app.state(), app.state()))
-}
-
-/// Another database can be chosen only while locked and not syncing. A
-/// database left with changes its remote file lacks keeps them, and syncs
-/// them when it is opened again.
-fn can_switch(app: &AppHandle) -> Result<(), String> {
-    if app.state::<Session>().is_unlocked() {
-        return Err("Lock the database first".into());
-    }
-    if sync::is_running(app) {
-        return Err("A sync is running; try again in a moment".into());
-    }
-    Ok(())
-}
-
-/// True when some database in the list is synced with `cloud`.
-fn cloud_in_use(store: &Store, cloud: remote::Cloud) -> bool {
-    store.read(|s| s.databases.iter().any(|d| d.remote.as_ref().and_then(|r| r.location.cloud()) == Some(cloud)))
-}
-
-/// After a database left the list or stopped syncing: the cloud it used is
-/// signed out if no other database uses it, and the sync status starts afresh.
-fn forget_if_unused(app: &AppHandle, cloud: Option<remote::Cloud>) {
-    if let Some(cloud) = cloud.filter(|c| !cloud_in_use(&app.state(), *c)) {
-        cloud.provider().sign_out();
-    }
-    sync::reset(app);
-}
-
-/// The cloud a database in the list is synced with, if any.
-fn cloud_of(store: &Store, file: &Path) -> Option<remote::Cloud> {
-    store.read(|s| s.databases.iter().find(|d| d.file == file).and_then(|d| d.remote.as_ref()).and_then(|r| r.location.cloud()))
-}
-
-/// Opens a local file: the app does not sync it.
-#[tauri::command(async)]
-fn pick_database(app: AppHandle, window: Window) -> Result<Status, String> {
-    can_switch(&app)?;
-    let Some(picked) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    open_local_file(&app, picked)
-}
-
-/// Makes `path` the current database, adding it to the list (without sync)
-/// if it is not there yet.
-fn open_local_file(app: &AppHandle, path: PathBuf) -> Result<Status, String> {
-    sync::reset(app);
-    choose(app.clone(), |s| {
-        s.select(path);
-    })
-}
-
-/// Makes another database in the list the current one.
-#[tauri::command(async)]
-fn select_database(app: AppHandle, file: String) -> Result<Status, String> {
-    can_switch(&app)?;
-    sync::reset(&app);
-    choose(app, |s| {
-        if s.databases.iter().any(|d| d.file == Path::new(&file)) {
-            s.current = Some(PathBuf::from(&file));
-        }
-    })
-}
-
-/// Takes a database off the list; its file stays where it is.
-#[tauri::command(async)]
-fn remove_database(app: AppHandle, file: String) -> Result<Status, String> {
-    can_switch(&app)?;
-    let store = app.state::<Store>();
-    if store.read(|s| s.databases.iter().any(|d| d.file == Path::new(&file) && sync::is_pending(d))) {
-        return Err("Changes made here are not in its remote file yet: unlock it, and they are synced first".into());
-    }
-    let cloud = cloud_of(&store, Path::new(&file));
-    let status = choose(app.clone(), |s| s.remove(Path::new(&file)))?;
-    forget_if_unused(&app, cloud);
-    hello::forget(Path::new(&file));
-    Ok(status)
-}
-
-/// How many old versions these history limits (-1: none) would remove, to
-/// ask before lowering one.
-#[tauri::command(async)]
-fn history_limits_preview(session: State<Session>, max_items: isize, max_size: isize) -> Result<usize, String> {
-    session.read(|v| v.versions_over_limits(max_items, max_size))
-}
-
-/// Sets the open database's history limits (-1: none); every entry's history
-/// is trimmed to them, saved and synced like an edit.
-#[tauri::command(async)]
-fn set_history_limits(app: AppHandle, session: State<Session>, max_items: isize, max_size: isize) -> Result<vault::DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_history_limits(max_items, max_size)?;
-        Ok(v.settings())
-    })?;
-    sync::upload_soon(&app);
-    Ok(settings)
-}
-
-/// Renames the current database's file (and its backups) in its folder;
-/// the list follows, and a synced one keeps its remote file.
-#[tauri::command(async)]
-fn rename_database_file(app: AppHandle, name: String) -> Result<Status, String> {
-    can_switch(&app)?;
-    let store = app.state::<Store>();
-    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    let from = current.file;
-    let to = dbfile::renamed(&from, &name)?;
-    if store.read(|s| s.lists(&to, Some(&from))) {
-        return Err(format!("{} is already in the list: choose another name", to.display()));
-    }
-    if matches!(current.remote.map(|r| r.location), Some(remote::Location::Folder { path }) if dbfile::same_file(&path, &to)) {
-        return Err("That is the remote file this database syncs with: choose another name".into());
-    }
-    dbfile::rename(&from, &to)?;
-    choose(app, |s| s.rename(&from, to.clone())).inspect_err(|_| {
-        // The list could not follow: the files go back to the name it has.
-        let _ = dbfile::rename(&to, &from);
-    })
-}
-
-/// A database named on the command line (at start, or by a second launch),
-/// opened when the app may switch to it.
-fn open_from_command_line(app: &AppHandle, path: PathBuf) -> Result<(), String> {
-    if !path.is_file() {
-        return Err(format!("{} is not a file", path.display()));
-    }
-    can_switch(app)?;
-    open_local_file(app, path).map(drop)
-}
-
-/// Opens a database from a folder (a LAN share, a NAS): the file there is
-/// copied to a place this PC keeps, which then syncs with it.
-#[tauri::command(async)]
-fn sync_with_folder(app: AppHandle, window: Window) -> Result<Status, String> {
-    can_switch(&app)?;
-    let Some(path) = pick(&window, "KeePass database", &["kdbx"])? else { return choose(app, |_| {}) };
-    let location = remote::Location::Folder { path };
-    let Some(local) = save_as(&app, &window, &location.file_name())? else { return choose(app, |_| {}) };
-    sync::start(&app.state::<Store>(), location, local)?;
-    sync::reset(&app);
-    choose(app, |_| {})
-}
-
-/// Asks where a database file goes on this PC; the dialog starts in
-/// `Documents\PswManager` (created if missing), with `name` filled in.
-fn save_as(app: &AppHandle, window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
-    let mut dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
-    if let Ok(documents) = app.path().document_dir() {
-        let folder = documents.join("PswManager");
-        let _ = std::fs::create_dir_all(&folder);
-        dialog = dialog.set_directory(folder);
-    }
-    let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    // The dialog may hand back a name without the extension.
-    Ok(picked.map(dbfile::with_kdbx))
-}
-
-/// Where a new database, or the local file of one opened from a cloud
-/// store, goes; `None` when the dialog was cancelled. With `fresh` (a new
-/// database) a file already there is refused, whatever the dialog asked.
-#[tauri::command(async)]
-fn pick_new_file(app: AppHandle, window: Window, name: String, fresh: bool) -> Result<Option<String>, String> {
-    let picked = save_as(&app, &window, &name)?;
-    if fresh && picked.as_ref().is_some_and(|p| p.exists()) {
-        return Err("A file with that name is already there: choose a name that is free".into());
-    }
-    Ok(picked.map(|p| p.display().to_string()))
-}
-
-/// A key file for a new database; `None` when the dialog was cancelled.
-#[tauri::command(async)]
-fn pick_key_file_path(window: Window) -> Result<Option<String>, String> {
-    Ok(pick(&window, "Key file", &[])?.map(|p| p.display().to_string()))
-}
-
-/// A password as the key takes it: an empty one is none.
-fn non_empty(text: &str) -> Option<&str> {
-    Some(text).filter(|t| !t.is_empty())
-}
-
-/// How long unlocking takes on this PC with this encryption, in
-/// milliseconds; as slow as an unlock.
-#[tauri::command(async)]
-fn encryption_unlock_time(encryption: encryption::Encryption) -> Result<u64, String> {
-    encryption::unlock_time(&encryption).map(|time| time.as_millis() as u64)
-}
-
-/// Gives the open database another cipher and / or key derivation; saved
-/// and synced like an edit.
-#[tauri::command(async)]
-fn set_encryption(app: AppHandle, session: State<Session>, encryption: encryption::Encryption) -> Result<vault::DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_encryption(&encryption)?;
-        Ok(v.settings())
-    })?;
-    sync::upload_soon(&app);
-    Ok(settings)
-}
-
-/// Makes a new key file where the user chooses (never over a file already
-/// there); its path, or `None` when the dialog was cancelled.
-#[tauri::command(async)]
-fn create_key_file(window: Window) -> Result<Option<String>, String> {
-    let dialog = window.dialog().file().set_parent(&window).add_filter("Key file", &["keyx"]).set_file_name("PswManager.keyx");
-    let Some(picked) = dialog.blocking_save_file() else { return Ok(None) };
-    let mut path = picked.into_path().map_err(|e| e.to_string())?;
-    if path.extension().is_none() {
-        path.set_extension("keyx");
-    }
-    if path.exists() {
-        return Err(format!("{} is already there: choose a name that is free", path.display()));
-    }
-    vault::create_key_file(&path)?;
-    Ok(Some(path.display().to_string()))
-}
-
-/// Gives the open database a new master password and / or key file, after
-/// the current master password (with the key file it has now) proved right.
-/// An empty password means none; `key_file` is the one to use from now on.
-/// A synced database syncs first, and its file goes up at once after.
-#[tauri::command(async)]
-fn change_master_key(app: AppHandle, current: String, password: String, key_file: Option<String>) -> Result<Status, String> {
-    let (current, password) = (Zeroizing::new(current), Zeroizing::new(password));
-    let store = app.state::<Store>();
-    let known = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    let current = (non_empty(&current), known.key_file.as_deref());
-    let key_file = key_file.map(PathBuf::from);
-    // In step with the remote file first: after the change, the remote file,
-    // still on the old key, opens no more.
-    sync::sync_first(&app).map_err(|e| format!("The database could not sync first ({e}); the key is unchanged"))?;
-    app.state::<Session>().with_mut(|v| v.change_key(current, non_empty(&password), key_file.as_deref()))?;
-    // Sealed again at the next unlock with the new master password.
-    hello::forget(&known.file);
-    let status = choose(app.clone(), |s| {
-        if let Some(d) = s.current_mut() {
-            d.key_file = key_file;
-        }
-    })?;
-    sync::request(&app);
-    Ok(status)
-}
-
-/// The key of a copy that opened with no key known — the remote file, or the
-/// file on this PC another program replaced — after another device changed
-/// it. The copy is read again with it (synced, or read from disk): the key
-/// follows the newer change, so the database may take it from now on, and
-/// then the list takes its key file. Refused when it does not open the copy.
-#[tauri::command(async)]
-fn enter_other_key(app: AppHandle, password: String, key_file: Option<String>) -> Result<Status, String> {
-    let password = Zeroizing::new(password);
-    let key_file = key_file.map(PathBuf::from);
-    let given = vault::key(non_empty(&password), key_file.as_deref())?;
-    let session = app.state::<Session>();
-    session.with_mut(|v| v.remember_key(given.clone()))?;
-    // The file on this PC first (another program may have replaced it), then
-    // the remote file. Reading derives keys: done without holding the database.
-    let read_again = || -> Result<(), OpenError> {
-        let Some(since) = session.read(Vault::snapshot)? else { return Ok(()) };
-        if let Some(read) = since.read_changed()? {
-            if let Some(changed) = adopt(&session, &since, read)? {
-                show_changes(&app, changed);
-            }
-        }
-        sync::sync_first(&app)
-    };
-    if let Err(e) = read_again() {
-        // A key that opened nothing is not kept.
-        session.with_mut(|v| v.forget_key(&given))?;
-        return Err(match e {
-            OpenError::OtherKey(_) => "This master password or key file does not open it either".into(),
-            OpenError::Other(message) => message,
-        });
-    }
-    need_key(&app, |k| k.local = false); // the remote file's is the sync's
-    let key_taken = session.read(|v| v.uses_key(&given))??;
-    if let Some(file) = current_file(&app.state()).filter(|_| key_taken) {
-        hello::forget(&file);
-    }
-    choose(app, |s| {
-        if let Some(d) = s.current_mut().filter(|_| key_taken) {
-            d.key_file = key_file;
-        }
-    })
-}
-
-/// Creates a new, empty database at `file` and adds it to the list as the
-/// current one.
-#[tauri::command(async)]
-fn create_database(app: AppHandle, file: String, password: String, key_file: Option<String>) -> Result<Status, String> {
-    can_switch(&app)?;
-    let password = Zeroizing::new(password);
-    let (file, key_file) = (PathBuf::from(file), key_file.map(PathBuf::from));
-    let name = file.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Passwords".into());
-    Vault::create(&file, &name, (!password.is_empty()).then_some(password.as_str()), key_file.as_deref())?;
-    sync::reset(&app);
-    choose(app, |s| s.select(file).key_file = key_file)
-}
-
-/// The local database a new cloud file can start from, if one is open.
-fn local_database(store: &Store) -> Option<PathBuf> {
-    store.read(|s| s.current().filter(|d| d.remote.is_none()).map(|d| d.file.clone()))
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CloudFiles {
-    /// The databases the app can reach there.
-    files: Vec<remote::CloudFile>,
-    /// The local database's name, when it can be uploaded instead.
-    upload: Option<String>,
-}
-
-/// Signs in to a cloud store in the browser, then lists the databases there
-/// and the local one that could be uploaded instead.
-#[tauri::command(async)]
-fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, String> {
-    // Also from the settings of an unlocked database (Upload, Link); opening
-    // one from the store checks the switch itself.
-    if sync::is_running(&app) {
-        return Err("A sync is running; try again in a moment".into());
-    }
-    cloud.provider().sign_in(|url| app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string()))?;
-    let files = cloud.list().map_err(|e| e.message())?;
-    let upload = local_database(&app.state::<Store>()).map(|p| remote::file_name(&p));
-    Ok(CloudFiles { files, upload })
-}
-
-/// The user gave up on a cloud store: stops waiting for the browser, and
-/// signs out unless the database is already synced with that store.
-#[tauri::command(async)]
-fn cancel_cloud(app: AppHandle, cloud: remote::Cloud) {
-    oauth::cancel_sign_in();
-    if !cloud_in_use(&app.state(), cloud) {
-        cloud.provider().sign_out();
-    }
-}
-
-/// Syncs with `file` in the cloud store; without one, the local database is
-/// uploaded there first (never over a file already there).
-#[tauri::command(async)]
-fn sync_with_cloud(
-    app: AppHandle,
-    cloud: remote::Cloud,
-    file: Option<remote::CloudFile>,
-    local: Option<String>,
-) -> Result<Status, String> {
-    let store = app.state::<Store>();
-    match file {
-        // Opened from the store: downloaded to the file the user chose.
-        Some(file) => {
-            can_switch(&app)?;
-            let local = local.ok_or("Choose where the file goes on this PC")?;
-            sync::start(&store, cloud.location(file), PathBuf::from(local))?;
-        }
-        // The current local database, uploaded (unlocked or not): it syncs with the new remote file.
-        None => {
-            if sync::is_running(&app) {
-                return Err("A sync is running; try again in a moment".into());
-            }
-            let current = local_database(&store).ok_or("Open a local file first")?;
-            let bytes = std::fs::read(&current).map_err(|e| format!("Cannot read {}: {e}", current.display()))?;
-            let name = remote::file_name(&current);
-            let (location, revision) = match cloud.create(&name, &bytes) {
-                Ok(created) => created,
-                Err(remote::RemoteError::Changed) => return Err(format!("{name} is already in {}: choose it instead", cloud.provider().name)),
-                Err(e) => return Err(e.message()),
-            };
-            sync::attach(&store, &current, location, revision, &bytes)?;
-        }
-    }
-    sync::reset(&app);
-    choose(app, |_| {})
-}
-
-/// Stops syncing the current database: its file stays, as a plain local
-/// file (a working copy an older version kept in `sync/` moves out into the
-/// data folder first, where syncing again cannot overwrite it). Refused while
-/// the file has changes the remote file lacks.
-#[tauri::command(async)]
-fn stop_sync(app: AppHandle) -> Result<Status, String> {
-    if sync::is_running(&app) {
-        return Err("A sync is running; try again in a moment".into());
-    }
-    let store = app.state::<Store>();
-    if sync::has_pending(&store) {
-        return Err("Changes made here are not in the remote file yet: unlock, and they are synced first".into());
-    }
-    let Some(file) = store.read(|s| s.current().filter(|d| d.remote.is_some()).map(|d| d.file.clone())) else {
-        return choose(app, |_| {});
-    };
-    let in_sync_folder = file.starts_with(store.dir().join("sync"));
-    if in_sync_folder && app.state::<Session>().is_unlocked() {
-        return Err("Lock the database first: its file moves out of the app's data folder".into());
-    }
-    let kept = if in_sync_folder { sync::keep_as_local(&store, &file)? } else { file.clone() };
-    if kept != file {
-        hello::forget(&file);
-    }
-    let cloud = cloud_of(&store, &file);
-    // The same entry, in place: its key file and position stay.
-    let status = choose(app.clone(), |s| {
-        if let Some(known) = s.databases.iter_mut().find(|d| d.file == file) {
-            known.file = kept.clone();
-            known.remote = None;
-        }
-        s.current = Some(kept);
-    })?;
-    forget_if_unused(&app, cloud);
-    Ok(status)
-}
-
-/// Where the current database could sync: a database file in a folder,
-/// picked with the file dialog (to link to), or where a new one goes (to
-/// upload to).
-#[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-enum SyncTarget {
-    Folder { path: String },
-    Cloud { cloud: remote::Cloud, file: remote::CloudFile },
-}
-
-impl SyncTarget {
-    fn location(self) -> remote::Location {
-        match self {
-            SyncTarget::Folder { path } => remote::Location::Folder { path: PathBuf::from(path) },
-            SyncTarget::Cloud { cloud, file } => cloud.location(file),
-        }
-    }
-}
-
-/// The current database, when it does not sync yet.
-fn unsynced_database(store: &Store) -> Result<PathBuf, String> {
-    match store.read(|s| s.current().map(|d| (d.file.clone(), d.remote.is_some()))) {
-        None => Err("Choose a database first".into()),
-        Some((_, true)) => Err("This database is synced already: stop syncing first".into()),
-        Some((file, false)) => Ok(file),
-    }
-}
-
-/// Syncs the current database with an existing remote file. When the two
-/// differ, `choice` says what to do; without one nothing changes and the
-/// answer is `false`. The sync that carries it out starts at once.
-#[tauri::command(async)]
-fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::LinkChoice>) -> Result<bool, String> {
-    let store = app.state::<Store>();
-    let file = unsynced_database(&store)?;
-    let location = target.location();
-    if let remote::Location::Folder { path } = &location {
-        if store.read(|s| s.lists(path, None)) {
-            return Err("That file is a database in the list: link to a file of its own".into());
-        }
-    }
-    let key = app.state::<Session>().read(Vault::snapshot).ok().flatten();
-    let linked = sync::link(&store, &file, location, choice, key.as_ref())?;
-    if linked {
-        sync::reset(&app);
-        sync::request(&app);
-    }
-    Ok(linked)
-}
-
-/// Puts the current database into a folder as a new file (never over one
-/// already there) and syncs with it.
-#[tauri::command(async)]
-fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
-    let store = app.state::<Store>();
-    let file = unsynced_database(&store)?;
-    let Some(target) = pick_new_place(&window, &remote::file_name(&file))? else { return choose(app, |_| {}) };
-    let bytes = std::fs::read(&file).map_err(|e| format!("Cannot read {}: {e}", file.display()))?;
-    use remote::Remote as _;
-    let folder = remote::Folder { path: target.clone() };
-    let revision = match folder.upload(&bytes, None) {
-        Ok(revision) => revision,
-        Err(remote::RemoteError::Changed) => return Err(format!("{} is already there: link to it instead", target.display())),
-        Err(e) => return Err(e.message()),
-    };
-    sync::attach(&store, &file, remote::Location::Folder { path: target }, revision, &bytes)?;
-    sync::reset(&app);
-    choose(app, |_| {})
-}
-
-/// A place for a new file anywhere (a LAN share, say); `None` when cancelled.
-fn pick_new_place(window: &Window, name: &str) -> Result<Option<PathBuf>, String> {
-    let dialog = window.dialog().file().set_parent(window).add_filter("KeePass database", &["kdbx"]).set_file_name(name);
-    let picked = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()?;
-    Ok(picked.map(dbfile::with_kdbx))
-}
-
-/// A database file in a folder to link to; `None` when cancelled.
-#[tauri::command(async)]
-fn pick_remote_file(window: Window) -> Result<Option<String>, String> {
-    Ok(pick(&window, "KeePass database", &["kdbx"])?.map(|p| p.display().to_string()))
-}
-
-#[tauri::command(async)]
-fn sync_now(app: AppHandle) {
-    sync::request(&app);
-}
-
-#[tauri::command]
-fn sync_status(app: AppHandle) -> sync::Status {
-    sync::status(&app)
-}
-
-#[tauri::command]
-fn key_needed(session: State<Session>) -> KeyNeeded {
-    session.key_needed()
-}
-
-#[tauri::command(async)]
-fn pick_key_file(app: AppHandle, window: Window) -> Result<Status, String> {
-    let picked = pick(&window, "Key file", &[])?;
-    // The password Windows Hello kept went with the key file it had.
-    if let Some(file) = current_file(&app.state()).filter(|_| picked.is_some()) {
-        hello::forget(&file);
-    }
-    choose(app, |s| {
-        if let (Some(d), Some(picked)) = (s.current_mut(), picked) {
-            d.key_file = Some(picked);
-        }
-    })
-}
-
-#[tauri::command(async)]
-fn clear_key_file(app: AppHandle) -> Result<Status, String> {
-    if let Some(file) = current_file(&app.state()) {
-        hello::forget(&file);
-    }
-    choose(app, |s| {
-        if let Some(d) = s.current_mut() {
-            d.key_file = None;
-        }
-    })
-}
-
-/// Unlocks with the master password and / or the key file. With Windows Hello
-/// unlock on and no password sealed for it, or the sealed one due, the
-/// password is then sealed (Windows Hello asks once; declining changes
-/// nothing else).
-#[tauri::command(async)]
-fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
-    let password = Zeroizing::new(password);
-    let password = non_empty(&password);
-    let (listing, database) = open(&app, password)?;
-    let store = app.state::<Store>();
-    let settings = Settings::of(&store);
-    if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
-        // After the window has the database: Windows Hello's prompt waits for the user.
-        let password = password.map(|p| Zeroizing::new(p.to_string()));
-        std::thread::spawn(move || window::without_topmost(&app, chooser::LABEL, || hello::seal(&database, password.as_deref().map(String::as_str))));
-    }
-    Ok(listing)
-}
-
-/// The current database's file.
-fn current_file(store: &Store) -> Option<PathBuf> {
-    store.read(|s| s.current().map(|d| d.file.clone()))
-}
-
-/// Whether the unlock screen offers Windows Hello: it is on, and a password
-/// is sealed for the database that is not due.
-#[tauri::command(async)]
-fn hello_ready(store: State<Store>) -> bool {
-    let settings = Settings::of(&store);
-    settings.biometric_unlock()
-        && current_file(&store).is_some_and(|file| hello::ready(&file, settings.password_every()))
-        && hello::available()
-}
-
-/// The answer when the user closed Windows Hello's prompt.
-const CANCELLED: &str = "cancelled";
-
-/// Unlocks with the password sealed for Windows Hello. One that no longer
-/// opens the database (its key changed elsewhere) goes: the master password
-/// is asked for, and the new one sealed.
-#[tauri::command(async)]
-fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
-    const MASTER: &str = "Unlock with the master password";
-    if !hello_ready(app.state()) {
-        return Err(MASTER.into());
-    }
-    let database = current_file(&app.state()).ok_or("Choose a database first")?;
-    let password = window::without_topmost(&app, chooser::LABEL, || hello::unseal(&database)).map_err(|failure| match failure {
-        hello::Failure::Cancelled => CANCELLED.to_string(),
-        hello::Failure::NotSealed => MASTER.into(),
-        hello::Failure::Other(message) => message,
-    })?;
-    match open(&app, password.as_deref().map(String::as_str)) {
-        Err(e) if e == dbfile::WRONG_KEY => {
-            hello::forget(&database);
-            Err("The password Windows Hello kept no longer opens the database: unlock with the master password".into())
-        }
-        opened => opened.map(|(listing, _)| listing),
-    }
-}
-
-/// Opens the current database with this password and its key file, and makes
-/// it the session's; returns its listing and file.
-fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), String> {
-    let (store, session) = (app.state::<Store>(), app.state::<Session>());
-    sync::ensure_working_copy(&store)?;
-    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    let (database, key_file, synced) = (current.file, current.key_file, current.remote.is_some());
-    // Another device may have moved a synced database to a new key meanwhile (#203).
-    let vault = Vault::open_current(&store, &database, vault::key(password, key_file.as_deref())?)?;
-    let listing = vault.listing();
-    fetch_icons(app, &listing);
-    show_database(app, &listing.database);
-    // Touched first, so the inactivity check never sees a fresh vault as idle.
-    app.state::<Activity>().touch();
-    session.set(Some(vault));
-    browser_host::tell(true);
-    // The main window and Auto-Type's chooser each unlock; the other follows.
-    let _ = app.emit("unlocked", ());
-    if synced {
-        // Only this app writes the working copy; the remote file is what changes.
-        sync::request(app);
-    } else {
-        watch_database(app, &database);
-    }
-    Ok((listing, database))
-}
-
-/// Picks up changes other devices make while the database is open. Without a
-/// watcher (a folder that cannot be watched) the window-shown check remains.
-fn watch_database(app: &AppHandle, database: &std::path::Path) {
-    let on_change = app.clone();
-    let watcher = file_watch::watch(database, move || check_disk(&on_change))
-        .map_err(|e| eprintln!("Cannot watch the database folder: {e}"))
-        .ok();
-    *app.state::<FileWatch>().0.lock().unwrap() = watcher;
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DiskChange {
-    listing: Listing,
-    /// Entries that differ from what the window showed.
-    changed: Vec<String>,
-}
-
-/// Reads the database file again if it changed on disk, and tells the window:
-/// `database-changed` with the new listing, or `database-error` when the file
-/// cannot be read now (nothing is saved until it can). Runs in the background;
-/// the slow part (deriving the key) runs without holding the vault, so the
-/// window, tray and hotkey stay responsive.
-fn check_disk(app: &AppHandle) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let session = app.state::<Session>();
-        // A lock meanwhile makes any error moot.
-        let report = |error: OpenError| {
-            if session.is_unlocked() {
-                // A file on a key this device does not know: kept, so the window offers to enter it.
-                if let OpenError::OtherKey(_) = error {
-                    need_key(&app, |k| k.local = true);
-                }
-                let _ = app.emit("database-error", error.to_string());
-            }
-        };
-        let Ok(Some(since)) = session.read(Vault::snapshot) else { return }; // locked
-        let read = match since.read_changed() {
-            Ok(Some(read)) => read,
-            Ok(None) => return,
-            Err(error) => return report(error),
-        };
-        match adopt(&session, &since, read) {
-            Ok(Some(changed)) => show_changes(&app, changed),
-            Ok(None) => {}
-            Err(error) => report(error),
-        }
-    });
-}
-
-/// Takes a file read since `since` and writes what this device kept from
-/// before ([Vault::adopt], [Vault::save_pending]); the ids of the entries that
-/// differ, or `None` when the file was read or written since.
-fn adopt(session: &Session, since: &dbfile::Snapshot, read: dbfile::Read) -> Result<Option<Vec<String>>, OpenError> {
-    session.with_mut(|v| {
-        let Some(changed) = v.adopt(since, read) else { return Ok(Ok(None)) };
-        Ok(v.save_pending().map(|()| Some(changed)))
-    })?
-}
-
-/// Tells the window the database changed under it (another device's change
-/// arrived): `database-changed` with the new listing.
-fn show_changes(app: &AppHandle, changed: Vec<String>) {
-    let Ok(listing) = app.state::<Session>().read(Vault::listing) else { return }; // locked meanwhile
-    fetch_icons(app, &listing);
-    show_database(app, &listing.database);
-    let _ = app.emit("database-changed", DiskChange { listing, changed });
-}
-
-/// The open database's name in the window title, and its name and
-/// description remembered for the unlock screen.
-fn show_database(app: &AppHandle, settings: &vault::DatabaseSettings) {
-    let store = app.state::<Store>();
-    let _ = store.update_if(|s| s.current_mut().is_some_and(|k| k.remember(&settings.name, &settings.description)));
-    let title = store.read(|s| s.current().map(store::Known::title));
-    window::set_title(app, title.as_deref());
-}
-
-/// Fetches the listed sites' missing icons in the background, if the user
-/// allows it, and tells the window about each one that arrives.
-fn fetch_icons(app: &AppHandle, listing: &Listing) {
-    let store = app.state::<Store>();
-    if !Settings::of(&store).download_icons() {
-        return;
-    }
-    // Only the entries in use: not the recycle bin's or the templates' sites.
-    let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
-    hosts.sort();
-    hosts.dedup();
-    let app = app.clone();
-    std::thread::spawn(move || {
-        app.state::<icons::Cache>().fetch_missing(hosts, |host| {
-            let _ = app.emit("icon-ready", host);
-        });
-    });
-}
-
-/// Async like the rest: a save in progress holds the session, and waiting
-/// for it must not freeze the window.
-#[tauri::command(async)]
-fn lock(app: AppHandle) {
-    lock_now(&app);
-}
-
-/// Drops the database and every decrypted value, clears our clipboard copy,
-/// and tells the window to show the unlock screen.
-fn lock_now(app: &AppHandle) {
-    let session = app.state::<Session>();
-    if session.is_unlocked() {
-        session.set(None);
-        browser_host::tell(false);
-        *app.state::<FileWatch>().0.lock().unwrap() = None;
-        window::set_title(app, None);
-        app.state::<gauth::Session>().cancel();
-        browser_host::forget_questions(app);
-        let _ = app.emit("locked", ());
-        // What changed here goes up; a merge waits for the next unlock.
-        sync::request(app);
-    }
-    clipboard::clear_if_ours();
-    opened::clean(&opened::folder());
-    // A window chosen before the lock (or while locked) is not typed into after it.
-    app.state::<AutoTypeTarget>().0.lock().unwrap().take();
-}
-
-/// The window reports use, which keeps the database unlocked.
-#[tauri::command]
-fn touch(activity: State<Activity>) {
-    activity.touch();
-}
-
-/// Esc with nothing left to close: back to the tray.
-#[tauri::command]
-fn hide_window(app: AppHandle) {
-    window::hide(&app);
-}
-
-#[tauri::command(async)]
-fn listing(session: State<Session>) -> Result<Listing, String> {
-    session.read(Vault::listing)
-}
-
-/// The settings kept in the open database's file.
-#[tauri::command(async)]
-fn database_settings(session: State<Session>) -> Result<vault::DatabaseSettings, String> {
-    session.read(Vault::settings)
-}
-
-/// Changes a setting kept in the open database's file; the change is saved
-/// and synced like an edit.
-#[tauri::command(async)]
-fn set_database_setting(app: AppHandle, session: State<Session>, setting: edit::Setting, value: String) -> Result<vault::DatabaseSettings, String> {
-    let settings = session.with_mut(|v| {
-        v.set_setting(setting, &value)?;
-        Ok(v.settings())
-    })?;
-    show_database(&app, &settings);
-    sync::upload_soon(&app);
-    Ok(settings)
-}
-
-#[tauri::command(async)]
-fn entry(session: State<Session>, id: String) -> Result<EntryDetail, String> {
-    session.with(|v| v.detail(&id))
-}
-
-/// The entry's older versions: when and what changed, never values.
-#[tauri::command(async)]
-fn entry_history(session: State<Session>, id: String) -> Result<Vec<Version>, String> {
-    session.with(|v| v.history(&id))
-}
-
-/// One older version, read only, secrets masked.
-#[tauri::command(async)]
-fn entry_version(session: State<Session>, id: String, index: usize) -> Result<VersionDetail, String> {
-    session.with(|v| v.version(&id, index))
-}
-
-/// Makes an older version the entry's current content; saves and syncs as an edit.
-#[tauri::command(async)]
-fn restore_version(app: AppHandle, session: State<Session>, id: String, index: usize, saved: Option<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.restore_version(&id, index, saved.as_deref())?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// One field's value (of an older version with `version`), for showing it.
-/// Asked for only on "reveal".
-#[tauri::command(async)]
-fn reveal(session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<String, String> {
-    session.with(|v| v.field_in(&id, version, &field)).map(|value| value.to_string())
-}
-
-/// Copies a field without the value passing through the frontend. Returns
-/// the seconds until the clipboard is cleared.
-#[tauri::command(async)]
-fn copy_field(store: State<Store>, session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<u64, String> {
-    let value = session.with(|v| v.field_in(&id, version, &field))?;
-    if value.is_empty() {
-        return Err(format!("{field} is empty"));
-    }
-    let clear_after = Settings::of(&store).clear_clipboard_after();
-    clipboard::copy(value, clear_after)?;
-    Ok(clear_after.as_secs())
-}
-
-/// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
-/// default browser (web addresses only).
-#[tauri::command(async)]
-fn open_url(app: AppHandle, session: State<Session>, id: String, field: Option<String>) -> Result<(), String> {
-    let url = session.with(|v| Some(v.link(&id, field.as_deref())))?.ok_or("Not a web address")?;
-    app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
-}
-
-/// Where PswManager's source lives (the workspace's `repository`): opened from
-/// Settings → About. Fixed at build time, so the window never asks to open an
-/// address of its own.
-const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-
-/// Opens the app's repository in the default browser.
-#[tauri::command(async)]
-fn open_repository(app: AppHandle) -> Result<(), String> {
-    app.opener().open_url(REPOSITORY, None::<&str>).map_err(|e| e.to_string())
-}
-
-/// Asks GitHub for the latest release and compares it with this copy.
-#[tauri::command(async)]
-fn check_for_update() -> Result<updates::UpdateCheck, String> {
-    updates::check(REPOSITORY, env!("CARGO_PKG_VERSION"))
-}
-
-/// Opens the latest release's page, where its files are, in the default browser.
-#[tauri::command(async)]
-fn open_latest_release(app: AppHandle) -> Result<(), String> {
-    app.opener().open_url(format!("{REPOSITORY}/releases/latest"), None::<&str>).map_err(|e| e.to_string())
-}
-
-/// The entry with every value, secrets included, for the editor.
-#[tauri::command(async)]
-fn edit_entry(session: State<Session>, id: String) -> Result<EntryData, String> {
-    session.with(|v| v.edit_data(&id))
-}
-
-/// Creates (no `id`) or changes an entry with its `files`, saves the file
-/// and returns the new listing with the entry's id.
-#[tauri::command(async)]
-fn save_entry(
-    app: AppHandle,
-    session: State<Session>,
-    id: Option<String>,
-    base: Option<EntryData>,
-    data: EntryData,
-    template: Option<bool>,
-    files: Vec<edit::FileChange>,
-) -> Result<Saved, String> {
-    let edits = session.staged().resolve(&files)?;
-    let saved = session.with_mut(|v| {
-        let (id, conflicts) = v.save_entry(id.as_deref(), base.as_ref(), &data, template.unwrap_or(false), &edits)?;
-        Ok(Saved { id, listing: v.listing(), conflicts })
-    })?;
-    session.staged().release_changes(&files);
-    fetch_icons(&app, &saved.listing);
-    // Tags alone can wait for the next sync (hiding, locking, quitting).
-    if edit::needs_upload(base.as_ref(), &data, &files) {
-        sync::upload_soon(&app);
-    }
-    Ok(saved)
-}
-
-/// Saves one of the entry's files where the user chooses. The content goes
-/// from the database to the file without passing through the frontend.
-/// False when the user cancelled.
-#[tauri::command(async)]
-fn save_attachment(window: Window, session: State<Session>, id: String, name: String, version: Option<usize>) -> Result<bool, String> {
-    let data = session.with(|v| v.attachment(&id, version, &name))?;
-    // A name is a file name, but other clients may store a path.
-    let file_name = name.rsplit(['/', '\\']).next().unwrap_or(&name);
-    let chosen = window.dialog().file().set_parent(&window).set_file_name(file_name).blocking_save_file();
-    let Some(path) = chosen.map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(false) };
-    std::fs::write(&path, &*data).map_err(|e| format!("Cannot save the file: {e}"))?;
-    Ok(true)
-}
-
-/// The current database's backup, as the settings show it; times are seconds
-/// since 1970.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BackupInfo {
-    folder: Option<String>,
-    every_days: u32,
-    last: Option<u64>,
-    next: Option<u64>,
-    error: Option<String>,
-    /// The intervals offered, in days.
-    intervals: [u32; 4],
-}
-
-/// The intervals offered, in days; 0 is never.
-const BACKUP_EVERY: [u32; 4] = [0, 2, 7, 30];
-
-/// The current database's backup; `None` without a database.
-#[tauri::command]
-fn backup(store: State<Store>) -> Option<BackupInfo> {
-    backup_info(&store)
-}
-
-/// [backup], for the commands that change it.
-fn backup_info(store: &Store) -> Option<BackupInfo> {
-    store.read(|s| {
-        let b = s.current()?.backup.clone().unwrap_or_default();
-        let folder = b.folder.as_ref().map(|f| f.display().to_string());
-        Some(BackupInfo { folder, every_days: b.every_days, last: b.last, next: backup::next(&b), error: b.error, intervals: BACKUP_EVERY })
-    })
-}
-
-/// Changes the current database's backup, then backs it up if that makes it due.
-fn change_backup(store: &Store, change: impl FnOnce(&mut store::Backup)) -> Result<Option<BackupInfo>, String> {
-    let database = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
-    store
-        .update(|s| {
-            if let Some(d) = s.current_mut() {
-                change(d.backup.get_or_insert_with(Default::default));
-            }
-        })
-        .map_err(|e| format!("Cannot save the setting: {e}"))?;
-    backup::run_due(store, backup::now(), Some(&database));
-    Ok(backup_info(store))
-}
-
-#[tauri::command(async)]
-fn set_backup_every(store: State<Store>, days: u32) -> Result<Option<BackupInfo>, String> {
-    if !BACKUP_EVERY.contains(&days) {
-        return Err(format!("Back up every {days} days is not offered"));
-    }
-    change_backup(&store, |b| b.every_days = days)
-}
-
-/// Asks for the folder the current database's copy goes to.
-#[tauri::command(async)]
-fn pick_backup_folder(store: State<Store>, window: Window) -> Result<Option<BackupInfo>, String> {
-    let Some(folder) = window.dialog().file().set_parent(&window).blocking_pick_folder() else { return Ok(backup_info(&store)) };
-    let folder = folder.into_path().map_err(|e| e.to_string())?;
-    // Two databases of one file name would overwrite each other's copy.
-    let taken = store.read(|s| backup::copy_taken(s, s.current.as_deref()?, &folder));
-    if let Some(other) = taken {
-        return Err(format!("{other} keeps its copy there under the same name: choose another folder"));
-    }
-    // A new folder has no copy yet: one goes there now.
-    change_backup(&store, |b| (b.folder, b.error, b.last) = (Some(folder), None, None))
-}
-
-/// Backs up the current database now.
-#[tauri::command(async)]
-fn backup_now(store: State<Store>) -> Result<Option<BackupInfo>, String> {
-    let database = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
-    backup::run(&store, &database)?;
-    Ok(backup_info(&store))
-}
-
-/// Opens the current database's backup folder in Explorer.
-#[tauri::command]
-fn show_backup_folder(app: AppHandle, store: State<Store>) -> Result<(), String> {
-    let folder = store.read(|s| s.current()?.backup.as_ref()?.folder.clone()).ok_or("Choose a backup folder first")?;
-    app.opener().open_path(folder.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the folder: {e}"))
-}
-
-/// Opens one of the entry's files in the app Windows uses for its type,
-/// from a read-only copy that is deleted when the database locks.
-#[tauri::command(async)]
-fn open_attachment(app: AppHandle, session: State<Session>, id: String, name: String, version: Option<usize>) -> Result<(), String> {
-    if opened::is_runnable(&name) {
-        return Err("Programs and scripts are not opened from the database; save the file to run it".into());
-    }
-    let data = session.with(|v| v.attachment(&id, version, &name))?;
-    let path = opened::write(&opened::folder(), &name, &data).map_err(|e| format!("Cannot open the file: {e}"))?;
-    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Cannot open the file: {e}"))
-}
-
-/// A file the user picks to attach in the editor, read and held in the
-/// backend until the entry is saved: the window gets its name and size only.
-/// Nothing when cancelled.
-#[tauri::command(async)]
-fn pick_file_to_attach(window: Window, session: State<Session>) -> Result<Option<staged::StagedFile>, String> {
-    let Some(path) = pick(&window, "", &[])? else { return Ok(None) };
-    let content = read_picked(&path, edit::check_size)?;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    session.staged().add(name, content).map(Some)
-}
-
-/// A TOTP secret from a QR code (#279) for the editor: the picture on the
-/// clipboard (a `Win+Shift+S` snip of the site's code), or, when it holds no
-/// such code, a picture the user picks. Nothing when they cancel.
-#[tauri::command(async)]
-fn scan_totp_qr(window: Window) -> Result<Option<String>, String> {
-    Ok(read_qr(&window, qr::from_rgba, qr::from_image, |_| true)?.map(|uri| uri.to_string()))
 }
 
 /// A QR code's text for `from_clipboard` / `from_file` to take: from the
@@ -1187,561 +108,39 @@ fn read_picked(path: &std::path::Path, check_size: fn(u64) -> Result<(), String>
     std::fs::read(path).map(Zeroizing::new).map_err(unreadable)
 }
 
-/// The editor let go of files it had picked (cancelled, or removed them).
+/// The window reports use, which keeps the database unlocked.
+#[tauri::command]
+fn touch(activity: State<Activity>) {
+    activity.touch();
+}
+
+/// Esc with nothing left to close: back to the tray.
+#[tauri::command]
+fn hide_window(app: AppHandle) {
+    window::hide(&app);
+}
+
+/// Where PswManager's source lives (the workspace's `repository`): opened from
+/// Settings → About. Fixed at build time, so the window never asks to open an
+/// address of its own.
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+
+/// Opens the app's repository in the default browser.
 #[tauri::command(async)]
-fn release_files(session: State<Session>, files: Vec<u64>) {
-    session.staged().release(files);
+fn open_repository(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(REPOSITORY, None::<&str>).map_err(|e| e.to_string())
 }
 
-/// Gives entries a tag or takes it off (the star is the tag Favorite),
-/// saves the file and returns the new listing. Tags wait for the next sync.
+/// Asks GitHub for the latest release and compares it with this copy.
 #[tauri::command(async)]
-fn set_tag(session: State<Session>, ids: Vec<String>, tag: String, on: bool) -> Result<Listing, String> {
-    session.with_mut(|v| {
-        v.set_tag(&ids, &tag, on)?;
-        Ok(v.listing())
-    })
+fn check_for_update() -> Result<updates::UpdateCheck, String> {
+    updates::check(REPOSITORY, env!("CARGO_PKG_VERSION"))
 }
 
-/// Renames a tag in every entry; tags wait for the next sync.
+/// Opens the latest release's page, where its files are, in the default browser.
 #[tauri::command(async)]
-fn rename_tag(session: State<Session>, from: String, to: String) -> Result<Listing, String> {
-    session.with_mut(|v| {
-        v.rename_tag(&from, &to)?;
-        Ok(v.listing())
-    })
-}
-
-/// Takes a tag off every entry; tags wait for the next sync.
-#[tauri::command(async)]
-fn remove_tag(session: State<Session>, tag: String) -> Result<Listing, String> {
-    session.with_mut(|v| {
-        v.remove_tag(&tag)?;
-        Ok(v.listing())
-    })
-}
-
-/// Puts entries from the recycle bin back where they were, saves the file and
-/// returns the new listing.
-#[tauri::command(async)]
-fn restore_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.restore(&ids)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// Removes entries in the recycle bin for good, saves the file and returns
-/// the new listing.
-#[tauri::command(async)]
-fn delete_for_good(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.delete_for_good(&ids)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// Removes everything in the recycle bin for good, saves the file and returns
-/// the new listing.
-#[tauri::command(async)]
-fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.empty_bin()?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// Copies an entry next to it (#255), saves the file and returns the copy
-/// with the new listing.
-#[tauri::command(async)]
-fn duplicate_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Saved, String> {
-    let saved = session.with_mut(|v| {
-        let id = v.duplicate(&id)?;
-        Ok(Saved { id, listing: v.listing(), conflicts: Vec::new() })
-    })?;
-    sync::upload_soon(&app);
-    Ok(saved)
-}
-
-/// Moves entries to the recycle bin, saves the file and returns the new listing.
-#[tauri::command(async)]
-fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.delete_entries(&ids)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// What an import from a file brought in.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FileImported {
-    /// The file's name, which the group is named after.
-    file: String,
-    group: String,
-    added: usize,
-    skipped: Vec<cxf::Skipped>,
-    listing: Listing,
-}
-
-/// An import's next step: done, or the file's password is needed (an
-/// encrypted Aegis export, #282), which [import_file_with_password] takes.
-#[derive(Serialize)]
-#[serde(tag = "step", rename_all = "camelCase")]
-enum ImportStep {
-    Done(Box<FileImported>),
-    Password { file: String },
-}
-
-/// The file the last import read: the window offers to delete it, as it holds
-/// every secret in clear.
-#[derive(Default)]
-struct ImportedFile(Mutex<Option<PathBuf>>);
-
-/// The file waiting for its password, with where it was read.
-type WaitingFile = file_import::WaitingFile<PathBuf>;
-
-/// Imports a file another password manager exported (#238, see
-/// [file_import]): the user picks it, and everything in it is added as new
-/// entries in the group `Imported from <file> <date>`, saved and synced as
-/// one change. `None` when no file was picked; a file only its password opens
-/// waits for it ([ImportStep::Password]).
-#[tauri::command(async)]
-fn import_file(app: AppHandle, window: Window) -> Result<Option<ImportStep>, String> {
-    if !app.state::<Session>().is_unlocked() {
-        return Err("Unlock the database first".into());
-    }
-    // Only the file this import reads may be deleted after it.
-    app.state::<ImportedFile>().0.lock().unwrap().take();
-    app.state::<WaitingFile>().cancel();
-    let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
-    let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
-    let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
-    if file_import::needs_password(&content) {
-        app.state::<WaitingFile>().hold(file.clone(), content, path);
-        return Ok(Some(ImportStep::Password { file }));
-    }
-    let import = file_import::parse(&file, &content)?;
-    drop(content); // wiped now rather than at the end
-    add_imported(&app, file, path, import).map(|done| Some(ImportStep::Done(Box::new(done))))
-}
-
-/// Imports the file waiting for its password with `password` (see
-/// [file_import::WaitingFile::open]).
-#[tauri::command(async)]
-fn import_file_with_password(app: AppHandle, password: String) -> Result<ImportStep, String> {
-    let (file, import, path) = app.state::<WaitingFile>().open(&Zeroizing::new(password))?;
-    add_imported(&app, file, path, import).map(|done| ImportStep::Done(Box::new(done)))
-}
-
-/// Lets go of the file waiting for its password.
-#[tauri::command(async)]
-fn cancel_import(app: AppHandle) {
-    app.state::<WaitingFile>().cancel();
-}
-
-/// Adds what the file read holds, as [import_file] says.
-fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Import) -> Result<FileImported, String> {
-    let done = add_entries(app, file, import)?;
-    *app.state::<ImportedFile>().0.lock().unwrap() = Some(path);
-    Ok(done)
-}
-
-/// Adds `import`'s entries in a group of their own (`source` names where they
-/// came from: the file, or the app), saved and synced as one change.
-fn add_entries(app: &AppHandle, source: String, import: cxf::Import) -> Result<FileImported, String> {
-    let group = import.group_name_today();
-    let (added, listing) = app.state::<Session>().with_mut(|v| {
-        let added = v.import(&import, &group)?;
-        Ok((added, v.listing()))
-    })?;
-    if added > 0 {
-        fetch_icons(app, &listing);
-        sync::upload_soon(app);
-    }
-    Ok(FileImported { file: source, group, added, skipped: import.skipped, listing })
-}
-
-/// The page opens: no codes read yet (see [gauth::Session]).
-#[tauri::command(async)]
-fn gauth_start(app: AppHandle) {
-    app.state::<gauth::Session>().start();
-}
-
-/// Reads one of Google Authenticator's export codes (as [scan_totp_qr]
-/// reads one; a snip of a code read already is passed over for a picture)
-/// and adds it to those read so far. Nothing when cancelled or the page is
-/// gone.
-#[tauri::command(async)]
-fn gauth_read(app: AppHandle, window: Window) -> Result<Option<gauth::Progress>, String> {
-    let session = app.state::<gauth::Session>();
-    let Some(text) = read_qr(&window, qr::export_from_rgba, qr::export_from_image, |text| !session.is_read(text))? else { return Ok(None) };
-    session.add(&text)
-}
-
-/// Imports the accounts of the export codes read so far, as a file's
-/// entries are imported, and lets the codes go.
-#[tauri::command(async)]
-fn gauth_import(app: AppHandle) -> Result<FileImported, String> {
-    if !app.state::<Session>().is_unlocked() {
-        return Err("Unlock the database first".into());
-    }
-    app.state::<gauth::Session>().import(|import| add_entries(&app, import.exporter.clone(), import))
-}
-
-/// Lets go of the export codes read so far.
-#[tauri::command(async)]
-fn gauth_cancel(app: AppHandle) {
-    app.state::<gauth::Session>().cancel();
-}
-
-/// Deletes the file the last import read (the user confirmed): only that one.
-#[tauri::command(async)]
-fn delete_imported_file(app: AppHandle) -> Result<(), String> {
-    let path = app.state::<ImportedFile>().0.lock().unwrap().take().ok_or("No file was imported")?;
-    std::fs::remove_file(&path).map_err(|e| format!("Cannot delete {}: {e}", path.display()))
-}
-
-/// Checks the user again before an export: the master password (with the
-/// database's key file), or with none, Windows Hello. Every secret goes into
-/// the file in clear, so being unlocked is not enough.
-#[tauri::command(async)]
-fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
-    let store = app.state::<Store>();
-    let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
-    let password = match password.map(Zeroizing::new) {
-        Some(password) => Some(password),
-        None => {
-            if !hello_ready(app.state()) {
-                return Err("Enter the master password".into());
-            }
-            hello::unseal(&current.file).map_err(|failure| match failure {
-                hello::Failure::Cancelled => CANCELLED.to_string(),
-                hello::Failure::NotSealed => "Enter the master password".into(),
-                hello::Failure::Other(message) => message,
-            })?
-        }
-    };
-    let key = vault::key(password.as_deref().map(String::as_str).filter(|p| !p.is_empty()), current.key_file.as_deref())?;
-    if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
-        return Err("The master password is not right".into());
-    }
-    app.state::<Session>().allow_export()
-}
-
-/// Writes the entries in use to a new file the user names (#240, see
-/// [file_export]), once [confirm_export] allowed it. `None` when no file was
-/// chosen. Never over a file that is there.
-#[tauri::command(async)]
-fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<file_export::Exported>, String> {
-    let session = app.state::<Session>();
-    let export = session.export(format)?;
-    let (filter, extensions): (&str, &[&str]) = match format {
-        file_export::Format::Csv => ("CSV", &["csv"]),
-        file_export::Format::Cxf => ("Credential Exchange (JSON)", &["json"]),
-    };
-    let dialog = window.dialog().file().set_parent(&window).add_filter(filter, extensions).set_file_name(&export.name);
-    let Some(path) = dialog.blocking_save_file().map(|p| p.into_path().map_err(|e| e.to_string())).transpose()? else { return Ok(None) };
-    let shown = path.display().to_string();
-    file_export::write_new(&path, &shown, export.content.as_bytes())?;
-    session.exported();
-    Ok(Some(export.written(shown)))
-}
-
-/// Merges entries into `keep`, moving them to the recycle bin; saves the file
-/// and returns the new listing.
-#[tauri::command(async)]
-fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.merge_entries(&keep, &others)?;
-        Ok(v.listing())
-    })?;
-    sync::upload_soon(&app);
-    Ok(listing)
-}
-
-/// What merging entries into `keep` would change in it; protected values are left out.
-#[tauri::command(async)]
-fn merge_preview(session: State<Session>, keep: String, others: Vec<String>) -> Result<vault::MergePreview, String> {
-    session.read(|v| v.merge_preview(&keep, &others))?
-}
-
-/// An image file for an entry's own icon, as base64; `None` when cancelled.
-#[tauri::command(async)]
-fn pick_icon_image(window: Window) -> Result<Option<String>, String> {
-    let Some(path) = pick(&window, "Image", &["png", "jpg", "jpeg", "gif", "webp"])? else { return Ok(None) };
-    let bytes = std::fs::read(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-    edit::check_icon_image(&bytes)?;
-    Ok(Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)))
-}
-
-/// The entry's current TOTP code, or nothing when it has no secret.
-#[tauri::command(async)]
-fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String> {
-    session.read(|v| v.totp(&id))?
-}
-
-/// Copies the current TOTP code; returns the seconds until the clipboard is cleared.
-#[tauri::command(async)]
-fn copy_totp(store: State<Store>, session: State<Session>, id: String) -> Result<u64, String> {
-    let code = session.read(|v| v.totp(&id))??.ok_or("The entry has no TOTP secret")?;
-    let clear_after = Settings::of(&store).clear_clipboard_after();
-    clipboard::copy(Zeroizing::new(code.code), clear_after)?;
-    Ok(clear_after.as_secs())
-}
-
-#[tauri::command(async)]
-fn generate_password(options: generator::Options) -> Result<String, String> {
-    generator::generate(&options).map(|password| password.to_string())
-}
-
-#[tauri::command(async)]
-fn password_strength(password: String) -> health::Strength {
-    health::strength(&Zeroizing::new(password))
-}
-
-/// Reused, weak and old passwords; worked out here, so no password leaves the backend.
-#[tauri::command(async)]
-fn password_health(session: State<Session>) -> Result<health::Health, String> {
-    session.read(Vault::health)
-}
-
-/// The entries alike in `criteria` (the same site and account when not
-/// given), by their ids.
-#[tauri::command(async)]
-fn similar_entries(session: State<Session>, criteria: Option<similar::Criteria>) -> Result<Vec<similar::Similar>, String> {
-    session.read(|v| v.similar(criteria.unwrap_or_default()))
-}
-
-/// The settings screen's values.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SettingsView {
-    #[serde(flatten)]
-    settings: settings::View,
-    start_with_windows: bool,
-    /// Windows Hello is set up on this PC: unlocking with it is offered.
-    windows_hello: bool,
-    /// Another program (KeePassXC) is registered for the browser extension.
-    other_browser_host: bool,
-    /// The integration is on, but another program holds the extension's pipe.
-    browser_unserved: bool,
-}
-
-fn settings_view(app: &AppHandle) -> SettingsView {
-    SettingsView {
-        settings: Settings::of(&app.state()).view(),
-        start_with_windows: tray::autostart_enabled(app),
-        windows_hello: hello::available(),
-        other_browser_host: browser_host::other_registered(app),
-        browser_unserved: browser_host::unserved(app),
-    }
-}
-
-#[tauri::command(async)]
-fn settings(app: AppHandle) -> SettingsView {
-    settings_view(&app)
-}
-
-/// Changes one setting; it applies at once, since every use reads it anew.
-#[tauri::command(async)]
-fn set_setting(app: AppHandle, name: String, value: serde_json::Value) -> Result<SettingsView, String> {
-    if name == "startWithWindows" {
-        tray::set_autostart(&app, value.as_bool().ok_or("Start with Windows is on or off")?)?;
-    } else if let Some(hotkey) = Hotkey::named(&name) {
-        change_hotkey(&app, hotkey, value.as_str().ok_or("A hotkey is a key combination")?)?;
-    } else {
-        let off = value == false;
-        Settings::of(&app.state()).set(&name, value)?;
-        if name == "browserIntegration" {
-            if let Err(message) = browser_host::apply(&app) {
-                Settings::of(&app.state()).set(&name, false.into())?;
-                return Err(message);
-            }
-        } else if name == "theme" {
-            window::apply_theme(&app);
-        } else if name == "biometricUnlock" && off {
-            hello::forget_all();
-        }
-    }
-    Ok(settings_view(&app))
-}
-
-/// A cached site icon as a `data:` URL, or nothing yet.
-#[tauri::command(async)]
-fn icon(cache: State<icons::Cache>, host: String) -> Option<String> {
-    cache.get(&host).and_then(|bytes| icons::data_url(&bytes))
-}
-
-/// Auto-Type's choice, when the window asks which entry to type.
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AutoTypeAsk {
-    /// The title of the window typed into.
-    window: String,
-    /// A browser's site, when it could be read.
-    site: Option<String>,
-    browser: bool,
-    /// The entries that fit it.
-    matches: Vec<vault::EntryChoice>,
-}
-
-/// Auto-Type's hotkey (#272): the window in front waits to be typed into. One
-/// entry alone fits it: typed at once (unless the user wants to be asked).
-/// Otherwise, or while locked, the chooser comes up over it to unlock or
-/// choose (#307); the main window stays as it is.
-fn auto_type_pressed(app: &AppHandle) {
-    // A press while one is typing (the hotkey held, pressed twice) types nothing more.
-    let Some(_typing) = Typing::start() else { return };
-    let Some(target) = autotype::foreground() else {
-        // Pressed in the main window: said so, rather than nothing happening
-        // (in the chooser, which asks already, nothing needs saying).
-        if window::is_focused(app) {
-            let _ = app.emit("notice", "Auto-Type types into another window: press the hotkey there, or use the entry's Auto-Type (Ctrl+Shift+V)");
-        }
-        return; // the desktop, the taskbar
-    };
-    let over = target.bounds();
-    *app.state::<AutoTypeTarget>().0.lock().unwrap() = Some(target);
-    *app.state::<AutoTypeNotice>().0.lock().unwrap() = None;
-    if app.state::<Session>().is_unlocked() {
-        match waiting_window(app, true) {
-            // Typed: a chooser still up from an earlier press has nothing to ask now.
-            Ok(None) => return chooser::hide(app),
-            Ok(Some(_)) => {}
-            Err(message) => *app.state::<AutoTypeNotice>().0.lock().unwrap() = Some(message),
-        }
-    }
-    // Once up (and unlocked), the chooser asks for what waits (auto_type_waiting).
-    chooser::ask(app, over);
-}
-
-/// What the chooser shows once it is up and unlocked: why the hotkey's window
-/// was not typed into, or the choice for it; nothing when none waits. Asked
-/// after every unlock: the user may have unlocked for something else.
-#[tauri::command(async)]
-fn auto_type_waiting(app: AppHandle) -> Result<Option<AutoTypeAsk>, String> {
-    if let Some(message) = app.state::<AutoTypeNotice>().0.lock().unwrap().take() {
-        return Err(message);
-    }
-    waiting_window(&app, false)
-}
-
-/// What the window waiting to be typed into needs: nothing when there is none,
-/// or when `may_type` and one entry alone fits it (typed now, unless the user
-/// wants to be asked); else the choice to show, and the window waits on. Taken
-/// while deciding, so two calls never both type.
-fn waiting_window(app: &AppHandle, may_type: bool) -> Result<Option<AutoTypeAsk>, String> {
-    let Some(target) = take_waiting(app) else { return Ok(None) };
-    let matches = app.state::<Session>().read(|v| v.auto_type_matches(&target.window))?;
-    let always_ask = Settings::of(&app.state()).auto_type_always_ask();
-    if let chooser::Plan::Type { id } = chooser::plan(may_type, always_ask, &matches) {
-        return type_entry(app, &target, &id, Typed::Sequence).map(|()| None);
-    }
-    let site = target.window.page.as_ref().map(pswm_core::browser::Page::place);
-    let ask = AutoTypeAsk { window: target.window.title.clone(), site, browser: target.window.browser, matches };
-    // A newer press meanwhile is the one that waits. Locked meanwhile, none
-    // does: checked under the lock lock_now takes the window with.
-    let waiting_target = app.state::<AutoTypeTarget>();
-    let mut waiting = waiting_target.0.lock().unwrap();
-    if !app.state::<Session>().is_unlocked() {
-        return Ok(None);
-    }
-    waiting.get_or_insert(target);
-    Ok(Some(ask))
-}
-
-/// Auto-Type typing now: one at a time, so keys of two are never mixed.
-struct Typing;
-
-static TYPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-impl Typing {
-    /// The turn to type; `None` while another typing runs.
-    fn start() -> Option<Typing> {
-        (!TYPING.swap(true, std::sync::atomic::Ordering::SeqCst)).then_some(Typing)
-    }
-}
-
-impl Drop for Typing {
-    fn drop(&mut self) {
-        TYPING.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-/// Types the entry the user chose in the chooser into the window waiting for
-/// it. The chooser steps aside first and comes back when typing fails, to say why.
-#[tauri::command(async)]
-fn auto_type(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
-    let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
-    let target = take_waiting(&app).ok_or("The window to type into is gone: press the Auto-Type hotkey there again")?;
-    chooser::hide(&app);
-    let done = type_entry(&app, &target, &id, typed);
-    match done {
-        Ok(()) => chooser_gone(&app),
-        Err(_) => chooser::show(&app),
-    }
-    done
-}
-
-/// The user chose no entry: nothing waits to be typed into, and the chooser goes.
-#[tauri::command(async)]
-fn cancel_auto_type(app: AppHandle) {
-    take_waiting(&app);
-    app.state::<AutoTypeNotice>().0.lock().unwrap().take();
-    chooser::hide(&app);
-    chooser_gone(&app);
-}
-
-/// The chooser has gone. With the main window hidden, PswManager is put away:
-/// it locks or syncs as hiding the main window does.
-fn chooser_gone(app: &AppHandle) {
-    if !window::is_shown(app) {
-        window::settle(app);
-    }
-}
-
-/// The window waiting to be typed into, if it still is, taken: no other call gets it.
-fn take_waiting(app: &AppHandle) -> Option<autotype::Target> {
-    app.state::<AutoTypeTarget>().0.lock().unwrap().take().filter(autotype::Target::is_current)
-}
-
-/// Entry-level Auto-Type: the window steps aside, and the entry is typed into
-/// the window that comes forward then (the one in front before PswManager).
-#[tauri::command(async)]
-fn auto_type_entry(app: AppHandle, id: String, typed: Typed) -> Result<(), String> {
-    let _typing = Typing::start().ok_or("Auto-Type is typing already")?;
-    // An entry that cannot be typed (Auto-Type off, no TOTP secret) says so
-    // before the window steps aside.
-    app.state::<Session>().read(|v| v.auto_type_steps(&id, "", typed))??;
-    if !window::step_aside(&app) {
-        return Err("Auto-Type types from the window".into());
-    }
-    let done = autotype::behind().ok_or_else(|| "There is no window behind PswManager to type into".to_string()).and_then(|target| type_entry(&app, &target, &id, typed));
-    window::come_back(&app, done.is_ok());
-    done
-}
-
-/// Types `typed` of entry `id` into `target`.
-fn type_entry(app: &AppHandle, target: &autotype::Target, id: &str, typed: Typed) -> Result<(), String> {
-    let steps = app.state::<Session>().read(|v| v.auto_type_steps(id, &target.window.title, typed))??;
-    // What the window shows now may refuse the typing: an unreadable
-    // browser's address, or a page gone on since.
-    if let Some(refusal) = pswm_core::autotype::refusal(&target.window, autotype::page_now(target).as_ref()) {
-        return Err(refusal);
-    }
-    if autotype::runs_higher(target) {
-        return Err(format!("\"{}\" runs as administrator: Auto-Type cannot type into it unless PswManager does too", target.window.title));
-    }
-    autotype::type_into(target, &steps, || app.state::<Session>().is_unlocked())
+fn open_latest_release(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(format!("{REPOSITORY}/releases/latest"), None::<&str>).map_err(|e| e.to_string())
 }
 
 /// Locks once the database has been left alone for `lockAfterMinutes`.
@@ -1758,120 +157,12 @@ fn watch_inactivity(app: AppHandle) {
     });
 }
 
-/// The app's global hotkeys.
-#[derive(Clone, Copy, PartialEq)]
-enum Hotkey {
-    /// Shows or hides the window.
-    Window,
-    /// Auto-Type into the window in front (#272).
-    AutoType,
-}
-
-impl Hotkey {
-    const ALL: [Hotkey; 2] = [Hotkey::Window, Hotkey::AutoType];
-
-    /// The setting it is kept in.
-    fn setting(self) -> &'static str {
-        match self {
-            Hotkey::Window => "hotkey",
-            Hotkey::AutoType => "autoTypeHotkey",
-        }
-    }
-
-    fn named(setting: &str) -> Option<Hotkey> {
-        Hotkey::ALL.into_iter().find(|h| h.setting() == setting)
-    }
-
-    /// The combination set; empty when it is off.
-    fn combination(self, app: &AppHandle) -> String {
-        let store = app.state::<Store>();
-        let settings = Settings::of(&store);
-        match self {
-            Hotkey::Window => settings.hotkey(),
-            Hotkey::AutoType => settings.auto_type_hotkey(),
-        }
-    }
-}
-
-/// Registers the hotkeys from the settings. A key taken by another app is
-/// reported on the unlock screen instead of failing the start.
-fn register_hotkeys(app: &AppHandle) {
-    let mut taken = Vec::new();
-    for hotkey in Hotkey::ALL {
-        let combination = hotkey.combination(app);
-        if combination.is_empty() {
-            continue;
-        }
-        if let Err(e) = listen_to(app, hotkey, &combination) {
-            taken.push(format!("The hotkey {combination} is not available: {e}"));
-        }
-    }
-    if !taken.is_empty() {
-        let _ = app.state::<Notice>().0.set(taken.join("\n"));
-    }
-}
-
-/// Does what `hotkey` does on `combination`.
-fn listen_to(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(), String> {
-    let shortcut: Shortcut = combination.parse().map_err(|e| format!("{combination} is not a key combination: {e}"))?;
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |app, _, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            match hotkey {
-                Hotkey::Window => window::toggle(app, true),
-                // Off the event loop: reading the window and typing take a while.
-                Hotkey::AutoType => {
-                    let app = app.clone();
-                    std::thread::spawn(move || auto_type_pressed(&app));
-                }
-            }
-        })
-        .map_err(|e| e.to_string())
-}
-
-/// Moves `hotkey` to `combination` (empty turns Auto-Type's off), kept only
-/// once it is registered: a combination another app or the other hotkey holds
-/// is refused and the old one stays.
-fn change_hotkey(app: &AppHandle, hotkey: Hotkey, combination: &str) -> Result<(), String> {
-    let old = hotkey.combination(app);
-    let same = |a: &str, b: &str| a.parse::<Shortcut>().ok().zip(b.parse::<Shortcut>().ok()).is_some_and(|(a, b)| a == b);
-    if combination.is_empty() {
-        if hotkey == Hotkey::Window {
-            return Err("The window's hotkey cannot be turned off".into());
-        }
-        let _ = app.global_shortcut().unregister(old.as_str());
-    } else if !same(&old, combination) {
-        let shortcut = combination.parse::<Shortcut>().map_err(|_| format!("\"{combination}\" is not a key combination"))?;
-        if !shortcut.mods.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER) {
-            return Err("A hotkey needs Ctrl, Alt or Win, so typing does not trigger it".into());
-        }
-        if Hotkey::ALL.into_iter().any(|other| other != hotkey && same(&other.combination(app), combination)) {
-            return Err(format!("{combination} is the other hotkey already"));
-        }
-        listen_to(app, hotkey, combination).map_err(|e| format!("{combination} is not available — another app may use it ({e})"))?;
-        if !old.is_empty() {
-            let _ = app.global_shortcut().unregister(old.as_str());
-        }
-    }
-    Settings::of(&app.state()).set(hotkey.setting(), combination.into())
-}
-
 /// Locks when Windows locks or the session is disconnected (`lockOnSessionLock`).
 fn lock_on_session_lock(app: AppHandle) {
     session_watch::watch(move || {
         if Settings::of(&app.state()).lock_on_session_lock() {
             lock_now(&app);
         }
-    });
-}
-
-/// Backs up the databases that are due, at start and every hour while the app runs.
-fn start_backup_clock(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        backup::run_due(&app.state::<Store>(), backup::now(), None);
-        std::thread::sleep(backup::CHECK_EVERY);
     });
 }
 
@@ -1925,99 +216,99 @@ pub fn run() {
         .manage(questions::Questions::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
-            status,
-            pick_database,
-            sync_with_folder,
-            link_database,
-            upload_to_folder,
-            pick_remote_file,
-            pick_new_file,
-            pick_key_file_path,
-            create_database,
-            select_database,
-            remove_database,
-            sign_in_to_cloud,
-            sync_with_cloud,
-            cancel_cloud,
-            stop_sync,
-            sync_now,
-            sync_status,
-            key_needed,
-            backup,
-            set_backup_every,
-            pick_backup_folder,
-            backup_now,
-            show_backup_folder,
-            pick_key_file,
-            clear_key_file,
-            unlock,
-            hello_ready,
-            unlock_with_hello,
-            import_file,
-            import_file_with_password,
-            cancel_import,
-            gauth_start,
-            gauth_read,
-            gauth_import,
-            gauth_cancel,
-            delete_imported_file,
-            confirm_export,
-            export_file,
-            lock,
-            listing,
-            database_settings,
-            set_database_setting,
-            rename_database_file,
-            history_limits_preview,
-            set_history_limits,
-            create_key_file,
-            change_master_key,
-            enter_other_key,
-            encryption_unlock_time,
-            set_encryption,
-            entry,
-            reveal,
-            entry_history,
-            entry_version,
-            restore_version,
-            copy_field,
-            open_url,
+            databases::status,
+            databases::pick_database,
+            syncing::sync_with_folder,
+            syncing::link_database,
+            syncing::upload_to_folder,
+            syncing::pick_remote_file,
+            databases::pick_new_file,
+            databases::pick_key_file_path,
+            databases::create_database,
+            databases::select_database,
+            databases::remove_database,
+            syncing::sign_in_to_cloud,
+            syncing::sync_with_cloud,
+            syncing::cancel_cloud,
+            syncing::stop_sync,
+            syncing::sync_now,
+            syncing::sync_status,
+            databases::key_needed,
+            backups::backup,
+            backups::set_backup_every,
+            backups::pick_backup_folder,
+            backups::backup_now,
+            backups::show_backup_folder,
+            databases::pick_key_file,
+            databases::clear_key_file,
+            databases::unlock,
+            databases::hello_ready,
+            databases::unlock_with_hello,
+            exchange::import_file,
+            exchange::import_file_with_password,
+            exchange::cancel_import,
+            exchange::gauth_start,
+            exchange::gauth_read,
+            exchange::gauth_import,
+            exchange::gauth_cancel,
+            exchange::delete_imported_file,
+            exchange::confirm_export,
+            exchange::export_file,
+            databases::lock,
+            entries::listing,
+            databases::database_settings,
+            databases::set_database_setting,
+            databases::rename_database_file,
+            databases::history_limits_preview,
+            databases::set_history_limits,
+            databases::create_key_file,
+            databases::change_master_key,
+            databases::enter_other_key,
+            databases::encryption_unlock_time,
+            databases::set_encryption,
+            entries::entry,
+            entries::reveal,
+            entries::entry_history,
+            entries::entry_version,
+            entries::restore_version,
+            entries::copy_field,
+            entries::open_url,
             open_repository,
             check_for_update,
             open_latest_release,
-            icon,
+            entries::icon,
             touch,
             hide_window,
-            edit_entry,
-            save_entry,
-            delete_entries,
-            duplicate_entry,
-            restore_entries,
-            delete_for_good,
-            empty_trash,
-            set_tag,
-            rename_tag,
-            remove_tag,
-            save_attachment,
-            open_attachment,
-            pick_file_to_attach,
-            scan_totp_qr,
-            release_files,
-            pick_icon_image,
-            totp,
-            copy_totp,
-            generate_password,
-            password_strength,
-            settings,
-            set_setting,
-            password_health,
-            similar_entries,
-            merge_entries,
-            merge_preview,
-            auto_type_waiting,
-            auto_type,
-            auto_type_entry,
-            cancel_auto_type,
+            entries::edit_entry,
+            entries::save_entry,
+            entries::delete_entries,
+            entries::duplicate_entry,
+            entries::restore_entries,
+            entries::delete_for_good,
+            entries::empty_trash,
+            entries::set_tag,
+            entries::rename_tag,
+            entries::remove_tag,
+            entries::save_attachment,
+            entries::open_attachment,
+            entries::pick_file_to_attach,
+            entries::scan_totp_qr,
+            entries::release_files,
+            entries::pick_icon_image,
+            entries::totp,
+            entries::copy_totp,
+            entries::generate_password,
+            entries::password_strength,
+            app_settings::settings,
+            app_settings::set_setting,
+            entries::password_health,
+            entries::similar_entries,
+            entries::merge_entries,
+            entries::merge_preview,
+            auto_type_flow::auto_type_waiting,
+            auto_type_flow::auto_type,
+            auto_type_flow::auto_type_entry,
+            auto_type_flow::cancel_auto_type,
             browser_host::browser_answer,
             browser_host::browser_associations,
             browser_host::forget_browser_association,

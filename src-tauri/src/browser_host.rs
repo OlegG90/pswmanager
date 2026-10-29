@@ -151,7 +151,7 @@ impl Host for AppHost {
             }
         }
         let Some(id) = self.change(|v| v.browser_save_login(uuid, url, login, password, group)) else { return false };
-        crate::show_changes(&self.0, vec![id]);
+        crate::databases::show_changes(&self.0, vec![id]);
         true
     }
 
@@ -161,7 +161,7 @@ impl Host for AppHost {
     }
 
     fn lock(&self) {
-        crate::lock_now(&self.0);
+        crate::databases::lock_now(&self.0);
     }
 
     fn passkeys_get(&self, mut public_key: Value, origin: &str, related: &[String]) -> Value {
@@ -206,7 +206,7 @@ impl Host for AppHost {
         };
         let Ok(made) = webauthn::make(&request, &webauthn::Caller::Page { origin }) else { return failed(Failure::PasskeyFailed) };
         let Some(id) = self.change(|v| v.add_browser_passkey(entry, &made, group)) else { return failed(Failure::PasskeyFailed) };
-        crate::show_changes(&self.0, vec![id]);
+        crate::databases::show_changes(&self.0, vec![id]);
         credential(Some(made.response))
     }
 }
