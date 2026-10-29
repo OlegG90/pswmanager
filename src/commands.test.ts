@@ -13,13 +13,24 @@ const read = (file: string) => readFileSync(join(root, file), 'utf8')
 
 /** The commands in the `generate_handler!` list of `file`, without their module paths. */
 function handlers(file: string): string[] {
-  const list = read(file).match(/generate_handler!\[([^\]]*)\]/)
-  if (!list) throw new Error(`no generate_handler! in ${file}`)
-  return list[1]
-    .replace(/\/\/.*$/gm, '')
+  const text = read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const start = text.indexOf('generate_handler![')
+  if (start < 0) throw new Error(`no generate_handler! in ${file}`)
+  // To the bracket that closes the list: an entry's `#[cfg(…)]` has brackets of its own.
+  let end = start + 'generate_handler!['.length
+  for (let depth = 1; depth > 0; end++) {
+    if (end === text.length) throw new Error(`generate_handler! in ${file} is not closed`)
+    if (text[end] === '[') depth++
+    if (text[end] === ']') depth--
+  }
+  const names = text
+    .slice(start + 'generate_handler!['.length, end - 1)
+    .replace(/#\[[^\]]*\]/g, '')
     .split(',')
     .map(path => path.trim().split('::').pop()!)
     .filter(name => name !== '')
+  expect(names.length, `the handler list in ${file}`).toBeGreaterThan(0)
+  return names
 }
 
 /** The commands the TypeScript in `files` invokes. Every call names its command literally. */
@@ -42,17 +53,22 @@ function drift(ui: string[], handled: string[]) {
     neverInvoked: handled.filter(name => !ui.includes(name)),
   }
 }
-const AGREE = { unhandled: [], neverInvoked: [] }
+const NO_DRIFT = { unhandled: [], neverInvoked: [] }
 
 const SHARED_API = 'src/api.ts'
 
-/** The relative imports of `file`, as paths from the root, and whether each brings a value named `api`. */
+/**
+ * The relative imports and re-exports of `file`, as paths from the root, and
+ * whether each brings the value `api` (by name, renamed, or in a namespace).
+ * The clause before `from` holds no quote, so one match never runs into the
+ * statement before it.
+ */
 function imports(file: string): { path: string; api: boolean }[] {
-  return [...read(file).matchAll(/^import\s+(type\s+)?([^;]*?)\s+from\s+'(\.{1,2}\/[^']+)'/gm)]
-    .filter(m => !m[3].endsWith('.css'))
+  return [...read(file).matchAll(/^(?:import|export)\s+(type\s+)?([^'"]*?)\s+from\s+'([^']+)'/gm)]
+    .filter(m => m[3].startsWith('.') && !m[3].endsWith('.css'))
     .map(m => ({
       path: join(dirname(file), `${m[3]}.ts`).replaceAll('\\', '/'),
-      api: !m[1] && /[{,]\s*api\s*[,}]/.test(m[2]),
+      api: !m[1] && (m[2].includes('*') || /(^|[{,])\s*api\b/.test(m[2])),
     }))
 }
 
@@ -65,10 +81,10 @@ function reachable(entry: string): string[] {
 
 describe('Windows commands', () => {
   it('are the commands the UI invokes', () => {
-    const files = readdirSync(join(root, 'src'))
+    const files = readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' })
       .filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-      .map(name => `src/${name}`)
-    expect(drift(invoked(files), handlers('src-tauri/src/lib.rs'))).toEqual(AGREE)
+      .map(name => `src/${name.replaceAll('\\', '/')}`)
+    expect(drift(invoked(files), handlers('src-tauri/src/lib.rs'))).toEqual(NO_DRIFT)
   })
 })
 
@@ -78,11 +94,11 @@ describe('Android commands', () => {
   it('are the commands the UI invokes', () => {
     // The shared `src/api.ts` is bundled for its types and field names only:
     // its `api` wraps the Windows commands.
-    expect(drift(invoked(files.filter(file => file !== SHARED_API)), handlers('apps/android/src/app.rs'))).toEqual(AGREE)
+    expect(drift(invoked(files.filter(file => file !== SHARED_API)), handlers('apps/android/src/app.rs'))).toEqual(NO_DRIFT)
   })
 
   it('leave the Windows wrappers alone', () => {
-    const takers = files.filter(file => imports(file).some(({ path, api }) => path === SHARED_API && api))
-    expect(takers).toEqual([])
+    const windowsApiUsers = files.filter(file => imports(file).some(({ path, api }) => path === SHARED_API && api))
+    expect(windowsApiUsers).toEqual([])
   })
 })
