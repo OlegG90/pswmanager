@@ -9,12 +9,12 @@ import org.json.JSONObject
  */
 sealed class Answer {
   /** Why it was not done, for the user: what Rust said, else that the answer is not one expected here. */
-  open val why: String get() = "PswManager could not answer"
+  open val why: String get() = UNANSWERED
 
   /** Done; what was asked for is [json] or [text] (null when there is nothing to give). */
-  class Ok(private val answer: JSONObject) : Answer() {
-    val json: JSONObject get() = answer.getJSONObject("ok")
-    val text: String? get() = if (answer.isNull("ok")) null else answer.getString("ok")
+  class Ok(private val value: Any?) : Answer() {
+    val json: JSONObject get() = value as JSONObject
+    val text: String? get() = value as? String
   }
 
   /** The login is for the app's package, but the user has not confirmed the app ([confirmApp]) with this certificate. */
@@ -24,13 +24,15 @@ sealed class Answer {
   class Failed(override val why: String, val stale: Boolean = false) : Answer()
 
   companion object {
+    private const val UNANSWERED = "PswManager could not answer"
+
     /** Reads `answer`; one that is missing or cannot be read failed. */
     fun of(answer: String?): Answer {
-      val json = answer?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return Failed("PswManager could not answer")
+      val json = answer?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return Failed(UNANSWERED)
       return when {
-        json.has("ok") -> Ok(json)
+        json.has("ok") -> Ok(json.opt("ok"))
         json.has("unconfirmed") -> Unconfirmed(json.getString("unconfirmed"))
-        else -> Failed(json.optString("failed", "PswManager could not answer"), json.optBoolean("stale"))
+        else -> Failed(json.optString("failed", UNANSWERED), json.optBoolean("stale"))
       }
     }
   }

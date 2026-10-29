@@ -74,10 +74,10 @@ fn java_text(env: &mut Env, text: impl AsRef<str>) -> jstring {
     env.new_string(text.as_ref()).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
-/// `answer` for Java, which takes a panic for `panicked`.
-fn reply(env: &mut Env, answer: std::thread::Result<Result<Answer, Answer>>, panicked: &str) -> jstring {
-    let answer = answer.unwrap_or_else(|_| Err(Answer::failed(panicked))).unwrap_or_else(|failed| failed);
-    java_text(env, answer.to_json())
+/// What `work` answers, for Java; a panic is taken for `panicked`.
+fn reply(env: &mut Env, panicked: &str, work: impl FnOnce(&mut Env) -> Result<Answer, Answer>) -> jstring {
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(env))).unwrap_or_else(|_| Err(Answer::failed(panicked)));
+    java_text(env, answer.unwrap_or_else(|failed| failed).to_json().as_str())
 }
 
 /// Sends a change made here up with the next sync, once the app has started.
@@ -143,10 +143,9 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_unlock<'
     sealed: JString<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        reply(env, "PswManager could not unlock: try in the app", |env| {
             unlock(env, &context, &state, &password, &sealed).map(|()| Answer::Ok(serde_json::Value::Null))
-        }));
-        reply(env, answer, "PswManager could not unlock: try in the app")
+        })
     })
 }
 
@@ -226,15 +225,10 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_export<'
     sealed: JString<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        reply(env, "PswManager could not export: try again", |env| {
             let (vault, _) = open_with(env, &context, &state, &password, &sealed)?;
-            Ok::<_, Answer>(provider::ok_secret(vault.export().as_str())?)
-        }))
-        .unwrap_or_else(|_| Err("PswManager could not export: try again".into()));
-        match result {
-            Ok(json) => java_text(env, json.as_str()),
-            Err(failed) => java_text(env, failed.to_json()),
-        }
+            Ok(Answer::secret(vault.export().as_str())?)
+        })
     })
 }
 
@@ -276,13 +270,12 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_sign<'lo
     certificate: JByteArray<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not sign in", |env| {
             let id = optional_text(env, &id)?.ok_or("No passkey chosen")?;
             let request = optional_text(env, &request)?.ok_or("No request")?;
             let caller = caller(env, &origin, &client_data_hash, &package, &certificate)?;
             Ok(Answer::Ok(session().read(|v| v.sign_with_passkey(&id, &request, &caller))??.into()))
-        }));
-        reply(env, answer, "PswManager could not sign in")
+        })
     })
 }
 
@@ -300,7 +293,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPassk
     request: JString<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not read the request", |env| {
             let request = optional_text(env, &request)?.ok_or("No request")?;
             let (rp_id, site) = webauthn::creation_site(&request).ok_or("The request names no site")?;
             let excluded = webauthn::excluded_ids(&request);
@@ -310,8 +303,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_newPassk
             })?;
             let cloud = syncs_with_cloud(env, &state)?;
             Ok(Answer::Ok(serde_json::json!({ "site": site, "excluded": excluded, "entries": entries, "cloud": cloud })))
-        }));
-        reply(env, answer, "PswManager could not read the request")
+        })
     })
 }
 
@@ -331,7 +323,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePass
     certificate: JByteArray<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not make the passkey", |env| {
             let id = optional_text(env, &id)?;
             let request = optional_text(env, &request)?.ok_or("No request")?;
             let caller = caller(env, &origin, &client_data_hash, &package, &certificate)?;
@@ -339,8 +331,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_makePass
             session().with_mut(|v| v.add_passkey(id.as_deref(), &made))?;
             upload_soon();
             Ok(Answer::Ok(made.response.into()))
-        }));
-        reply(env, answer, "PswManager could not make the passkey")
+        })
     })
 }
 
@@ -383,7 +374,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_autofill
     web_scheme: JString<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not tell who asks", |env| {
             let allowlist = optional_text(env, &allowlist)?.unwrap_or_default();
             let package = optional_text(env, &package)?.ok_or("The app asking is unknown")?;
             let certificate = optional_bytes(env, &certificate)?.ok_or("The app asking is unknown")?;
@@ -393,8 +384,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_autofill
                 Some(Asker::Site(origin)) => Ok(Answer::Ok(origin.into())),
                 None => Err("The browser shows no https page".into()),
             }
-        }));
-        reply(env, answer, "PswManager could not tell who asks")
+        })
     })
 }
 
@@ -443,7 +433,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
             username: &'a str,
             password: &'a str,
         }
-        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Zeroizing<String>, Answer> {
+        reply(env, "PswManager could not give the login", |env| {
             let id = optional_text(env, &id)?.ok_or("No login chosen")?;
             let place = login_place(env, &origin, &package, &certificate)?;
             if confirmed == JNI_TRUE {
@@ -452,13 +442,8 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
             }
             let (username, password) = session().read(|v| v.login(&id, &place))?.map_err(|why| Answer::refused(why, &place))?;
             // One string, wiped once Java has its own copy.
-            Ok(provider::ok_secret(&Login { username: &username, password: &password })?)
-        }))
-        .unwrap_or_else(|_| Err("PswManager could not give the login".into()));
-        match found {
-            Ok(json) => java_text(env, json.as_str()),
-            Err(failed) => java_text(env, failed.to_json()),
-        }
+            Ok(Answer::secret(&Login { username: &username, password: &password })?)
+        })
     })
 }
 
@@ -474,13 +459,12 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_loginCho
     certificate: JByteArray<'local>,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not read the request", |env| {
             let place = login_place(env, &origin, &package, &certificate)?;
             let entries = session().read(|v| v.entries_for_login(&place))?;
             let cloud = syncs_with_cloud(env, &state)?;
             Ok(Answer::Ok(serde_json::json!({ "entries": entries, "cloud": cloud })))
-        }));
-        reply(env, answer, "PswManager could not read the request")
+        })
     })
 }
 
@@ -503,7 +487,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
     confirmed: jboolean,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not save the password", |env| {
             let id = optional_text(env, &id)?;
             let title = optional_text(env, &title)?.unwrap_or_default();
             let username = Zeroizing::new(optional_text(env, &username)?.unwrap_or_default());
@@ -514,8 +498,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveLogi
                 .map_err(|why| Answer::refused(why, &place))?;
             upload_soon();
             Ok(Answer::Ok(serde_json::Value::Null))
-        }));
-        reply(env, answer, "PswManager could not save the password")
+        })
     })
 }
 
@@ -556,14 +539,13 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_linkLogi
     confirmed: jboolean,
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
-        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<Answer, Answer> {
+        reply(env, "PswManager could not link the entry", |env| {
             let id = optional_text(env, &id)?.ok_or("No entry chosen")?;
             let place = login_place(env, &origin, &package, &certificate)?;
             session().with_mut(|v| v.link_login(&id, &place, confirmed == JNI_TRUE)).map_err(|why| Answer::refused(why, &place))?;
             upload_soon();
             Ok(Answer::Ok(serde_json::Value::Null))
-        }));
-        reply(env, answer, "PswManager could not link the entry")
+        })
     })
 }
 

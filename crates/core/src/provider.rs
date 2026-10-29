@@ -38,12 +38,22 @@ pub fn autofill_asker(allowlist: &str, package: &str, certificate: &[u8], web_do
 /// certificates listed for it. A list that cannot be read names no one.
 fn privileged_browser(allowlist: &str, package: &str, certificate: &[u8]) -> bool {
     let Ok(list) = serde_json::from_str::<Value>(allowlist) else { return false };
-    let fingerprint = Sha256::digest(certificate).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
     let apps = list["apps"].as_array().map(Vec::as_slice).unwrap_or_default();
-    apps.iter().map(|app| &app["info"]).filter(|info| info["package_name"] == package).any(|info| {
+    let mut listed = apps.iter().map(|app| &app["info"]).filter(|info| info["package_name"] == package).peekable();
+    if listed.peek().is_none() {
+        return false; // most apps asking are no browser: no fingerprint to make
+    }
+    let fingerprint = fingerprint(certificate);
+    listed.any(|info| {
         let signatures = info["signatures"].as_array().map(Vec::as_slice).unwrap_or_default();
         signatures.iter().any(|s| s["cert_fingerprint_sha256"].as_str().is_some_and(|f| f.eq_ignore_ascii_case(&fingerprint)))
     })
+}
+
+/// A certificate's SHA-256 as Google's list writes it: upper-case hex bytes
+/// joined by colons.
+fn fingerprint(certificate: &[u8]) -> String {
+    Sha256::digest(certificate).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
 }
 
 /// An answer to Kotlin, as one JSON object Kotlin tells apart by its key
@@ -52,6 +62,9 @@ fn privileged_browser(allowlist: &str, package: &str, certificate: &[u8]) -> boo
 pub enum Answer {
     /// Done: what was asked for (`null` when there is nothing to give).
     Ok(Value),
+    /// Done, and what was asked for is a secret (a login, an export): kept
+    /// as JSON wiped once dropped, never in a [Value], which is not.
+    Secret(Zeroizing<String>),
     /// The entry is for the app's package but keeps no certificate: the
     /// user confirms the app, whose certificate this is, and is asked again.
     Unconfirmed(String),
@@ -61,6 +74,11 @@ pub enum Answer {
 }
 
 impl Answer {
+    /// [Answer::Secret] with `secret`.
+    pub fn secret<T: Serialize + ?Sized>(secret: &T) -> Result<Answer, String> {
+        serde_json::to_string(secret).map(|json| Answer::Secret(Zeroizing::new(json))).map_err(|e| e.to_string())
+    }
+
     /// Not done for `why`.
     pub fn failed(why: impl Into<String>) -> Answer {
         Answer::Failed { why: why.into(), stale: false }
@@ -76,13 +94,14 @@ impl Answer {
         }
     }
 
-    pub fn to_json(&self) -> String {
-        match self {
-            Answer::Ok(value) => json!({ "ok": value }),
-            Answer::Unconfirmed(certificate) => json!({ "unconfirmed": certificate }),
-            Answer::Failed { why, stale } => json!({ "failed": why, "stale": stale }),
-        }
-        .to_string()
+    /// The answer for Kotlin, wiped once dropped (it may hold a secret).
+    pub fn to_json(&self) -> Zeroizing<String> {
+        Zeroizing::new(match self {
+            Answer::Ok(value) => json!({ "ok": value }).to_string(),
+            Answer::Secret(secret) => format!(r#"{{"ok":{}}}"#, secret.as_str()),
+            Answer::Unconfirmed(certificate) => json!({ "unconfirmed": certificate }).to_string(),
+            Answer::Failed { why, stale } => json!({ "failed": why, "stale": stale }).to_string(),
+        })
     }
 }
 
@@ -98,16 +117,6 @@ impl From<&str> for Answer {
     }
 }
 
-/// [Answer::Ok] with a secret (a login, an export), as JSON wiped once
-/// dropped: the secret is never held in a [Value], which is not.
-pub fn ok_secret<T: Serialize + ?Sized>(secret: &T) -> Result<Zeroizing<String>, String> {
-    #[derive(Serialize)]
-    struct Done<'a, T: ?Sized> {
-        ok: &'a T,
-    }
-    serde_json::to_string(&Done { ok: secret }).map(Zeroizing::new).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,8 +126,7 @@ mod tests {
 
     /// A list naming [BROWSER] with [CERTIFICATE]'s fingerprint, in `case`.
     fn allowlist(lowercase: bool) -> String {
-        let fingerprint = Sha256::digest(CERTIFICATE).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
-        let fingerprint = if lowercase { fingerprint.to_lowercase() } else { fingerprint };
+        let fingerprint = if lowercase { fingerprint(CERTIFICATE).to_lowercase() } else { fingerprint(CERTIFICATE) };
         json!({ "apps": [{ "type": "android", "info": {
             "package_name": BROWSER,
             "signatures": [{ "build": "release", "cert_fingerprint_sha256": fingerprint }],
@@ -156,7 +164,7 @@ mod tests {
 
     #[test]
     fn a_browser_is_found_among_several_signed_as_its_own_entry_says() {
-        let fingerprint = Sha256::digest(CERTIFICATE).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
+        let fingerprint = fingerprint(CERTIFICATE);
         let signed = |fingerprint: &str| json!([{ "build": "release", "cert_fingerprint_sha256": fingerprint }]);
         let list = json!({ "apps": [
             { "type": "android", "info": { "package_name": "org.example.other", "signatures": signed(&fingerprint) } },
@@ -172,13 +180,15 @@ mod tests {
 
     #[test]
     fn answers_are_told_apart_by_their_key() {
-        assert_eq!(Answer::Ok(json!({ "username": "user" })).to_json(), r#"{"ok":{"username":"user"}}"#);
-        assert_eq!(Answer::Ok(Value::Null).to_json(), r#"{"ok":null}"#);
-        assert_eq!(Answer::failed("The database is locked").to_json(), r#"{"failed":"The database is locked","stale":false}"#);
+        assert_eq!(Answer::Ok(json!({ "username": "user" })).to_json().as_str(), r#"{"ok":{"username":"user"}}"#);
+        assert_eq!(Answer::Ok(Value::Null).to_json().as_str(), r#"{"ok":null}"#);
+        assert_eq!(Answer::failed("The database is locked").to_json().as_str(), r#"{"failed":"The database is locked","stale":false}"#);
         let stale = Answer::Failed { why: "The key has changed".into(), stale: true };
-        assert_eq!(stale.to_json(), r#"{"failed":"The key has changed","stale":true}"#);
-        let secret = ok_secret("{\"a\":1}").unwrap();
-        assert_eq!(secret.as_str(), r#"{"ok":"{\"a\":1}"}"#, "a secret is answered as Ok is");
+        assert_eq!(stale.to_json().as_str(), r#"{"failed":"The key has changed","stale":true}"#);
+        let login = Answer::secret(&json!({ "username": "user" })).unwrap();
+        assert_eq!(login.to_json().as_str(), r#"{"ok":{"username":"user"}}"#, "a secret is answered as Ok is");
+        let export = Answer::secret("{\"a\":1}").unwrap();
+        assert_eq!(export.to_json().as_str(), r#"{"ok":"{\"a\":1}"}"#, "text stays text");
     }
 
     #[test]
