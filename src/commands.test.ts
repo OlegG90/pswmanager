@@ -13,19 +13,16 @@ const read = (file: string) => readFileSync(join(root, file), 'utf8')
 
 /** The commands in the `generate_handler!` list of `file`, without their module paths. */
 function handlers(file: string): string[] {
-  const text = read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
-  const start = text.indexOf('generate_handler![')
-  if (start < 0) throw new Error(`no generate_handler! in ${file}`)
-  // To the bracket that closes the list: an entry's `#[cfg(…)]` has brackets of its own.
-  let end = start + 'generate_handler!['.length
-  for (let depth = 1; depth > 0; end++) {
-    if (end === text.length) throw new Error(`generate_handler! in ${file} is not closed`)
-    if (text[end] === '[') depth++
-    if (text[end] === ']') depth--
-  }
-  const names = text
-    .slice(start + 'generate_handler!['.length, end - 1)
+  // Without comments and attributes: an entry's `#[cfg(…)]` would end the list at its own bracket.
+  const text = read(file)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
     .replace(/#\[[^\]]*\]/g, '')
+  const open = 'generate_handler!['
+  const start = text.indexOf(open)
+  if (start < 0) throw new Error(`no generate_handler! in ${file}`)
+  const names = text
+    .slice(start + open.length, text.indexOf(']', start))
     .split(',')
     .map(path => path.trim().split('::').pop()!)
     .filter(name => name !== '')
