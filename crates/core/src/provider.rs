@@ -155,6 +155,22 @@ mod tests {
     }
 
     #[test]
+    fn a_browser_is_found_among_several_signed_as_its_own_entry_says() {
+        let fingerprint = Sha256::digest(CERTIFICATE).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
+        let signed = |fingerprint: &str| json!([{ "build": "release", "cert_fingerprint_sha256": fingerprint }]);
+        let list = json!({ "apps": [
+            { "type": "android", "info": { "package_name": "org.example.other", "signatures": signed(&fingerprint) } },
+            { "type": "android", "info": { "package_name": BROWSER, "signatures": signed("00:11") } },
+            { "type": "android", "info": { "package_name": BROWSER, "signatures": [{ "build": "userdebug", "cert_fingerprint_sha256": "22:33" }, signed(&fingerprint)[0]] } },
+        ] })
+        .to_string();
+        let asker = autofill_asker(&list, BROWSER, CERTIFICATE, Some("mail.example"), Some("https"));
+        assert_eq!(asker, Some(Asker::Site("https://mail.example".into())), "its second entry, second signature");
+        let other = autofill_asker(&list, "org.example.other", b"another certificate", Some("mail.example"), Some("https"));
+        assert_eq!(other, Some(Asker::App), "another package's fingerprint does not count for it");
+    }
+
+    #[test]
     fn answers_are_told_apart_by_their_key() {
         assert_eq!(Answer::Ok(json!({ "username": "user" })).to_json(), r#"{"ok":{"username":"user"}}"#);
         assert_eq!(Answer::Ok(Value::Null).to_json(), r#"{"ok":null}"#);

@@ -80,14 +80,6 @@ fn reply(env: &mut Env, answer: std::thread::Result<Result<Answer, Answer>>, pan
     java_text(env, answer.to_json())
 }
 
-/// [Answer::Failed] for `why`: `stale` when it starts with [STALE].
-fn failure(why: String) -> Answer {
-    match why.strip_prefix(STALE) {
-        Some(why) => Answer::Failed { why: why.into(), stale: true },
-        None => Answer::failed(why),
-    }
-}
-
 /// Sends a change made here up with the next sync, once the app has started.
 fn upload_soon() {
     if let Some(app) = APP.get() {
@@ -152,17 +144,13 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_unlock<'
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            unlock(env, &context, &state, &password, &sealed).map(|()| Answer::Ok(serde_json::Value::Null)).map_err(failure)
+            unlock(env, &context, &state, &password, &sealed).map(|()| Answer::Ok(serde_json::Value::Null))
         }));
         reply(env, answer, "PswManager could not unlock: try in the app")
     })
 }
 
-/// What a failure to open the database starts with when the sealed key is
-/// stale (told to Kotlin as [Answer::Failed]'s `stale`).
-const STALE: &str = "stale:";
-
-fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(), String> {
+fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(), Answer> {
     if session().is_unlocked() {
         return Ok(()); // the app was unlocked meanwhile
     }
@@ -182,9 +170,9 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
 
 /// The database opened with the master password (`sealed` null) or the key
 /// sealed for biometric unlock, as [unlock] takes them: the key is checked
-/// by opening the file with it. [STALE] first when the sealed key no longer
-/// opens it.
-fn open_with(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(pswm_core::vault::Vault, pswm_core::vault::Listing), String> {
+/// by opening the file with it. Failed as `stale` when the sealed key no
+/// longer opens it.
+fn open_with(env: &mut Env, context: &JObject, state: &JString, password: &JString, sealed: &JString) -> Result<(pswm_core::vault::Vault, pswm_core::vault::Listing), Answer> {
     Kotlin::install(env, context)?;
     let password = optional_text(env, password)?.map(Zeroizing::new);
     let sealed = optional_text(env, sealed)?.map(Zeroizing::new);
@@ -209,9 +197,9 @@ fn open_with(env: &mut Env, context: &JObject, state: &JString, password: &JStri
         let password = password.as_deref().map(String::as_str).filter(|p| !p.is_empty());
         let opened = crate::app::open_vault(store, password, key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
             if with_sealed_key && e == pswm_core::dbfile::WRONG_KEY {
-                format!("{STALE}The database's key has changed: unlock with the new master password")
+                Answer::Failed { why: "The database's key has changed: unlock with the new master password".into(), stale: true }
             } else {
-                e
+                Answer::failed(e)
             }
         })?;
         if !with_sealed_key {
@@ -239,7 +227,7 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_export<'
 ) -> jstring {
     native(&mut env, std::ptr::null_mut(), |env| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let (vault, _) = open_with(env, &context, &state, &password, &sealed).map_err(failure)?;
+            let (vault, _) = open_with(env, &context, &state, &password, &sealed)?;
             Ok::<_, Answer>(provider::ok_secret(vault.export().as_str())?)
         }))
         .unwrap_or_else(|_| Err("PswManager could not export: try again".into()));
