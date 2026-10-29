@@ -369,7 +369,8 @@ Android offers Google first). Android asks it when an app or a site in a browser
   entries (the one with the user name offered first; for one with another user name it says only the
   password is replaced): the password is replaced (the old version goes to history), the user name kept
   when the entry has one; or **another entry**, searched among all (*Picking an entry*), which is linked
-  first. It is verified the same way, saved, and goes up with the next sync.
+  first. It is verified the same way, saved, and goes up with the next sync; a toast names the entry it
+  went to, its title and user name (#322).
 - **Picking an entry** (#270), as Keepass2Android does when no entry is for an app or site: a search
   over the entries in use (title, user name or URL holding the text, any case; those with a password
   first, at most 50). The entry picked is **linked** to who asks: the app's `androidapp://<package>`
@@ -439,7 +440,8 @@ row, as the phone shows autofill).
   entry** (named after the app, or the site's host), **updating** one of the entries for who asks (the
   password replaced, the old version in history, the user name kept when the entry has one), or
   **another entry** picked among all and linked, verified with the fingerprint or the phone's screen
-  lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast tells it was saved, or why not.
+  lock, *Trust this app?* for an app's entry that keeps no certificate and before linking an app. It is saved and goes up with the next sync; a toast names the entry it went to (its title and
+  user name, #322), or tells why it was not saved.
   What was typed is held in memory only until the save screen takes it, not in the screen's intent,
   which Android would give back to the app started again (#306): then it is gone, and said so.
 - **Not yet:** inline offers in the keyboard, and filling other fields (cards, addresses, TOTP codes).

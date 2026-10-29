@@ -6,6 +6,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlin.concurrent.thread
 
@@ -18,7 +19,8 @@ import kotlin.concurrent.thread
  * screen lock. It goes up with the next sync. An app's entry keeps its
  * signing certificate; one for its package that keeps none yet is changed,
  * and another entry linked to the app, only once the user confirmed the app
- * ([confirmApp]).
+ * ([confirmApp]). A toast names the entry it went to, so it can be found
+ * again (#322).
  */
 class SaveLogin(
   private val activity: AppCompatActivity,
@@ -104,7 +106,12 @@ class SaveLogin(
       if (answer is Answer.Ok) UploadWorker.schedule(activity.applicationContext, ProviderBridge.state(activity), cloud)
       activity.runOnUiThread {
         when (answer) {
-          is Answer.Ok -> saved()
+          is Answer.Ok -> {
+            // The screen closes and work goes on in the other app: say where the login is.
+            val into = if (id == null) entryLabel(title, username) else entry
+            Toast.makeText(activity.applicationContext, "Saved in PswManager: $into", Toast.LENGTH_LONG).show()
+            saved()
+          }
           is Answer.Unconfirmed -> confirmApp(activity, caller.packageName, entry, answer.certificate, { store(id, entry, true) }, cancelled)
           is Answer.Failed -> failed(answer.why)
         }
