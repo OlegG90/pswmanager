@@ -16,8 +16,11 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /** An entry as a choice shows it: its title and user name. */
-fun entryLabel(entry: JSONObject): String =
-  listOf(entry.optString("title"), entry.optString("username")).filter { it.isNotEmpty() }.joinToString(" · ")
+fun entryLabel(entry: JSONObject): String = entryLabel(entry.optString("title"), entry.optString("username"))
+
+/** An entry titled `title` for `username`, as a choice shows it. */
+fun entryLabel(title: String, username: String): String =
+  listOf(title, username).filter { it.isNotEmpty() }.joinToString(" · ")
 
 /** How long the search waits after a keystroke for the next one. */
 private const val SEARCH_DELAY_MS = 250L

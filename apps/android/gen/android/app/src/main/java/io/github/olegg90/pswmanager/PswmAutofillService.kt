@@ -300,7 +300,7 @@ class AutofillSaveActivity : UnlockScreen() {
     val (_, caller) = PswmAutofillService.fieldsOf(intent) ?: return finish()
     val token = intent.getStringExtra(PswmAutofillService.EXTRA_TYPED) ?: return finish()
     val (username, password) = PswmAutofillService.takeTyped(token) ?: return tell("The password typed in is gone: type it again to save it")
-    SaveLogin(this, caller, username, password, { tell("Saved in PswManager") }, ::finish, ::tell).choose()
+    SaveLogin(this, caller, username, password, ::finish, ::finish, ::tell).choose()
   }
 
   /** Android's save sheet is gone by now: the outcome is told in a toast. */
