@@ -1202,6 +1202,23 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
   changedElsewhere(changed)
 }
 
+/** The browser extension saved a login into entry `id` (#322): the entry shows,
+ *  among All when the sidebar's choice or the search leaves it out. An open
+ *  editor stays as it is. */
+function showSavedFromBrowser(id: string) {
+  if (!unlocked || isEditing()) return
+  closeSettings()
+  closeReport()
+  if (!search(listing.entries, searchInput.value, filter).some((e) => e.id === id)) {
+    filter = ALL
+    searchInput.value = ''
+    fillSidebar()
+    refresh()
+  }
+  select(id)
+  notify('Saved from the browser')
+}
+
 // ---------------------------------------------------------------- tools and settings in the sidebar
 
 /** Makes `action` wait for the editor to be left (Yes) or do nothing (No),
@@ -1563,6 +1580,7 @@ listen<BrowserPasskeyGet>('browser-passkey-get', (e) => answerPasskeyGet(e.paylo
 listen<BrowserPasskeyRegister>('browser-passkey-register', (e) => answerPasskeyRegister(e.payload).catch((err) => notify(String(err))))
 listen<number>('browser-expired', (e) => expire(e.payload))
 listen<DiskChange>('database-changed', (e) => showDiskChange(e.payload))
+listen<string>('browser-saved', (e) => showSavedFromBrowser(e.payload))
 listen<string>('database-error', (e) => notify(e.payload, 10))
 listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 // A copy opens with a key this device does not know, or no longer does.
