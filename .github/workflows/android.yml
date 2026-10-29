@@ -81,3 +81,12 @@ jobs:
           name: pswmanager-apk
           path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      # The Kotlin unit tests (app/src/test) of the variant just built, after
+      # the upload: a failing test still leaves the APK to look at.
+      - if: steps.key.outputs.signed == 'true'
+        working-directory: apps/android/gen/android
+        run: ./gradlew --no-daemon :app:testUniversalReleaseUnitTest
+      - if: steps.key.outputs.signed != 'true'
+        working-directory: apps/android/gen/android
+        run: ./gradlew --no-daemon :app:testUniversalDebugUnitTest

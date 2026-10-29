@@ -71,6 +71,8 @@ npm run cleanup               # removes builds and generated files (target, dist
   itself; starting it by hand as well cancels one of the two runs. The artifact `pswmanager-apk` holds
   `universal/release/app-universal-release.apk` (a debug APK where the signing secrets are missing, as
   on forks); install it with `adb install -r <apk>`.
+- The Kotlin unit tests (`apps/android/gen/android/app/src/test`, plain JVM, no Android classes) run in
+  the same workflow, after the APK.
 - Check changes to the Android UI or its Kotlin plugins on a real phone before the pull request.
 
 ## Releases
