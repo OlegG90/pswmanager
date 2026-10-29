@@ -10,7 +10,6 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
-import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
@@ -41,13 +40,12 @@ class PasswordActivity : AppCompatActivity() {
   /** Hands entry `id`'s login over, the user verified; asks to confirm the app first when the entry needs it. */
   private fun release(id: String, title: String, caller: Caller, confirmed: Boolean) {
     thread {
-      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed)
+      val answer = Answer.of(ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed))
       runOnUiThread {
-        when {
-          answer == null -> fail("The database is locked, or the login is gone or not for this app")
-          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
-            confirmApp(this, caller.packageName, title, answer.removePrefix(ProviderBridge.UNCONFIRMED), { release(id, title, caller, true) }, ::cancel)
-          else -> JSONObject(answer).let { handOver(it.getString("username"), it.getString("password")) }
+        when (answer) {
+          is Answer.Ok -> answer.json.let { handOver(it.getString("username"), it.getString("password")) }
+          is Answer.Unconfirmed -> confirmApp(this, caller.packageName, title, answer.certificate, { release(id, title, caller, true) }, ::cancel)
+          is Answer.Failed -> fail(answer.why)
         }
       }
     }

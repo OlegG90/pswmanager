@@ -274,10 +274,9 @@ class AutofillPickActivity : UnlockScreen() {
   /** The entry is for who asks now: its login fills the fields. */
   private fun fill(id: String, fields: AutofillFields, caller: Caller) {
     thread {
-      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, false)
+      val answer = Answer.of(ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, false))
       runOnUiThread {
-        if (answer == null || answer.startsWith(ProviderBridge.UNCONFIRMED)) return@runOnUiThread finish()
-        setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+        if (answer is Answer.Ok) setResult(RESULT_OK, PswmAutofillService.filled(this, fields, answer.json))
         finish()
       }
     }
@@ -329,16 +328,15 @@ class AutofillLoginActivity : AppCompatActivity() {
 
   private fun release(id: String, title: String, fields: AutofillFields, caller: Caller, confirmed: Boolean) {
     thread {
-      val answer = ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed)
+      val answer = Answer.of(ProviderBridge.login(id, caller.origin, caller.packageName, caller.certificate, confirmed))
       runOnUiThread {
-        when {
-          answer == null -> cancel()
-          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
-            confirmApp(this, caller.packageName, title, answer.removePrefix(ProviderBridge.UNCONFIRMED), { release(id, title, fields, caller, true) }, ::cancel)
-          else -> {
-            setResult(RESULT_OK, PswmAutofillService.filled(this, fields, JSONObject(answer)))
+        when (answer) {
+          is Answer.Ok -> {
+            setResult(RESULT_OK, PswmAutofillService.filled(this, fields, answer.json))
             finish()
           }
+          is Answer.Unconfirmed -> confirmApp(this, caller.packageName, title, answer.certificate, { release(id, title, fields, caller, true) }, ::cancel)
+          is Answer.Failed -> cancel()
         }
       }
     }

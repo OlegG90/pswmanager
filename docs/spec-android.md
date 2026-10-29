@@ -408,7 +408,8 @@ row, as the phone shows autofill).
   URLs (`KP2A_URL_n`; a `www.` aside), only when the
   browser showing it is on Google's list of privileged browsers, signed as listed: any app can put a
   web domain into its views; a plain `http` page (or one whose scheme the browser does not say), the
-  browser's own screens and a page without a domain are no one's: nothing is offered or saved there.
+  browser's own screens and a page without a domain are no one's: nothing is offered or saved there. The
+  core decides who asks from what the app reads of the screen and of the asking app (#315).
   A field in a frame from another site goes by that site. A page in another browser is taken for that
   browser, as an app. On a form that changes the password (current, new, again), the one saved is the
   new one: the field marked `new-password`, else the last. To read the

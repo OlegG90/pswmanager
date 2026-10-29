@@ -39,8 +39,8 @@ class PasskeyActivity : AppCompatActivity() {
     }
     verifyUser(this, "Sign in with your passkey", intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", {
       thread {
-        val answer = ProviderBridge.sign(id, option.requestJson, caller.origin, caller.clientDataHash(option.clientDataHash), caller.packageName, caller.certificate)
-        runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else signedIn(answer) }
+        val answer = Answer.of(ProviderBridge.sign(id, option.requestJson, caller.origin, caller.clientDataHash(option.clientDataHash), caller.packageName, caller.certificate))
+        runOnUiThread { if (answer is Answer.Ok) signedIn(answer.text.orEmpty()) else fail(answer.why) }
       }
     }, ::cancel, ::fail)
   }

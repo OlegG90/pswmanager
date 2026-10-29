@@ -7,7 +7,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
@@ -42,15 +41,15 @@ class SaveLogin(
   fun choose() {
     // Off the main thread: a sync or a save may hold the database a moment.
     thread {
-      val answer = ProviderBridge.loginChoices(ProviderBridge.state(activity), caller.origin, caller.packageName, caller.certificate)
+      val answer = Answer.of(ProviderBridge.loginChoices(ProviderBridge.state(activity), caller.origin, caller.packageName, caller.certificate))
       activity.runOnUiThread { if (!activity.isDestroyed) show(answer) }
     }
   }
 
   /** The choices [choose] read (or why there are none), as buttons. */
-  private fun show(answer: String) {
-    if (answer.startsWith(ProviderBridge.FAILED)) return failed(answer.removePrefix(ProviderBridge.FAILED))
-    val choices = JSONObject(answer)
+  private fun show(answer: Answer) {
+    if (answer !is Answer.Ok) return failed(answer.why)
+    val choices = answer.json
     cloud = choices.getBoolean("cloud")
     val entries = choices.getJSONArray("entries").let { all -> (0 until all.length()).map { all.getJSONObject(it) } }
       .sortedBy { it.optString("username") != username }
@@ -101,14 +100,13 @@ class SaveLogin(
   private fun store(id: String?, entry: String, confirmed: Boolean) {
     val title = caller.origin?.let { Uri.parse(it).host } ?: appName(caller.packageName)
     thread {
-      val answer = ProviderBridge.saveLogin(id, caller.origin, caller.packageName, caller.certificate, title, username, password, confirmed)
-      if (answer.isEmpty()) UploadWorker.schedule(activity.applicationContext, ProviderBridge.state(activity), cloud)
+      val answer = Answer.of(ProviderBridge.saveLogin(id, caller.origin, caller.packageName, caller.certificate, title, username, password, confirmed))
+      if (answer is Answer.Ok) UploadWorker.schedule(activity.applicationContext, ProviderBridge.state(activity), cloud)
       activity.runOnUiThread {
-        when {
-          answer.isEmpty() -> saved()
-          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
-            confirmApp(activity, caller.packageName, entry, answer.removePrefix(ProviderBridge.UNCONFIRMED), { store(id, entry, true) }, cancelled)
-          else -> failed(answer.removePrefix(ProviderBridge.FAILED))
+        when (answer) {
+          is Answer.Ok -> saved()
+          is Answer.Unconfirmed -> confirmApp(activity, caller.packageName, entry, answer.certificate, { store(id, entry, true) }, cancelled)
+          is Answer.Failed -> failed(answer.why)
         }
       }
     }

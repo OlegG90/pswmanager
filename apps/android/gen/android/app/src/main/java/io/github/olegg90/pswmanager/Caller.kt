@@ -2,6 +2,7 @@ package io.github.olegg90.pswmanager
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.pm.Signature
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -10,8 +11,6 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.credentials.provider.CallingAppInfo
 import androidx.fragment.app.FragmentActivity
-import org.json.JSONObject
-import java.security.MessageDigest
 
 /**
  * Who asks for a passkey: a browser on Google's list of privileged apps
@@ -31,51 +30,35 @@ class Caller(val origin: String?, val packageName: String, val certificate: Byte
     @RequiresApi(34)
     fun of(context: Context, app: CallingAppInfo): Caller {
       val origin = app.getOrigin(ProviderBridge.allowlist(context))
-      // The app's current signing certificate (the last after a rotation).
       val signing = app.signingInfoCompat
-      val certificate = (if (signing.hasMultipleSigners) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
+      val certificate = current(signing.hasMultipleSigners, signing.apkContentsSigners.toList(), signing.signingCertificateHistory.toList())
       return Caller(origin, app.packageName, certificate)
     }
 
     /**
-     * Who an autofill request is for (#236): the page's web domain when a
-     * browser on Google's list of privileged apps shows it over https (any app
-     * can put a domain in its views, so only those speak for a site), else the
-     * app by its package and signing certificate. Such a browser speaks for a
-     * page only: one over plain http (or with no scheme said), its own screens
-     * and a page without a domain are no one's, so nothing is filled or saved
-     * there, rather than as the browser app's. Null when there is no one.
+     * Who an autofill request is for (#236): the page's site when a privileged
+     * browser shows it over https, the app itself, or no one (null: nothing is
+     * filled or saved there). Rust decides ([ProviderBridge.autofillAsker]);
+     * this gathers what it decides on.
      */
     fun forAutofill(context: Context, fields: AutofillFields): Caller? {
       val certificate = signingCertificate(context, fields.packageName) ?: return null
-      if (!privilegedBrowser(context, fields.packageName, certificate)) return Caller(null, fields.packageName, certificate)
-      val domain = fields.webDomain?.takeIf { fields.webScheme.equals("https", ignoreCase = true) } ?: return null
-      return Caller("https://$domain", fields.packageName, certificate)
+      val asker = Answer.of(ProviderBridge.autofillAsker(ProviderBridge.allowlist(context), fields.packageName, certificate, fields.webDomain, fields.webScheme))
+      return (asker as? Answer.Ok)?.let { Caller(it.text, fields.packageName, certificate) }
     }
 
-    /** An installed app's current signing certificate (the last after a rotation). */
+    /** An installed app's current signing certificate. */
     private fun signingCertificate(context: Context, packageName: String): ByteArray? = try {
       val signing = context.packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo ?: return null
-      (if (signing.hasMultipleSigners()) signing.apkContentsSigners.firstOrNull() else signing.signingCertificateHistory.lastOrNull())?.toByteArray()
+      current(signing.hasMultipleSigners(), signing.apkContentsSigners.orEmpty().toList(), signing.signingCertificateHistory.orEmpty().toList())
     } catch (e: PackageManager.NameNotFoundException) {
       android.util.Log.w("PswmAutofill", "Cannot see the app asking ($packageName)")
       null
     }
 
-    /** Whether the app is a browser on Google's list, signed with one of the certificates listed for it. */
-    private fun privilegedBrowser(context: Context, packageName: String, certificate: ByteArray): Boolean {
-      val fingerprint = MessageDigest.getInstance("SHA-256").digest(certificate).joinToString(":") { "%02X".format(it) }
-      val apps = try {
-        JSONObject(ProviderBridge.allowlist(context)).getJSONArray("apps")
-      } catch (e: Exception) {
-        return false
-      }
-      return (0 until apps.length()).map { apps.getJSONObject(it).optJSONObject("info") }.any { info ->
-        val signatures = info?.optJSONArray("signatures")
-        info?.optString("package_name") == packageName && signatures != null &&
-          (0 until signatures.length()).any { signatures.getJSONObject(it).optString("cert_fingerprint_sha256").equals(fingerprint, ignoreCase = true) }
-      }
-    }
+    /** An app's current signing certificate: the first of several signers, else the last after a rotation. */
+    private fun current(multipleSigners: Boolean, signers: List<Signature>, history: List<Signature>): ByteArray? =
+      (if (multipleSigners) signers.firstOrNull() else history.lastOrNull())?.toByteArray()
   }
 }
 

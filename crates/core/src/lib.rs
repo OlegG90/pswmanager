@@ -25,6 +25,7 @@ pub mod oauth;
 pub mod onedrive;
 pub mod opened;
 pub mod otp;
+pub mod provider;
 pub mod qr;
 pub mod remote;
 pub mod secrets;
