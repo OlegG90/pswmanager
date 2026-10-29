@@ -16,6 +16,7 @@ import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-pa
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { svgIcon, type IconName } from './icons'
 import { api, type NewKeyFile, type Settings, type Cloud, type CloudFile, type Entry, type EntryData, type EntryDetail, type Imported, type ImportStep, type Exported, type GauthProgress, type ExportFormat, type Version, type Listing, type Picked, type SignedIn, type Similar, type Status, type Synced } from './api'
+import { Screens } from './screens'
 
 const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!
@@ -36,37 +37,19 @@ let otherKey = false
 let lastSynced = 0
 /** The database is unlocked: syncs run on their own. */
 let unlocked = false
-/** Stops what the screen shown runs on a timer (the TOTP countdown). */
-let leave = () => {}
-/** The screen shown's answer to a sync (the list's status line). */
-let onSynced = (_synced: Synced) => {}
-/** The screen shown's answer to coming back from another app (the unlock screen's prompt). */
-let onReturn = () => {}
 /** When the app last came back from another app (ms). */
 let returnedAt = 0
 
-/** What Back closes or returns to, innermost last (see SystemPlugin.kt). */
-let backs: (() => void)[] = []
+/** The screen shown, what it runs and what Back does there. */
+const screens = new Screens()
 
 /** Called by Android's Back: true when the page did something with it. */
-;(window as unknown as { pswmBack: () => boolean }).pswmBack = () => {
-  const back = backs.pop()
-  back?.()
-  return !!back
-}
+;(window as unknown as { pswmBack: () => boolean }).pswmBack = () => screens.back()
 
 /** Shows a screen; `back` is where Back returns from it (none: Back leaves the app). */
-/** Counts the screens shown, to tell whether another came meanwhile. */
-let screenShown = 0
-
 function show(children: Node[], back?: () => void, className = '') {
-  screenShown++
-  leave()
-  leave = () => {}
-  onSynced = () => {}
-  onReturn = () => {}
+  screens.show(back)
   document.querySelectorAll('.shade, .sheet').forEach((n) => n.remove())
-  backs = back ? [back] : []
   screen.className = className
   screen.replaceChildren(...children)
   window.scrollTo(0, 0)
@@ -75,12 +58,7 @@ function show(children: Node[], back?: () => void, className = '') {
 /** Puts an overlay (a panel, the drawer) on top: Back closes it. Returns its
  *  close; `closed` runs once it is closed, however. */
 function overlay(node: HTMLElement, closed: () => void = () => {}): () => void {
-  const close = () => {
-    node.remove()
-    backs = backs.filter((b) => b !== close)
-    closed()
-  }
-  backs.push(close)
+  const close = screens.overlay(() => node.remove(), closed)
   node.addEventListener('click', (e) => e.target === node && close())
   document.body.append(node)
   return close
@@ -402,7 +380,7 @@ function unlockScreen() {
   void api.biometricReady().then((ready) => {
     fingerprint.hidden = !ready
     prompt(ready)
-    onReturn = () => prompt(!fingerprint.hidden)
+    screens.onReturn(() => prompt(!fingerprint.hidden))
   }, () => {})
 }
 
@@ -466,8 +444,8 @@ function listScreen(opened: Listing) {
     findButton.hidden = on || searching.isConnected
     add.hidden = on
     // Back clears it, after whatever was open over it (a sheet) is closed.
-    if (!on) backs = backs.filter((b) => b !== clearSelection)
-    else if (!backs.includes(clearSelection)) backs.push(clearSelection)
+    if (!on) screens.drop(clearSelection)
+    else screens.push(clearSelection)
     for (const item of list.querySelectorAll<HTMLElement>('li[data-id]')) {
       const picked = chosen.has(item.dataset.id!)
       item.classList.toggle('selected', picked)
@@ -526,7 +504,7 @@ function listScreen(opened: Listing) {
   const closeSearch = () => {
     searching.replaceWith(toolbar)
     findButton.hidden = false
-    backs = backs.filter((b) => b !== closeSearch)
+    screens.drop(closeSearch)
     query = ''
     searchField.value = ''
     fill()
@@ -535,14 +513,14 @@ function listScreen(opened: Listing) {
   const findButton = iconButton('search', 'Search', () => {
     toolbar.replaceWith(searching)
     findButton.hidden = true
-    backs.push(closeSearch)
+    screens.push(closeSearch)
     searchField.focus()
   }, 'fab')
   const add = iconButton('plus', 'New entry', () => newEntry(listing), 'fab')
   show([selecting, query ? searching : toolbar, scroll, el('div', { className: 'fabs' }, findButton, add), status], undefined, 'list-screen')
   if (query) {
     findButton.hidden = true
-    backs.push(closeSearch)
+    screens.push(closeSearch)
   }
   fill()
   // Back from an entry opened here: the list where it was, with that entry in
@@ -553,13 +531,13 @@ function listScreen(opened: Listing) {
     scroll.scrollTop = place.top
     list.querySelector(`li[data-id="${CSS.escape(place.id)}"]`)?.scrollIntoView({ block: 'nearest' })
   }
-  onSynced = (synced) => {
+  screens.onSynced((synced) => {
     status.textContent = synced.text
     status.classList.toggle('problem', synced.problem)
     newKey.hidden = !synced.otherKey
     if (synced.changed) void api.listing().then((fresh) => ((listing = fresh), fill()))
     askForKey()
-  }
+  })
   askForKey()
 }
 
@@ -674,7 +652,7 @@ function applySync(synced: Synced) {
   otherKey = synced.otherKey
   if (!otherKey) keyAsked = false
   lastSynced = Date.now()
-  onSynced(synced)
+  screens.synced(synced)
 }
 
 const entriesCount = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
@@ -873,11 +851,11 @@ function leaving(node: HTMLElement, away: () => void): Sliding {
       place(`translateX(${moved}px)`)
     },
     release: (go) => {
-      const before = screenShown
+      const before = screens.current
       // The next screen first, then the node back in place: no flash of the
       // old one. Not when Back already left this screen meanwhile.
       const done = () => {
-        if (go && screenShown === before) away()
+        if (go && screens.current === before) away()
         node.style.transition = ''
         place('')
       }
@@ -1002,16 +980,16 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
   let shown = 0
   /** This screen again, from `fresh`, unless another one came meanwhile. */
   const reshow = (fresh: Listing) => {
-    if (screenShown === shown) void similarScreen(fresh, left)
+    if (screens.current === shown) void similarScreen(fresh, left)
   }
   /** Shows `nodes` as this screen (the sites, or a merge's card); Back goes to `back`. */
   const display = (nodes: Node[], back: () => void) => {
     show(nodes, back, 'similar')
-    shown = screenShown
+    shown = screens.current
     // Entries another device changed: the sites again, from the list as it is now.
-    onSynced = (synced) => {
+    screens.onSynced((synced) => {
       if (synced.changed) void api.listing().then(reshow)
-    }
+    })
   }
   const failed = (e: unknown) => snack(String(e))
   const quote = (title: string) => `“${title}”`
@@ -1693,7 +1671,7 @@ async function settingsScreen(back: () => void, drawn?: SettingsParts) {
   show(parts.nodes, parts.goBack)
   // A swipe to the right takes the settings away, back where they came from.
   swipes(parts.body, swipesOn, { right: () => leaving(screen, parts.goBack) })
-  onSynced = (synced) => synced.changed && parts.synced()
+  screens.onSynced((synced) => synced.changed && parts.synced())
   parts.body.parentElement?.querySelector('.tabs .chosen')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
   // As they are now (another device or the tray may have changed one).
   // Redrawn only when one did, so a choice being made is not disturbed.
@@ -1864,9 +1842,9 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
 
 /** A sync that changed entries shows entry `id` again, or the list when it is gone. */
 function showAgainOnSync(id: string) {
-  onSynced = (synced) => {
+  screens.onSynced((synced) => {
     if (synced.changed) void api.listing().then((fresh) => (fresh.entries.some((e) => e.id === id) ? entryScreen(id, fresh) : listScreen(fresh)))
-  }
+  })
 }
 
 async function entryScreen(id: string, listing: Listing) {
@@ -1883,7 +1861,7 @@ async function entryScreen(id: string, listing: Listing) {
   }
   const commands = inBin ? [] : entryCommands(entry, listing)
   show([el('header', { className: 'bar' }, back, icon(entry, listing), el('h1', {}, titleOf(entry)), ...commands), ...rows], toList)
-  leave = stop
+  screens.onLeave(stop)
   showAgainOnSync(id)
 }
 
@@ -2098,7 +2076,7 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   }
   // Android's Back cancels too, and stays on the editor when the changes are kept.
   const onBack = () => {
-    backs.push(onBack)
+    screens.push(onBack)
     close()
   }
   const label = (text: string, ...controls: Node[]) => el('label', { className: 'edit-row' }, el('small', {}, text), ...controls)
@@ -2128,12 +2106,12 @@ async function editorScreen(id: string | null, listing: Listing, back: () => voi
   if (!id) title.focus()
   // Saving still works: only what was edited here is applied, and where both
   // changed a field the other version goes to the entry's history.
-  onSynced = (synced) => {
+  screens.onSynced((synced) => {
     if (!id || !synced.changed) return
     void api.editEntry(id).then((now) => {
       if (JSON.stringify(now) !== JSON.stringify(data)) showError('This entry was just changed on another device. Saving keeps your version; the other one goes to the entry’s history.')
     }, () => showError('This entry was just deleted on another device. Saving brings it back.'))
-  }
+  })
 }
 
 /** The TOTP code with its countdown, and what stops the countdown. A new
@@ -2197,8 +2175,8 @@ document.addEventListener('visibilitychange', () => {
   } else {
     returnedAt = Date.now()
     // Unlocked meanwhile for a passkey (the credential provider shares the session).
-    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : onReturn()), onReturn)
-    else onReturn()
+    if (!unlocked && database) void api.status().then(async (s) => (s.unlocked ? unlockedWith(await api.listing()) : screens.returned()), () => screens.returned())
+    else screens.returned()
     void api.stayUnlocked()
     lastTouch = Date.now()
     // The backend's timer may not have run on time (Android asleep): the clock decides.
