@@ -136,7 +136,7 @@ pub fn run_proxy() {
     let mut output = std::io::stdout().lock();
     let mut buffer = vec![0u8; 64 << 10];
     loop {
-        let (Some(from_browser), Some(from_app)) = (waiting(stdin), waiting(pipe.as_raw_handle())) else { return };
+        let (Some(from_browser), Some(from_app)) = (waiting_on(stdin), waiting_on(pipe.as_raw_handle())) else { return };
         if from_browser > 0 {
             let Ok(n) = input.read(&mut buffer) else { return };
             if n == 0 || pipe.write_all(&buffer[..n]).is_err() {
@@ -156,7 +156,7 @@ pub fn run_proxy() {
 }
 
 /// How many bytes wait to be read on a pipe; `None` when its other end is gone.
-fn waiting(pipe: HANDLE) -> Option<u32> {
+fn waiting_on(pipe: HANDLE) -> Option<u32> {
     let mut bytes = 0u32;
     // SAFETY: only asks how many bytes wait on the pipe.
     let alive = unsafe { PeekNamedPipe(pipe, std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut bytes, std::ptr::null_mut()) } != 0;
@@ -295,7 +295,7 @@ trait Connection: Read + Write {
 
 impl Connection for File {
     fn waiting(&self) -> Option<u32> {
-        waiting(self.as_raw_handle() as HANDLE)
+        waiting_on(self.as_raw_handle() as HANDLE)
     }
 }
 
@@ -437,7 +437,6 @@ mod tests {
 
     #[test]
     fn a_message_is_taken_once_it_is_whole() {
-        let framed = |body: &str| [&(body.len() as u32).to_le_bytes()[..], body.as_bytes()].concat();
         let mut incoming = [framed(r#"{"action":"a"}"#), framed(r#"{"action":"b"}"#)].concat();
         let second = incoming.split_off(incoming.len() - 3);
         assert_eq!(next_message(&mut incoming).unwrap().unwrap()["action"], "a");
@@ -523,9 +522,10 @@ mod tests {
         [&(body.len() as u32).to_le_bytes()[..], body.as_bytes()].concat()
     }
 
-    /// A conversation on its own thread, answering each request with its
-    /// action; `slow` takes a while, as one waiting for the user does.
-    fn conversation(within: Duration) -> (Memory, Sender<serde_json::Value>, std::thread::JoinHandle<()>) {
+    /// A conversation on its own thread, while `allowed` says so, answering
+    /// each request with its action; the action `slow` takes a while to
+    /// answer, as one waiting for the user does.
+    fn conversation_while(allowed: impl Fn() -> bool + Send + 'static, within: Duration) -> (Memory, Sender<serde_json::Value>, std::thread::JoinHandle<()>) {
         let (memory, (tell, told)) = (Memory::default(), mpsc::channel());
         let connection = memory.clone();
         let answer = |_: &mut crate::browser::Session, request: &serde_json::Value| {
@@ -534,8 +534,12 @@ mod tests {
             }
             serde_json::json!({ "answered": request["action"] })
         };
-        let ended = std::thread::spawn(move || converse(connection, told, || true, answer, within));
+        let ended = std::thread::spawn(move || converse(connection, told, allowed, answer, within));
         (memory, tell, ended)
+    }
+
+    fn conversation(within: Duration) -> (Memory, Sender<serde_json::Value>, std::thread::JoinHandle<()>) {
+        conversation_while(|| true, within)
     }
 
     /// Waits up to two seconds for `done`.
@@ -569,6 +573,8 @@ mod tests {
     fn what_the_app_tells_goes_out_while_an_answer_waits() {
         let (memory, tell, _ended) = conversation(MESSAGE_WITHIN);
         memory.send(&framed(r#"{"action":"slow"}"#));
+        // Told once the request was taken, so while its answer waits.
+        assert!(soon(|| memory.incoming.lock().unwrap().is_empty()));
         std::thread::sleep(Duration::from_millis(100));
         tell.send(serde_json::json!({ "action": "database-locked" })).unwrap();
         assert!(soon(|| memory.replies().len() == 2));
@@ -603,6 +609,13 @@ mod tests {
         let (_memory, tell, ended) = conversation(MESSAGE_WITHIN);
         drop(tell);
         assert!(soon(|| ended.is_finished()), "the app let go of the connection");
+        let allowed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let still = allowed.clone();
+        let (_memory, _tell, ended) = conversation_while(move || still.load(Ordering::Relaxed), MESSAGE_WITHIN);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!ended.is_finished());
+        allowed.store(false, Ordering::Relaxed);
+        assert!(soon(|| ended.is_finished()), "the extension was turned off");
     }
 
     #[test]
