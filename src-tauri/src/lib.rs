@@ -15,6 +15,7 @@ mod data_dir;
 mod file_watch;
 mod hello;
 mod native_messaging;
+mod questions;
 mod session_watch;
 mod sync;
 mod tray;
@@ -1925,7 +1926,7 @@ pub fn run() {
         .manage(gauth::Session::default())
         .manage(AutoTypeTarget::default())
         .manage(AutoTypeNotice::default())
-        .manage(browser_host::Questions::default())
+        .manage(questions::Questions::default())
         .manage(sync::Syncer::default())
         .invoke_handler(tauri::generate_handler![
             status,

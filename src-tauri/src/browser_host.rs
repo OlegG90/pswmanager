@@ -5,66 +5,57 @@
 
 use crate::browser::{self, Failure, Host, Session};
 use crate::native_messaging::{self, Clients};
+use crate::questions::{Questions, SystemClock, Transport};
 use pswm_core::browser::{Group, Login};
 use pswm_core::{generator, webauthn};
 use pswm_core::session::Session as Vault;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Manager, State};
-
-/// How long a question in the window waits for the user; the extension
-/// gives up on its own after a while.
-const ANSWER_WITHIN: Duration = Duration::from_secs(120);
 
 /// The extensions connected, to tell them when the database locks or unlocks.
 static CLIENTS: OnceLock<Clients> = OnceLock::new();
 /// The pipe is served once, from the first time the integration is on.
 static SERVING: AtomicBool = AtomicBool::new(false);
 
-/// Questions waiting for the user's answer in the window, by number.
-#[derive(Default)]
-pub struct Questions {
-    next: AtomicU64,
-    waiting: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+/// The app's side of a question: shows it in the window, and is told when
+/// it expired unanswered.
+struct AppTransport {
+    app: AppHandle,
+}
+
+impl Transport for AppTransport {
+    fn send(&self, event: &str, details: Value) {
+        crate::window::show(&self.app);
+        let _ = self.app.emit(event, details);
+    }
+
+    fn expired(&self, id: u64) {
+        let _ = self.app.emit("browser-expired", id);
+    }
 }
 
 /// Shows the window, asks it `event` with `details`, and waits for the
 /// answer; `Value::Null` when there is none in time.
-fn ask(app: &AppHandle, event: &str, mut details: Value) -> Value {
-    let questions = app.state::<Questions>();
-    let id = questions.next.fetch_add(1, Ordering::Relaxed);
-    let (answer, answered) = mpsc::channel();
-    questions.waiting.lock().unwrap().insert(id, answer);
-    details["id"] = json!(id);
-    crate::window::show(app);
-    let _ = app.emit(event, details);
-    let reply = answered.recv_timeout(ANSWER_WITHIN).unwrap_or(Value::Null);
-    // Unanswered in time: the dialog goes, so the user does not answer in vain.
-    if questions.waiting.lock().unwrap().remove(&id).is_some() {
-        let _ = app.emit("browser-expired", id);
-    }
-    reply
+fn ask(app: &AppHandle, event: &str, details: Value) -> Value {
+    let transport = AppTransport { app: app.clone() };
+    app.state::<Questions>().ask(&transport, &SystemClock, event, details)
 }
 
 /// Drops the questions still waiting (the database locked): each is answered
 /// as cancelled, so an answer given after cannot reach the database opened
 /// next.
 pub fn forget_questions(app: &AppHandle) {
-    app.state::<Questions>().waiting.lock().unwrap().clear();
+    app.state::<Questions>().forget();
 }
 
 /// The window's answer to question `id`.
 #[tauri::command]
 pub fn browser_answer(questions: State<Questions>, id: u64, answer: Value) {
-    if let Some(waiting) = questions.waiting.lock().unwrap().remove(&id) {
-        let _ = waiting.send(answer);
-    }
+    questions.answer(id, answer);
 }
 
 /// The extensions associated with the open database, for its settings.

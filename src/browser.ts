@@ -2,7 +2,9 @@ import { api, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskey
 import { titleOf } from './entry-text'
 import { ask, askText, choose } from './modal'
 
-/** The questions the app waits on, each aborted when it stops waiting. */
+/** The questions the app waits on, each aborted when it stops waiting. The
+ * wait itself (120 s) and the expiry decision live in Rust (questions.rs);
+ * this map only closes the dialogs. */
 const waiting = new Map<number, AbortController>()
 
 /** The signal that closes question `id`'s dialogs once it expires. */
