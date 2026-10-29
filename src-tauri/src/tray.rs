@@ -34,7 +34,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => window::show(app),
-            "lock" => crate::lock_now(app),
+            "lock" => crate::databases::lock_now(app),
             "sync" => crate::sync::request(app),
             "autostart" => {
                 let _ = set_autostart(app, !autostart_enabled(app));

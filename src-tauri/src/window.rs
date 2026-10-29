@@ -63,7 +63,7 @@ pub fn show(app: &AppHandle) {
     let _ = window.set_focus();
     let _ = app.emit("window-shown", ());
     // Another device may have changed the file while the window was away.
-    crate::check_disk(app);
+    crate::databases::check_disk(app);
 }
 
 /// Runs `prompt` with window `label` no longer on top: a prompt of its own
@@ -121,7 +121,7 @@ pub fn is_shown(app: &AppHandle) -> bool {
 /// What hiding the window does after it is hidden: locking, or syncing.
 pub fn settle(app: &AppHandle) {
     if Settings::of(&app.state()).lock_when_hidden() {
-        crate::lock_now(app); // syncs too
+        crate::databases::lock_now(app); // syncs too
     } else {
         crate::sync::request(app);
     }
@@ -145,7 +145,7 @@ pub fn quit(app: &AppHandle) {
         remember_geometry(&window);
         let _ = window.hide(); // quitting may wait for an upload
     }
-    crate::lock_now(app);
+    crate::databases::lock_now(app);
     crate::sync::quit_after_upload(app);
 }
 
