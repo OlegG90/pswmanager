@@ -96,13 +96,12 @@ fun keepOutOfAutofill(activity: AppCompatActivity) {
 fun linkEntry(activity: AppCompatActivity, id: String, label: String, caller: Caller, linked: () -> Unit, cancelled: () -> Unit, failed: (String) -> Unit) {
   fun link(confirmed: Boolean) {
     thread {
-      val answer = ProviderBridge.linkLogin(id, caller.origin, caller.packageName, caller.certificate, confirmed)
+      val answer = Answer.of(ProviderBridge.linkLogin(id, caller.origin, caller.packageName, caller.certificate, confirmed))
       activity.runOnUiThread {
-        when {
-          answer.isEmpty() -> linked()
-          answer.startsWith(ProviderBridge.UNCONFIRMED) ->
-            confirmApp(activity, caller.packageName, label, answer.removePrefix(ProviderBridge.UNCONFIRMED), { link(true) }, cancelled, linking = true)
-          else -> failed(answer.removePrefix(ProviderBridge.FAILED))
+        when (answer) {
+          is Answer.Ok -> linked()
+          is Answer.Unconfirmed -> confirmApp(activity, caller.packageName, label, answer.certificate, { link(true) }, cancelled, linking = true)
+          is Answer.Failed -> failed(answer.why)
         }
       }
     }

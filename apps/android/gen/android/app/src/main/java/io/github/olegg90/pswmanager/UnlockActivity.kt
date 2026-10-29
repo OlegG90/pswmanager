@@ -98,12 +98,12 @@ abstract class UnlockScreen : AppCompatActivity() {
     unlockButton.isEnabled = false
     show("Unlocking…")
     thread {
-      val failure = ProviderBridge.unlock(applicationContext, ProviderBridge.state(this), typed, sealed)
-      if (failure?.startsWith(ProviderBridge.STALE) == true) BiometricKey.forget(applicationContext)
+      val answer = Answer.of(ProviderBridge.unlock(applicationContext, ProviderBridge.state(this), typed, sealed))
+      if (answer is Answer.Failed && answer.stale) BiometricKey.forget(applicationContext)
       runOnUiThread {
         busy = false
         unlockButton.isEnabled = true
-        if (failure == null) done() else show(failure.removePrefix(ProviderBridge.STALE))
+        if (answer is Answer.Ok) done() else show(answer.why)
       }
     }
   }

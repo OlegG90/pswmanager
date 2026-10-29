@@ -42,8 +42,8 @@ object ProviderBridge {
   external fun fingerprintAllowed(state: String): Boolean
 
   /**
-   * Unlocks with the master password, or the sealed key (`sealed`); null, or
-   * why not ([STALE] first when the sealed key no longer opens the database).
+   * Unlocks with the master password, or the sealed key (`sealed`): an [Answer], failed with
+   * `stale` when the sealed key no longer opens the database.
    */
   external fun unlock(context: Context, state: String, password: String?, sealed: String?): String?
 
@@ -51,20 +51,27 @@ object ProviderBridge {
   external fun passkeys(request: String): String?
 
   /**
-   * Signs in with the passkey of entry `id`: the answer's JSON, or [FAILED]
-   * and why. A privileged browser gives `origin` and `clientDataHash`; an app
-   * its package and signing certificate.
+   * Signs in with the passkey of entry `id`: an [Answer], ok with the answer's JSON as text. A
+   * privileged browser gives `origin` and `clientDataHash`; an app its package and signing certificate.
    */
-  external fun sign(id: String, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
+  external fun sign(id: String, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String?
 
   /**
-   * Where a new passkey for a creation request can go, as JSON (`{site,
-   * excluded, entries: [{id, title, username}], cloud}`), or [FAILED] and why.
+   * Where a new passkey for a creation request can go: an [Answer], ok with `{site, excluded,
+   * entries: [{id, title, username}], cloud}`.
    */
-  external fun newPasskeyChoices(state: String, request: String): String
+  external fun newPasskeyChoices(state: String, request: String): String?
 
-  /** Makes a passkey into entry `id` (a new one when null) and saves: the answer's JSON, or [FAILED] and why. */
-  external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String
+  /** Makes a passkey into entry `id` (a new one when null) and saves: an [Answer], ok with the answer's JSON as text. */
+  external fun makePasskey(id: String?, request: String, origin: String?, clientDataHash: ByteArray?, packageName: String, certificate: ByteArray?): String?
+
+  /**
+   * Who an autofill request from `packageName` (signed with `certificate`) is for, by Google's list
+   * of privileged browsers (`allowlist`) and the page's web domain and scheme (#315): an [Answer],
+   * ok with the origin of the site a browser speaks for, or null for the app itself; failed when
+   * it is no one's.
+   */
+  external fun autofillAsker(allowlist: String, packageName: String, certificate: ByteArray, webDomain: String?, webScheme: String?): String?
 
   /**
    * The logins for the app (by its package and signing certificate; or the site a browser speaks
@@ -73,20 +80,20 @@ object ProviderBridge {
   external fun logins(origin: String?, packageName: String, certificate: ByteArray?): String?
 
   /**
-   * Entry `id`'s login as JSON (`{username, password}`), when it is for who asks; [UNCONFIRMED] and
-   * the app's certificate while the user has not confirmed the app for the entry (`confirmed`: the
-   * entry keeps it); null while locked, when gone or not for who asks.
+   * Entry `id`'s login, when it is for who asks: an [Answer], ok with `{username, password}`;
+   * unconfirmed with the app's certificate while the user has not confirmed the app for the entry
+   * (`confirmed`: the entry keeps it); failed while locked, when gone or not for who asks.
    */
   external fun login(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String?
 
-  /** The entries a login offered can update, as JSON (`{entries, cloud}`), or [FAILED] and why. */
-  external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String
+  /** The entries a login offered can update: an [Answer], ok with `{entries, cloud}`. */
+  external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String?
 
   /**
-   * Saves a login into entry `id` (a new one titled `title` when null): empty, [UNCONFIRMED] and the
-   * app's certificate as for [login], or [FAILED] and why.
+   * Saves a login into entry `id` (a new one titled `title` when null): an [Answer], unconfirmed
+   * as for [login].
    */
-  external fun saveLogin(id: String?, origin: String?, packageName: String, certificate: ByteArray?, title: String, username: String, password: String, confirmed: Boolean): String
+  external fun saveLogin(id: String?, origin: String?, packageName: String, certificate: ByteArray?, title: String, username: String, password: String, confirmed: Boolean): String?
 
   /**
    * The entries in use holding `query` in their title, user name or URLs, to pick one for a login
@@ -95,25 +102,21 @@ object ProviderBridge {
   external fun searchLogins(query: String): String?
 
   /**
-   * Links entry `id`, which the user picked, to who asks (#270): empty when linked, [UNCONFIRMED]
-   * and the app's certificate till the user confirmed the app (`confirmed`), or [FAILED] and why.
+   * Links entry `id`, which the user picked, to who asks (#270): an [Answer], unconfirmed till the
+   * user confirmed the app (`confirmed`).
    */
-  external fun linkLogin(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String
+  external fun linkLogin(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String?
 
   /**
-   * The database's entries in use as CXF JSON for another password manager
-   * ([ExportActivity]), the user checked with the master password or the
-   * sealed key; [FAILED] and why (then [STALE] for a stale sealed key).
+   * The database's entries in use as CXF JSON for another password manager ([ExportActivity]), the
+   * user checked with the master password or the sealed key: an [Answer], ok with the JSON as text,
+   * failed with `stale` for a stale sealed key.
    */
   external fun export(context: Context, state: String, password: String?, sealed: String?): String?
-
-  const val STALE = "stale:"
-  const val UNCONFIRMED = "unconfirmed:"
 
   /** The entry (and its title) a picked passkey or login is for, in the activity's intent. */
   const val EXTRA_ENTRY = "entry"
   const val EXTRA_TITLE = "title"
-  const val FAILED = "failed:"
 
   /** The app's state file, as Tauri keeps it (its data folder, `app_data_dir`; `STATE_FILE` in app.rs). */
   fun state(context: Context): String = File(context.dataDir, "pswm.json").absolutePath

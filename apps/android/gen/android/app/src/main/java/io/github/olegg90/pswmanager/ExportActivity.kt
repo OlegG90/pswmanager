@@ -112,19 +112,13 @@ class ExportActivity : AppCompatActivity() {
     exportButton.isEnabled = false
     show("Exporting…")
     thread {
-      val answer = ProviderBridge.export(applicationContext, ProviderBridge.state(this), typed, sealed)
+      val answer = Answer.of(ProviderBridge.export(applicationContext, ProviderBridge.state(this), typed, sealed))
       runOnUiThread {
         busy = false
         exportButton.isEnabled = true
-        when {
-          answer == null -> show("PswManager could not export: try again")
-          answer.startsWith(ProviderBridge.FAILED) -> {
-            val why = answer.removePrefix(ProviderBridge.FAILED)
-            if (why.startsWith(ProviderBridge.STALE)) BiometricKey.forget(applicationContext)
-            show(why.removePrefix(ProviderBridge.STALE))
-          }
-          else -> respond(answer)
-        }
+        if (answer is Answer.Ok) return@runOnUiThread respond(answer.text.orEmpty())
+        if (answer is Answer.Failed && answer.stale) BiometricKey.forget(applicationContext)
+        show(answer.why)
       }
     }
   }

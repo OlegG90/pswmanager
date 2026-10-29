@@ -18,7 +18,6 @@ import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.domerrors.InvalidStateError
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
 import androidx.credentials.provider.PendingIntentHandler
-import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
@@ -59,9 +58,9 @@ class CreatePasskeyActivity : AppCompatActivity() {
 
   /** Where the passkey goes: a new entry, or one of the site's own. */
   private fun choose() {
-    val answer = ProviderBridge.newPasskeyChoices(ProviderBridge.state(this), request.requestJson)
-    if (answer.startsWith(ProviderBridge.FAILED)) return fail(answer.removePrefix(ProviderBridge.FAILED))
-    val choices = JSONObject(answer)
+    val answer = Answer.of(ProviderBridge.newPasskeyChoices(ProviderBridge.state(this), request.requestJson))
+    if (answer !is Answer.Ok) return fail(answer.why)
+    val choices = answer.json
     if (choices.getBoolean("excluded")) {
       return finishWith(CreatePublicKeyCredentialDomException(InvalidStateError(), "PswManager has a passkey for this site already"))
     }
@@ -92,10 +91,10 @@ class CreatePasskeyActivity : AppCompatActivity() {
     busy = true
     verifyUser(this, "Save a passkey", entry, {
       thread {
-        val answer = ProviderBridge.makePasskey(id, request.requestJson, caller.origin, caller.clientDataHash(request.clientDataHash), caller.packageName, caller.certificate)
+        val answer = Answer.of(ProviderBridge.makePasskey(id, request.requestJson, caller.origin, caller.clientDataHash(request.clientDataHash), caller.packageName, caller.certificate))
         // Saved: it goes up even if the app is not running (WorkManager keeps one such upload).
-        if (!answer.startsWith(ProviderBridge.FAILED)) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
-        runOnUiThread { if (answer.startsWith(ProviderBridge.FAILED)) fail(answer.removePrefix(ProviderBridge.FAILED)) else made(answer) }
+        if (answer is Answer.Ok) UploadWorker.schedule(applicationContext, ProviderBridge.state(this), cloud)
+        runOnUiThread { if (answer is Answer.Ok) made(answer.text.orEmpty()) else fail(answer.why) }
       }
     }, { busy = false; cancel() }, ::fail)
   }

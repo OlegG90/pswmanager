@@ -22,6 +22,7 @@ pub mod google;
 pub mod health;
 pub mod icons;
 pub mod oauth;
+pub mod provider;
 pub mod onedrive;
 pub mod opened;
 pub mod otp;
