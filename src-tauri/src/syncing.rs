@@ -1,35 +1,16 @@
 //! Where a database syncs: a folder or a cloud store, linked or let go, and a
 //! sync now. The syncs themselves run in `sync`.
-use crate::databases::{can_switch, choose, save_as, Status};
+use crate::databases::{can_switch, choose, cloud_in_use, cloud_of, forget_if_unused, save_as, Status};
 use crate::{hello, pick, sync};
 use pswm_core::{dbfile, oauth, remote};
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::vault::Vault;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Window};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
-
-/// True when some database in the list is synced with `cloud`.
-fn cloud_in_use(store: &Store, cloud: remote::Cloud) -> bool {
-    store.read(|s| s.databases.iter().any(|d| d.remote.as_ref().and_then(|r| r.location.cloud()) == Some(cloud)))
-}
-
-/// After a database left the list or stopped syncing: the cloud it used is
-/// signed out if no other database uses it, and the sync status starts afresh.
-pub(crate) fn forget_if_unused(app: &AppHandle, cloud: Option<remote::Cloud>) {
-    if let Some(cloud) = cloud.filter(|c| !cloud_in_use(&app.state(), *c)) {
-        cloud.provider().sign_out();
-    }
-    sync::reset(app);
-}
-
-/// The cloud a database in the list is synced with, if any.
-pub(crate) fn cloud_of(store: &Store, file: &Path) -> Option<remote::Cloud> {
-    store.read(|s| s.databases.iter().find(|d| d.file == file).and_then(|d| d.remote.as_ref()).and_then(|r| r.location.cloud()))
-}
 
 /// Opens a database from a folder (a LAN share, a NAS): the file there is
 /// copied to a place this PC keeps, which then syncs with it.

@@ -1,8 +1,9 @@
 //! Entries brought in and taken out: imports from a file or from Google
 //! Authenticator, and exports to a file.
-use crate::databases::{fetch_icons, hello_ready, CANCELLED};
-use crate::entries::read_qr;
+use crate::databases::{hello_ready, CANCELLED};
+use crate::entries::fetch_icons;
 use crate::{hello, pick, sync};
+use crate::read_qr;
 use pswm_core::{cxf, file_export, file_import, gauth, qr, vault};
 use pswm_core::session::Session;
 use pswm_core::store::Store;

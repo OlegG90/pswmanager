@@ -2,14 +2,16 @@
 //! history, attachments, tags and trash, and the tools over them (merging,
 //! similar entries, password health, the generator).
 use crate::{clipboard, pick, sync};
-use crate::databases::fetch_icons;
+use crate::read_picked;
+use crate::read_qr;
 use pswm_core::{edit, generator, health, icons, opened, otp, qr, similar, staged, vault};
 use pswm_core::edit::EntryData;
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
 use pswm_core::vault::{EntryDetail, Listing, Saved, Vault, Version, VersionDetail};
-use tauri::{AppHandle, State, Window};
+use pswm_core::vault::Kind;
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
@@ -150,31 +152,6 @@ pub fn pick_file_to_attach(window: Window, session: State<Session>) -> Result<Op
 #[tauri::command(async)]
 pub fn scan_totp_qr(window: Window) -> Result<Option<String>, String> {
     Ok(read_qr(&window, qr::from_rgba, qr::from_image, |_| true)?.map(|uri| uri.to_string()))
-}
-
-/// A QR code's text for `from_clipboard` / `from_file` to take: from the
-/// picture on the clipboard (when `new` says it is new), or else a picture
-/// the user picks. Nothing when they cancel.
-pub(crate) fn read_qr(
-    window: &Window,
-    from_clipboard: qr::FromPixels,
-    from_file: qr::FromFile,
-    new: impl Fn(&str) -> bool,
-) -> Result<Option<Zeroizing<String>>, String> {
-    if let Some(text) = clipboard::qr(from_clipboard).filter(|text| new(text)) {
-        return Ok(Some(text));
-    }
-    let Some(path) = pick(window, "Pictures", &["png", "jpg", "jpeg"])? else { return Ok(None) };
-    let content = read_picked(&path, qr::check_size)?;
-    from_file(&content).map(Some)
-}
-
-/// A file the user picked, read whole; `check_size` refuses one too big
-/// before it is read.
-fn read_picked(path: &std::path::Path, check_size: fn(u64) -> Result<(), String>) -> Result<Zeroizing<Vec<u8>>, String> {
-    let unreadable = |e: std::io::Error| format!("Cannot read the file: {e}");
-    check_size(std::fs::metadata(path).map_err(unreadable)?.len())?;
-    std::fs::read(path).map(Zeroizing::new).map_err(unreadable)
 }
 
 /// The editor let go of files it had picked (cancelled, or removed them).
@@ -339,4 +316,23 @@ pub fn similar_entries(session: State<Session>, criteria: Option<similar::Criter
 #[tauri::command(async)]
 pub fn icon(cache: State<icons::Cache>, host: String) -> Option<String> {
     cache.get(&host).and_then(|bytes| icons::data_url(&bytes))
+}
+
+/// Fetches the listed sites' missing icons in the background, if the user
+/// allows it, and tells the window about each one that arrives.
+pub(crate) fn fetch_icons(app: &AppHandle, listing: &Listing) {
+    let store = app.state::<Store>();
+    if !Settings::of(&store).download_icons() {
+        return;
+    }
+    // Only the entries in use: not the recycle bin's or the templates' sites.
+    let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
+    hosts.sort();
+    hosts.dedup();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        app.state::<icons::Cache>().fetch_missing(hosts, |host| {
+            let _ = app.emit("icon-ready", host);
+        });
+    });
 }

@@ -3,13 +3,13 @@
 //! the file on disk.
 use crate::activity::Activity;
 use crate::{browser_host, chooser, clipboard, file_watch, hello, need_key, pick, sync, window, AutoTypeTarget, FileWatch, Notice};
-use crate::syncing::{cloud_of, forget_if_unused};
-use pswm_core::{dbfile, edit, encryption, gauth, icons, opened, remote, store, vault};
+use crate::entries::fetch_icons;
+use pswm_core::{dbfile, edit, encryption, gauth, opened, remote, store, vault};
 use pswm_core::dbfile::OpenError;
 use pswm_core::session::{KeyNeeded, Session};
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
-use pswm_core::vault::{Kind, Listing, Vault};
+use pswm_core::vault::{Listing, Vault};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -541,25 +541,6 @@ fn show_database(app: &AppHandle, settings: &vault::DatabaseSettings) {
     window::set_title(app, title.as_deref());
 }
 
-/// Fetches the listed sites' missing icons in the background, if the user
-/// allows it, and tells the window about each one that arrives.
-pub(crate) fn fetch_icons(app: &AppHandle, listing: &Listing) {
-    let store = app.state::<Store>();
-    if !Settings::of(&store).download_icons() {
-        return;
-    }
-    // Only the entries in use: not the recycle bin's or the templates' sites.
-    let mut hosts: Vec<String> = listing.entries.iter().filter(|e| e.kind == Kind::Entry).filter_map(|e| e.host.clone()).collect();
-    hosts.sort();
-    hosts.dedup();
-    let app = app.clone();
-    std::thread::spawn(move || {
-        app.state::<icons::Cache>().fetch_missing(hosts, |host| {
-            let _ = app.emit("icon-ready", host);
-        });
-    });
-}
-
 /// Async like the rest: a save in progress holds the session, and waiting
 /// for it must not freeze the window.
 #[tauri::command(async)]
@@ -605,4 +586,23 @@ pub fn set_database_setting(app: AppHandle, session: State<Session>, setting: ed
     show_database(&app, &settings);
     sync::upload_soon(&app);
     Ok(settings)
+}
+
+/// True when some database in the list is synced with `cloud`.
+pub(crate) fn cloud_in_use(store: &Store, cloud: remote::Cloud) -> bool {
+    store.read(|s| s.databases.iter().any(|d| d.remote.as_ref().and_then(|r| r.location.cloud()) == Some(cloud)))
+}
+
+/// After a database left the list or stopped syncing: the cloud it used is
+/// signed out if no other database uses it, and the sync status starts afresh.
+pub(crate) fn forget_if_unused(app: &AppHandle, cloud: Option<remote::Cloud>) {
+    if let Some(cloud) = cloud.filter(|c| !cloud_in_use(&app.state(), *c)) {
+        cloud.provider().sign_out();
+    }
+    sync::reset(app);
+}
+
+/// The cloud a database in the list is synced with, if any.
+pub(crate) fn cloud_of(store: &Store, file: &Path) -> Option<remote::Cloud> {
+    store.read(|s| s.databases.iter().find(|d| d.file == file).and_then(|d| d.remote.as_ref()).and_then(|r| r.location.cloud()))
 }
