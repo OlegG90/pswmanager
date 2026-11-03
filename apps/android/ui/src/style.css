@@ -998,9 +998,12 @@ button.chip.icon.state[aria-pressed="true"] {
   color: var(--color-error);
 }
 
-/* The fingerprint button beside the master password. */
-button.fingerprint {
+/* The eye and the fingerprint button beside the master password, level with its field. */
+.unlock-row button {
   margin-top: 16px;
+}
+
+button.fingerprint {
   padding: 8px;
 }
 

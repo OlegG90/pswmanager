@@ -362,7 +362,7 @@ function unlockScreen() {
     el('h1', {}, current.title),
     el('p', { className: 'muted' }, current.description),
     el('p', { className: 'muted' }, current.syncedWith ? `Syncs with ${current.syncedWith}` : ''),
-    el('div', { className: 'together' }, password, fingerprint),
+    el('div', { className: 'together unlock-row' }, password, showHide(password), fingerprint),
     keyLine,
     unlock,
     error.line,
