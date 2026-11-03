@@ -470,7 +470,7 @@ function listScreen(opened: Listing) {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
     emptyBin.hidden = !sameFilter(filter, TRASH) || !inBin()
-    starters.hidden = !sameFilter(filter, TEMPLATES) || search(listing.entries, '', TEMPLATES).length > 0
+    starters.hidden = !sameFilter(filter, TEMPLATES) || listing.entries.some((e) => e.kind === 'template')
     const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
     add.title = newLabel
     add.setAttribute('aria-label', newLabel)

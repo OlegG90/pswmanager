@@ -1345,9 +1345,12 @@ pub fn put_among_templates(db: &mut Database, id: EntryId) -> Result<(), String>
     Ok(())
 }
 
-/// What [add_starter_templates] makes: each template's title, standard icon
-/// and additional fields, by name and whether they are protected, all empty.
-const STARTER_TEMPLATES: [(&str, usize, &[(&str, bool)]); 5] = [
+/// A template's title, standard icon and additional fields, by name and
+/// whether they are protected.
+type StarterTemplate = (&'static str, usize, &'static [(&'static str, bool)]);
+
+/// What [add_starter_templates] makes, the fields empty.
+const STARTER_TEMPLATES: [StarterTemplate; 5] = [
     ("Credit card", 66, &[("Cardholder", false), ("Card number", false), ("Expiry", false), ("CVV", true), ("PIN", true)]),
     ("Bank account", 37, &[("Bank", false), ("Account holder", false), ("IBAN", false), ("SWIFT/BIC", false)]),
     ("ID document", 9, &[("Full name", false), ("Document number", false), ("Issued by", false), ("Issue date", false), ("Expiry date", false)]),
