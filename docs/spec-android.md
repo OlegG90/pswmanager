@@ -11,8 +11,8 @@ remote store*), groups and tags, entry history, entry icons, TOTP and the genera
 Rust crate shared by both apps (see *Technology*), so they cannot drift apart.
 
 The look is in [`design/android/`](design/android/) (mockups from Claude Design). This spec describes
-behaviour, the mockups describe the look; where they disagree, this spec wins. The mockups also show
-things that come in later stages (the *Backup* settings tab, a database switch); see *Stages*.
+behaviour, the mockups describe the look; where they disagree, this spec wins. `PswManager Android v2.dc.html` is
+the current file; v1, kept for reference, also shows things that come in later stages (the *Backup* settings tab, a database switch); see *Stages*.
 
 ## Product
 
@@ -144,7 +144,7 @@ A local file skips steps 2–3.
 
 ## Screens
 
-As in the mockups `1e`–`1j`.
+As in the mockups `2a`–`5a`.
 
 - **List**, laid out as in Keepass2Android: a toolbar on top (☰ for the drawer, the group or tag shown,
   *Sync now*, *Tools*, *Settings*, *Lock*), the entries with their icons, and floating buttons at the
@@ -272,7 +272,7 @@ As in the mockups `1e`–`1j`.
 
 ### Settings
 
-In tabs, as on Windows (mockup `1j`). The tabs scroll sideways when they do not fit; an arrow at an end
+In tabs, as on Windows (mockup `5a`). The tabs scroll sideways when they do not fit; an arrow at an end
 shows that more are hidden that way, and a tap on it scrolls there.
 
 | Tab | Settings |
@@ -473,7 +473,7 @@ background.
     minute); waiting for the unlock or for signing in to the store again is left for the app. A job already
     waiting or running is kept: it sends whatever is waiting when it runs.
 - **Offline:** everything works on the working copy; the status says changes are waiting.
-- **Status line** (top of the list) with the same texts as on Windows: *Synced 12:04*, *Syncing…*,
+- **Status line** (bottom of the list) with the same texts as on Windows: *Synced 12:04*, *Syncing…*,
   *Changes waiting — offline*, *Merged 3 entries from Dropbox*, *Sign in to Dropbox again*, or the error.
   Tapping it opens the **Sync** sheet: the last result, the remote file, the working copy, the entries the
   last merge touched, and *Sync now*. A sync error never blocks reading or editing.

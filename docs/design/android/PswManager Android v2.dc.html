@@ -174,11 +174,11 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
               <svg style="color:var(--color-accent)" width="44" height="44" viewBox="0 0 256 256"><rect x="16" y="16" width="224" height="224" rx="48" fill="none" stroke="currentColor" stroke-width="10"></rect><path d="M88 116V92a40 40 0 0 1 80 0v24" fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round"></path><rect x="64" y="112" width="128" height="96" rx="16" fill="none" stroke="currentColor" stroke-width="12"></rect><circle cx="128" cy="156" r="12" fill="currentColor"></circle></svg>
               <div style="display:flex;flex-direction:column;gap:2px">
                 <h1 style="margin:0;font-weight:500;font-size:28px;line-height:1.15">Personal</h1>
-                <span style="font-size:14px;color:var(--color-neutral-700)">Oleg's passwords</span>
+                <span style="font-size:14px;color:var(--color-neutral-700)">Everyday passwords</span>
               </div>
               <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
                 <span data-icon="cloud" style="display:inline-flex;width:20px;height:20px;color:var(--color-accent-700)"></span>
-                <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:14px">Synced with Dropbox</span><span style="font-size:12px;color:var(--color-neutral-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Documents/PswManager/passwords.kdbx</span></div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-size:14px">Syncs with Dropbox</span></div>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <div style="flex:1;height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;font-size:15px;color:var(--color-neutral-600)">Master password</div>
@@ -371,7 +371,7 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
             </div>
             <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:0 16px;gap:12px">
               <label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:13px;color:var(--color-neutral-700)">Title</span><div style="height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;font-size:16px">GitHub</div></label>
-              <label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:13px;color:var(--color-neutral-700)">User name</span><div style="height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;font-size:16px">oleg-g</div></label>
+              <label style="display:flex;flex-direction:column;gap:4px"><span style="font-size:13px;color:var(--color-neutral-700)">User name</span><div style="height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--color-neutral-400);border-radius:4px;font-size:16px">sam-t</div></label>
               <div style="display:flex;flex-direction:column;gap:4px">
                 <span style="font-size:13px;color:var(--color-neutral-700)">Password</span>
                 <div style="display:flex;align-items:center;gap:8px">
@@ -580,12 +580,12 @@ a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
 <script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Light&quot;,&quot;Dark&quot;],&quot;default&quot;:&quot;Light&quot;,&quot;tsType&quot;:&quot;'Light' | 'Dark'&quot;}}">
 const DARK = { '--color-bg': '#1d1b19', '--color-text': '#ebe5da', '--color-accent': '#d3a35c', '--color-divider': 'color-mix(in srgb, #ebe5da 16%, transparent)', '--color-neutral-100': '#24211f', '--color-neutral-200': '#2e2b28', '--color-neutral-300': '#3a3633', '--color-neutral-400': '#56514c', '--color-neutral-500': '#75706a', '--color-neutral-600': '#948e87', '--color-neutral-700': '#b3ada5', '--color-neutral-800': '#d0c9c0', '--color-neutral-900': '#ebe5da', '--color-accent-100': '#33281a', '--color-accent-200': '#4a3920', '--color-accent-300': '#6a5129', '--color-accent-400': '#9a7438', '--color-accent-500': '#d3a35c', '--color-accent-600': '#c28d41', '--color-accent-700': '#e1ad66', '--color-accent-800': '#facb8d', '--shadow-md': '0 0 0 1px var(--color-divider), 0 6px 18px rgb(0 0 0 / 45%)', '--shadow-lg': '0 0 0 1px var(--color-divider), 0 12px 32px rgb(0 0 0 / 55%)', '--color-error': '#e08a74', colorScheme: 'dark' };
 const SYS = 'system-ui, sans-serif';
-const ENTRIES = [['GitHub', 'oleg-g', 1], ['Dropbox', 'oleg@fastmail.com', 1], ['AWS root', 'oleg@fastmail.com'], ['Raiffeisen online', 'OG-448120'], ['Steam', 'olegg90'], ['Figma', 'oleg@fastmail.com'], ['Notion', 'oleg@fastmail.com'], ['Home router', 'admin'], ['Gosuslugi', '+7 916 ••• 42 17']];
+const ENTRIES = [['GitHub', 'sam-t', 1], ['Dropbox', 'sam@example.com', 1], ['AWS root', 'sam@example.com'], ['Example Bank', 'EB-100200'], ['Steam', 'samplays'], ['Figma', 'sam@example.com'], ['Notion', 'sam@example.com'], ['Home router', 'admin'], ['Tax office', 'sam.t']];
 const SETTINGS = {
   general: [
     { title: 'Locking', rows: [{ label: 'In the background', hint: 'Locks this long after the app goes away', value: '30 s' }, { label: 'When the screen turns off', hint: 'Locks at once', t: 'screenOff' }, { label: 'Without a touch', hint: 'While the app is in front', value: '5 min' }] },
     { title: 'Unlock', rows: [{ label: 'Unlock with fingerprint', hint: 'The fingerprint button on the unlock screen; set up at the next unlock with the password. Off deletes the stored key', t: 'biometric' }, { label: 'Master password', hint: 'Asked for again after', value: '14 days' }] },
-    { title: 'Autofill', rows: [{ label: 'Autofill service', hint: "PswManager is not the phone's autofill service", action: 'Choose…' }] },
+    { title: 'Autofill', rows: [{ label: 'PswManager does not fill in passwords yet: choose it as the phone’s autofill service.' }], buttons: ['Choose the autofill service'] },
     { title: 'Screen', rows: [{ label: 'Allow screenshots', hint: 'Screenshots and screen recording show PswManager, and so does the recent-apps preview', t: 'shots' }] },
     { title: 'Clipboard', rows: [{ label: 'Clear after copying', hint: 'Only if it still holds the copied value', value: '20 s' }] },
   ],
@@ -594,16 +594,16 @@ const SETTINGS = {
   ],
   database: [
     { title: 'Master password and key file', rows: [{ label: 'Master password', hint: 'No key file', action: 'Change…' }] },
-    { title: 'Database', rows: [{ label: 'Name', text: 'Personal' }, { label: 'Description', text: "Oleg's passwords" }, { label: 'Default user name', text: 'oleg@fastmail.com' }] },
+    { title: 'Database', rows: [{ label: 'Name', text: 'Personal' }, { label: 'Description', text: "Everyday passwords" }, { label: 'Default user name', text: 'sam@example.com' }] },
     { title: 'History', rows: [{ label: 'Versions per entry', value: '10' }, { label: 'Size per entry', hint: 'The oldest versions go first', value: '6 MB' }] },
     { title: 'Encryption', rows: [{ label: 'AES-256 · Argon2id', hint: '64 MiB memory', action: 'Test' }, { label: 'Cipher and key derivation', action: 'Change…' }] },
   ],
   sync: [
-    { title: 'Store', rows: [{ label: 'Dropbox', hint: 'Apps/PswManager Sync/passwords.kdbx' }, { label: 'Visible copy', hint: 'Documents/PswManager/passwords.kdbx', action: 'Change…' }], buttons: ['Sync now', 'Stop syncing'] },
-    { title: 'Checking', rows: [{ label: 'Check for changes', hint: 'While the app is in front and unlocked', value: '5 min' }] },
+    { title: 'Sync', rows: [{ label: 'Syncs with Dropbox', hint: 'Copy on this phone: Documents/PswManager' }, { label: 'Check for changes', hint: 'While the app is in front and unlocked', value: '5 min' }], buttons: ['Sync now'] },
+    { title: 'Store', rows: [], buttons: ['Stop syncing…'] },
   ],
   about: [
-    { title: 'About', rows: [{ label: 'Version', text: '0.20.0' }, { label: 'Database format', text: 'KDBX 4.1' }, { label: 'Source code', hint: 'github.com/OlegG90/pswmanager', action: 'Open' }] },
+    { title: 'About', rows: [{ label: 'PswManager for Android, version 0.20.0', hint: 'The database is a KeePass file (KDBX 4.1).' }, { label: '', action: 'GitHub repository' }] },
   ],
 };
 const TABS = [['general', 'General'], ['appearance', 'Appearance'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']];
@@ -651,14 +651,14 @@ class Component extends DCLogic {
       tags: [['Untagged', 21, ''], ['bank', 4], ['design', 3], ['dev', 11], ['games', 2], ['gov', 1], ['home', 5], ['sync', 2], ['work', 18]].map(([label, count, hash]) => ({ label, count, hash: hash === undefined ? '#' : hash })),
       tools: [['Import from another app…', 'Passwords and passkeys from another password manager on this phone'], ['Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)'], ['Import from Google Authenticator…', 'The accounts of its export, read from its QR codes'], ['Export to a file…', 'A file another password manager imports (CSV, CXF JSON)'], ['Find similar entries', 'Entries alike in title, user name or site, to merge them'], ['Tidy up imported folders', 'Shown while entries are in a group an older import made']].map(([label, hint]) => ({ label, hint })),
       lines: [
-        { label: 'User name', value: 'oleg-g', valueStyle: { fontSize: '16px' }, icons: ['copy'] },
+        { label: 'User name', value: 'sam-t', valueStyle: { fontSize: '16px' }, icons: ['copy'] },
         { label: 'Password', value: '••••••••••••', valueStyle: mono, icons: ['eye', 'copy'] },
         { label: 'TOTP', value: '482 915 · 18 s', valueStyle: { ...mono, fontSize: '18px' }, icons: ['copy'] },
         { label: 'URL', value: 'https://github.com', valueStyle: { fontSize: '16px', color: 'var(--color-accent-700)', overflowWrap: 'anywhere' }, icons: ['external-link', 'copy'] },
-        { label: 'Recovery e-mail', value: 'oleg@fastmail.com', valueStyle: { fontSize: '16px' }, icons: ['copy'] },
+        { label: 'Recovery e-mail', value: 'sam@example.com', valueStyle: { fontSize: '16px' }, icons: ['copy'] },
       ],
       history: [['12 Sep 2026, 14:20', 'Password, Notes'], ['30 Jul 2026, 09:05', 'URL'], ['2 Mar 2026, 18:44', 'Password'], ['11 Nov 2025, 21:10', 'Created']].map(([when, what]) => ({ when, what })),
-      trash: [['Old router admin', 'admin'], ['Twitter', 'olegg90'], ['Evernote', 'oleg@fastmail.com'], ['Yandex Mail', 'oleg.g'], ['Skype', 'olegg90'], ['ICQ', '448120771']].map(([title, user]) => ({ title, user, initial: title[0] })),
+      trash: [['Old router admin', 'admin'], ['Twitter', 'samplays'], ['Evernote', 'sam@example.com'], ['Old mail', 'sam.t'], ['Skype', 'samplays'], ['ICQ', '100200300']].map(([title, user]) => ({ title, user, initial: title[0] })),
       syncModes: [['ok', 'Merged'], ['signin', 'Sign in again'], ['newkey', 'New key']].map(([k, label]) => ({ label, pick: () => this.setState({ syncMode: k }), style: seg(s.syncMode === k) })),
       syncOk: s.syncMode === 'ok', syncSignin: s.syncMode === 'signin', syncNewKey: s.syncMode === 'newkey',
       merged: [['Steam', 'Newer on this phone; the Windows version is in its history'], ['AWS root', 'Newer on Windows; this version is in its history'], ['Home router', 'New on Windows']].map(([title, detail]) => ({ title, detail })),
