@@ -224,6 +224,18 @@ pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, S
     Ok(listing)
 }
 
+/// Tidies up the groups older imports made (#335), saves the file and returns
+/// the new listing.
+#[tauri::command(async)]
+pub fn tidy_imported(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.tidy_imported()?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
 /// Copies an entry next to it (#255), saves the file and returns the copy
 /// with the new listing.
 #[tauri::command(async)]

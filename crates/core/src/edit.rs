@@ -1190,9 +1190,15 @@ fn tag_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// `name` as a tag, for names the user did not type ([tag_name] refuses those
+/// that cannot be one): what KeePass reads as separators gives way to a space.
+pub(crate) fn as_tag(name: &str) -> String {
+    name.split([',', ';']).map(str::trim).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
 /// Gives the entry the tags `change` makes of its own. Nothing changes when
 /// they are the same.
-fn retag(db: &mut Database, id: EntryId, change: impl FnOnce(&[String]) -> Vec<String>) {
+pub(crate) fn retag(db: &mut Database, id: EntryId, change: impl FnOnce(&[String]) -> Vec<String>) {
     let Some(mut entry) = db.entry_mut(id) else { return };
     let tags = change(&entry.tags);
     if tags != entry.tags {
@@ -1231,25 +1237,38 @@ pub fn recycle(db: &mut Database, id: EntryId) -> Result<(), String> {
     if db.meta.recyclebin_enabled == Some(false) {
         return Err("This database has its recycle bin turned off; turn it on (in KeePassXC) to delete entries".into());
     }
-    let bin = match db.recycle_bin().map(|g| g.id()) {
-        Some(bin) => bin,
-        None => {
-            let mut root = db.root_mut();
-            let mut group = root.add_group();
-            group.name = "Recycle Bin".into();
-            group.enable_autotype = Some(false);
-            group.enable_searching = Some(false);
-            group.set_icon_builtin(RECYCLE_BIN_ICON);
-            let bin = group.id();
-            db.meta.recyclebin_uuid = Some(bin.uuid());
-            db.meta.recyclebin_enabled = Some(true);
-            db.meta.recyclebin_changed = Some(Times::now());
-            bin
-        }
-    };
+    let bin = bin_group(db);
     let mut entry = db.entry_mut(id).expect("checked above");
     entry.move_to(bin).map_err(|e| e.to_string())?;
     entry.times.location_changed = Some(Times::now());
+    Ok(())
+}
+
+/// The recycle bin, made when the database has none.
+fn bin_group(db: &mut Database) -> GroupId {
+    if let Some(bin) = db.recycle_bin().map(|g| g.id()) {
+        return bin;
+    }
+    let mut root = db.root_mut();
+    let mut group = root.add_group();
+    group.name = "Recycle Bin".into();
+    group.enable_autotype = Some(false);
+    group.enable_searching = Some(false);
+    group.set_icon_builtin(RECYCLE_BIN_ICON);
+    let bin = group.id();
+    db.meta.recyclebin_uuid = Some(bin.uuid());
+    db.meta.recyclebin_enabled = Some(true);
+    db.meta.recyclebin_changed = Some(Times::now());
+    bin
+}
+
+/// Moves the group to the recycle bin rather than removing it: an entry another
+/// device put in it meanwhile ends up in the trash, not gone with the group.
+pub(crate) fn recycle_group(db: &mut Database, group: GroupId) -> Result<(), String> {
+    let bin = bin_group(db);
+    let mut group = db.group_mut(group).ok_or(NOT_FOUND)?;
+    group.move_to(bin).map_err(|e| e.to_string())?;
+    group.times.location_changed = Some(Times::now());
     Ok(())
 }
 

@@ -20,6 +20,7 @@ import { renderChoose } from './choose'
 import { renderHealth } from './health'
 import { renderSimilar } from './similar'
 import { renderImport } from './file-import'
+import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
 import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
@@ -48,6 +49,7 @@ const EMPTY: Listing = {
   customIcons: {},
   database: { name: '', description: '', defaultUsername: '', historyMaxItems: -1, historyMaxSize: -1,
     encryption: { cipher: 'aes256', kdf: 'argon2id', iterations: 0, memory: 0, parallelism: 0 } }, // all but the user name: unused here, Settings fetches them
+  inImportGroups: 0,
 }
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
@@ -296,6 +298,7 @@ async function showLocked() {
 /** The sidebar: the fixed groups and the tags, each with its count. A tag no
  *  entry has any more goes back to All. */
 function fillSidebar() {
+  if (tidyTool) tidyTool.hidden = !listing.inImportGroups
   const tags = tagCounts(listing.entries)
   const chosen = filter
   if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
@@ -1246,14 +1249,20 @@ function markSidebar() {
   if (unlocked) fillSidebar()
 }
 
+/** Offered only while entries are in a group an older import made (#335). */
+let tidyTool: HTMLLIElement | undefined
+
 /** The tools that work on the whole database, and the settings' tabs. */
 function fillTools() {
+  tidyTool = sideCommand(TIDY_LABEL, TIDY_HINT, 'tidy', tidyImported)
+  tidyTool.hidden = true
   $('tools').replaceChildren(
     sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
     sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
     sideCommand('Import from a file', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import', openImport, 'tool:import'),
     sideCommand('Import from Google Authenticator', 'Add the accounts of its export, read from its QR codes', 'authenticator', openGauth, 'tool:gauth'),
     sideCommand('Export to a file', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export', openExport, 'tool:export'),
+    tidyTool,
   )
   // Each tab's icon has the tab's name.
   $('settings-tabs').replaceChildren(...SETTINGS_TABS.map(([tab, label]) =>
@@ -1279,6 +1288,16 @@ async function openReport(tool: Tool, draw: () => Promise<void>) {
   reportTool = tool
   showContent()
   reportView.querySelector<HTMLElement>('button, input')?.focus()
+}
+
+/** Tools › Tidy up imported folders, after asking. */
+async function tidyImported() {
+  if (!unlocked || !await ask(tidyQuestion(listing.inImportGroups), 'Tidy up')) return
+  try {
+    applyListing(await api.tidyImported(), 'Imported folders tidied up', false)
+  } catch (e) {
+    notify(String(e))
+  }
 }
 
 const openHealth = () => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf }))

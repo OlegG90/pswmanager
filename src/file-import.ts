@@ -60,8 +60,8 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
   }
 
   const done = (result: FileImported) => {
-    const { file, group, added, skipped, listing } = result
-    const message = importedMessage(added, group)
+    const { file, tag, added, skipped, listing } = result
+    const message = importedMessage(added, tag)
     options.imported(listing, message)
     if (!page.isConnected) return
     // The file goes only when the user says so here: it may be wanted again.

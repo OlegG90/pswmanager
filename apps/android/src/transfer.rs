@@ -1,7 +1,7 @@
 //! Importing from another password manager on this phone (#152) through
 //! `TransferPlugin.kt` (Android's Credential Transfer): the export comes
 //! straight here, never to the page, and the core reads it into new entries
-//! ([pswm_core::cxf]) in a group of their own. And offering the database for
+//! ([pswm_core::cxf]) with a tag of their own. And offering the database for
 //! export to them (#153): the export itself is `ExportActivity.kt`'s, through
 //! `provider.rs`, as Android starts it outside the app's window.
 
@@ -110,8 +110,8 @@ pub async fn register_export(app: AppHandle, name: String) -> Result<(), String>
 pub struct Imported {
     /// The app it came from.
     pub exporter: String,
-    /// The group the entries were put in.
-    pub group: String,
+    /// The tag the entries were given.
+    pub tag: String,
     /// How many entries were added.
     pub added: usize,
     /// What could not be brought over, and why.
@@ -125,7 +125,7 @@ pub struct Imported {
 }
 
 /// Imports from another app on this phone: the system's list of apps, then
-/// everything the chosen one exports as new entries in the group
+/// everything the chosen one exports as new entries with the tag
 /// `Imported from <app> <date>`, saved and synced as any change. `None` when
 /// the user went back.
 #[tauri::command]
@@ -302,16 +302,16 @@ pub fn export_name(app: AppHandle, format: Format) -> Result<String, String> {
     Ok(pswm_core::file_export::file_name(&name, format))
 }
 
-/// Adds what was read as new entries in the group `Imported from <exporter>
+/// Adds what was read as new entries with the tag `Imported from <exporter>
 /// <date>`, saved and synced as any change; `locked` says why it failed when
 /// the database locked on the way. `from_file`: it came from a file; `file`:
 /// that file read by its path, which the app may then delete.
 fn add(app: &AppHandle, import: Import, locked: &str, from_file: bool, file: Option<PathBuf>) -> Result<Imported, String> {
     let session = app.state::<Session>();
-    let group = import.group_name_today();
+    let tag = import.tag_name_today();
     let (added, listing) = session
         .with_mut(|v| {
-            let added = v.import(&import, &group)?;
+            let added = v.import(&import, &tag)?;
             Ok((added, v.listing()))
         })
         .map_err(|e| if session.is_unlocked() { e } else { locked.to_string() })?;
@@ -321,5 +321,5 @@ fn add(app: &AppHandle, import: Import, locked: &str, from_file: bool, file: Opt
     }
     let deletable = file.is_some();
     *app.state::<ImportedFile>().0.lock().unwrap() = file;
-    Ok(Imported { exporter: import.exporter, group, added, skipped: import.skipped, listing, from_file, deletable })
+    Ok(Imported { exporter: import.exporter, tag, added, skipped: import.skipped, listing, from_file, deletable })
 }

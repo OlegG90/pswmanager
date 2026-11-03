@@ -8,12 +8,17 @@ use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike};
-use keepass::db::{fields as standard, EntryRef, GroupId};
+use keepass::db::{fields as standard, EntryId, EntryRef, GroupId, GroupRef, Times};
 use keepass::Database;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use zeroize::{Zeroize, Zeroizing};
+
+/// How the tag of an import starts, and the group older imports made.
+const IMPORTED_FROM: &str = "Imported from ";
+/// How that tag or group ends: the day of the import.
+const IMPORT_DATE: &str = "%Y-%m-%d";
 
 /// What an export holds, read and ready to add.
 pub struct Import {
@@ -27,7 +32,7 @@ pub struct Import {
 
 /// An entry to add, with the times the other app kept for it.
 pub struct Imported {
-    /// The entry, its group the collection it was in (below the import's group).
+    /// The entry, its group the collection it was in (a tag once it is added).
     pub data: EntryData,
     pub created: Option<NaiveDateTime>,
     pub modified: Option<NaiveDateTime>,
@@ -43,14 +48,14 @@ pub struct Skipped {
 }
 
 impl Import {
-    /// The group the entries go in: `Imported from <app> <date>`.
-    pub fn group_name(&self, day: NaiveDate) -> String {
-        format!("Imported from {} {}", self.exporter, day.format("%Y-%m-%d"))
+    /// The tag the entries get: `Imported from <app> <date>`.
+    pub fn tag_name(&self, day: NaiveDate) -> String {
+        edit::as_tag(&format!("{IMPORTED_FROM}{} {}", self.exporter, day.format(IMPORT_DATE)))
     }
 
-    /// [Import::group_name] for today, as this device's clock has it.
-    pub fn group_name_today(&self) -> String {
-        self.group_name(chrono::Local::now().date_naive())
+    /// [Import::tag_name] for today, as this device's clock has it.
+    pub fn tag_name_today(&self) -> String {
+        self.tag_name(chrono::Local::now().date_naive())
     }
 }
 
@@ -65,14 +70,17 @@ pub fn parse(json: &str) -> Result<Import, String> {
     import
 }
 
-/// Adds the entries under the group at `under` (made where missing), with the
-/// collections they were in as groups below it. Returns how many were added.
-/// All or nothing: on an error the caller drops the changed database
-/// ([crate::vault::Vault::import] works on a copy).
-pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSet<GroupId>) -> Result<usize, String> {
+/// Adds the entries to the top group, as a new entry goes, with the tag `tag`
+/// and the collection they were in as a tag too: the app sorts by tags and does
+/// not show groups. Returns how many were added. All or nothing: on an error the
+/// caller drops the changed database ([crate::vault::Vault::import] works on a
+/// copy).
+pub fn add(db: &mut Database, import: &Import, tag: &str, hidden: &HashSet<GroupId>) -> Result<usize, String> {
     for imported in &import.entries {
         let mut data = imported.data.clone();
-        data.group = under.iter().chain(&imported.data.group).cloned().collect();
+        let folder = std::mem::take(&mut data.group);
+        give_tag(&mut data.tags, tag);
+        give_tag(&mut data.tags, &folder.join("/"));
         let id = edit::apply(db, None, &data, hidden)?;
         let mut entry = db.entry_mut(id).ok_or("The new entry is gone")?;
         // In whole seconds, as the file keeps them: the save reads it back to compare.
@@ -85,6 +93,77 @@ pub fn add(db: &mut Database, import: &Import, under: &[String], hidden: &HashSe
         }
     }
     Ok(import.entries.len())
+}
+
+/// Gives `tags` the tag `name` is as a tag, if it is one and is not among them.
+fn give_tag(tags: &mut Vec<String>, name: &str) {
+    let tag = edit::as_tag(name);
+    if !tag.is_empty() && !tags.contains(&tag) {
+        tags.push(tag);
+    }
+}
+
+/// Whether a group at the top is one an older import made.
+fn is_import_group(name: &str) -> bool {
+    let date = name.strip_prefix(IMPORTED_FROM).and_then(|rest| rest.rsplit_once(' ')).map(|(_, date)| date);
+    date.is_some_and(|date| NaiveDate::parse_from_str(date, IMPORT_DATE).is_ok())
+}
+
+/// The groups [tidy] empties, with their names: those older imports made at the
+/// top of the file. One holding the recycle bin or the templates stays, as they
+/// are never taken along.
+fn import_groups(db: &Database, hidden: &HashSet<GroupId>) -> Vec<(GroupId, String)> {
+    db.root()
+        .groups()
+        .filter(|g| is_import_group(&g.name) && !hidden.iter().any(|h| edit::ancestors(db, *h).contains(&g.id())))
+        .map(|g| (g.id(), g.name.clone()))
+        .collect()
+}
+
+/// The entries in `group` and the groups below it, each with its folder below
+/// `group` (`folder` being the group's own). Walks only that part of the file,
+/// as the list asks for the count at every change ([in_import_groups]).
+fn entries_below(group: GroupRef<'_>, folder: &str) -> Vec<(EntryId, String)> {
+    let mut found: Vec<(EntryId, String)> = group.entries().map(|e| (e.id(), folder.to_string())).collect();
+    for below in group.groups() {
+        let path = if folder.is_empty() { below.name.clone() } else { format!("{folder}/{}", below.name) };
+        found.extend(entries_below(below, &path));
+    }
+    found
+}
+
+/// How many entries [tidy] would move: the tool is offered only when some would.
+pub fn in_import_groups(db: &Database, hidden: &HashSet<GroupId>) -> usize {
+    import_groups(db, hidden).iter().filter_map(|(group, _)| db.group(*group)).map(|group| entries_below(group, "").len()).sum()
+}
+
+/// Puts the entries of the groups older imports made in the top group, tagged
+/// as [add] tags them, and the emptied groups in the recycle bin (where they
+/// stay, when the database turned its bin off). Other groups stay: their
+/// Auto-Type and browser settings are what their entries inherit. Returns how
+/// many entries moved.
+pub fn tidy(db: &mut Database, hidden: &HashSet<GroupId>) -> Result<usize, String> {
+    let root = db.root().id();
+    let mut moved = 0;
+    for (group, name) in import_groups(db, hidden) {
+        let inside = db.group(group).map_or_else(Vec::new, |group| entries_below(group, ""));
+        moved += inside.len();
+        for (id, folder) in inside {
+            edit::retag(db, id, |tags| {
+                let mut tags = tags.to_vec();
+                give_tag(&mut tags, &name);
+                give_tag(&mut tags, &folder);
+                tags
+            });
+            let mut entry = db.entry_mut(id).ok_or("The entry is gone")?;
+            entry.move_to(root).map_err(|e| e.to_string())?;
+            entry.times.location_changed = Some(Times::now());
+        }
+        if db.meta.recyclebin_enabled != Some(false) {
+            edit::recycle_group(db, group)?;
+        }
+    }
+    Ok(moved)
 }
 
 /// Who the exports are from, as the importing app shows it.
@@ -980,17 +1059,96 @@ mod tests {
     }
 
     #[test]
-    fn adds_new_entries_under_the_import_group() {
+    fn adds_new_entries_to_the_top_group_with_tags() {
         let import = parse(EXPORT).unwrap();
         let mut db = Database::new();
         let day = NaiveDate::from_ymd_opt(2026, 10, 4).unwrap();
-        let group = import.group_name(day);
-        assert_eq!(group, "Imported from Example Vault 2026-10-04");
-        assert_eq!(add(&mut db, &import, std::slice::from_ref(&group), &HashSet::new()).unwrap(), 4);
+        let tag = import.tag_name(day);
+        assert_eq!(tag, "Imported from Example Vault 2026-10-04");
+        assert_eq!(add(&mut db, &import, &tag, &HashSet::new()).unwrap(), 4);
+        assert_eq!(db.root().groups().count(), 0);
         let mail = db.iter_all_entries().find(|e| e.get(fields::TITLE) == Some("Mail")).unwrap();
-        assert_eq!(edit::path_of(&db, mail.parent().id()), [group.as_str(), "Work", "Mail"]);
+        assert_eq!(mail.parent().id(), db.root().id());
+        assert_eq!(mail.tags, ["work", FAVORITE, tag.as_str(), "Work/Mail"]);
         assert_eq!(mail.times.last_modification, DateTime::from_timestamp(1_710_000_000, 0).map(|t| t.naive_utc()));
         assert!(mail.fields[fields::PASSWORD].is_protected());
         assert_eq!(db.iter_all_entries().count(), 4);
+    }
+
+    #[test]
+    fn a_tag_never_holds_a_separator() {
+        let import = Import { exporter: "pass,words; old.csv".into(), entries: Vec::new(), skipped: Vec::new() };
+        let tag = import.tag_name(NaiveDate::from_ymd_opt(2026, 10, 4).unwrap());
+        assert_eq!(tag, "Imported from pass words old.csv 2026-10-04");
+    }
+
+    /// An entry `title` in the group at `path`, made where missing.
+    fn entry_at(db: &mut Database, path: &[&str], title: &str) {
+        let mut data = EntryData::default();
+        data.title = title.into();
+        data.group = path.iter().map(|name| name.to_string()).collect();
+        edit::apply(db, None, &data, &HashSet::new()).unwrap();
+    }
+
+    fn entry<'a>(db: &'a Database, title: &str) -> EntryRef<'a> {
+        db.iter_all_entries().find(|e| e.get(fields::TITLE) == Some(title)).unwrap()
+    }
+
+    #[test]
+    fn tidying_empties_only_the_groups_imports_made() {
+        const GROUP: &str = "Imported from a.csv 2026-10-04";
+        let mut db = Database::new();
+        db.meta.recyclebin_enabled = Some(true);
+        entry_at(&mut db, &[GROUP], "One");
+        entry_at(&mut db, &[GROUP, "Work", "Mail"], "Two");
+        entry_at(&mut db, &["Imported from memories"], "Three");
+        entry_at(&mut db, &["Team", GROUP], "Four");
+        let hidden = edit::hidden_groups(&db);
+        assert_eq!(in_import_groups(&db, &hidden), 2);
+        assert_eq!(tidy(&mut db, &hidden).unwrap(), 2);
+
+        let root = db.root().id();
+        assert_eq!(entry(&db, "One").parent().id(), root);
+        assert_eq!(entry(&db, "One").tags, [GROUP]);
+        assert_eq!(entry(&db, "Two").parent().id(), root);
+        assert_eq!(entry(&db, "Two").tags, [GROUP, "Work/Mail"]);
+        assert_eq!(edit::path_of(&db, entry(&db, "Three").parent().id()), ["Imported from memories"]);
+        assert_eq!(edit::path_of(&db, entry(&db, "Four").parent().id()), ["Team", GROUP]);
+        assert!(entry(&db, "Four").tags.is_empty());
+
+        // The emptied group went to the trash, with no entry in the trash.
+        let bin = db.recycle_bin().unwrap();
+        assert!(bin.groups().any(|g| g.name == GROUP));
+        assert_eq!(bin.entries().count(), 0);
+        assert!(!db.root().groups().any(|g| g.name == GROUP));
+        let hidden = edit::hidden_groups(&db);
+        assert_eq!(tidy(&mut db, &hidden).unwrap(), 0);
+    }
+
+    #[test]
+    fn tidying_keeps_the_emptied_group_when_the_bin_is_off() {
+        const GROUP: &str = "Imported from a.csv 2026-10-04";
+        let mut db = Database::new();
+        db.meta.recyclebin_enabled = Some(false);
+        entry_at(&mut db, &[GROUP], "One");
+        let hidden = edit::hidden_groups(&db);
+        assert_eq!(tidy(&mut db, &hidden).unwrap(), 1);
+        assert_eq!(entry(&db, "One").parent().id(), db.root().id());
+        assert!(db.root().groups().any(|g| g.name == GROUP));
+        assert!(db.recycle_bin().is_none());
+    }
+
+    #[test]
+    fn tidying_leaves_a_group_holding_the_templates() {
+        const GROUP: &str = "Imported from a.csv 2026-10-04";
+        let mut db = Database::new();
+        db.meta.recyclebin_enabled = Some(true);
+        entry_at(&mut db, &[GROUP, "Templates"], "Template");
+        let templates = entry(&db, "Template").parent().id();
+        db.meta.entry_templates_group = Some(templates.uuid());
+        let hidden = edit::hidden_groups(&db);
+        assert_eq!(in_import_groups(&db, &hidden), 0);
+        assert_eq!(tidy(&mut db, &hidden).unwrap(), 0);
+        assert_eq!(entry(&db, "Template").parent().id(), templates);
     }
 }

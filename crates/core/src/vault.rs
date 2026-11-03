@@ -282,6 +282,8 @@ pub struct Listing {
     pub custom_icons: BTreeMap<String, String>,
     /// The name, description and default user name the file keeps.
     pub database: DatabaseSettings,
+    /// How many entries are in the groups older imports made ([crate::cxf::tidy]).
+    pub in_import_groups: usize,
 }
 
 /// The settings kept in the database file itself (see [edit::Setting]);
@@ -429,7 +431,8 @@ impl Vault {
                 entry.custom_icon = None;
             }
         }
-        Listing { entries, custom_icons, database: self.settings() }
+        let in_import_groups = crate::cxf::in_import_groups(&self.db, &self.hidden_groups());
+        Listing { entries, custom_icons, database: self.settings(), in_import_groups }
     }
 
     /// The settings kept in the database file, empty where it has none.
@@ -899,12 +902,17 @@ impl Vault {
         Ok((id.uuid().to_string(), conflicts))
     }
 
-    /// Adds what another password manager exported as new entries under the
-    /// group `group` (see [crate::cxf]), and saves the file. Returns how many
-    /// were added.
-    pub fn import(&mut self, import: &crate::cxf::Import, group: &str) -> Result<usize, String> {
-        let under = [group.to_string()];
-        self.change(|db, hidden| crate::cxf::add(db, import, &under, hidden))
+    /// Adds what another password manager exported as new entries with the
+    /// tag `tag` (see [crate::cxf]), and saves the file. Returns how many were
+    /// added.
+    pub fn import(&mut self, import: &crate::cxf::Import, tag: &str) -> Result<usize, String> {
+        self.change(|db, hidden| crate::cxf::add(db, import, tag, hidden))
+    }
+
+    /// Tidies up the groups older imports made ([crate::cxf::tidy]) and saves
+    /// the file. Returns how many entries moved.
+    pub fn tidy_imported(&mut self) -> Result<usize, String> {
+        self.change(crate::cxf::tidy)
     }
 
     /// Gives entries a tag or takes it off (the star is the tag Favorite), and
@@ -2306,7 +2314,8 @@ pub mod tests {
         assert_eq!(listing.entries.len(), before + 1);
         let site = listing.entries.iter().find(|e| e.title == "Site").unwrap();
         assert!(site.passkey);
-        assert_eq!(site.group, ["Imported"]);
+        assert!(site.group.is_empty());
+        assert_eq!(site.tags, ["Imported"]);
     }
 
     #[test]

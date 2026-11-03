@@ -39,8 +39,8 @@ export function renderGauthImport(container: HTMLElement, options: GauthOptions)
 
   const importIt = async () => done(await api.gauthImport())
 
-  const done = ({ group, added, skipped, listing }: FileImported) => {
-    const message = importedMessage(added, group)
+  const done = ({ tag, added, skipped, listing }: FileImported) => {
+    const message = importedMessage(added, tag)
     options.imported(listing, message)
     if (!page.isConnected) return
     page.replaceChildren(header(), el('section', { className: 'tool' },

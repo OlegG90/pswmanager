@@ -10,7 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH,
 import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
-import { fileImportAbout } from '../../../../src/file-import-parts'
+import { fileImportAbout, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
@@ -924,6 +924,14 @@ function toolsSheet(listing: Listing) {
     button('Import from Google Authenticator…', 'The accounts of its export, read from its QR codes', () => (close(), gauthSheet()), 'item'),
     button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
+    // Only while entries are in a group an older import made (#335).
+    ...(listing.inImportGroups
+      ? [button(TIDY_LABEL, TIDY_HINT, () => {
+          close()
+          confirmSheet(tidyQuestion(listing.inImportGroups), 'Tidy up', () =>
+            void api.tidyImported().then((next) => (listScreen(next), snack('Imported folders tidied up')), (e) => snack(String(e))))
+        }, 'item')]
+      : []),
   ])
 }
 
@@ -1048,7 +1056,7 @@ function importSheet() {
   sheet((close) => [
     el('b', {}, 'Import from another app'),
     el('p', {}, 'Android lists the password managers on this phone that can hand over their passwords. Everything the one you choose hands over is added as new entries: nothing here is changed or replaced.'),
-    el('p', { className: 'muted' }, 'Passwords, passkeys, TOTP secrets and notes come over; attached files do not. The entries go to a group of their own, shown under All.'),
+    el('p', { className: 'muted' }, 'Passwords, passkeys, TOTP secrets and notes come over; attached files do not. The entries get a tag of their own, and show under All.'),
     button('Choose the app', 'Choose the app to import from', () => (close(), void runImport()), 'primary'),
     button('Cancel', 'Cancel', close, 'link'),
   ])
@@ -1165,10 +1173,10 @@ async function exportAs(format: ExportFormat) {
 /** What an import brought, and what it could not; after a file, deleting it
  *  (one read by its path), or a reminder to (the app may not delete another
  *  app's file). */
-function importedSheet({ added, exporter, group, skipped, fromFile, deletable }: Imported) {
+function importedSheet({ added, exporter, tag, skipped, fromFile, deletable }: Imported) {
   sheet((close) => [
     el('b', {}, `${added} ${added === 1 ? 'entry' : 'entries'} from ${exporter}`),
-    el('p', {}, added ? `In the group “${group}”, shown under All.` : 'Nothing was added.'),
+    el('p', {}, added ? `Tagged “${tag}”, and shown under All.` : 'Nothing was added.'),
     ...(added ? [el('p', { className: 'muted' }, SIMILAR_AFTER_IMPORT)] : []),
     ...(skipped.length
       ? [el('h2', {}, `Not brought over (${skipped.length})`), el('ul', { className: 'skipped' }, ...skipped.map((s) => el('li', {}, el('b', {}, s.title || 'Untitled'), `: ${s.why}`)))]

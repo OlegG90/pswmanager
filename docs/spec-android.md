@@ -171,7 +171,8 @@ As in the mockups `1e`–`1j`.
   database: *Import from another app…*, *Import from a file…*, *Import from Google Authenticator…* (#281, a
   sheet that reads the export's codes with the camera or from screenshots, then imports: `docs/spec.md`,
   *Import from Google Authenticator*; closing it lets the codes go), *Export to a file…* (#240, as on Windows:
-  `docs/spec.md`, *Export to a file*) and *Find similar entries*.
+  `docs/spec.md`, *Export to a file*), *Find similar entries* and, while entries are in a group an older
+  import made, *Tidy up imported folders* (#335, `docs/spec.md`, *Import from a file*).
 - **Import from a file** (#238): a sheet says what it takes, then the file is chosen as a key file is
   (#207: the phone's folders with All files access, `.csv` and `.json` first;
   otherwise Android's file picker), read and added as on Windows (`docs/spec.md`, *Import from a file*).
@@ -194,8 +195,8 @@ As in the mockups `1e`–`1j`.
   credential provider for this. The app hands over **everything** (FIDO CXF JSON), straight to the Rust
   side, never to the page, held in memory only and wiped after reading (the copies Android and the
   bridge to Rust make on the way cannot be wiped; nothing is written to a file or logged). The core adds every item as a
-  **new entry** (nothing is changed, merged or replaced) in a group *Imported from <app> <date>*, shown
-  under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
+  **new entry** (nothing is changed, merged or replaced) in the top group with the tag *Imported from
+  <app> <date>* (#335), and the collection it was in as a tag, shown under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
   `KPEX_PASSKEY_*`; a second passkey in one item gets an entry of its own), notes, and other kinds as
   additional attributes (the mapping in `docs/cxp-research.md`). The database is saved and synced as after
   any change, all or nothing. A sheet then says how many entries came in and lists what did not, with the

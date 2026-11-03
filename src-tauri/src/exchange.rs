@@ -19,9 +19,9 @@ use zeroize::Zeroizing;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileImported {
-    /// The file's name, which the group is named after.
+    /// The file's name, which the tag is named after.
     file: String,
-    group: String,
+    tag: String,
     added: usize,
     skipped: Vec<cxf::Skipped>,
     listing: Listing,
@@ -46,7 +46,7 @@ pub(crate) type WaitingFile = file_import::WaitingFile<PathBuf>;
 
 /// Imports a file another password manager exported (#238, see
 /// [file_import]): the user picks it, and everything in it is added as new
-/// entries in the group `Imported from <file> <date>`, saved and synced as
+/// entries with the tag `Imported from <file> <date>`, saved and synced as
 /// one change. `None` when no file was picked; a file only its password opens
 /// waits for it ([ImportStep::Password]).
 #[tauri::command(async)]
@@ -90,19 +90,19 @@ fn add_imported(app: &AppHandle, file: String, path: PathBuf, import: cxf::Impor
     Ok(done)
 }
 
-/// Adds `import`'s entries in a group of their own (`source` names where they
+/// Adds `import`'s entries with a tag of their own (`source` names where they
 /// came from: the file, or the app), saved and synced as one change.
 fn add_entries(app: &AppHandle, source: String, import: cxf::Import) -> Result<FileImported, String> {
-    let group = import.group_name_today();
+    let tag = import.tag_name_today();
     let (added, listing) = app.state::<Session>().with_mut(|v| {
-        let added = v.import(&import, &group)?;
+        let added = v.import(&import, &tag)?;
         Ok((added, v.listing()))
     })?;
     if added > 0 {
         fetch_icons(app, &listing);
         sync::upload_soon(app);
     }
-    Ok(FileImported { file: source, group, added, skipped: import.skipped, listing })
+    Ok(FileImported { file: source, tag, added, skipped: import.skipped, listing })
 }
 
 /// The page opens: no codes read yet (see [gauth::Session]).
