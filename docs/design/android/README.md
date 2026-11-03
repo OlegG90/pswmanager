@@ -16,4 +16,4 @@ only. HTML mockups, not app code: nothing here is built or shipped. Open a file 
 - `PswManager Android.dc.html` — v1, kept for reference.
 
 Where a mockup and `docs/spec-android.md` disagree, the spec wins. Buttons and floating buttons are
-outlined, as Classical asks; the app's `style.css` still fills them (see the audit).
+outlined, as Classical asks.
