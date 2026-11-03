@@ -342,6 +342,7 @@ function refresh() {
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
   $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
+  $('starter-templates').hidden = !sameFilter(filter, TEMPLATES) || listing.entries.some(isTemplate)
   const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
   $('new-entry').textContent = newLabel
   $('new-entry').title = `${newLabel} (Ctrl+N)`
@@ -609,6 +610,9 @@ function renderDetail() {
       values.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
       values.push(row(field.name, field.value, () => copy(field.name, field.name), { actions: opens(field.link, field.name) }))
+    } else if (isTemplate(entry)) {
+      // An empty field is what a template is for: nothing to copy, but it is there.
+      values.push(el('div', { className: 'row' }, el('span', { className: 'label' }, field.name), el('span', { className: 'value' })))
     }
   }
   if (entry.notes) {
@@ -910,6 +914,15 @@ async function deleteForGood(ids?: string[]) {
     const next = await (ids ? api.deleteForGood(ids) : api.emptyTrash())
     several = null
     applyListing(next, 'Deleted permanently')
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
+/** The Templates group's button when the database has none. */
+async function addStarterTemplates() {
+  try {
+    applyListing(await api.addStarterTemplates(), 'Starter templates added')
   } catch (e) {
     notify(String(e))
   }
@@ -1437,6 +1450,7 @@ searchInput.addEventListener('input', () => {
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', afterLeavingEditor(newEntry))
 $('empty-trash').addEventListener('click', afterLeavingEditor(() => deleteForGood()))
+$('starter-templates').addEventListener('click', afterLeavingEditor(addStarterTemplates))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
