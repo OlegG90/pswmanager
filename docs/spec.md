@@ -238,8 +238,8 @@ which shows entries without user tags (the `Favorite` star does not count); then
 | Trash | the deleted entries (the recycle bin) |
 
 - The KDBX groups an entry sits in are not shown or edited any more; entries stay where they are in the
-  file, and new ones go to its top group (new templates to the templates' group), imported ones too. Search runs within the chosen group or
-  tag.
+  file, and new ones go to its top group (new templates to the templates' group), imported ones too.
+  Search runs within the chosen group or tag.
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
   change (tags, the star among them, keep no version in history: see *Entry history*).

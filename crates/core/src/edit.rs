@@ -1190,7 +1190,8 @@ fn tag_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-/// `name` as a tag: what KeePass reads as separators gives way to a space.
+/// `name` as a tag, for names the user did not type ([tag_name] refuses those
+/// that cannot be one): what KeePass reads as separators gives way to a space.
 pub(crate) fn as_tag(name: &str) -> String {
     name.split([',', ';']).map(str::trim).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }

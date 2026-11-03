@@ -282,6 +282,8 @@ pub struct Listing {
     pub custom_icons: BTreeMap<String, String>,
     /// The name, description and default user name the file keeps.
     pub database: DatabaseSettings,
+    /// How many entries are in the groups older imports made ([crate::cxf::tidy]).
+    pub in_import_groups: usize,
 }
 
 /// The settings kept in the database file itself (see [edit::Setting]);
@@ -429,7 +431,8 @@ impl Vault {
                 entry.custom_icon = None;
             }
         }
-        Listing { entries, custom_icons, database: self.settings() }
+        let in_import_groups = crate::cxf::in_import_groups(&self.db, &self.hidden_groups());
+        Listing { entries, custom_icons, database: self.settings(), in_import_groups }
     }
 
     /// The settings kept in the database file, empty where it has none.

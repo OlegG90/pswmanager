@@ -7,7 +7,7 @@ export function gauthAbout(how: string): Node[] {
   return [
     el('p', {}, 'In Google Authenticator: ', el('b', {}, 'Transfer accounts → Export accounts'), ', choose the accounts, and it shows one or more QR codes.'),
     el('p', {}, how),
-    el('p', {}, 'Each account is added as a new entry in a group of their own. The codes are kept in memory only, until they are imported or you leave.'),
+    el('p', {}, 'Each account is added as a new entry with a tag of their own. The codes are kept in memory only, until they are imported or you leave.'),
   ]
 }
 

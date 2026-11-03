@@ -3,7 +3,7 @@
 //! Bitwarden's unencrypted JSON (passkeys included), a CXF JSON file, or an
 //! authenticator's: Aegis' export, plain or encrypted (#282, [crate::aegis]). It
 //! is read into the same [Import] as Android's Credential Transfer, so the
-//! entries are added the same way: new ones, in a group of their own.
+//! entries are added the same way: new ones, with a tag of their own.
 //!
 //! Such a file holds every secret in clear: its content is wiped once read,
 //! and never logged.

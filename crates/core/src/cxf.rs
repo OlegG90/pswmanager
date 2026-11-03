@@ -8,7 +8,7 @@ use crate::edit::{self, passkey, EntryData, FieldData, FAVORITE};
 use crate::otp;
 use base64::Engine;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike};
-use keepass::db::{fields as standard, EntryId, EntryRef, GroupId, Times};
+use keepass::db::{fields as standard, EntryId, EntryRef, GroupId, GroupRef, Times};
 use keepass::Database;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -17,6 +17,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 /// How the tag of an import starts, and the group older imports made.
 const IMPORTED_FROM: &str = "Imported from ";
+/// How that tag or group ends: the day of the import.
 const IMPORT_DATE: &str = "%Y-%m-%d";
 
 /// What an export holds, read and ready to add.
@@ -108,6 +109,34 @@ fn is_import_group(name: &str) -> bool {
     date.is_some_and(|date| NaiveDate::parse_from_str(date, IMPORT_DATE).is_ok())
 }
 
+/// The groups [tidy] empties, with their names: those older imports made at the
+/// top of the file. One holding the recycle bin or the templates stays, as they
+/// are never taken along.
+fn import_groups(db: &Database, hidden: &HashSet<GroupId>) -> Vec<(GroupId, String)> {
+    db.root()
+        .groups()
+        .filter(|g| is_import_group(&g.name) && !hidden.iter().any(|h| edit::ancestors(db, *h).contains(&g.id())))
+        .map(|g| (g.id(), g.name.clone()))
+        .collect()
+}
+
+/// The entries in `group` and the groups below it, each with its folder below
+/// `group` (`folder` being the group's own). Walks only that part of the file,
+/// as the list asks for the count at every change ([in_import_groups]).
+fn entries_below(group: GroupRef<'_>, folder: &str) -> Vec<(EntryId, String)> {
+    let mut found: Vec<(EntryId, String)> = group.entries().map(|e| (e.id(), folder.to_string())).collect();
+    for below in group.groups() {
+        let path = if folder.is_empty() { below.name.clone() } else { format!("{folder}/{}", below.name) };
+        found.extend(entries_below(below, &path));
+    }
+    found
+}
+
+/// How many entries [tidy] would move: the tool is offered only when some would.
+pub fn in_import_groups(db: &Database, hidden: &HashSet<GroupId>) -> usize {
+    import_groups(db, hidden).iter().filter_map(|(group, _)| db.group(*group)).map(|group| entries_below(group, "").len()).sum()
+}
+
 /// Puts the entries of the groups older imports made in the top group, tagged
 /// as [add] tags them, and the emptied groups in the recycle bin (where they
 /// stay, when the database turned its bin off). Other groups stay: their
@@ -115,18 +144,9 @@ fn is_import_group(name: &str) -> bool {
 /// many entries moved.
 pub fn tidy(db: &mut Database, hidden: &HashSet<GroupId>) -> Result<usize, String> {
     let root = db.root().id();
-    let groups: Vec<(GroupId, String)> = db.root().groups().filter(|g| is_import_group(&g.name)).map(|g| (g.id(), g.name.clone())).collect();
     let mut moved = 0;
-    for (group, name) in groups {
-        // The recycle bin or the templates are never taken along.
-        if hidden.iter().any(|h| edit::ancestors(db, *h).contains(&group)) {
-            continue;
-        }
-        let inside: Vec<(EntryId, String)> = db
-            .iter_all_entries()
-            .filter(|e| edit::ancestors(db, e.parent().id()).contains(&group))
-            .map(|e| (e.id(), edit::path_of(db, e.parent().id())[1..].join("/")))
-            .collect();
+    for (group, name) in import_groups(db, hidden) {
+        let inside = db.group(group).map_or_else(Vec::new, |group| entries_below(group, ""));
         moved += inside.len();
         for (id, folder) in inside {
             edit::retag(db, id, |tags| {
@@ -1084,6 +1104,7 @@ mod tests {
         entry_at(&mut db, &["Imported from memories"], "Three");
         entry_at(&mut db, &["Team", GROUP], "Four");
         let hidden = edit::hidden_groups(&db);
+        assert_eq!(in_import_groups(&db, &hidden), 2);
         assert_eq!(tidy(&mut db, &hidden).unwrap(), 2);
 
         let root = db.root().id();
@@ -1126,6 +1147,7 @@ mod tests {
         let templates = entry(&db, "Template").parent().id();
         db.meta.entry_templates_group = Some(templates.uuid());
         let hidden = edit::hidden_groups(&db);
+        assert_eq!(in_import_groups(&db, &hidden), 0);
         assert_eq!(tidy(&mut db, &hidden).unwrap(), 0);
         assert_eq!(entry(&db, "Template").parent().id(), templates);
     }

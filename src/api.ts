@@ -204,6 +204,8 @@ export interface Listing {
   entries: Entry[]
   customIcons: Record<string, string>
   database: DatabaseSettings
+  /** How many entries are in the groups older imports made (#335). */
+  inImportGroups: number
 }
 
 /** An entry's icon as the editor chooses it. */
@@ -593,6 +595,7 @@ export const api = {
   deleteForGood: (ids: string[]) => invoke<Listing>('delete_for_good', { ids }),
   /** Removes everything in the trash for good. */
   emptyTrash: () => invoke<Listing>('empty_trash'),
+  /** Moves the entries of the groups older imports made to the top group, with tags. */
   tidyImported: () => invoke<Listing>('tidy_imported'),
   /** Gives the entries the tag or takes it off; the star is the tag Favorite. */
   setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),

@@ -10,7 +10,7 @@ import { ALL, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH,
 import { GROUP_ICONS, iconAction, shownIcon } from '../../../../src/icons'
 import { tagInput } from '../../../../src/tag-input'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, siteChoice, similarSites, type Site } from '../../../../src/similar-parts'
-import { fileImportAbout, inImportGroups, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
+import { fileImportAbout, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
@@ -917,7 +917,6 @@ function settingsPeek(back: () => void): Sliding {
 
 /** Tools (#183): the commands that work on the whole database, from the toolbar's wrench. */
 function toolsSheet(listing: Listing) {
-  const inGroups = inImportGroups(listing.entries)
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
@@ -926,10 +925,10 @@ function toolsSheet(listing: Listing) {
     button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
     // Only while entries are in a group an older import made (#335).
-    ...(inGroups
+    ...(listing.inImportGroups
       ? [button(TIDY_LABEL, TIDY_HINT, () => {
           close()
-          confirmSheet(tidyQuestion(inGroups), 'Tidy up', () =>
+          confirmSheet(tidyQuestion(listing.inImportGroups), 'Tidy up', () =>
             void api.tidyImported().then((next) => (listScreen(next), snack('Imported folders tidied up')), (e) => snack(String(e))))
         }, 'item')]
       : []),

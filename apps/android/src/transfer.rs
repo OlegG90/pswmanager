@@ -1,7 +1,7 @@
 //! Importing from another password manager on this phone (#152) through
 //! `TransferPlugin.kt` (Android's Credential Transfer): the export comes
 //! straight here, never to the page, and the core reads it into new entries
-//! ([pswm_core::cxf]) in a group of their own. And offering the database for
+//! ([pswm_core::cxf]) with a tag of their own. And offering the database for
 //! export to them (#153): the export itself is `ExportActivity.kt`'s, through
 //! `provider.rs`, as Android starts it outside the app's window.
 

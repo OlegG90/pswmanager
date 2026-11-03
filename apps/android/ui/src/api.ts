@@ -26,6 +26,8 @@ export interface Listing {
   /** The database's own icons, as `data:` URLs. */
   customIcons: Record<string, string>
   database: { defaultUsername: string }
+  /** How many entries are in the groups older imports made (#335). */
+  inImportGroups: number
 }
 
 /** Something an import could not bring over. */
@@ -272,6 +274,7 @@ export const api = {
   deleteForGood: (id: string) => invoke<Listing>('delete_for_good', { id }),
   /** Removes everything in the recycle bin for good. */
   emptyTrash: () => invoke<Listing>('empty_trash'),
+  /** Moves the entries of the groups older imports made to the top group, with tags. */
   tidyImported: () => invoke<Listing>('tidy_imported'),
   /** Gives entries a tag or takes it off (the star is the tag Favorite). */
   setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),

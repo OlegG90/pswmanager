@@ -3,18 +3,11 @@ import { el } from './dom'
 /** What both apps' *Import from a file* says alike (docs/spec.md, *Import
  *  from a file*); each asks and answers in its own way. */
 
-/** Before the file is picked: the formats, where the entries go, and that
- *  the file is best deleted. */
 /** What an import brought, in a sentence (without the full stop). */
 export const importedMessage = (added: number, tag: string) =>
   added ? `${added} ${added === 1 ? 'entry' : 'entries'} imported, tagged “${tag}”` : 'Nothing was imported'
 
-const IMPORT_GROUP = /^Imported from .+ \d{4}-\d{2}-\d{2}$/
-
-/** How many entries are in a group an older import made (#335): the tool to
- *  tidy them up is offered only then. */
-export const inImportGroups = (entries: { group: string[] }[]) => entries.filter((e) => IMPORT_GROUP.test(e.group[0] ?? '')).length
-
+/** The tool that tidies up the groups older imports made (#335), as both apps name it. */
 export const TIDY_LABEL = 'Tidy up imported folders'
 export const TIDY_HINT = 'Move the entries of older imports out of their folders, keeping the folders as tags'
 
@@ -30,6 +23,8 @@ export function skippedList(skipped: { title: string; why: string }[]): Node[] {
     : []
 }
 
+/** Before the file is picked: the formats, where the entries go, and that
+ *  the file is best deleted. */
 export function fileImportAbout(): Node[] {
   return [
     el('p', {}, 'Choose a file another password manager exported:'),
