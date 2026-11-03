@@ -610,6 +610,9 @@ function renderDetail() {
       values.push(secretRow(labelOf(field.name), field.name))
     } else if (field.value) {
       values.push(row(field.name, field.value, () => copy(field.name, field.name), { actions: opens(field.link, field.name) }))
+    } else if (isTemplate(entry)) {
+      // An empty field is what a template is for: nothing to copy, but it is there.
+      values.push(el('div', { className: 'row' }, el('span', { className: 'label' }, field.name), el('span', { className: 'value' })))
     }
   }
   if (entry.notes) {

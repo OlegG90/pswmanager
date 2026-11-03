@@ -248,7 +248,8 @@ As in the mockups `1e`–`1j`.
   *Templates*) without the search, as on Windows. Delete moves an entry to the recycle bin after a
   confirmation.
 - **Templates**: as on Windows (`spec.md` *Groups and tags*, *Templates*). The drawer's *Templates*
-  lists the database's templates (KeePass's templates group); one opens as any entry, without the star,
+  lists the database's templates (KeePass's templates group); one opens as any entry, its empty fields
+  listed too, without the star,
   with the pencil (*Edit template*: no favorite and no files, as a template's files are not changed) and
   ⋮ with *Delete* (to the recycle bin; restored, it goes back among the templates), and **New entry from
   it** under its lines. **+** asks, in a sheet, for a **Blank entry** or one of the templates when the

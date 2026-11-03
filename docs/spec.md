@@ -275,7 +275,8 @@ which shows entries without user tags (the `Favorite` star does not count); then
   (Full name, Document number, Issued by, Issue date, Expiry date), **Email account** (IMAP server, SMTP
   server) and **Wi-Fi** (Network name, Security), their fields empty, each with its standard icon. An existing
   database never gains them by itself, as other clients share the file: while it has no templates (those in the
-  trash do not count), the Templates group offers **Add starter templates**.
+  trash do not count), the Templates group offers **Add starter templates**. A template's own view lists its
+  empty fields too, which an entry's view leaves out.
 
 ### Entry history
 

@@ -1836,6 +1836,8 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
     const label = labelOf(field.name)
     if (field.protected) rows.push(secretLine(id, label, field.name, version))
     else if (field.value) rows.push(line(label, field.value, copy(field.name), field.link ? opens(field.name) : []))
+    // An empty field is what a template is for: nothing to copy, but it is there.
+    else if (entry.kind === 'template') rows.push(line(label, '', null))
   }
   if (entry.notes) rows.push(el('div', { className: 'line notes' }, el('span', {}, el('small', {}, 'Notes'), el('span', {}, entry.notes))))
   if (entry.attachments.length) {
