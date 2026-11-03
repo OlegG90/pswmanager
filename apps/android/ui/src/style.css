@@ -567,6 +567,7 @@ button.fab[hidden] {
 }
 
 button.tag-offer {
+  min-height: 44px;
   border-radius: 4px;
   padding: 4px 12px;
 }
@@ -589,7 +590,7 @@ button.tabs-more {
   position: absolute;
   top: 8px;
   bottom: 1px;
-  padding: 0 6px;
+  padding: 0 10px;
   background: var(--color-bg);
   color: var(--color-accent-700);
 }
@@ -868,7 +869,9 @@ button.chip[aria-pressed="true"] {
 
 .tag-input .tag button {
   border: 0;
-  padding: 0 8px;
+  /* A bigger target than the tag it sits in, whose height stays. */
+  margin: -10px 0;
+  padding: 10px 8px;
   color: var(--color-text);
 }
 
@@ -1126,6 +1129,12 @@ button:active:not(:disabled) {
 }
 
 :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Its input draws no outline of its own: the whole box stands for the field. */
+.tag-input:focus-within {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
