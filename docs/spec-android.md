@@ -115,7 +115,8 @@ The screens in the mockups `1a`–`1d`:
    Keepass2Android, which opens it there with full access) must be there.
 3. **Where to keep it on this phone:** the folder for the visible copy (see above) and the file name; the
    file is downloaded, and sync is on from the start.
-4. **Unlock** with the master password, an **eye** beside it to show what was typed, and/or the key file (picked with the file picker, permission kept).
+4. **Unlock** with the master password, an **eye** beside it to show what was typed, and/or the key file
+   (picked with the file picker, permission kept).
 5. With the *Unlock with fingerprint* setting on (the default), that unlock sets up **biometric unlock** (from stage A3).
 
 A local file skips steps 2–3.
