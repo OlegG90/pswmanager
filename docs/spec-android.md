@@ -420,7 +420,7 @@ row, as the phone shows autofill).
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.
-- **Unlocked:** each entry for who asks is offered by its title and user name only, at most 10 (all the
+- **Unlocked:** each entry for who asks that has a password (an expired one too) is offered by its title and user name only, at most 10 (all the
   offers go to Android in one call of limited size; the rest found through *More entries in PswManager…*, below). Its values leave the
   database once it is picked: the entry is checked again to be for who asks, and an app's entry that keeps
   no certificate for it asks *Trust this app?* first (and keeps it then). The phone's screen lock or
