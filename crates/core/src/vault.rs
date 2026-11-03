@@ -328,7 +328,7 @@ impl Vault {
         Ok(Vault { db, file: Some(file), unsaved: false })
     }
 
-    /// Creates a new, empty database at `path` (never over a file already
+    /// Creates a new database, holding only the starter templates, at `path` (never over a file already
     /// there): KDBX 4 with AES-256 and Argon2id, as KeePassXC makes them, the
     /// recycle bin on, the root group named `name`.
     pub fn create(path: &Path, name: &str, password: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {

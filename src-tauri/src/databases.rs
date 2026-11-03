@@ -330,7 +330,7 @@ pub fn enter_other_key(app: AppHandle, password: String, key_file: Option<String
     })
 }
 
-/// Creates a new, empty database at `file` and adds it to the list as the
+/// Creates a new database, holding only the starter templates, at `file` and adds it to the list as the
 /// current one.
 #[tauri::command(async)]
 pub fn create_database(app: AppHandle, file: String, password: String, key_file: Option<String>) -> Result<Status, String> {
