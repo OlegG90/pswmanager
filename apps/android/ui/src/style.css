@@ -98,6 +98,7 @@ button {
   background: transparent;
   border: 1px solid var(--color-accent);
   border-radius: 4px;
+  min-height: 44px;
   padding: 10px 16px;
 }
 
@@ -416,7 +417,6 @@ main.list-screen {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 44px;
   border: 0;
   border-radius: 4px;
   padding: 6px 10px;
@@ -557,7 +557,6 @@ button.fab[hidden] {
 }
 
 button.tag-offer {
-  min-height: 44px;
   border-radius: 16px;
   padding: 4px 12px;
 }
@@ -741,7 +740,6 @@ input.secret {
 
 button.chip {
   align-self: flex-start;
-  min-height: 44px;
   padding: 8px 12px;
   border-color: var(--color-neutral-300);
   color: var(--color-text);
@@ -860,7 +858,7 @@ button.chip[aria-pressed="true"] {
   border: 0;
   /* A bigger target than the tag it sits in, whose height stays. */
   margin: -10px 0;
-  padding: 10px 8px;
+  padding: 0 8px;
   color: var(--color-text);
 }
 
@@ -1108,27 +1106,20 @@ button.wide[hidden] {
 
 /* A tap shows: the system's highlight is off (body). Last, to win over the
    buttons' own backgrounds; what is filled keeps its fill. */
-button:active:not(:disabled) {
-  background: var(--color-accent-100);
-}
-
 button.primary:active:not(:disabled),
 button.fab:active:not(:disabled) {
   background: var(--color-accent);
   opacity: 0.8;
 }
 
+button:active:not(:disabled),
 .entries li:not(.empty):active,
 .status:active {
   background: var(--color-accent-100);
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-/* Its input draws no outline of its own: the whole box stands for the field. */
+/* The tag field's input draws no outline of its own: the whole box stands for the field. */
+:focus-visible,
 .tag-input:focus-within {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
