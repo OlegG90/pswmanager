@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/styles.css">
+<script src="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-bg);font-family:var(--font-body);color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.88em;background:var(--color-neutral-200);padding:1px 4px;border-radius:3px}
+</style>
+</helmet>
+<div style="max-width:960px;margin:0 auto;padding:56px 24px 96px;display:flex;flex-direction:column;gap:40px;font-size:15px;line-height:1.55">
+
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700)">PswManager · Android · аудит UI · 3 листопада 2026</div>
+    <h1 style="margin:0;font-family:var(--font-heading);font-weight:400;font-size:48px;line-height:1.05">Узгодженість мокапів з кодом і специфікацією</h1>
+    <p style="margin:0;color:var(--color-neutral-800);max-width:720px;text-wrap:pretty">Порівняно три джерела: мокапи <a href="PswManager%20Android.dc.html">PswManager Android.dc.html</a> (1a–1j), код застосунку <code>apps/android/ui/src</code> (<code>main.ts</code>, <code>style.css</code>, <code>icons.ts</code>, <code>screens.ts</code>) та <code>docs/spec-android.md</code> на <code>main@442b9e4</code>. Спека каже: «де мокапи й спека розходяться, перемагає спека».</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+    <div style="padding:16px 0;display:flex;flex-direction:column"><span style="font-family:var(--font-heading);font-size:44px;line-height:1;font-feature-settings:'tnum'">9</span><span style="font-size:13px;color:var(--color-neutral-700)">Структурні розбіжності зі спекою/кодом</span></div>
+    <div style="padding:16px 0;display:flex;flex-direction:column"><span style="font-family:var(--font-heading);font-size:44px;line-height:1;font-feature-settings:'tnum'">7</span><span style="font-size:13px;color:var(--color-neutral-700)">Розбіжності візуальної системи</span></div>
+    <div style="padding:16px 0;display:flex;flex-direction:column"><span style="font-family:var(--font-heading);font-size:44px;line-height:1;font-feature-settings:'tnum'">7</span><span style="font-size:13px;color:var(--color-neutral-700)">Внутрішні неузгодженості мокапів</span></div>
+    <div style="padding:16px 0;display:flex;flex-direction:column"><span style="font-family:var(--font-heading);font-size:44px;line-height:1;font-feature-settings:'tnum'">2</span><span style="font-family:var(--font-body);font-size:13px;color:var(--color-neutral-700)">Суперечності всередині спеки</span></div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:28px">Головне</h2>
+    <p style="margin:0;max-width:760px;text-align:justify">Мокапи робились до появи коду і тепер відстають: список, шухляда, розблокування та налаштування в застосунку влаштовані інакше. Друга велика тема — застосунок не використовує Classical: заповнені акцентом кнопки та FAB, лише 7 токенів кольору замість рамп. Системний шрифт — свідоме рішення проєкту, тож тут мокапи мають іти за кодом. Тож мокапи й застосунок розходяться і за структурою, і за стилем. Треба вирішити, хто джерело істини для вигляду, і далі приводити до нього інше.</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    <h2 style="margin:0 0 4px;font-family:var(--font-heading);font-weight:500;font-size:28px">1 · Структура й поведінка: мокап ↔ спека ↔ код</h2>
+    <p style="margin:0 0 12px;font-size:13px;color:var(--color-neutral-700)">Тут перемагає спека, тож виправляти треба мокапи.</p>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1e" style="font-size:12px;font-weight:600">1e</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid #9b3b2a;color:#9b3b2a;border-radius:3px">критично</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Список: тулбар, пошук і FAB влаштовані інакше</span>
+        <span><b style="font-weight:600">Макет:</b> ☰ + постійне поле пошуку в тулбарі; один FAB «+»; рядок статусу вгорі під заголовком «All 148».</span>
+        <span><b style="font-weight:600">Код/спека:</b> тулбар <code>☰ · назва групи · Sync now · Tools · Settings · Lock</code> (<code>main.ts:494–503</code>); пошук — це FAB, який підміняє тулбар полем і стрілкою ← (<code>:512–519</code>); два FAB (пошук над «+»); статус — <code>&lt;footer class="status"&gt;</code> унизу, прокручуються тільки записи.</span>
+        <span style="color:var(--color-accent-800)">→ Перемалювати 1e за спекою; додати стан «пошук відкрито» і стан «вибрано кілька» (довге натискання, панель з copy / tag / bin, #175).</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1f" style="font-size:12px;font-weight:600">1f</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid #9b3b2a;color:#9b3b2a;border-radius:3px">критично</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Шухляда: зайві Settings/Lock, немає Untagged і версії</span>
+        <span><b style="font-weight:600">Макет:</b> Settings і Lock внизу шухляди; теги з іконкою tag; немає «Untagged».</span>
+        <span><b style="font-weight:600">Код/спека:</b> Settings і Lock — у тулбарі списку; після груп іде «Untagged» (<code>main.ts:800</code>); теги як <code>#dev</code> (<code>.drawer button.tag span::before</code>); внизу під лінією «Version x.y.z» (<code>:802</code>). Заголовки секцій — 12px bold accent з лінією зверху.</span>
+        <span>Також у макеті при 7 групах і 7 тегах вміст не вміщається у 832 dp і обрізається (<code>overflow:hidden</code>) — шухляда має прокручуватись.</span>
+        <span style="color:var(--color-accent-800)">→ Прибрати Settings/Lock, додати Untagged, #-теги, версію внизу, показати прокрутку.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1a" style="font-size:12px;font-weight:600">1a</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Онбординг: бракує OneDrive, Google Drive і «Create a new database»</span>
+        <span><b style="font-weight:600">Макет:</b> радіо-вибір з двох варіантів (Dropbox, локальний файл) і окрема кнопка дії.</span>
+        <span><b style="font-weight:600">Код/спека:</b> список карток <code>button.card</code>, одна на сховище (<code>CLOUDS.map</code>), плюс локальний файл і «Create a new database» (#146) з власним екраном «New database»; натискання на картку одразу веде далі, окремої кнопки немає.</span>
+        <span style="color:var(--color-accent-800)">→ Замінити радіо на картки з дією, додати три сховища і створення бази; домалювати екран «New database» (ім'я, пароль двічі, правила #224, «Where it lives»).</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1d" style="font-size:12px;font-weight:600">1d</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Розблокування: немає кнопки відбитка, інша назва для зміни бази</span>
+        <span><b style="font-weight:600">Макет:</b> посилання «Switch» у рядку з файлом; око в полі пароля; кнопки відбитка немає.</span>
+        <span><b style="font-weight:600">Код/спека:</b> <code>button.fingerprint</code> (32px) поруч із полем у <code>.together</code>, показується, коли ключ запечатано; «Use another database…» — посилання внизу, і воно розлогінює сховище (<code>main.ts:340, 365, 369</code>). Ока в полі пароля в коді немає.</span>
+        <span style="color:var(--color-accent-800)">→ Додати стан із відбитком, перейменувати «Switch» на «Use another database…» і перенести вниз. Для ока: вирішити, чи додавати його в код, чи прибрати з макета.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1j" style="font-size:12px;font-weight:600">1j</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Налаштування: склад і назви не збігаються з кодом</span>
+        <span><b style="font-weight:600">General у коді</b> (<code>main.ts:1733–1745</code>): Locking (<i>In the background</i> — вибір At once/30 s/1 min/5 min/Never, за замовчуванням 30 s; <i>When the screen turns off</i>; <i>Without a touch</i>), Unlock (<i>Unlock with fingerprint</i>, <i>Master password</i> кожні N днів), Autofill, Screen (<i>Allow screenshots</i>), Clipboard (<i>Clear after copying</i>). У макеті блокування у фоні — перемикач, а не вибір; немає Unlock, Autofill і Screen; назви інші («Lock after inactivity» замість «Without a touch»).</span>
+        <span><b style="font-weight:600">Appearance:</b> бракує «Swipes on the list»; тема — «As the phone», а не «As the system».</span>
+        <span><b style="font-weight:600">Database:</b> у спеці першим іде блок «Master password and key file», а в Encryption є «Test».</span>
+        <span><b style="font-weight:600">Backup:</b> поза рамками (спека, *Out of scope*) — позначити в макеті як пізній етап.</span>
+        <span><b style="font-weight:600">About:</b> бракує посилання на GitHub; версію 1.0.0 я вигадав.</span>
+        <span><b style="font-weight:600">Таби:</b> у коді, коли таби не вміщаються, з'являються стрілки <code>button.tabs-more</code>; у макеті шість табів по 17px виходять за 384 dp без жодного індикатора.</span>
+        <span style="color:var(--color-accent-800)">→ Переписати вміст табів за <code>main.ts</code>, підписи брати дослівно; додати стрілку переповнення.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1h" style="font-size:12px;font-weight:600">1h</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Синхронізація — це панель знизу, а не окремий екран</span>
+        <span><b style="font-weight:600">Макет:</b> повноекранна сторінка зі стрілкою назад.</span>
+        <span><b style="font-weight:600">Код/спека:</b> «Sync sheet» — <code>.sheet .panel</code> знизу із заокругленням 12px (<code>main.ts:744–768</code>); у станах помилки на ній «Sign in» або «Enter the new key…»; без підключеного сховища «Sync now» не показується.</span>
+        <span style="color:var(--color-accent-800)">→ Перемалювати як нижню панель поверх списку і додати варіанти для помилки входу та зміни ключу.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1g" style="font-size:12px;font-weight:600">1g</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-neutral-500);color:var(--color-neutral-700);border-radius:3px">дрібниця</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Запис: у вкладень немає іконки «save»</span>
+        <span>Спека: в рядку вкладення дві іконки, <b style="font-weight:600">open</b> і <b style="font-weight:600">save</b>. У макеті лише текстове «Open», хоча в інших рядках дії позначені іконками. В іншому 1g збігається з кодом (зірка, олівець, ⋮, copy / eye / external-link, snackbar).</span>
+        <span style="color:var(--color-accent-800)">→ Замінити «Open» на дві іконки, як в інших рядках.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><a href="PswManager%20Android.dc.html#1i" style="font-size:12px;font-weight:600">1i</a><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Рядок статусу: верх чи низ</span>
+        <span>1i підписаний «top of the list». Код ставить статус унизу, у <code>footer</code>; якщо проблема — додає клас <code>.problem</code>, і весь рядок стає кольору помилки. Окремої дії в рядку («Sign in», «Details») у коді немає: натискання відкриває панель синхронізації.</span>
+        <span style="color:var(--color-accent-800)">→ Перенести статус униз, прибрати дії з рядка (вони живуть на панелі), прибрати «All 148» з кожного стану.</span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 16px;padding:16px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12px;font-weight:600;color:var(--color-neutral-700)">—</span><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">важливо</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font-family:var(--font-heading);font-weight:600;font-size:19px">Екрани зі спеки, яких немає в мокапах</span>
+        <span>Редактор (A2, з генератором, тегами-чипами, полями та файлами), History, Trash, панель Tools, Find similar, імпорт/експорт, «New key», вибір шаблону через «+», екран сканування QR. Код для більшості вже є.</span>
+        <span style="color:var(--color-accent-800)">→ Наступним кроком додати хоча б редактор, Tools і Trash.</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    <h2 style="margin:0 0 4px;font-family:var(--font-heading);font-weight:500;font-size:28px">2 · Візуальна система: Classical ↔ <code style="font-size:.7em">style.css</code></h2>
+    <p style="margin:0 0 12px;font-size:13px;color:var(--color-neutral-700)">Тут питання до коду. Мокапи йдуть за дизайн-системою, застосунок — ні.</p>
+    <div style="display:grid;grid-template-columns:minmax(140px,200px) minmax(0,1fr) minmax(0,1fr);border-top:1px solid var(--color-divider);font-size:14px">
+      <div style="padding:8px 12px 8px 0;font-size:12px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">Що</div>
+      <div style="padding:8px 12px;font-size:12px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">Мокап / Classical</div>
+      <div style="padding:8px 0 8px 12px;font-size:12px;color:var(--color-neutral-700);border-bottom:1px solid var(--color-divider)">Код застосунку</div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Шрифти</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Cormorant Garamond для заголовків, Lora для тексту</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:6px"><span><code>font: 16px/1.5 system-ui, sans-serif</code>; h1 26px, h2 14px uppercase</span><span style="align-self:flex-start;font-size:11px;padding:1px 6px;border:1px solid var(--color-accent);color:var(--color-accent-800);border-radius:3px">вирішено: правильно в коді</span><span style="font-size:13px;color:var(--color-neutral-800)">Шрифти до застосунку не додаються, беруться системні. Отже, змінювати треба мокапи: <code>system-ui</code> (Roboto / One UI Sans на S24 Ultra) і <code>ui-monospace</code> замість Cormorant, Lora та Consolas. Це свідомий відступ від Classical.</span></div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Основна кнопка</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Контур 1px акцентом, прозора («never a fill»)</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)"><code>button.primary</code> заповнена акцентом, текст кольору фону</div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">FAB</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">58px, радіус 4px, контур, <code>--shadow-md</code></div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)">56px, радіус 16px, заливка акцентом, <code>0 4px 12px rgb(0 0 0/25%)</code></div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Токени кольору</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Повні рампи 100–900 (neutral-400/500/600/800, accent-200/700/800…)</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)">7 змінних: bg, surface, text, neutral-300/700, accent, accent-100, error. При цьому <code>.drawer .version</code> бере неоголошений <code>--color-neutral-500</code></div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Акцентний текст</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Для тексту — <code>accent-700</code>; сам accent (#b68235) дає ~3:1 і годиться лише для іконок і великого тексту</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)">Кнопки, обраний таб, заголовки шухляди, <code>.master-rules li.met</code> мають колір <code>--color-accent</code> — контраст тексту &lt; 4.5:1 у світлій темі</div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Чипи тегів</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Радіус 4px, accent-100 / accent-800</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)">Пігулка 999px, колір тексту за замовчуванням</div>
+
+      <div style="padding:10px 12px 10px 0;border-bottom:1px solid var(--color-divider)">Контроли</div>
+      <div style="padding:10px 12px;border-bottom:1px solid var(--color-divider)">Свій перемикач; рядок «значення ›»; поле з рамкою neutral-400 на тлі сторінки</div>
+      <div style="padding:10px 0 10px 12px;border-bottom:1px solid var(--color-divider)">Нативні <code>checkbox</code> (22px, <code>accent-color</code>) і <code>select.field</code>; поле на <code>--color-surface</code> (білому) з рамкою neutral-300</div>
+    </div>
+    <p style="margin:12px 0 0;max-width:760px;text-align:justify">Іконки: у коді власні контури (<code>icons.ts</code>, товщина 1.8), у мокапах Lucide 1.6. Набори близькі, але меню, back і more намальовані інакше. Розрізняються також моноширинні шрифти: Consolas є в мокапі, але не на Android; у коді <code>ui-monospace</code>.</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    <h2 style="margin:0 0 12px;font-family:var(--font-heading);font-weight:500;font-size:28px">3 · Цілісність самих мокапів</h2>
+    <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">1</span><span><b style="font-weight:600">Висота верхньої панелі «←»</b> різна: 64px на 1b і 1c, 60px на 1g, 1h і 1j. Слід вибрати одну (Android — 64dp).</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">2</span><span><b style="font-weight:600">Два стилі другорядної дії.</b> Текстові посилання шрифтом заголовків («Change», «Switch», «Use a key file…», «Open», «History (4)») і обведені кнопки в налаштуваннях («Change…», «Disconnect»). Одна й та сама дія «Change» на 1c — текст, а в 1j — рамка.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">3</span><span><b style="font-weight:600">Зони натискання менші за 48dp:</b> «Switch» (≈36px), «Use a key file…», «Open» у вкладенні, «History (4)», перемикачі 40×24, якщо натискається не весь рядок, таби (~44px). Іконки 44×44 трохи менші за 48dp, рекомендовані Material.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">4</span><span><b style="font-weight:600">Заголовки сторінок без ритму:</b> h1 38px (1a), 32px (1c), 40px (1d), назва запису 32px, підсумок синхронізації 38px. Підпис секції — то 11px uppercase-кікер, то 12px. Варто звести до двох розмірів.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">5</span><span><b style="font-weight:600">Інтерактивність нерівна:</b> на 1j клікаються лише таби; перемикачі, рядки й кнопки нерухомі, а ззовні виглядають так само. Або підписати «тапніть таб», або зробити живими й перемикачі.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">6</span><span><b style="font-weight:600">Темна тема</b> в мокапі задає 21 токен, а в <code>style.css</code> їх 9. Значення збігаються, але neutral-400…800 і accent-200…800 є тільки в мокапі. Якщо код переходить на Classical, ці значення треба перенести в <code>:root[data-theme="dark"]</code> і в media-запит.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700);font-feature-settings:'tnum'">7</span><span><b style="font-weight:600">Дані:</b> у 1e є «Linear», якого немає в даних десктопного прототипу, хоча заголовок сторінки каже, що дані спільні. Лічильники груп (All 148, 2FA 9) з самими записами не звіряються — для макета це нормально.</span></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    <h2 style="margin:0 0 12px;font-family:var(--font-heading);font-weight:500;font-size:28px">4 · Суперечності в <code style="font-size:.7em">spec-android.md</code></h2>
+    <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+      <div style="padding:12px 0;border-bottom:1px solid var(--color-divider)"><b style="font-weight:600">Положення статусу.</b> У *Screens → List*: «The sync status line stays at the bottom»; у *Synchronisation*: «Status line (top of the list)». Код — унизу. Варто виправити формулювання в *Synchronisation*.</div>
+      <div style="padding:12px 0;border-bottom:1px solid var(--color-divider)"><b style="font-weight:600">Посилання на мокапи.</b> *First run* посилається на «1a–1d», хоча 1d — це розблокування, а не крок онбордингу; *Screens* — на «1e–1j». Після перемалювання номери зсунуться, тож краще посилатися на назви екранів. Крім того, <code>docs/design/android/README.md</code> називає мокапи статичними, а там уже живі таби й перемикач теми.</div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <h2 style="margin:0;font-family:var(--font-heading);font-weight:500;font-size:28px">Пропонований порядок</h2>
+    <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider)">
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700)">1</span><span><b style="font-weight:600">Рішення про стиль.</b> Шрифти вирішено: лише системні, і мокапи переходять на <code>system-ui</code> / <code>ui-monospace</code>. Лишається вирішити, чи брати з Classical кнопки й FAB з контуром і рампи токенів, чи повторювати в мокапах поточний <code>style.css</code> із заливкою.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700)">2</span><span><b style="font-weight:600">Мокапи v2</b> (окремим файлом, v1 лишається): 1e, 1f, 1h, 1i, 1j — за кодом; 1a з картками і «New database»; 1d з відбитком. Плюс уніфікація з розділу 3.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700)">3</span><span><b style="font-weight:600">Нові екрани:</b> редактор, Tools, Trash, History, режим вибору кількох записів.</span></div>
+      <div style="display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)"><span style="color:var(--color-accent-700)">4</span><span><b style="font-weight:600">Код:</b> оголосити <code>--color-neutral-500</code>; для акцентного тексту брати глибший тон (контраст).</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
