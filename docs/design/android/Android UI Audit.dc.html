@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/styles.css">
+<script src="../_ds/classical-4c27952a-4ebe-4357-b464-054af75ac40a/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-bg);font-family:system-ui,sans-serif;color:var(--color-text)}
+a{color:var(--color-accent-700)}a:hover{color:var(--color-accent-800)}
+code{font-family:ui-monospace,monospace;font-size:.88em;background:var(--color-neutral-200);padding:1px 4px;border-radius:3px}
+main{max-width:960px;margin:0 auto;padding:56px 24px 96px;display:flex;flex-direction:column;gap:40px;font-size:15px;line-height:1.55}
+h1{margin:0;font-weight:400;font-size:44px;line-height:1.05}
+h2{margin:0 0 8px;font-weight:600;font-size:24px}
+p{margin:0 0 8px;max-width:760px}
+.kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:10px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;vertical-align:top;padding:10px 12px 10px 0;border-top:1px solid var(--color-divider)}
+th{font-size:12px;font-weight:600;color:var(--color-neutral-700)}
+td:first-child{white-space:nowrap}
+</style>
+</helmet>
+<main>
+
+  <div>
+    <div class="kicker">PswManager · Android · UI audit · 3 November 2026</div>
+    <h1>Mockups, code and spec</h1>
+    <p style="margin-top:12px">Compares the v1 mockups (<a href="PswManager%20Android.dc.html">PswManager Android.dc.html</a>), the app (<code>apps/android/ui/src</code>) and <code>docs/spec-android.md</code> at version 0.20.0, and records what was decided. Where a mockup and the spec disagree, the spec wins.</p>
+  </div>
+
+  <section>
+    <h2>1 · Structure: where v1 differed, and what v2 shows</h2>
+    <p>The v1 mockups came before the code and fell behind it. <a href="PswManager%20Android%20v2.dc.html">v2</a> follows the code on all of these.</p>
+    <table>
+      <tr><th>Screen</th><th>v1</th><th>Code and spec, and so v2</th></tr>
+      <tr><td>List</td><td>Search field always in the toolbar, one floating button, status on top</td><td>Toolbar with the group's name, Sync now, Tools, Settings and Lock; search is a floating button above +; status at the bottom. v2 adds search open and entries chosen (#175)</td></tr>
+      <tr><td>Drawer</td><td>Settings and Lock at the foot, no Untagged, did not fit the screen</td><td>Those two are in the list's toolbar; Untagged after the groups; tags as <code>#tag</code>; the version at the foot; it scrolls</td></tr>
+      <tr><td>First run</td><td>Radio choice of two sources and a separate button</td><td>One card per store, a local file, and Create a new database with its own screen (#146, #224)</td></tr>
+      <tr><td>Unlock</td><td>A Switch link, an eye in the field, no fingerprint</td><td>The fingerprint button beside the field; Use another database… at the foot</td></tr>
+      <tr><td>Settings</td><td>Six tabs running off the screen, other names and rows</td><td>Five tabs with arrows, the rows and labels of <code>main.ts</code>. Backup is out of scope</td></tr>
+      <tr><td>Sync</td><td>A full screen</td><td>A bottom sheet, with Sign in or Enter the new key… in its error states</td></tr>
+      <tr><td>Status line</td><td>On top, with its own actions</td><td>At the bottom without buttons: a tap opens the sheet; a problem colours the whole line</td></tr>
+      <tr><td>Entry</td><td>Open as text on an attachment</td><td>Open and save as icons</td></tr>
+      <tr><td>Missing</td><td>—</td><td>v2 adds the editor with the generator, Tools, Trash and History. Still not drawn: Find similar, import and export, New key, reading a QR code</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>2 · The look: Classical against <code>style.css</code></h2>
+    <p>The desktop moved to WinUI 3, so the Android app is the only one on Classical, and its stylesheet is its own: changing it does not touch Windows. The sizes and contrast below are worked out from <code>style.css</code>.</p>
+    <table>
+      <tr><th>What</th><th>Code at 0.20.0</th><th>Decision</th></tr>
+      <tr><td>Tap feedback</td><td>No <code>:active</code> or <code>:focus-visible</code>, and the system's highlight is off: a tap shows nothing</td><td>Fix: pressed and focus states</td></tr>
+      <tr><td>Tap targets</td><td>Drawer rows about 32px, toolbar icons 36px tall, line icons 40px</td><td>Fix: 44–48px</td></tr>
+      <tr><td>Accent text</td><td><code>#b68235</code> on the ground is 3.02:1 in the light theme (the dark theme's accent is 7.49:1)</td><td>Fix: text takes <code>accent-700</code> (<code>#7d5411</code>, 5.97:1)</td></tr>
+      <tr><td><code>--color-neutral-500</code></td><td>Used by the drawer's version and a tag's <code>#</code>, never declared, so neither is muted</td><td>Fix: use <code>neutral-700</code>; Classical's 500 is about 2.6:1, too faint for text</td></tr>
+      <tr><td>Primary button, floating buttons</td><td>Filled with the accent; floating buttons with a 16px radius and a heavy shadow</td><td>Take Classical's outline; floating buttons stay 56px on the opaque ground, with <code>--shadow-md</code></td></tr>
+      <tr><td>Radii, tags, weight</td><td>4, 6, 8, 16 and 999px; pill tags; bold headings</td><td>Take 4px and <code>accent-800</code> on tags, and 600 at most. The bottom sheet keeps 12px</td></tr>
+      <tr><td>Colour tokens</td><td>8 of them; the light <code>surface</code> and <code>accent-100</code> differ from Classical's</td><td>Add only those in use, not the whole ramps. Fields stay on white, which reads better</td></tr>
+      <tr><td>Fonts</td><td>System fonts</td><td>Stay: a decision of the project, and v2 follows it</td></tr>
+      <tr><td>Selects, icons, justified text</td><td>Native selects, the app's own strokes, flush-left text</td><td>Stay: the cost or the fit on a phone outweighs what they would bring</td></tr>
+      <tr><td>Checkboxes</td><td>Native, 22px</td><td>Switches as in v2 can come later, in CSS only</td></tr>
+      <tr><td>The master password field</td><td>No eye</td><td>Add one: a long password is easy to mistype on a phone</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>3 · The mockups themselves</h2>
+    <p>The data in v2 is made up. The unlock screen's sync line and the rows of the Autofill, Sync and About tabs were corrected against <code>main.ts</code>; v1 and the desktop prototype keep their older sample data.</p>
+    <p>On the spec: the status line was described both at the bottom and on top (it is at the bottom), and its mockup numbers pointed at v1. Both are corrected in this branch.</p>
+  </section>
+
+</main>
+</x-dc>
+</body>
+</html>
