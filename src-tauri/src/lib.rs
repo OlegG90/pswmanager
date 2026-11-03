@@ -286,6 +286,7 @@ pub fn run() {
             entries::restore_entries,
             entries::delete_for_good,
             entries::empty_trash,
+            entries::add_starter_templates,
             entries::tidy_imported,
             entries::set_tag,
             entries::rename_tag,

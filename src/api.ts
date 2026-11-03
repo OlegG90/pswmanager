@@ -595,6 +595,8 @@ export const api = {
   deleteForGood: (ids: string[]) => invoke<Listing>('delete_for_good', { ids }),
   /** Removes everything in the trash for good. */
   emptyTrash: () => invoke<Listing>('empty_trash'),
+  /** Adds the starter templates to a database with no templates. */
+  addStarterTemplates: () => invoke<Listing>('add_starter_templates'),
   /** Moves the entries of the groups older imports made to the top group, with tags. */
   tidyImported: () => invoke<Listing>('tidy_imported'),
   /** Gives the entries the tag or takes it off; the star is the tag Favorite. */

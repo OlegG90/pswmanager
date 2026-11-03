@@ -253,7 +253,7 @@ As in the mockups `1e`–`1j`.
   ⋮ with *Delete* (to the recycle bin; restored, it goes back among the templates), and **New entry from
   it** under its lines. **+** asks, in a sheet, for a **Blank entry** or one of the templates when the
   database has any (else it is a blank entry straight away); in *Templates* it makes a **new template**,
-  kept in the templates group, which is made when the database has none. An entry made from a template
+  kept in the templates group, which is made when the database has none. A new database starts with the starter templates, and one with no templates offers **Add starter templates** above the empty list (`spec.md` *Groups and tags*, #338). An entry made from a template
   gets its fields (names, values, protection), icon and tags, not its title, expiry, TOTP (nor the
   attributes another client keeps a TOTP in) or star, and no default user name.
 - **QR code with the camera** (#280): a screen of its own (CameraX) with the preview; each frame's brightness is read by

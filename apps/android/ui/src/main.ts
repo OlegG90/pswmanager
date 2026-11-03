@@ -409,7 +409,9 @@ function listScreen(opened: Listing) {
   const inBin = () => search(listing.entries, '', TRASH).length
   const emptyBin = button('Empty the recycle bin…', 'Delete everything in it for good', () =>
     confirmSheet(`Delete ${entriesCount(inBin())} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
-      void api.emptyTrash().then(toListSaying('Deleted permanently'), (e) => snack(String(e)))), 'link danger empty-bin')
+      void api.emptyTrash().then(toListSaying('Deleted permanently'), (e) => snack(String(e)))), 'link danger above-list')
+  const starters = button('Add starter templates', 'Credit card, bank account, ID document, email account and Wi-Fi', () =>
+    void api.addStarterTemplates().then(toListSaying('Starter templates added'), (e) => snack(String(e))), 'link above-list')
   // Several entries chosen with a long press (not in the trash): a bar of
   // what can be done to them all replaces the toolbar until it is closed.
   const chosen = new Set<string>()
@@ -468,6 +470,7 @@ function listScreen(opened: Listing) {
     title.textContent = filterLabel(filter)
     searchField.placeholder = `Search ${filterLabel(filter)}`
     emptyBin.hidden = !sameFilter(filter, TRASH) || !inBin()
+    starters.hidden = !sameFilter(filter, TEMPLATES) || search(listing.entries, '', TEMPLATES).length > 0
     const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
     add.title = newLabel
     add.setAttribute('aria-label', newLabel)
@@ -483,7 +486,7 @@ function listScreen(opened: Listing) {
     fill()
   })
   status.addEventListener('click', syncSheet)
-  const scroll = el('div', { className: 'scroll' }, emptyBin, list)
+  const scroll = el('div', { className: 'scroll' }, emptyBin, starters, list)
   pullToSync(scroll, () => (status.textContent = 'Syncing…'))
   // Not while entries are chosen (the bar has the list then), nor when turned off.
   swipes(scroll, () => !chosen.size && swipesOn(), {

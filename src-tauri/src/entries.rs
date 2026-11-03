@@ -224,6 +224,18 @@ pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, S
     Ok(listing)
 }
 
+/// Adds the starter templates to a database with no templates (#338), saves
+/// the file and returns the new listing.
+#[tauri::command(async)]
+pub fn add_starter_templates(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.add_starter_templates()?;
+        Ok(v.listing())
+    })?;
+    sync::upload_soon(&app);
+    Ok(listing)
+}
+
 /// Tidies up the groups older imports made (#335), saves the file and returns
 /// the new listing.
 #[tauri::command(async)]

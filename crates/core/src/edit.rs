@@ -1345,6 +1345,34 @@ pub fn put_among_templates(db: &mut Database, id: EntryId) -> Result<(), String>
     Ok(())
 }
 
+/// What [add_starter_templates] makes: each template's title, standard icon
+/// and additional fields, by name and whether they are protected, all empty.
+const STARTER_TEMPLATES: [(&str, usize, &[(&str, bool)]); 5] = [
+    ("Credit card", 66, &[("Cardholder", false), ("Card number", false), ("Expiry", false), ("CVV", true), ("PIN", true)]),
+    ("Bank account", 37, &[("Bank", false), ("Account holder", false), ("IBAN", false), ("SWIFT/BIC", false)]),
+    ("ID document", 9, &[("Full name", false), ("Document number", false), ("Issued by", false), ("Issue date", false), ("Expiry date", false)]),
+    ("Email account", 19, &[("IMAP server", false), ("SMTP server", false)]),
+    ("Wi-Fi", 12, &[("Network name", false), ("Security", false)]),
+];
+
+/// Adds the starter templates (#338) unless the database has templates by
+/// now: another device may have added them since the user was offered them.
+pub fn add_starter_templates(db: &mut Database) -> Result<(), String> {
+    let group = templates_group(db);
+    if db.iter_all_entries().any(|e| ancestors(db, e.parent().id()).contains(&group)) {
+        return Ok(());
+    }
+    for (title, icon, fields) in STARTER_TEMPLATES {
+        let mut data = EntryData::default();
+        data.title = title.into();
+        data.icon = IconChoice::Builtin { id: icon };
+        data.fields = fields.iter().map(|&(name, protected)| FieldData { name: name.into(), value: String::new(), protected }).collect();
+        let id = apply(db, None, &data, &HashSet::new())?;
+        put_among_templates(db, id)?;
+    }
+    Ok(())
+}
+
 fn in_bin(db: &Database, id: EntryId) -> bool {
     db.entry(id).is_some_and(|e| is_binned(db, &e))
 }
@@ -1732,6 +1760,29 @@ mod tests {
         // Not in the bin: nothing happens.
         restore(&mut db, &[mail]).unwrap();
         assert_eq!(group(&db, mail), "Work");
+    }
+
+    #[test]
+    fn starter_templates_go_among_the_templates_and_only_where_there_are_none() {
+        let mut db = Database::new();
+        add_starter_templates(&mut db).unwrap();
+        let templates = GroupId::from(db.meta.entry_templates_group.expect("made"));
+        let among_them = |db: &Database| db.iter_all_entries().filter(|e| e.parent().id() == templates).count();
+        assert_eq!(among_them(&db), STARTER_TEMPLATES.len());
+        assert_eq!(db.iter_all_entries().count(), STARTER_TEMPLATES.len(), "nothing outside them");
+
+        // One left is enough for them not to come back.
+        let ids: Vec<EntryId> = db.iter_all_entries().map(|e| e.id()).collect();
+        for &id in &ids[1..] {
+            recycle(&mut db, id).unwrap();
+        }
+        add_starter_templates(&mut db).unwrap();
+        assert_eq!(among_them(&db), 1);
+
+        // With all of them in the recycle bin, there are none.
+        recycle(&mut db, ids[0]).unwrap();
+        add_starter_templates(&mut db).unwrap();
+        assert_eq!(among_them(&db), STARTER_TEMPLATES.len());
     }
 
     #[test]

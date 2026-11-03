@@ -119,8 +119,8 @@ button.link.danger {
   color: var(--color-error);
 }
 
-/* In the Trash group, above its entries. */
-button.empty-bin:not([hidden]) {
+/* In the Trash group above its entries, and in an empty Templates group. */
+button.above-list:not([hidden]) {
   display: block;
 }
 

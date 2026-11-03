@@ -342,6 +342,7 @@ function refresh() {
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
   $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
+  $('starter-templates').hidden = !sameFilter(filter, TEMPLATES) || listing.entries.some(isTemplate)
   const newLabel = sameFilter(filter, TEMPLATES) ? 'New template' : 'New entry'
   $('new-entry').textContent = newLabel
   $('new-entry').title = `${newLabel} (Ctrl+N)`
@@ -915,6 +916,15 @@ async function deleteForGood(ids?: string[]) {
   }
 }
 
+/** The Templates group's button when the database has none. */
+async function addStarterTemplates() {
+  try {
+    applyListing(await api.addStarterTemplates(), 'Starter templates added')
+  } catch (e) {
+    notify(String(e))
+  }
+}
+
 // ---------------------------------------------------------------- tags
 
 /** How many entries have the tag: templates and the trash's too, as renaming
@@ -1437,6 +1447,7 @@ searchInput.addEventListener('input', () => {
 $('lock-button').addEventListener('click', lock)
 $('new-entry').addEventListener('click', afterLeavingEditor(newEntry))
 $('empty-trash').addEventListener('click', afterLeavingEditor(() => deleteForGood()))
+$('starter-templates').addEventListener('click', afterLeavingEditor(addStarterTemplates))
 $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => notify(String(e))))
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)

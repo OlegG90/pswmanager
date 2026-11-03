@@ -344,6 +344,7 @@ impl Vault {
         db.meta.recyclebin_enabled = Some(true);
         db.meta.history_max_items = Some(10);
         db.root_mut().name = name.to_string();
+        edit::add_starter_templates(&mut db)?;
         let mut bytes = Vec::new();
         db.save(&mut bytes, key.clone()).map_err(|e| format!("Cannot write the database: {e}"))?;
         Database::parse(&bytes, key).map_err(|e| format!("The new database did not open again ({e})"))?;
@@ -900,6 +901,12 @@ impl Vault {
             Ok((saved, conflicts))
         })?;
         Ok((id.uuid().to_string(), conflicts))
+    }
+
+    /// Adds the starter templates to a database with no templates (see
+    /// [edit::add_starter_templates]) and saves the file.
+    pub fn add_starter_templates(&mut self) -> Result<(), String> {
+        self.change(|db, _| edit::add_starter_templates(db))
     }
 
     /// Adds what another password manager exported as new entries with the
@@ -2463,7 +2470,7 @@ pub mod tests {
         let path = dir.path().join("new").join("Passwords.kdbx");
         Vault::create(&path, "Passwords", Some("pw"), None).unwrap();
         let mut vault = Vault::open(&path, Some("pw"), None).unwrap();
-        assert!(vault.listing().entries.is_empty());
+        assert!(in_use(&vault).is_empty());
         assert!(matches!(vault.db.config.kdf_config, keepass::config::KdfConfig::Argon2id { .. }));
         // It takes entries, and deleting one makes the recycle bin.
         let mut first = edit::EntryData::default();
@@ -2472,6 +2479,35 @@ pub mod tests {
         vault.delete_entries(std::slice::from_ref(&id)).unwrap();
         assert!(Vault::create(&path, "Again", Some("pw"), None).unwrap_err().contains("already there"));
         assert!(Vault::create(&dir.path().join("b.kdbx"), "B", None, None).is_err());
+    }
+
+    #[test]
+    fn a_new_database_starts_with_the_starter_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Passwords.kdbx");
+        Vault::create(&path, "Passwords", Some("pw"), None).unwrap();
+        let mut vault = Vault::open(&path, Some("pw"), None).unwrap();
+        let templates = |vault: &Vault| vault.listing().entries.into_iter().filter(|e| e.kind == Kind::Template).collect::<Vec<_>>();
+        let made = templates(&vault);
+        assert_eq!(made.len(), 5);
+        assert_eq!(vault.listing().entries.len(), 5, "and nothing else");
+
+        // Their empty fields survive the file, and the secret ones stay protected.
+        let card = made.iter().find(|e| e.title == "Credit card").unwrap();
+        let card = vault.edit_data(&card.id).unwrap();
+        assert_eq!(card.icon, edit::IconChoice::Builtin { id: 66 });
+        let field = |name: &str| card.fields.iter().find(|f| f.name == name).unwrap();
+        assert!(field("CVV").protected && field("CVV").value.is_empty());
+        assert!(!field("Card number").protected);
+
+        // Deleted, they can be asked for again; asked for twice, they come once.
+        let ids: Vec<String> = made.iter().map(|e| e.id.clone()).collect();
+        vault.add_starter_templates().unwrap();
+        assert_eq!(templates(&vault).len(), 5);
+        vault.delete_entries(&ids).unwrap();
+        assert!(templates(&vault).is_empty());
+        vault.add_starter_templates().unwrap();
+        assert_eq!(templates(&Vault::open(&path, Some("pw"), None).unwrap()).len(), 5, "saved to the file");
     }
 
     #[test]
