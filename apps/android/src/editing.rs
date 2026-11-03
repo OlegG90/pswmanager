@@ -195,6 +195,17 @@ pub fn set_tag(app: AppHandle, session: State<Session>, ids: Vec<String>, tag: S
     Ok(listing)
 }
 
+/// Tidies up the groups older imports made (#335).
+#[tauri::command(async)]
+pub fn tidy_imported(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        v.tidy_imported()?;
+        Ok(v.listing())
+    })?;
+    upload_soon(&app);
+    Ok(listing)
+}
+
 #[tauri::command(async)]
 pub fn generate_password(options: generator::Options) -> Result<String, String> {
     generator::generate(&options).map(|password| password.to_string())

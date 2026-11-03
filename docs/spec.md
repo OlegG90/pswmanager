@@ -238,7 +238,7 @@ which shows entries without user tags (the `Favorite` star does not count); then
 | Trash | the deleted entries (the recycle bin) |
 
 - The KDBX groups an entry sits in are not shown or edited any more; entries stay where they are in the
-  file, and new ones go to its top group (new templates to the templates' group). Search runs within the chosen group or
+  file, and new ones go to its top group (new templates to the templates' group), imported ones too. Search runs within the chosen group or
   tag.
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
@@ -737,10 +737,21 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
     other clients, no code here); mOTP and Yandex tokens are named among what did not come over. *Similar
     entries* then merges the tokens into the logins they belong to; after any import that added entries,
     the page says so. An export with no password slot (a fingerprint's only) is said so.
-- The entries are added as the phone's import adds them: each a **new entry** in the group *Imported
-  from <file name> <date>* (as the phone's import, a group rather than a tag), nothing changed or
-  replaced, saved and synced as one change, all or nothing.
+- The entries are added as the phone's import adds them: each a **new entry** in the top group with the
+  tag *Imported from <file name> <date>* (#335; a comma or semicolon in the name gives way to a space, as
+  tags cannot hold them), and the folder it was in as a tag (`Work/Mail`), nothing changed or replaced,
+  saved and synced as one change, all or nothing.
   Then what came in and what did not (with the reason) is shown.
+- **Tidy up imported folders** (#335; *Tools*, on the phone too, only while entries are in such a group):
+  earlier versions put an import in a group *Imported from <name> <date>* at the top of the file, with the
+  source's folders below it. After a confirmation that says how many entries, they move to the top group
+  with the tags an import gives now (no version in history, as for any tag or move), and the emptied groups
+  go to the trash (*Empty trash* removes them; with the bin turned off they stay, empty). Saved and synced
+  as one change. The groups go to the trash rather than for good so that an entry another device put in one
+  meanwhile ends up in the trash, not gone with the group. Other groups are never touched, as
+  their Auto-Type and browser settings are what their entries inherit, and neither is a group that holds
+  the templates or the recycle bin; an import group's own such settings, which only another client could
+  have set, no longer apply to its entries.
 - The file holds every password in clear text: its content is held in memory only and wiped once read,
   never logged. Both apps say so before the file is picked; Windows then offers to **delete the file**
   (*Delete the file* / *Keep it*, only the file just imported). The phone picks the file as it picks a key
@@ -761,8 +772,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   already is passed over for the picture picker), a code holding something else (one account's TOTP, a
   URL) is said so; an export said to have more than 255 codes is taken as damaged.
 - **Import** adds the accounts read (*Import what is read* while codes are missing, which are then named
-  among what did not come over), as *Import from a file* adds a file's entries: each a new entry in the
-  group *Imported from Google Authenticator <date>*, the title from the issuer (or the label's issuer part),
+  among what did not come over), as *Import from a file* adds a file's entries: each a new entry with the
+  tag *Imported from Google Authenticator <date>*, the title from the issuer (or the label's issuer part),
   the user name from the name, `otp` as an `otpauth://totp/` URI (SHA-1, SHA-256 or SHA-512; 6 or 8 digits;
   30 seconds, as the export has no period), HOTP accounts as `otpauth://hotp/` with their counter (no code,
   *TOTP*); MD5 accounts are named among what did not come over. Then *Find similar entries* is pointed to.

@@ -194,8 +194,8 @@ As in the mockups `1e`–`1j`.
   credential provider for this. The app hands over **everything** (FIDO CXF JSON), straight to the Rust
   side, never to the page, held in memory only and wiped after reading (the copies Android and the
   bridge to Rust make on the way cannot be wiped; nothing is written to a file or logged). The core adds every item as a
-  **new entry** (nothing is changed, merged or replaced) in a group *Imported from <app> <date>*, shown
-  under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
+  **new entry** (nothing is changed, merged or replaced) in the top group with the tag *Imported from
+  <app> <date>* (#335), and the collection it was in as a tag, shown under *All*: logins, more URLs and Android apps (`KP2A_URL_n`), TOTP (`otp`), passkeys (KeePassXC's
   `KPEX_PASSKEY_*`; a second passkey in one item gets an entry of its own), notes, and other kinds as
   additional attributes (the mapping in `docs/cxp-research.md`). The database is saved and synced as after
   any change, all or nothing. A sheet then says how many entries came in and lists what did not, with the

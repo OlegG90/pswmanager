@@ -266,7 +266,7 @@ mod tests {
         let import = read(&plain(), None).unwrap();
         let mut db = keepass::Database::new();
         let hidden = crate::edit::hidden_groups(&db);
-        assert_eq!(cxf::add(&mut db, &import, &["Imported".into()], &hidden).unwrap(), 3);
+        assert_eq!(cxf::add(&mut db, &import, "Imported", &hidden).unwrap(), 3);
         use keepass::db::fields;
         let otp = |title: &str| db.iter_all_entries().find(|e| e.get(fields::TITLE) == Some(title)).and_then(|e| e.get(fields::OTP).map(str::to_string)).unwrap();
         assert!(otp("bob").starts_with("otpauth://hotp/"));

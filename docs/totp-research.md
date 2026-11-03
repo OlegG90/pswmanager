@@ -129,7 +129,7 @@ them from the KDBX file. Moving its tokens into PswManager is what helps, and it
   `issuer`, `note`, `favorite`, `groups`, an optional icon (`icon` in base64, `icon_mime`, `icon_hash`), and
   `info` with `secret` (base32), `algo`, `digits`, `period` / `counter`, `pin`.
 
-Mapping, through the same `Import` as the other file imports (new entries in a group of their own):
+Mapping, through the same `Import` as the other file imports (new entries with a tag of their own):
 
 | Aegis | Entry |
 | --- | --- |

@@ -482,7 +482,7 @@ Game,https://c.example.com,c,pw,steam://JBSWY3DPEHPK3PXP
         assert!(crate::otp::Totp::parse(&import.entries[2].data.otp).unwrap().is_steam());
         let mut db = keepass::Database::new();
         let hidden = crate::edit::hidden_groups(&db);
-        assert_eq!(cxf::add(&mut db, &import, &["Imported".into()], &hidden).unwrap(), 3);
+        assert_eq!(cxf::add(&mut db, &import, "Imported", &hidden).unwrap(), 3);
     }
 
     #[test]

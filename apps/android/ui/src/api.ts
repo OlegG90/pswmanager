@@ -41,8 +41,8 @@ export type ImportStep = ({ step: 'done' } & Imported) | { step: 'password'; fil
 /** What an import from another app brought. */
 export interface Imported {
   exporter: string
-  /** The group the entries were put in. */
-  group: string
+  /** The tag the entries were given. */
+  tag: string
   added: number
   /** What could not be brought over, and why. */
   skipped: Skipped[]
@@ -272,6 +272,7 @@ export const api = {
   deleteForGood: (id: string) => invoke<Listing>('delete_for_good', { id }),
   /** Removes everything in the recycle bin for good. */
   emptyTrash: () => invoke<Listing>('empty_trash'),
+  tidyImported: () => invoke<Listing>('tidy_imported'),
   /** Gives entries a tag or takes it off (the star is the tag Favorite). */
   setTag: (ids: string[], tag: string, on: boolean) => invoke<Listing>('set_tag', { ids, tag, on }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),

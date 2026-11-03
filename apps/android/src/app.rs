@@ -132,6 +132,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::editing::restore_entry,
             crate::editing::delete_for_good,
             crate::editing::empty_trash,
+            crate::editing::tidy_imported,
             crate::editing::set_tag,
             crate::editing::generate_password,
             crate::editing::password_strength,
