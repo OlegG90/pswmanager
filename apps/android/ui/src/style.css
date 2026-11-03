@@ -7,6 +7,8 @@
   --color-neutral-300: #d6d3d1;
   --color-neutral-700: #605d5d;
   --color-accent: #b68235;
+  /* For text: the accent itself is only about 3:1 on the light ground. */
+  --color-accent-700: #7d5411;
   --color-accent-100: #f3e7d4;
   --color-error: #9b3b2a;
   /* The tile under images drawn for light pages (.icon.site): none here. */
@@ -23,6 +25,7 @@
     --color-neutral-300: #3a3633;
     --color-neutral-700: #b3ada5;
     --color-accent: #d3a35c;
+    --color-accent-700: #e1ad66;
     --color-accent-100: #33281a;
     --color-error: #e08a74;
     --icon-tile: #f3f2f2;
@@ -40,6 +43,7 @@
   --color-neutral-300: #3a3633;
   --color-neutral-700: #b3ada5;
   --color-accent: #d3a35c;
+  --color-accent-700: #e1ad66;
   --color-accent-100: #33281a;
   --color-error: #e08a74;
 }
@@ -90,10 +94,11 @@ small {
 
 button {
   font: inherit;
-  color: var(--color-accent);
+  color: var(--color-accent-700);
   background: transparent;
   border: 1px solid var(--color-accent);
   border-radius: 4px;
+  min-height: 44px;
   padding: 10px 16px;
 }
 
@@ -135,7 +140,7 @@ button.above-list:not([hidden]) {
 button.icon {
   border: 0;
   font-size: 22px;
-  padding: 6px 10px;
+  padding: 10px;
 }
 
 button.card {
@@ -293,12 +298,12 @@ main.list-screen {
 
 /* An entry line's commands (copy, show / hide, open): icons, close together. */
 .line button.line-action {
-  padding: 8px;
+  padding: 10px;
   color: var(--color-neutral-700);
 }
 
 .line button.line-action + button.line-action {
-  margin-left: -10px;
+  margin-left: -12px;
 }
 
 .sheet .sheet-body {
@@ -379,7 +384,7 @@ main.list-screen {
   border-top: 1px solid var(--color-neutral-300);
   font-size: 12px;
   font-weight: 700;
-  color: var(--color-accent);
+  color: var(--color-accent-700);
 }
 
 .drawer button span {
@@ -404,11 +409,12 @@ main.list-screen {
 
 .drawer button.tag span::before {
   content: '#';
-  color: var(--color-neutral-500);
+  color: var(--color-neutral-700);
 }
 
 .drawer button {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   width: 100%;
   border: 0;
@@ -431,7 +437,7 @@ main.list-screen {
   padding: 12px 10px 0;
   border-top: 1px solid var(--color-neutral-300);
   font-size: 12px;
-  color: var(--color-neutral-500);
+  color: var(--color-neutral-700);
 }
 
 /* Browsing the phone's files for a key file: the folder's items scroll. */
@@ -573,9 +579,9 @@ button.tabs-more {
   position: absolute;
   top: 8px;
   bottom: 1px;
-  padding: 0 6px;
+  padding: 0 10px;
   background: var(--color-bg);
-  color: var(--color-accent);
+  color: var(--color-accent-700);
 }
 
 button.tabs-more[hidden] {
@@ -602,7 +608,7 @@ button.tabs-more.right {
 }
 
 .tabs button.tab.chosen {
-  color: var(--color-accent);
+  color: var(--color-accent-700);
   border-bottom-color: var(--color-accent);
 }
 
@@ -725,7 +731,7 @@ input.secret {
 }
 
 .master-rules li.met {
-  color: var(--color-accent);
+  color: var(--color-accent-700);
 }
 
 .master-rules li.met::marker {
@@ -742,7 +748,7 @@ button.chip {
 button.chip[aria-pressed="true"] {
   border-color: var(--color-accent);
   background: var(--color-accent-100);
-  color: var(--color-accent);
+  color: var(--color-accent-700);
 }
 
 .editor > button.chip {
@@ -850,6 +856,8 @@ button.chip[aria-pressed="true"] {
 
 .tag-input .tag button {
   border: 0;
+  /* A bigger target than the tag it sits in, whose height stays. */
+  margin: -10px 0;
   padding: 0 8px;
   color: var(--color-text);
 }
@@ -898,7 +906,7 @@ button.icon.state {
   align-self: center;
   border: 0;
   background: none;
-  padding: 8px;
+  padding: 10px;
   color: var(--color-neutral-700);
 }
 
@@ -1074,7 +1082,7 @@ button.wide[hidden] {
 
 .merge-card .new,
 .merge-line.new .name {
-  color: var(--color-accent);
+  color: var(--color-accent-700);
   font-weight: 600;
 }
 
@@ -1094,4 +1102,25 @@ button.wide[hidden] {
 
 .merge-legend {
   font-size: 13px;
+}
+
+/* A tap shows: the system's highlight is off (body). Last, to win over the
+   buttons' own backgrounds; what is filled keeps its fill. */
+button.primary:active:not(:disabled),
+button.fab:active:not(:disabled) {
+  background: var(--color-accent);
+  opacity: 0.8;
+}
+
+button:active:not(:disabled),
+.entries li:not(.empty):active,
+.status:active {
+  background: var(--color-accent-100);
+}
+
+/* The tag field's input draws no outline of its own: the whole box stands for the field. */
+:focus-visible,
+.tag-input:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
