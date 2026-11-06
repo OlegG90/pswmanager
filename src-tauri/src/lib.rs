@@ -272,6 +272,7 @@ pub fn run() {
             entries::entry_version,
             entries::restore_version,
             entries::copy_field,
+            entries::copy_generated,
             entries::open_url,
             open_repository,
             check_for_update,

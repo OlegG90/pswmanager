@@ -25,6 +25,8 @@ export interface EditorOptions {
   autoIcon: string
   /** A new entry starts from this template's values (not its title or expiry). */
   from?: EntryData
+  /** And then with these values: a QR code's TOTP, a password Home made (#351). */
+  prefill?: Partial<EntryData>
   /** A template is edited, or made (it goes among the templates). */
   template?: boolean
 }

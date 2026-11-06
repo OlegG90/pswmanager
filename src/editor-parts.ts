@@ -14,12 +14,12 @@ export const EMPTY_ENTRY: EntryData = {
  *  everything but the template's title, expiry, TOTP secret (every entry has
  *  its own) and star; a blank one (not a template either) gets the database's
  *  default user name. */
-export function newEntryData(group: string[], start: { from?: EntryData; template?: boolean; defaultUsername?: string }): EntryData {
-  const { from, template, defaultUsername = '' } = start
-  if (!from) return { ...EMPTY_ENTRY, username: template ? '' : defaultUsername, group }
+export function newEntryData(group: string[], start: { from?: EntryData; template?: boolean; defaultUsername?: string; prefill?: Partial<EntryData> }): EntryData {
+  const { from, template, defaultUsername = '', prefill } = start
+  if (!from) return { ...EMPTY_ENTRY, username: template ? '' : defaultUsername, group, ...prefill }
   // Its TOTP stays with it, in whichever layout it is kept (#278).
   const fields = from.fields.filter((f) => !isTotpLayoutField(f.name))
-  return { ...from, title: '', expires: null, otp: '', fields, tags: from.tags.filter((t) => t !== FAVORITE), group }
+  return { ...from, title: '', expires: null, otp: '', fields, tags: from.tags.filter((t) => t !== FAVORITE), group, ...prefill }
 }
 
 const STRENGTH = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']

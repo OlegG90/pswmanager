@@ -177,13 +177,14 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
 - Search-first: the search field has focus when the window opens. Search covers title, user name, URL,
   tags and notes (not passwords). Results update as you type. Before it, a small keyboard button shows the
   keyboard shortcuts (see *Keyboard shortcuts*); the field takes the toolbar's room up to Sync and Lock.
-- The **sidebar** is always shown; beside it is what its choice shows. It holds three sections:
+- The **sidebar** is always shown; beside it is what its choice shows. Above its sections is **Home**
+  (see *Home*); then it holds three sections:
   **Records** (the fixed **Groups**, each with its icon as on the phone, and under them **Tags**, a
   section of its own with the tags as `#work`), **Tools** and **Settings** (its tabs). Every heading has
   its icon, in bold, and folds what it holds away and back, downwards; what a heading holds is indented
   under it. Every section is folded when the app starts; two buttons at the sidebar's top right fold and
   unfold them all. When the open sections do not fit, the sidebar scrolls.
-- Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
+- Beside the sidebar: for Home, its page; for a group or a tag, the **list** of its entries and the selected **entry** (see
   *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
   *Import from Google Authenticator*, *Export to a file*; chosen again, a tool starts over); for a settings
   tab, the settings at that tab (see *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
@@ -218,6 +219,26 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   window's ground, the list and the entry on a lighter layer, an entry's values in one card, the accent
   blue of Windows.
 - Theme: light or dark, or as Windows is set (the default); a setting.
+
+### Home
+
+- **Home** (#351) is the page beside the sidebar after unlocking, and its item above the sidebar's
+  sections; Esc goes back to it from the list, a tool's page or the settings (see *Keyboard shortcuts*),
+  and from Home hides the window. The search field keeps the focus: typing a search shows the list. On
+  Home, `Ctrl+N`, `Ctrl+,` and `F1` work as over the list.
+- It shows the database's name (or *Home*), where it is kept (as under the toolbar) and how many entries
+  are in use; then four figures: *Password health*'s reused, weak and old passwords, each opening that
+  report with its list alone, and the entries expired or expiring soon, opening the *Expired* group. A
+  figure at zero is not a control.
+- **Quick actions**: **New entry** (as `Ctrl+N`), **Scan a QR code…** (read as the editor's scan reads
+  one, see *QR code*, into a new entry: the title from the URI's issuer or its label's issuer part, the
+  user name from the rest of the label, the URI as its TOTP) and **Import from a file…**.
+- **Generate a password** for a need: **Website** (every kind of character, 20 long, 12–64), **PIN**
+  (digits, 6, 4–12), **Wi-Fi** (letters and digits without look-alikes, easy to type in by hand, 16,
+  8–63 as WPA2 takes) or **Custom** (the kinds chosen as in the editor's generator, 8–64). The password
+  is made by the backend's generator (the OS CSPRNG); **Again** makes another, **Copy** copies it with
+  the clipboard cleared as for a copied field, and **New entry with it** opens a new entry with it as its
+  password. The need and its settings are kept for the session.
 
 ### Groups and tags
 
@@ -361,7 +382,7 @@ kept, not even in history.
 | `Shift+F10` / menu key | The chosen entries' menu, as a right-click opens it (#255) |
 | `Ctrl+L` | Lock |
 | `Ctrl+,` | Settings |
-| `Esc` | Clear search, close panel, then hide to tray |
+| `Esc` | Clear search, close panel (a tool's page, the settings), then Home, then hide to tray (#351) |
 | `F1` | These shortcuts |
 
 A keyboard button before the search field (and `F1`) shows every shortcut in a dialog, by group (window,
@@ -632,7 +653,7 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   entry has is refused.
 - Every edit pushes the previous version into the entry's history, except one that changes only the tags
   (see *Entry history*).
-- **Password generator** in the editor: length (default 20, 8–64), upper / lower / digits / symbols,
+- **Password generator** in the editor: length (default 20, 8–64; the backend allows 4 for Home's PIN), upper / lower / digits / symbols,
   exclude look-alike characters. Generated with the OS CSPRNG.
 - **Strength indicator** (zxcvbn) next to the password field.
 - **TOTP** (#278, `docs/totp-research.md`): codes with a countdown, from whichever layout the entry keeps

@@ -9,8 +9,9 @@ const DIGITS: &str = "0123456789";
 const SYMBOLS: &str = "!#$%&()*+,-./:;<=>?@[]^_{|}~";
 /// Characters that are easy to mistake for one another.
 const LOOK_ALIKES: &str = "Il1|O0o";
-/// Also the limits of the length input in the editor.
-const LENGTH_RANGE: (usize, usize) = (8, 64);
+/// The lengths allowed: the editor's length input starts at 8, Home's PIN
+/// at 4 (#351).
+const LENGTH_RANGE: (usize, usize) = (4, 64);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,7 +97,7 @@ mod tests {
 
     #[test]
     fn length_is_kept_within_limits() {
-        assert_eq!(generate(&options(3)).unwrap().len(), 8);
+        assert_eq!(generate(&options(3)).unwrap().len(), 4);
         assert_eq!(generate(&options(500)).unwrap().len(), 64);
         let nothing = Options { upper: false, lower: false, digits: false, ..options(20) };
         assert!(generate(&nothing).is_err());
