@@ -295,150 +295,331 @@ store's version history still open with the old one.
 
 # Part 2 — Android
 
-The phone app opens **the same database** as the PC, through the same store, and follows the same rules
-for groups, tags, history and sync. This part covers what is different on the phone. Not on the phone yet:
-several databases, backups, password health, renaming or removing a tag everywhere, and restoring an
-older version of an entry.
+PswManager for Android opens **the same database** as the PC, through the same store, and keeps the same
+groups, tags, history and sync rules, so an entry changed on one device shows up on the other. This part
+describes the phone app on its own; you don't need to read Part 1 first.
 
-## 1. Install
+Not on the phone yet: several databases in the list, backups, password health, renaming or removing a tag
+in every entry, restoring an older version of an entry, and a network folder (a NAS) as a store. Use the PC
+for those. The app works in portrait only.
 
-1. From the [latest release](https://github.com/OlegG90/pswmanager/releases/latest), download
-   `pswmanager-android.apk` on the phone.
-2. Open it. Android asks to allow installing apps from your browser or file manager; allow it for this
-   install. There is no Google Play version, and updates are installed the same way, over the old app.
+## 1. Install and update
 
-Android 10 or newer is needed.
+1. On the phone, open the [latest release](https://github.com/OlegG90/pswmanager/releases/latest) and
+   download `pswmanager-android.apk`.
+2. Open the downloaded file. Android asks to allow installing apps from your browser or file manager:
+   allow it for this install.
+3. **Updates** are installed the same way, over the old app; your database and settings stay.
 
-## 2. First run
+The app needs Android 10 or newer. It is not on Google Play.
 
-Choose your database:
+## 2. First run: choose your database
 
 | Choice | When to use it |
 |---|---|
-| **Sync with Dropbox / OneDrive / Google Drive** | Your database is already there (e.g. put there by PswManager on the PC). Sign in, then pick the file. |
-| **Open a local file** | A `.kdbx` on the phone or on an SD card, or in a folder another app syncs. |
-| **Create a new database** | Start from scratch: a name and a master password, then keep it in a store or on the phone. |
+| **Sync with Dropbox / OneDrive / Google Drive** | Your database is already in that store (e.g. the PC put it there). Sign in in the browser, then pick the file. |
+| **Open a local file** | A `.kdbx` on the phone, on an SD card, or in a folder another app syncs (Syncthing, say). |
+| **Create a new database** | You are starting from scratch. |
 
-The app sees only **its own folder** in the store: `Apps/PswManager Sync` in Dropbox, `Apps/PswManager` in
-OneDrive, `PswManager` in Google Drive. To share a database between the PC and the phone, let the PC put it
-there (*Settings → Sync → Upload…*).
+**A cloud store.** The app sees only **its own folder** there: `Apps/PswManager Sync` in Dropbox,
+`Apps/PswManager` in OneDrive, `PswManager` in Google Drive. To use the PC's database on the phone, upload
+it from the PC first (*Settings → Sync → Upload…* on Windows). After you pick the file, the app asks
+**where to keep it on this phone**: a folder for a **visible copy** (see below) and a file name. The file
+is downloaded and sync is on from the start.
 
-For a database in a store, the app also asks for a **folder on the phone** for a visible copy. That copy
-always holds the latest state, so you can back it up; the app never reads it back.
+**A local file.** The file you pick is kept in step with the app's own copy: changes made to it by
+another app (Keepass2Android, Syncthing…) are merged in, and yours are written back to it.
 
-The phone has **one database** at a time. *Use another database…* on the unlock screen switches.
+**A new database.** Give it a name and a master password (typed twice; the eye shows what you typed). The
+password needs at least 6 characters, upper- and lower-case letters and one character that is not a
+letter or a digit; the rules are ticked as you type. Then choose where it lives: in a cloud store (with a
+visible copy on the phone) or as a file in a folder on the phone. A file that is already there is never
+replaced. A new database comes with **starter templates** (credit card, bank account, ID document, e-mail
+account, Wi-Fi).
+
+**Remember the master password.** Nobody can open the database without it.
+
+### The visible copy
+
+For a database in a cloud store, the phone keeps a plain `.kdbx` copy in a folder you chose, updated after
+every change, also while you are offline. It is **for you**: back it up, or open it in another app if
+you need to. PswManager never reads it back, and it doesn't overwrite it if another app changed it.
+
+### One database at a time
+
+To switch, lock the app and choose **Use another database…** on the unlock screen. The app forgets the
+old database and signs out of its store; the old database's file stays where it is.
 
 ## 3. Unlock and lock
 
-- The first unlock is with the master password (the eye shows what you typed) and/or the key file.
-- After that, **the fingerprint or face** unlocks it. Every 14 days the app asks for the master password
-  again.
-- It locks by itself **30 seconds after you leave the app**, when the screen turns off, and after 5
-  minutes without use. The times are in *Settings → General*.
+- **The first unlock** is with the master password (the eye shows what you typed) and/or the **key
+  file**, if your database uses one: *Use a key file…* on the unlock screen picks it, *Remove* lets it go.
+- **Fingerprint or face**: with *Unlock with fingerprint* on (the default), that first unlock sets it up.
+  From then on, a fingerprint button sits beside the password field; tap it, or tap *Unlock* with the
+  field empty. When you come back from another app, the prompt opens by itself. *Use the master password*
+  in the prompt takes you back to the field.
+- **The master password is asked again every 14 days**, so you don't forget it, and also when you add a
+  new fingerprint or face to the phone, or when the password was changed on another device.
+- **Lock by hand** with the lock button in the toolbar.
 
-## 4. The list and finding an entry
+**It locks by itself:**
 
-- **☰** or a **swipe to the right** opens the drawer with the groups (All, Favorites, Expired, 2FA,
-  Passkey, Templates, Trash) and your tags.
-- A **swipe to the left** opens Settings. (You can turn swipes off in *Settings → Appearance*.)
-- The round **search** button at the bottom right searches as on the PC; **+** below it adds an entry.
-- **Pull down** the list to sync. The line at the bottom shows the sync status; tap it for details.
-- The toolbar's **wrench** opens **Tools**.
+| When | Default | Setting (*Settings → General → Locking*) |
+|---|---|---|
+| after you leave the app | 30 seconds | *In the background*: at once, 30 s, 1 min, 5 min or never |
+| when the screen turns off | at once | *When the screen turns off* |
+| without a touch while the app is open | 5 minutes | *Without a touch* |
 
-## 5. An entry
+Unlocked from a login field or a passkey request (see *Fill in logins*), it stays unlocked for at least a
+minute, so the login can go through.
 
-- Tap a value, or its **copy** icon, to copy it. A message says when the clipboard will be cleared (after
-  20 seconds). Copied passwords are hidden from the keyboard's clipboard suggestions.
-- The **eye** shows a hidden value; **open** opens a web address in the browser or a file in another app.
-- The toolbar has the **star** (favorite), the **pencil** (edit) and **⋮ → Delete**.
-- **History (N)** lists older versions. On the phone you can look at them and copy from them, but restore
-  one only on the PC.
+Locked, the app forgets everything it decrypted; only the encrypted file is left.
 
-## 6. Editing
+## 4. The main screen
 
-As on the PC: title, user name, password with the **generator**, web address, notes, tags, favorite,
-expiry date, one-time code secret, extra fields and files. **✓** saves, **←** cancels (it asks before
-dropping changes).
+| Where | What it does |
+|---|---|
+| **Toolbar** | **☰** (groups and tags), the name of what is shown, **Sync now**, the **wrench** (*Tools*), **⚙** (*Settings*), **Lock** |
+| **List** | the entries, each with its icon; tap one to open it |
+| **Round buttons**, bottom right | **search**, and **+** under it for a new entry |
+| **Bottom line** | the sync status; tap it for details |
 
-For a one-time code, the **scan** button reads the site's QR code with the **camera** (Android asks once
-for camera access) or from a screenshot.
+- **Swipe to the right** on the list for the groups and tags, **to the left** for Settings. Swipe back
+  to close them. (Turn swipes off in *Settings → Appearance → Swipes on the list*.)
+- **Search** looks in titles, user names, web addresses, tags and notes — never in passwords — within the
+  group or tag shown. Back or ← closes it.
+- **Pull down** the list to sync.
 
-**Several entries**: a **long press** chooses an entry; tap others to add them. Then copy, tag or delete
-them together.
+### Groups and tags (☰)
 
-## 7. Tools
+| Group | Shows |
+|---|---|
+| All | every entry (not the deleted ones or the templates) |
+| Favorites | entries you marked with the star |
+| Expired | entries whose expiry date has passed or comes within 14 days |
+| 2FA | entries with a one-time code (TOTP) |
+| Passkey | entries with a passkey |
+| Templates | patterns for new entries |
+| Trash | deleted entries |
 
-- **Import from another app…**: Android's own transfer between password managers (Google Password Manager,
-  Bitwarden, 1Password…). Pick the app and confirm there; everything comes over as new entries.
-- **Import from a file…** and **Export to a file…**: as on the PC. Delete such files afterwards: they
-  hold every password in plain text.
-- **Import from Google Authenticator…**: point the camera at each export QR code, or pick screenshots.
-- **Find similar entries**: as on the PC.
+Under the groups: **Untagged** (entries with no tags) and your **tags**, each with how many entries it
+has. The app's version is at the bottom.
 
-## 8. Filling in logins in other apps and browsers
+## 5. Look at an entry and copy from it
 
-### Autofill (apps and websites)
+An entry shows its title, tags, user name, password (hidden), the one-time code with its countdown, web
+address, notes, extra fields, files and when it was last changed. Each line ends in icons:
 
-**Set it up once:** *Settings → General → Autofill* → open Android's choice and pick **PswManager**. In
-**Chrome**, also turn on *Settings → Autofill services → Autofill using another service*.
+- **copy** — or just tap the value. A short message says it was copied and when the clipboard will be
+  cleared (after **20 seconds**, if it still holds what you copied). Copied passwords are marked as
+  sensitive, so the keyboard's clipboard suggestions don't show them.
+- **eye** — shows a hidden value; tap again to hide it.
+- **open** — opens a web address in the browser, or a file in another app (Android asks which one).
+  Programs and scripts are never opened.
+- **save** (by a file) — writes a copy of the file where you choose.
 
-**Then** tap a login field in any app or website:
+The toolbar has the **star** (favorite), the **pencil** (edit) and **⋮ → Delete** (to the Trash, after
+asking). **Back** returns to the list where you were.
 
-- **Locked**: the only suggestion is **Unlock PswManager**. Tap it, unlock with your fingerprint, and the
-  suggestions appear.
-- **Unlocked**: the matching entries are offered by title and user name. Tap one to fill both fields.
-- **Nothing matches?** Tap **Choose an entry in PswManager…**, search, and pick the entry. It is then
-  **linked** to that app or site and offered there by itself next time.
+**History (N)** lists the entry's older versions, newest first, with what changed in each (never the
+values). Open one to look at it and copy from it. Restoring an old version is done on the PC.
 
-**Saving**: after you type a new password into a login form, Android asks **Save to PswManager?**. Tap
-*Save* and choose **a new entry**, **update** an existing one (the old password goes to its history), or
-**another entry**. A short message says where it went.
+## 6. Add and edit entries
+
+- **+** asks for a **Blank entry** or one of your **templates** (with no templates, it goes straight to a
+  blank entry). A blank entry gets the database's default user name, if one is set.
+- In the editor you set: title, user name, password, web address, notes, **tags** (type one, or pick one
+  you already use), favorite, **expiry date**, **one-time code** secret, **extra fields** (the padlock hides
+  a field like a password; the eye shows it) and **files**.
+- **Password generator**: by the password field; length and kinds of characters, 20 characters without
+  look-alikes by default. A strength meter shows how good the password is.
+- **One-time code**: paste the site's secret, or use the **scan** button: **the camera** (Android asks
+  for camera access the first time) or a **screenshot** of the site's QR code.
+- **Files**: add, rename or remove them; nothing changes until you save.
+- **✓** saves and shows the entry. **←** or Back cancels; it asks before dropping changes.
+
+Every change is saved at once and goes up with the next sync. The entry's previous version is kept in
+its history (a change of tags or the star alone keeps none).
+
+### Several entries at once
+
+**Long-press** an entry to choose it, then tap others to add them (as in Gmail). The bar on top says how
+many and offers:
+
+- **copy** (one entry chosen): *Copy user name*, *Copy password*, *Copy TOTP code*;
+- **tag**: add a tag to all of them, or take one off;
+- **bin**: move all of them to the Trash, the recycle bin (after asking).
+
+**✕** or Back lets them go.
+
+### Templates
+
+Open **Templates** from ☰. A template opens like an entry, with **New entry from it** under it; the pencil
+edits it, **⋮ → Delete** deletes it. **+** there makes a new template. A database with no templates offers
+**Add starter templates**. An entry made from a template gets its fields, icon and tags, but not its
+title, expiry or one-time code.
+
+### The Trash
+
+**Trash** in ☰ lists deleted entries (the database's recycle bin). Open one to **Restore** it (back where it was) or **Delete
+permanently…**. **Empty the recycle bin…** above the list removes all of them for good, after saying how
+many. Only these last two steps delete anything for good, on every device.
+
+## 7. Tools (the wrench)
+
+- **Import from another app…** — Android's own transfer between password managers. Android lists the
+  apps on the phone that can hand over their passwords (Google Password Manager, Bitwarden, 1Password…);
+  pick one and confirm there. Everything comes over as **new entries** with the tag *Imported from* the
+  app and the date; nothing you have is changed. A sheet then says what came in and what did not.
+- **Import from a file…** — a CSV or JSON file another password manager exported (Google, Chrome,
+  Edge, Firefox, Bitwarden, 1Password, KeePass, KeePassXC, Aegis). An encrypted Aegis file asks for its password.
+  Such a file holds every password in plain text: **delete it** afterwards. The app offers *Delete the
+  file* when it can, otherwise it reminds you.
+- **Import from Google Authenticator…** — in Google Authenticator choose *Transfer accounts → Export
+  accounts*; then scan each QR code it shows with the camera (from another phone's screen), or pick
+  screenshots of them.
+- **Export to a file…** — a CSV or CXF JSON file for another password manager. The app asks for your
+  fingerprint or master password first and never writes over an existing file. Delete the file once it
+  is imported elsewhere.
+- **Find similar entries** — finds entries for the same site and user name (or the same title) and merges
+  them: tick what counts as similar, choose the entry to keep, **Proceed** shows the result, **Merge**
+  does it (the others go to the Trash). **Leave as is** hides a group until you open the tool again.
+- **Tidy up imported folders** — only shown when an older version of the app put imported entries in
+  folders; it turns those folders into tags.
+- **Export to another app** is not in Tools: you start it **in the other password manager**, which asks
+  Android to import from PswManager (this needs Google Play services on the phone). Android then opens
+  PswManager's export screen, which names the app the entries go to and asks for your fingerprint or master
+  password **every time**. Nothing in your database changes.
+
+## 8. Sync
+
+A database in a cloud store or a local file syncs **when you use the app**: Android stops apps in the
+background, so the phone does not sync on its own while it is closed.
+
+| When | What happens |
+|---|---|
+| You unlock | the app shows your entries at once and syncs; the list updates when it is done |
+| You come back to the app (more than a minute since the last sync) | it syncs |
+| About 10 seconds after a change | the change goes up (a change of tags or the star waits for the next sync) |
+| You leave the app with changes not sent | they go up at once; if Android stops the app, later, as soon as there is a network |
+| Every 5 minutes while the app is open | the app checks for changes (*Settings → Sync → Check for changes*) |
+| You pull the list down or tap **Sync now** | it syncs |
+
+- **The status line** at the bottom: *Synced 12:04*, *Syncing…*, *Changes waiting — offline*, *Merged 3
+  entries from Dropbox*, *Sign in to Dropbox again*… Tap it for the **sync sheet**: the last result, the
+  file in the store, the entries the last merge touched, and *Sync now*.
+- **Offline** is fine: you keep working, and the changes go up later.
+- **Conflicts**: if you edited the same entry on two devices, the newer change wins and the other goes
+  into the entry's history, so nothing is lost.
+- **Settings → Sync** shows where the database syncs and the visible copy's folder, and offers:
+  - **Stop syncing…** — e.g. when the store can't be reached. The visible copy becomes the database's
+    file, so nothing is lost; the file in the store is left alone.
+  - **Sync with Dropbox… / OneDrive… / Google Drive…** — for a database that syncs with no store: merge
+    it with a file in the store, or upload it there as a new one.
+
+## 9. Fill in logins in other apps and websites
+
+### Autofill
+
+**Set it up once:**
+
+1. *Settings → General → Autofill* says whether PswManager fills in passwords, and opens Android's choice:
+   pick **PswManager**.
+2. **Chrome** fills through it only with *Autofill using another service* on in Chrome's own
+   settings. Other browsers do it by themselves.
+
+**Then** tap a user name or password field in any app or website:
+
+- **Locked**: the only suggestion is **Unlock PswManager**. Tap it, unlock (fingerprint or master
+  password), and the suggestions appear.
+- **Unlocked**: the entries for that app or site are offered by title and user name. Tap one to fill
+  the fields.
+- **Not there?** The last suggestion, **Choose an entry in PswManager…** (or *Another entry in
+  PswManager…*, *More entries in PswManager…*), lets you search all entries and pick one. That entry is then **linked** to the app or site
+  and offered there by itself from then on.
+
+Which entries are offered:
+
+- **for an app**: entries linked to that app (its `androidapp://` address, which PswManager and
+  Keepass2Android keep in the entry), and only if the app is signed by the same maker as when the entry
+  was linked;
+- **for a website**: entries whose web address has that site's host, and only in browsers Android trusts
+  to tell the real address. Plain `http://` pages, browser menus and pages without a domain get nothing.
+
+**Saving a login**: after you type a new password into a login form, Android asks **Save to
+PswManager?**. Tap *Save*: PswManager unlocks if needed and asks where it goes:
+
+- **a new entry** (named after the app or the site);
+- **update** one of the entries for that app or site (the old password goes to its history);
+- **another entry**, searched among all and then linked.
+
+You confirm with your fingerprint or the screen lock, and a short message names the entry it went to.
 
 ### Passkeys and Credential Manager (Android 14 and newer)
 
-Turn it on in Android's **Settings → Passwords, passkeys & accounts**: add PswManager and, best, choose it
-as the *preferred service* (Android offers Google first).
+**Set it up once:** in Android's *Settings → Passwords, passkeys & accounts*, turn on PswManager and,
+best, make it the *preferred service* (Android offers Google first).
 
-- **Signing in with a passkey**: the site or app asks; pick your passkey from PswManager's list and confirm
-  with the fingerprint or the screen lock.
-- **Creating a passkey**: choose **PswManager**, then **a new entry** or an existing entry for the site.
-  The passkey then also works on the PC (through the browser extension) and in KeePassXC.
-- Apps that ask Credential Manager for a password get PswManager's logins the same way.
+- **Signing in with a passkey**: the site or app asks; PswManager lists the passkeys for it, by entry
+  title and user name. Pick one and confirm with your fingerprint or the screen lock.
+- **Creating a passkey**: choose **PswManager**. It unlocks if needed, shows who asks, and lets you keep
+  the passkey in **a new entry** for the site or in one of the site's entries that has no passkey yet.
+  It goes up with the next sync, so it also works on the PC (through the browser extension) and in
+  KeePassXC.
+- **Apps that ask Credential Manager for a password** get PswManager's logins in the same sheet, and can
+  offer a new one to save, as with autofill.
 
-## 9. When another app asks PswManager on the phone
+## 10. When another app asks PswManager
 
-| The question | What it means | What to do |
+**Say yes only to what you started yourself.** PswManager asks for your master password only in its own
+screens, never in a web page or another app.
+
+| What you see | What it means | What to do |
 |---|---|---|
 | **Unlock PswManager** (in a login field or Android's sheet) | The database is locked; nothing about your entries has been shown. | Tap it and unlock. |
-| ***Trust this app?*** (with the app's certificate) | An app wants a login from an entry that does not know this app's certificate yet (one made in Keepass2Android, say), or you are linking an entry to the app. Any app can call itself anything; the certificate shows who really made it. | Trust it only if it is the app you expect — e.g. you installed it from Google Play yourself. Once trusted, the entry remembers it, and a fake app with the same name gets nothing. |
-| **Save to PswManager?** | You typed a new password into a form. | *Save*, then choose where it goes. Or dismiss it. |
-| **Creating a passkey** (PswManager asks where it goes) | A site or app wants to create a passkey. | A new entry, or an existing one for that site. |
-| **The export screen**, naming another app | Another password manager asks Android to import your database from PswManager. | Only if **you** started that import. You confirm with your fingerprint or the master password **every time**. Nothing in your database changes. |
-| **The new key** screen | The master password was changed on another device. | Type the new one. *Not now* lets you keep working; changes wait. |
-| **Camera access** | You chose to scan a QR code. | Allow it, or pick a screenshot instead. |
-| **All files access** | Android's pickers hide some folders (one named *Data*, say), and you tried to choose something there. | Optional. Turn it on only if you need such a folder. |
+| ***Trust this app?*** with the app's certificate | An app wants a login from an entry that doesn't know this app's certificate yet (one made in Keepass2Android, say), or you are linking an entry to the app. Any app can take any name; the certificate shows who really made it. | **Trust** only if it is the app you expect, from a source you trust. The entry then remembers it, and a fake app with the same name gets nothing. Otherwise **Cancel**. |
+| **Save to PswManager?** | You typed a new password into a form. | *Save*, then choose where it goes — or dismiss it. |
+| PswManager asks **where to keep a passkey** | A site or app wants to create a passkey. | A new entry, or one of the site's entries. |
+| **The export screen**, naming another app | Another password manager wants your entries. | Confirm only if **you** started the import in that app. |
+| **The new key** screen | The master password was changed on another device. | Type the new one. *Not now* lets you keep working (your changes wait); the key button in the toolbar, or **Enter the new key…** in the sync sheet, brings it back. |
+| The store's **sign-in page** in the browser | You chose to sync with Dropbox, OneDrive or Google Drive, or *Sign in to … again*. | Sign in on the real page of the store. PswManager gets only its own folder there. |
+| **Camera access** | You chose to scan a QR code. | Allow it — or pick a screenshot instead. |
+| **All files access** | Android's pickers hide some folders (one named *Data*, say), and you wanted something there. | Optional. Turn it on only if you need such a folder; without it, Android's pickers work as usual. |
 
-## 10. Settings on the phone
+## 11. Settings
+
+**⚙** in the toolbar, or a swipe to the left on the list. The tabs scroll sideways if they don't fit.
 
 | Tab | What you set there |
 |---|---|
-| **General** | locking, **screenshots** (blocked by default), the clipboard, the fingerprint, **Autofill** |
-| **Appearance** | theme, site icons, swipes on the list |
-| **Database** | the same as on the PC: name, history, master password and key file, encryption |
-| **Sync** | the store, *Sync now*, *Stop syncing*, sync with a store later |
-| **About** | the version and the source code |
+| **General** | **Locking** (in the background, screen off, without a touch); **Unlock** (*Unlock with fingerprint*, how often the master password is asked: 1 to 90 days); **Autofill**; **Screen** (*Allow screenshots*); **Clipboard** (*Clear after copying*: 5 to 120 seconds) |
+| **Appearance** | theme (as the phone, light or dark), *Download site icons*, *Swipes on the list* |
+| **Database** | the master password and key file, the database's name and description, the default user name, how much history to keep, the encryption (with a **Test** of how long an unlock takes on this phone) |
+| **Sync** | where it syncs, the visible copy's folder, *Check for changes*, *Sync now*, *Stop syncing…* or *Sync with …* |
+| **About** | the version, the GitHub repository |
 
-**Screenshots** of the app are blocked unless you turn on *Allow screenshots*: screenshots show nothing,
-and the app's preview in the recent apps is blank.
+- What is on the **Database** tab is kept inside the database file, so the PC and KeePassXC see it too.
+  The other tabs belong to this phone only.
+- **Screenshots** are blocked unless you turn on *Allow screenshots*: screenshots and screen recordings
+  show nothing, and the app's preview among the recent apps is blank. The camera screen is never
+  captured.
+- **Changing the master password or key file** (*Database* tab): type the current password, then the new
+  one twice, and/or choose a key file (or let the app make a **New key file…**). Other devices need the new
+  key from then on; the fingerprint is set up again at the next unlock with the password.
+- **Site icons** come straight from each site, only by its name, never through another service.
 
-## 11. Problems and answers
+## 12. Problems and answers
 
 | Problem | Answer |
 |---|---|
-| No suggestions in a login field | Check that PswManager is the autofill service. In Chrome, turn on *Autofill using another service*. Some apps block autofill; copy and paste then. |
+| No suggestions in a login field | Check *Settings → General → Autofill*. In Chrome, turn on *Autofill using another service*. Some apps block autofill: copy and paste then. |
 | Nothing is offered on a plain `http://` page | On purpose: unencrypted pages get nothing. |
-| A fingerprint stopped working | A new fingerprint or face was added to the phone, so the stored key was cleared. Unlock once with the master password. |
-| Changes don't reach the PC | Open the app or pull down to sync. Android stops apps in the background, so the phone syncs when you use it. |
+| An app's entry is not offered | It may not be linked to the app yet: use *Choose an entry in PswManager…* once. If the entry keeps another maker's certificate for that app, it is not offered at all. |
+| The fingerprint button is gone | A new fingerprint or face was added, or 14 days have passed. Unlock once with the master password. |
+| Changes don't reach the PC | Open the app or pull down the list. The phone syncs while you use it, not while it is closed. |
+| *Sign in to Dropbox again* | Tap the status line and sign in. Your changes wait on the phone meanwhile. |
+| A folder can't be chosen | Android's pickers refuse some folders. Pick another folder, or turn on *All files access* when the app offers it. |
+| A screenshot of the app is black | *Allow screenshots* is off (the default). |
 
 ---
 
