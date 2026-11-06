@@ -18,7 +18,7 @@ import { showShortcuts } from './shortcuts'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
-import { mergePair, renderSimilar } from './similar'
+import { mergePair, renderSimilar, type SimilarOptions } from './similar'
 import { renderImport } from './file-import'
 import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
 import { renderGauthImport } from './gauth-import'
@@ -1336,11 +1336,11 @@ const openExport = () =>
   openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
 /** What merging needs, from Find similar entries and from the list's menu. */
-const similarOptions = {
-  entry: (id: string) => listing.entries.find((e) => e.id === id),
+const similarOptions: SimilarOptions = {
+  entry: (id) => listing.entries.find((e) => e.id === id),
   icon: iconOf,
-  changed: (next: Listing, message: string) => applyListing(next, message, false),
-  fail: (message: string) => notify(message),
+  changed: (next, message) => applyListing(next, message, false),
+  fail: (message) => notify(message),
 }
 
 const openSimilar = () => openReport('similar', async () => renderSimilar(reportView, similarOptions))

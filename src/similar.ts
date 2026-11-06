@@ -75,35 +75,35 @@ export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptio
   const other = () => (kept === pair[0] ? pair[1] : pair[0])
   const intro = el('p', { className: 'muted' })
   const card = el('div', { className: 'merge-preview' })
-  // Seen first: what Merge does is on screen before it can be pressed.
-  const merge = button('Merge', 'Merge the other one into the kept one', () => {}, 'primary')
-  merge.disabled = true
-  // Only the last choice's preview is shown, however the answers come back.
-  let asked = 0
-  async function show() {
-    const ask = ++asked
-    try {
-      const preview = await api.mergePreview(kept.id, [other().id])
-      if (ask !== asked) return
-      intro.textContent = `"${titleOf(kept)}" as the merge would leave it. "${titleOf(other())}" goes to the recycle bin.`
-      card.replaceChildren(mergedCard(preview, options.icon(kept.id)))
-      merge.disabled = false
-    } catch (e) {
-      if (ask === asked) intro.textContent = String(e)
-    }
-  }
-  const keepRows = pair.map((entry) => {
-    const radio = el('input', { type: 'radio', name: 'merge-keep', checked: entry === kept })
-    radio.addEventListener('change', () => {
-      kept = entry
-      merge.disabled = true
-      void show()
-    })
-    return el('label', { className: 'merge-keep' }, radio, `Keep "${titleOf(entry)}"`)
-  })
-  void show()
   const merged = await dialog('Which one is kept? What the other has goes into it.', false, (answer) => {
-    merge.onclick = () => answer(true)
+    // Seen first: what Merge does is on screen before it can be pressed.
+    const merge = button('Merge', 'Merge the other one into the kept one', () => answer(true), 'primary')
+    // Only the last choice's preview is shown, however the answers come back.
+    let latest = 0
+    async function show() {
+      const request = ++latest
+      merge.disabled = true
+      try {
+        const preview = await api.mergePreview(kept.id, [other().id])
+        if (request !== latest) return
+        intro.textContent = `"${titleOf(kept)}" as the merge would leave it. "${titleOf(other())}" goes to the recycle bin.`
+        card.replaceChildren(mergedCard(preview, options.icon(kept.id)))
+        merge.disabled = false
+      } catch (e) {
+        if (request !== latest) return
+        intro.textContent = String(e)
+        card.replaceChildren()
+      }
+    }
+    const keepRows = pair.map((entry) => {
+      const radio = el('input', { type: 'radio', name: 'merge-keep', checked: entry === kept })
+      radio.addEventListener('change', () => {
+        kept = entry
+        void show()
+      })
+      return el('label', { className: 'merge-keep' }, radio, `Keep "${titleOf(entry)}"`)
+    })
+    void show()
     return { body: [...keepRows, intro, card], buttons: [merge] }
   }, 'Cancel', 'merge')
   if (!merged) return
