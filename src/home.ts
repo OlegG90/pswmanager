@@ -57,9 +57,9 @@ export function renderHome(container: HTMLElement, options: HomeOptions) {
   container.replaceChildren(
     el('header', {}, el('h1', {}, options.title)),
     el('p', { className: 'muted intro' }, `${options.place} · ${options.entries} ${options.entries === 1 ? 'entry' : 'entries'}`),
-    stats,
-    el('section', {}, el('h3', {}, 'Quick actions'), actions),
-    el('section', {}, el('h3', {}, 'Generate a password'), generator(options)),
+    el('section', { className: 'home-block' }, el('h3', {}, 'Password health'), stats),
+    el('section', { className: 'home-block' }, el('h3', {}, 'Quick actions'), actions),
+    el('section', { className: 'home-block' }, el('h3', {}, 'Generate a password'), generator(options)),
   )
 }
 

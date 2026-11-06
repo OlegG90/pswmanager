@@ -2368,6 +2368,16 @@ button.switch[aria-checked='true'] .knob {
    generator on the page's card layer rather than as a flyout. */
 #report .home-stats {
   grid-template-columns: repeat(4, 1fr);
+  margin-top: 0;
+}
+
+/* Home's blocks, each under its heading, set well apart. */
+#report section.home-block {
+  margin-top: 32px;
+}
+
+#report section.home-block .tool-actions {
+  margin-top: 0;
 }
 
 #report .home-generator {
