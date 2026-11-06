@@ -1,5 +1,7 @@
 import { screens } from './page'
 
+// The touch idioms: sideways swipes, and the panels that come in with the finger.
+
 /** Sideways swipes across `target` (#194) bring a panel in with the finger:
  *  to the right `right`'s, to the left `left`'s. Let go past a third of the
  *  way (or flicked), it opens; otherwise it goes back. A swipe counts once it

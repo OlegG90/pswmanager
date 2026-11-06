@@ -11,6 +11,9 @@ import { keyFileChooser } from './phone-files'
 import { leaving, slide, type Sliding, swipes } from './slides'
 import { CLOUDS, filesIn, STORES } from './sync'
 
+// The settings screen and its tabs, with the screens they open (the key, the
+// encryption).
+
 /** The settings' toolbar, coming in from the right with a swipe; once in, the
  *  settings screen takes its place. */
 export function settingsPeek(back: () => void): Sliding {
@@ -23,8 +26,6 @@ export function settingsPeek(back: () => void): Sliding {
   const sliding = slide(shade, panel, 1, close)
   return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back, parts ?? undefined))) }
 }
-
-// ------------------------------------------------------------ settings
 
 type Tab = 'general' | 'appearance' | 'database' | 'sync' | 'about'
 let settingsTab: Tab = 'general'

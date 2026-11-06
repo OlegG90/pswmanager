@@ -17,6 +17,9 @@ import { askForKey, otherKeyScreen, pullToSync, syncButton, syncSheet } from './
 import { toolsSheet } from './tools'
 import { lock } from './unlock'
 
+// The list of entries, with its drawer of groups and tags, its search, its
+// selection and the sheets opened from it.
+
 /** The list, as Keepass2Android lays it out: a toolbar on top, the entries,
  *  the search button floating at the bottom right, the sync status under it. */
 export function listScreen(opened: Listing) {

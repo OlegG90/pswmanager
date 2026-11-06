@@ -4,10 +4,8 @@ import { appState } from './app-state'
 import { svgIcon, type IconName } from './icons'
 import { screens as screensOf } from './screens'
 
-/**
- * The page every screen draws on: the screen shown, the panels and overlays
- * over it, the snackbar, and what the screens share (see app-state.ts).
- */
+// The page every screen draws on: the screen shown, the panels and overlays
+// over it, the snackbar, and what the screens share (see app-state.ts).
 
 export const screen = document.querySelector<HTMLElement>('#screen')!
 const snackbar = document.querySelector<HTMLElement>('#snackbar')!

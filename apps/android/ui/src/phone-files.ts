@@ -3,6 +3,9 @@ import { input } from '../../../../src/editor-parts'
 import { api, type NewKeyFile, type Picked } from './api'
 import { app, sheet, snack } from './page'
 
+// Files and folders on the phone (#207): browsed here with All files access,
+// or through Android's pickers.
+
 /** Something on the phone the app opens or writes (#207): with All files
  *  access on, the phone's folders are browsed here (`browse`, which hands back
  *  what was chosen, or null); otherwise a sheet offers Android's `picker`

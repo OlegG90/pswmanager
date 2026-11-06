@@ -9,6 +9,9 @@ import { icon, listScreen } from './list'
 import { confirmSheet, iconButton, screen, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
 
+// Tools (#183): import from another app, a file or Google Authenticator,
+// export to a file, and similar entries.
+
 /** Tools (#183): the commands that work on the whole database, from the toolbar's wrench. */
 export function toolsSheet(listing: Listing) {
   sheet((close) => [

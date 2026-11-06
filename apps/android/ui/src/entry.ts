@@ -10,7 +10,8 @@ import { icon, listScreen, toListSaying } from './list'
 import { confirmSheet, copied, iconButton, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
 
-// ------------------------------------------------------------ an entry
+// An entry, read only: its lines (copied, revealed, opened), its history and
+// older versions, and what is done to it from its toolbar.
 
 /** A command at the end of a line: what it does (for screen readers) and its icon. */
 type Action = [label: string, icon: IconName, run: () => void]

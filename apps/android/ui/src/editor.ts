@@ -10,6 +10,8 @@ import { listScreen } from './list'
 import { app, confirmSheet, iconButton, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
 
+// The entry editor, and the new entry the list's + starts.
+
 /** The list's +: a blank entry, or one from a template (asked when there are
  *  any); in Templates, a new template. */
 export function newEntry(listing: Listing) {

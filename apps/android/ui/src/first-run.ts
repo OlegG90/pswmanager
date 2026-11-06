@@ -7,7 +7,7 @@ import { browsePhone, onPhone, phoneFolder } from './phone-files'
 import { CLOUDS, filesIn, signIn, STORES } from './sync'
 import { unlockScreen } from './unlock'
 
-// ------------------------------------------------------------ first run
+// First run: choosing the database (a cloud store, a local file) or creating one.
 
 export function chooseScreen() {
   const error = errorLine()
