@@ -1,6 +1,7 @@
 import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
 import { chip, collectEntry, fieldNameList, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
+import { editorSession } from './editor-session'
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -31,61 +32,35 @@ export interface EditorOptions {
   template?: boolean
 }
 
-/** The open editor, from the moment it starts loading. */
-let active: {
-  save: () => void
-  close: () => void | Promise<void>
-  /** Closes without saving or asking: nothing of the edit is kept. */
-  discard: () => void
-  /** Puts the keyboard back where it was in the form. */
-  focus: () => void
-  /** The entries another device just changed. */
-  changedElsewhere?: (ids: string[]) => void
-} | null = null
+/** The window's one editor (see [editorSession]). */
+const session = editorSession({ ask, isAsking })
 
-export const isEditing = () => active !== null
+export const isEditing = session.isEditing
 
 /** Keys while the editor is open: Ctrl+S saves, Esc cancels. True when handled. */
 export function editorKey(e: KeyboardEvent): boolean {
-  if (!active) return false
+  if (!session.isEditing()) return false
   if (e.ctrlKey && e.code === 'KeyS') {
     e.preventDefault()
-    active.save()
+    void session.save()
     return true
   }
   if (e.key === 'Escape') {
     e.preventDefault()
-    active.close()
+    void session.close()
     return true
   }
   return false
 }
 
-export function closeEditor() {
-  active = null
-}
+export const closeEditor = session.clear
 
-/**
- * Something outside the editor was chosen while it is open: asks whether to
- * leave it. Yes closes it without saving (the entry shows as it was), No keeps
- * the user in it. True when there is no editor any more.
- */
-export async function leaveEditor(): Promise<boolean> {
-  const open = active
-  if (!open) return true
-  if (isAsking()) return false
-  const leave = await ask('Leave editing? The changes are not saved.', 'Yes', 'No')
-  // Saved, cancelled or locked while asking: what was chosen is not done.
-  if (active !== open) return false
-  if (leave) open.discard()
-  else open.focus()
-  return leave
-}
+/** Something outside the editor was chosen while it is open: asks whether to
+ *  leave it (see the session's `leave`). True when there is no editor any more. */
+export const leaveEditor = session.leave
 
 /** Tells the editor that another device changed these entries. */
-export function changedElsewhere(ids: string[]) {
-  active?.changedElsewhere?.(ids)
-}
+export const changedElsewhere = session.changedElsewhere
 
 /** The entry's Auto-Type settings (#272): on or off, its own sequence, and
  *  sequences for windows whose title matches. What the form only trimmed
@@ -120,19 +95,13 @@ function autoTypeEditor(data: AutoTypeData) {
 
 /** Shows the editor in `container`. */
 export async function openEditor(container: HTMLElement, options: EditorOptions) {
-  // Counts as open while loading, so a second Ctrl+E or a click in the list waits.
-  const loading = { save: () => {}, close: () => {}, discard: () => {}, focus: () => {} }
-  active = loading
-  let data: EntryData
-  let attachments: Attachment[] = []
-  try {
-    data = options.id ? await api.editEntry(options.id) : newEntryData(options.group, options)
-    if (options.id) attachments = (await api.entry(options.id)).attachments
-  } catch (e) {
-    if (active === loading) active = null
-    throw e
-  }
-  if (active !== loading) return // locked while loading
+  const loaded = await session.load(async () => {
+    const data = options.id ? await api.editEntry(options.id) : newEntryData(options.group, options)
+    const attachments: Attachment[] = options.id ? (await api.entry(options.id)).attachments : []
+    return { data, attachments }
+  })
+  if (!loaded) return // locked while loading
+  const { data, attachments } = loaded
 
   const title = input(data.title, { placeholder: 'Title' })
   const username = input(data.username)
@@ -184,46 +153,20 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   const autoType = autoTypeEditor(data.autoType)
   const collect = (): EntryData => ({ ...collectEntry(data, inputs), icon: icon.value(), autoType: autoType.value() })
 
-  let saving = false
-  const save = async () => {
-    if (saving) return
-    saving = true
-    try {
-      const saved = await api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes())
-      // Locking while the save ran closed this editor: the vault is gone.
-      if (active !== self) return
-      active = null
-      options.onSaved(saved)
-    } catch (e) {
-      if (active === self) showError(String(e))
-    } finally {
-      saving = false
-    }
-  }
-  const discard = () => {
-    active = null
-    files.release()
-    options.onClose()
-  }
-  const close = async () => {
-    if (JSON.stringify(collect()) !== untouched || files.changes().length) {
-      const yes = await ask('Discard the unsaved changes?', 'Discard', 'Keep editing')
-      if (!yes || active !== self) return
-    }
-    discard()
-  }
-  // Saving still works: this edit is applied to the file as it is now, wins
-  // where both changed the entry, and the other version goes to its history.
-  const changed = (ids: string[]) => {
-    if (options.id && ids.includes(options.id)) {
-      showError('This entry was just changed on another device. Saving keeps your version; the other one goes to the entry\'s history.')
-    }
-  }
   // The field last used, for the way back into the form.
   let lastField: HTMLElement = title
-  const focus = () => lastField.focus()
-  const self = { save, close, discard, focus, changedElsewhere: changed }
-  active = self
+  const { save, close } = session.open({
+    id: options.id,
+    dirty: () => JSON.stringify(collect()) !== untouched || files.changes().length > 0,
+    store: () => api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes()),
+    saved: options.onSaved,
+    closed: () => {
+      files.release()
+      options.onClose()
+    },
+    focus: () => lastField.focus(),
+    fail: showError,
+  })
 
   const row = (label: string, ...controls: Node[]) =>
     el('div', { className: 'edit-row' }, el('span', { className: 'label' }, label), el('div', { className: 'controls' }, ...controls))
