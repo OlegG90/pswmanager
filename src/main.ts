@@ -2,7 +2,7 @@ import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { siteIconCache } from './site-icons'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type VersionDetail, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { closeMenus, contextMenu, menuButton, type MenuItem } from './menu'
@@ -12,7 +12,7 @@ import { sidebarResizer } from './sidebar-resize'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, tagCounts, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
+import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
 import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
@@ -27,7 +27,8 @@ import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
 import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
-import { clicked, type Choice } from './selection'
+import type { Choice } from './selection'
+import { count, editable, inTrash, isTemplate, tagsOf, vaultState, type Pick } from './vault'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -47,13 +48,8 @@ const listPane = $('list-pane')
 const toast = $('toast')
 
 
-const EMPTY: Listing = {
-  entries: [],
-  customIcons: {},
-  database: { name: '', description: '', defaultUsername: '', historyMaxItems: -1, historyMaxSize: -1,
-    encryption: { cipher: 'aes256', kdf: 'argon2id', iterations: 0, memory: 0, parallelism: 0 } }, // all but the user name: unused here, Settings fetches them
-  inImportGroups: 0,
-}
+/** The records: the listing, the list's choice and the entry shown. */
+const records = vaultState()
 let unlocked = false
 /** The settings screen is over the vault or the unlock screen, whichever is current. */
 let settingsOpen = false
@@ -65,32 +61,12 @@ type Tool = 'home' | 'health' | 'similar' | 'import' | 'gauth' | 'export'
 let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
 let chooseBack: (() => void) | null = null
-let listing = EMPTY
 /** Site icons by host; one that arrives replaces the key in the images waiting for it. */
 const siteIcons = siteIconCache(api.icon, (host, icon) => {
   document.querySelectorAll<HTMLImageElement>('img[data-host]').forEach((img) => {
     if (img.dataset.host === host) setIcon(img, icon)
   })
 })
-/** What the sidebar shows: a group or a tag. */
-let filter: Filter = ALL
-let shown: Entry[] = []
-let selectedId: string | null = null
-/** Several entries chosen with Ctrl / Shift+click; null while one (or none) is. */
-let several: Choice | null = null
-let current: EntryDetail | null = null
-/** What the right column shows of the current entry: itself, its history, or
- *  one of its older versions (`index` in the history, 0 the newest). */
-type View =
-  | { kind: 'entry' }
-  | { kind: 'history'; versions: Version[] }
-  | { kind: 'version'; versions: Version[]; index: number; at: VersionDetail }
-const ENTRY_VIEW: View = { kind: 'entry' }
-let view: View = ENTRY_VIEW
-/** The older version shown, for fetching its values and files. */
-const shownVersion = () => (view.kind === 'version' ? view.index : null)
-/** Values revealed in the current entry, by field name. */
-const revealed = new Map<string, string>()
 
 // ---------------------------------------------------------------- unlock
 
@@ -238,7 +214,7 @@ unlockForm.addEventListener('submit', (e) => {
 // ---------------------------------------------------------------- vault
 
 function showVault(next: Listing) {
-  listing = next
+  records.open(next)
   unlocked = true
   unlockForm.hidden = true
   vault.hidden = false
@@ -246,7 +222,6 @@ function showVault(next: Listing) {
   api.keyNeeded().then(showKeyNeeded, () => {})
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
-  filter = ALL
   fillSidebar()
   refresh()
   // Settings opened over the unlock screen move beside the sidebar, drawn
@@ -264,8 +239,8 @@ function showVault(next: Listing) {
 // ---------------------------------------------------------------- Auto-Type
 
 /** Entry-level Auto-Type: the entry shown, typed into the window behind PswManager. */
-function autoTypeEntry(id = current?.id) {
-  if (view.kind !== 'entry' || !id || !editable(listing.entries.find((e) => e.id === id) ?? null)) return
+function autoTypeEntry(id = records.current?.id) {
+  if (records.view.kind !== 'entry' || !id || !editable(records.entry(id))) return
   api.autoTypeEntry(id, 'sequence').catch((e) => notify(String(e), 6))
 }
 
@@ -284,12 +259,7 @@ async function showLocked() {
   closeReport()
   closeEditor()
   stopTotp()
-  listing = EMPTY
-  shown = []
-  selectedId = null
-  several = null
-  current = null
-  revealed.clear()
+  records.close()
   list.replaceChildren()
   detail.replaceChildren()
   // Locking closes the settings: the unlock screen asks for the password (#262).
@@ -299,18 +269,14 @@ async function showLocked() {
   showUnlock(await api.status())
 }
 
-/** The sidebar: the fixed groups and the tags, each with its count. A tag no
- *  entry has any more goes back to All. */
+/** The sidebar: the fixed groups and the tags, each with its count. */
 function fillSidebar() {
-  if (tidyTool) tidyTool.hidden = !listing.inImportGroups
-  const tags = tagCounts(listing.entries)
-  const chosen = filter
-  if (chosen.kind === 'tag' && !tags.some(([tag]) => tag === chosen.tag)) filter = ALL
-  const countOf = (choice: Filter) => search(listing.entries, '', choice).length
+  if (tidyTool) tidyTool.hidden = !records.listing.inImportGroups
+  const countOf = (choice: Filter) => search(records.listing.entries, '', choice).length
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (!settingsOpen && !reportOpen && sameFilter(choice, filter)) b.setAttribute('aria-current', 'true')
+    if (!settingsOpen && !reportOpen && sameFilter(choice, records.filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
@@ -320,7 +286,7 @@ function fillSidebar() {
   }))
   tagsList.replaceChildren(
     item(UNTAGGED, 'Untagged', countOf(UNTAGGED)),
-    ...tags.map(([tag, count]) => {
+    ...records.tags().map(([tag, count]) => {
       const li = item({ kind: 'tag', tag }, tag, count)
       li.append(menuButton(`More for the tag ${tag}`, [
         { label: 'Rename…', title: 'Rename in every entry (to a name another tag has: merge them)', action: afterLeavingEditor(() => renameTag(tag)) },
@@ -334,7 +300,7 @@ function fillSidebar() {
 function showFilter(choice: Filter) {
   closeSettings()
   closeReport()
-  filter = choice
+  records.setFilter(choice)
   fillSidebar()
   refresh()
   searchInput.focus()
@@ -342,7 +308,8 @@ function showFilter(choice: Filter) {
 
 /** Re-runs the search and redraws the list, keeping the selection if it is still shown. */
 function refresh() {
-  shown = search(listing.entries, searchInput.value, filter)
+  const pick = records.search(searchInput.value)
+  const { shown, filter, listing } = records
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
   $('empty-trash').hidden = !sameFilter(filter, TRASH) || !listing.entries.some(inTrash)
@@ -354,19 +321,19 @@ function refresh() {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
   }
-  // Several chosen: those still shown stay chosen.
-  if (several) {
-    const still = several.chosen.filter((id) => shown.some((e) => e.id === id))
-    if (still.length > 1) return chooseSeveral({ ...several, chosen: still })
-    several = null
-    if (still.length) return select(still[0])
-  }
-  select(shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null))
+  showPick(pick)
+}
+
+/** Shows what the list chose: one entry, or several. */
+function showPick(pick: Pick) {
+  if ('several' in pick) chooseSeveral(pick.several)
+  else select(pick.one)
 }
 
 /** An entry's own image, else the drawing chosen for it, else its site's icon, else the key. */
 function iconFor(entry: Entry): string {
-  if (entry.customIcon && listing.customIcons[entry.customIcon]) return listing.customIcons[entry.customIcon]
+  const { customIcons } = records.listing
+  if (entry.customIcon && customIcons[entry.customIcon]) return customIcons[entry.customIcon]
   if (entry.icon !== null) return glyphIcon(entry.icon)
   return autoIcon(entry)
 }
@@ -427,25 +394,14 @@ function listItem(entry: Entry): HTMLLIElement {
 /** A click in the list: one entry, or several with Ctrl / Shift. */
 function pick(id: string, e: MouseEvent) {
   if (isEditing()) return
-  if (!e.ctrlKey && !e.shiftKey) {
-    several = null
-    return select(id)
-  }
-  e.preventDefault() // Shift+click would select the page's text
-  const now = several ?? (selectedId ? { chosen: [selectedId], anchor: selectedId } : null)
-  const next = clicked(shown.map((s) => s.id), now, id, { ctrl: e.ctrlKey, shift: e.shiftKey })
-  if (next.chosen.length > 1) return chooseSeveral(next)
-  several = null
-  select(next.chosen[0])
+  if (e.ctrlKey || e.shiftKey) e.preventDefault() // Shift+click would select the page's text
+  showPick(records.pick(id, { ctrl: e.ctrlKey, shift: e.shiftKey }))
 }
 
 /** Several entries chosen: the list marks them, the right column offers what
  *  can be done to all of them. */
 function chooseSeveral(choice: Choice) {
-  several = choice
-  selectedId = null
-  current = null
-  revealed.clear()
+  records.chooseSeveral(choice)
   stopTotp()
   markList()
   renderSeveral()
@@ -453,6 +409,7 @@ function chooseSeveral(choice: Choice) {
 
 /** Marks the chosen entries in the list. */
 function markList() {
+  const { several, selectedId } = records
   for (const li of list.children as HTMLCollectionOf<HTMLLIElement>) {
     const id = li.dataset.id ?? ''
     li.setAttribute('aria-selected', String(several ? several.chosen.includes(id) : id === selectedId))
@@ -484,37 +441,25 @@ async function toggleFavorite(entry: Entry) {
 
 function select(id: string | null) {
   if (isEditing()) return // the editor stays until it is saved or cancelled
-  const same = id === selectedId
-  if (!same) revealed.clear()
-  selectedId = id
-  several = null
+  const changed = records.select(id)
   markList()
   list.querySelector(`[aria-selected='true']`)?.scrollIntoView({ block: 'nearest' })
   // A new search that keeps the same entry keeps its view as it is.
-  if (same && current?.id === id) return
+  if (!changed) return
   stopTotp()
   if (!id) {
-    current = null
     detail.replaceChildren()
     return
   }
   api
     .entry(id)
-    .then((entry) => {
-      if (selectedId !== id) return
-      current = entry
-      view = ENTRY_VIEW
-      renderDetail()
-    })
+    .then((entry) => records.show(id, entry) && renderDetail())
     .catch((e) => notify(String(e)))
 }
 
 function move(step: number) {
-  if (shown.length === 0) return
-  // From several chosen, the arrows go on from the last one clicked.
-  const i = shown.findIndex((e) => e.id === (several?.anchor ?? selectedId))
-  const next = Math.min(shown.length - 1, Math.max(0, i + step))
-  select(shown[next].id)
+  const id = records.step(step)
+  if (id) select(id)
 }
 
 // ---------------------------------------------------------------- detail
@@ -551,7 +496,7 @@ function copyOnClick<T extends HTMLElement>(value: T, copyValue: () => void): T 
 
 /** A protected value: masked until revealed. `keys` names the password's shortcuts. */
 function secretRow(label: string, field: string, keys?: { reveal: string; copy: string }): HTMLDivElement {
-  const value = revealed.get(field)
+  const value = records.revealedValue(field)
   const hint = (key?: string) => (key ? ` (${key})` : '')
   const reveal = iconAction(shownIcon(value !== undefined), `${value === undefined ? 'Show' : 'Hide'}${hint(keys?.reveal)}`, () => toggleReveal(field))
   return row(label, value ?? '••••••••', () => copy(field, label), { actions: [reveal], copyKey: keys?.copy, valueClass: 'secret' })
@@ -565,7 +510,7 @@ const PLACES: Record<Entry['kind'], string> = { entry: '', template: 'Template',
 const hasTotp = (entry: EntryDetail) => entry.otp
 
 function renderDetail() {
-  const shown = current
+  const { current: shown, view } = records
   // An entry fetched just as the editor opened must not draw over it.
   if (!shown || isEditing()) return
   if (view.kind === 'history') return renderHistory(shown, view.versions)
@@ -681,13 +626,12 @@ function renderHistory(entry: EntryDetail, versions: Version[]) {
 }
 
 async function openHistory() {
-  const entry = current
+  const entry = records.current
   if (!entry || isEditing()) return
   try {
     const versions = await api.entryHistory(entry.id)
-    if (current !== entry) return
-    view = { kind: 'history', versions }
-    revealed.clear()
+    if (records.current !== entry) return
+    records.showHistory(versions)
     stopTotp()
     renderDetail()
   } catch (e) {
@@ -696,14 +640,12 @@ async function openHistory() {
 }
 
 async function openVersion(index: number) {
-  const entry = current
+  const { current: entry, view } = records
   if (!entry || view.kind !== 'history') return
-  const versions = view.versions
   try {
     const at = await api.entryVersion(entry.id, index)
-    if (current !== entry) return
-    view = { kind: 'version', versions, index, at }
-    revealed.clear()
+    if (records.current !== entry) return
+    records.showVersion(view.versions, index, at)
     renderDetail()
   } catch (e) {
     notify(String(e))
@@ -713,30 +655,28 @@ async function openVersion(index: number) {
 /** One step back: from a version to the history, from the history to the
  *  entry. False when the entry itself is shown. */
 function back(): boolean {
-  if (view.kind === 'entry') return false
-  view = view.kind === 'version' ? { kind: 'history', versions: view.versions } : ENTRY_VIEW
-  revealed.clear()
+  if (!records.back()) return false
   renderDetail()
   return true
 }
 
 /** Asks first: the entry's current content goes into its history. */
 async function restoreVersion() {
-  const entry = current
+  const { current: entry, view } = records
   if (!entry || view.kind !== 'version') return
   const { index, at } = view
   const when = at.modified ? formatDateTime(at.modified) : 'this version'
   const yes = await ask(`Restore the version saved ${when}? The entry's current content goes into its history.`, 'Restore')
-  if (!yes || current !== entry) return
+  if (!yes || records.current !== entry) return
   try {
     const next = await api.restoreVersion(entry.id, index, at.modified)
-    view = ENTRY_VIEW
+    records.showEntry()
     applyListing(next, 'Restored the older version · the replaced one is in the history')
   } catch (e) {
     notify(String(e), 6)
     // The history may have moved on: show it as it is now.
-    if (current === entry) {
-      view = ENTRY_VIEW
+    if (records.current === entry) {
+      records.showEntry()
       openHistory()
     }
   }
@@ -760,15 +700,12 @@ function fileRow(file: Attachment): HTMLDivElement {
 
 /** What can be done to the chosen entries at once, each change saved as one. */
 function renderSeveral() {
-  if (!several || isEditing()) return
-  const chosen = listing.entries.filter((e) => several!.chosen.includes(e.id))
-  const inUse = chosenInUse()
-  const trashed = chosenInTrash()
-  const heading = el('div', { className: 'heading' }, el('h2', {}, `${chosen.length} entries chosen`),
+  if (!records.several || isEditing()) return
+  const { all, inUse, trashed, templates } = records.chosen()
+  const heading = el('div', { className: 'heading' }, el('h2', {}, `${all.length} entries chosen`),
     el('span', { className: 'meta' }, 'Ctrl+click adds or takes one off, Shift+click chooses a range'))
   // One bar at the bottom of the column, as an entry's.
   const actions: HTMLButtonElement[] = []
-  const templates = chosenTemplates()
   if (templates.length) {
     actions.push(button('Delete…', 'Move these templates to the recycle bin (Del)', () => deleteSeveral(templates.map((e) => e.id)), 'danger'))
   }
@@ -795,30 +732,25 @@ function renderSeveral() {
   detail.replaceChildren(...rows)
 }
 
-/** The tags of `entries`, without the star, in order. */
-function tagsOf(entries: Entry[]): string[] {
-  return [...new Set(entries.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
-}
-
 /** The list's menu (#255) for entry `id`, or for all the chosen entries when
  *  it is one of them: what fits them, as the buttons for several offer it. A
  *  right-click on another entry chooses it first. */
 function openEntryMenu(id: string, x: number, y: number) {
   if (isEditing() || isAsking() || settingsOpen || reportOpen) return
-  const ids = several?.chosen.includes(id) ? several.chosen : [id]
-  if (ids.length === 1 && id !== selectedId) select(id)
-  const chosen = listing.entries.filter((e) => ids.includes(e.id))
+  const ids = records.menuTargets(id)
+  if (ids.length === 1 && id !== records.selectedId) select(id)
+  const chosen = records.chosen(ids)
   const idsOf = (entries: Entry[]) => entries.map((e) => e.id)
-  const inUse = chosen.filter((e) => editable(e))
-  const trashed = idsOf(chosen.filter((e) => inTrash(e)))
-  const toBin = [...idsOf(inUse), ...idsOf(chosen.filter((e) => isTemplate(e)))]
+  const { inUse } = chosen
+  const trashed = idsOf(chosen.trashed)
+  const toBin = [...idsOf(inUse), ...idsOf(chosen.templates)]
   const items: MenuItem[] = []
-  if (chosen.length === 1 && inUse.length === 1) {
+  if (chosen.all.length === 1 && inUse.length === 1) {
     items.push(
       { label: 'Auto-Type', title: 'Type it into the window behind PswManager (Ctrl+Shift+V)', action: () => autoTypeEntry(id) },
       { label: 'Duplicate', title: 'A copy of the entry, without its history', action: () => duplicate(id) })
   }
-  if (chosen.length === 2 && inUse.length === 2) {
+  if (chosen.all.length === 2 && inUse.length === 2) {
     // The one the menu was opened on is kept, unless the other is chosen.
     const pair: [Entry, Entry] = inUse[0].id === id ? [inUse[0], inUse[1]] : [inUse[1], inUse[0]]
     items.push({ label: 'Merge…', title: 'Merge one into the other, as Find similar entries does', action: () => mergePair(pair, similarOptions) })
@@ -847,21 +779,8 @@ async function duplicate(id: string) {
   }
 }
 
-/** The chosen entries that can be changed here: not templates, not the trash's. */
-function chosenInUse(): Entry[] {
-  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && editable(e)) : []
-}
-
-function chosenInTrash(): Entry[] {
-  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && inTrash(e)) : []
-}
-
-function chosenTemplates(): Entry[] {
-  return several ? listing.entries.filter((e) => several!.chosen.includes(e.id) && isTemplate(e)) : []
-}
-
 async function tagSeveral(ids: string[]) {
-  const known = tagCounts(listing.entries).map(([tag]) => tag)
+  const known = records.tags().map(([tag]) => tag)
   const tag = await askText(`Add a tag to ${count(ids.length)}:`, '', 'Add tag', 0, known)
   if (tag?.trim()) changeSeveral(ids, tag.trim(), true)
 }
@@ -881,11 +800,11 @@ async function changeSeveral(ids: string[], tag: string, on: boolean) {
 }
 
 async function deleteSeveral(ids: string[]) {
-  const what = ids.length === 1 ? `"${titleOf(listing.entries.find((e) => e.id === ids[0]) ?? { title: '' })}"` : count(ids.length)
+  const what = ids.length === 1 ? `"${titleOf(records.entry(ids[0]) ?? { title: '' })}"` : count(ids.length)
   if (!ids.length || !await ask(`Move ${what} to the recycle bin?`, 'Move to the recycle bin')) return
   try {
     const next = await api.deleteEntries(ids)
-    several = null
+    records.dropSeveral()
     applyListing(next, `Moved ${what} to the recycle bin`)
   } catch (e) {
     notify(String(e))
@@ -894,19 +813,11 @@ async function deleteSeveral(ids: string[]) {
 
 // ---------------------------------------------------------------- trash
 
-function inTrash<T extends Entry>(entry: T | null): entry is T & { kind: 'trash' } {
-  return entry?.kind === 'trash'
-}
-
-function count(n: number): string {
-  return `${n} ${n === 1 ? 'entry' : 'entries'}`
-}
-
 /** Puts entries from the trash back where they were. */
 async function restore(ids: string[]) {
   try {
     const next = await api.restoreEntries(ids)
-    several = null
+    records.dropSeveral()
     applyListing(next, ids.length === 1 ? 'Restored' : `Restored ${count(ids.length)}`)
   } catch (e) {
     notify(String(e))
@@ -916,12 +827,12 @@ async function restore(ids: string[]) {
 /** Deletes entries in the trash for good (no ids: everything in it), after asking. */
 async function deleteForGood(ids?: string[]) {
   const what = !ids ? 'everything in the trash'
-    : ids.length === 1 ? `"${titleOf(listing.entries.find((e) => e.id === ids[0]) ?? { title: '' })}"` : count(ids.length)
+    : ids.length === 1 ? `"${titleOf(records.entry(ids[0]) ?? { title: '' })}"` : count(ids.length)
   const yes = await ask(`Delete ${what} permanently? This cannot be undone: other devices delete it too when they sync.`, 'Delete permanently')
   if (!yes) return
   try {
     const next = await (ids ? api.deleteForGood(ids) : api.emptyTrash())
-    several = null
+    records.dropSeveral()
     applyListing(next, 'Deleted permanently')
   } catch (e) {
     notify(String(e))
@@ -942,19 +853,19 @@ async function addStarterTemplates() {
 /** How many entries have the tag: templates and the trash's too, as renaming
  *  and removing a tag change every entry (a template would bring it back). */
 function entriesTagged(tag: string): string {
-  return count(listing.entries.filter((e) => e.tags.includes(tag)).length)
+  return count(records.tagged(tag))
 }
 
 /** Renames a tag in every entry; to a name another tag has, after asking, the two merge. */
 async function renameTag(tag: string) {
   const to = (await askText(`Rename the tag "${tag}" (${entriesTagged(tag)}) to:`, tag, 'Rename'))?.trim()
   if (!to || to === tag) return
-  if (listing.entries.some((e) => e.tags.includes(to))) {
+  if (records.tagged(to)) {
     if (!await ask(`There is a tag "${to}" already. Merge "${tag}" into it?`, 'Merge')) return
   }
   try {
     const next = await api.renameTag(tag, to)
-    if (sameFilter(filter, { kind: 'tag', tag })) filter = { kind: 'tag', tag: to }
+    records.renameTag(tag, to)
     applyListing(next, `Renamed the tag "${tag}" to "${to}"`)
   } catch (e) {
     notify(String(e))
@@ -1018,6 +929,7 @@ function totpRow(id: string): HTMLDivElement {
 }
 
 async function copyTotp() {
+  const { current } = records
   if (!current) return
   try {
     const seconds = await api.copyTotp(current.id)
@@ -1033,35 +945,26 @@ function startEditor(id: string | null, start: { focusPassword?: boolean; from?:
   if (isEditing()) return
   // Started from a page beside the sidebar (Home, #351), the editor takes the entry's place.
   closeReport()
-  several = null
+  records.dropSeveral()
   stopTotp()
   openEditor(detail, {
     id,
     ...start,
     // New entries go to the top group.
     group: [],
-    knownTags: tagCounts(listing.entries).map(([tag]) => tag),
-    defaultUsername: listing.database.defaultUsername,
-    autoIcon: autoIcon(id ? (listing.entries.find((e) => e.id === id) ?? null) : null),
+    knownTags: records.tags().map(([tag]) => tag),
+    defaultUsername: records.listing.database.defaultUsername,
+    autoIcon: autoIcon(id ? (records.entry(id) ?? null) : null),
     onSaved: afterSave,
     onClose: () => {
-      current = null
-      select(selectedId)
+      records.refetch()
+      select(records.selectedId)
     },
   }).catch((e) => notify(String(e)))
 }
 
-/** An entry in use: starred, tagged, given files. Templates are edited and
- *  deleted too (see [isTemplate]); the trash's are only restored or deleted. */
-function editable<T extends Entry>(entry: T | null): entry is T & { kind: 'entry' } {
-  return entry?.kind === 'entry'
-}
-
-function isTemplate<T extends Entry>(entry: T | null): entry is T & { kind: 'template' } {
-  return entry?.kind === 'template'
-}
-
 function editEntry() {
+  const { current, view } = records
   if (view.kind !== 'entry') return
   if (editable(current) || isTemplate(current)) startEditor(current.id, { template: isTemplate(current) })
 }
@@ -1070,8 +973,8 @@ function editEntry() {
  *  Templates group, a new template. */
 async function newEntry() {
   if (isEditing()) return
-  if (sameFilter(filter, TEMPLATES)) return startEditor(null, { template: true })
-  const templates = listing.entries.filter(isTemplate)
+  if (sameFilter(records.filter, TEMPLATES)) return startEditor(null, { template: true })
+  const templates = records.listing.entries.filter(isTemplate)
   if (!templates.length) return startEditor(null)
   const i = await choose('New entry:', ['Blank entry', ...templates.map(titleOf)])
   if (i === null) return searchInput.focus()
@@ -1091,38 +994,33 @@ async function newFromTemplate(id: string) {
 /** Shows a listing the backend sent after a change, then says what happened.
  *  The open entry is fetched again. */
 function applyListing(next: Listing, message: string, focusSearch = true) {
-  listing = next
+  records.apply(next)
+  showApplied(message, focusSearch)
+}
+
+/** Draws the records again after a change, then says what happened. */
+function showApplied(message: string, focusSearch = true) {
   fillSidebar()
-  // The entry is shown again from the top: a version's revealed values go.
-  if (view.kind !== 'entry') revealed.clear()
-  view = ENTRY_VIEW
-  current = null
   refresh()
   if (focusSearch) searchInput.focus()
   notify(message)
 }
 
 function afterSave(saved: Saved, done = 'Saved') {
-  selectedId = saved.id
-  // The saved entry shows: among All (a template among the templates),
-  // without the search, when the sidebar's choice or the search leaves it out.
-  if (!search(saved.listing.entries, searchInput.value, filter).some((e) => e.id === saved.id)) {
-    filter = saved.listing.entries.some((e) => e.id === saved.id && isTemplate(e)) ? TEMPLATES : ALL
-    searchInput.value = ''
-  }
+  if (!records.saved(saved.id, saved.listing, searchInput.value)) searchInput.value = ''
   const replaced = saved.conflicts.join(', ')
-  applyListing(saved.listing, replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : done)
+  showApplied(replaced ? `Saved. Replaced a change made on another device (${replaced}); it is in the entry's history` : done)
 }
 
 /** Del / the Delete button: asks first. In the trash, deletes for good. */
 async function deleteEntry() {
-  const entry = current
+  const { current: entry, view } = records
   if (view.kind !== 'entry') return
   if (inTrash(entry) && !isEditing()) return deleteForGood([entry.id])
   if (!(editable(entry) || isTemplate(entry)) || isEditing()) return
   const yes = await ask(`Move "${titleOf(entry)}" to the recycle bin?`, 'Move to the recycle bin')
   // An update from another device may refresh the view meanwhile; the choice still stands.
-  if (!yes || selectedId !== entry.id) return searchInput.focus()
+  if (!yes || records.selectedId !== entry.id) return searchInput.focus()
   try {
     applyListing(await api.deleteEntries([entry.id]), 'Moved to the recycle bin')
   } catch (e) {
@@ -1131,9 +1029,10 @@ async function deleteEntry() {
 }
 
 async function openAttachment(name: string) {
+  const { current } = records
   if (!current) return
   try {
-    await api.openAttachment(current.id, name, shownVersion())
+    await api.openAttachment(current.id, name, records.shownVersion())
     notify(`Opened a read-only copy of ${name} · deleted when the database locks`, 5)
   } catch (e) {
     notify(String(e))
@@ -1141,31 +1040,31 @@ async function openAttachment(name: string) {
 }
 
 async function saveAttachment(name: string) {
+  const { current } = records
   if (!current) return
   try {
-    if (await api.saveAttachment(current.id, name, shownVersion())) notify(`Saved ${name}`)
+    if (await api.saveAttachment(current.id, name, records.shownVersion())) notify(`Saved ${name}`)
   } catch (e) {
     notify(String(e))
   }
 }
 
 async function toggleReveal(field: string) {
+  const { current } = records
   if (!current) return
-  if (revealed.has(field)) {
-    revealed.delete(field)
-  } else {
+  if (!records.hide(field)) {
     const id = current.id
-    const value = await api.reveal(id, field, shownVersion()).catch((e) => (notify(String(e)), null))
-    if (value === null || current?.id !== id) return
-    revealed.set(field, value)
+    const value = await api.reveal(id, field, records.shownVersion()).catch((e) => (notify(String(e)), null))
+    if (value === null || !records.reveal(id, field, value)) return
   }
   renderDetail()
 }
 
 async function copy(field: string, label: string) {
+  const { current } = records
   if (!current) return
   try {
-    const seconds = await api.copy(current.id, field, shownVersion())
+    const seconds = await api.copy(current.id, field, records.shownVersion())
     notify(`${label} copied · clears in ${seconds} s`)
   } catch (e) {
     notify(String(e))
@@ -1173,11 +1072,9 @@ async function copy(field: string, label: string) {
 }
 
 function openUrl() {
+  const { current, view } = records
   if (view.kind === 'entry' && current?.link) api.openUrl(current.id).catch((e) => notify(String(e)))
 }
-
-/** What the entry view shows now: the entry, or the older version open. */
-const shownDetail = (): EntryDetail | null => (view.kind === 'version' ? view.at : current)
 
 let toastTimer: number | undefined
 function notify(message: string, seconds = 3) {
@@ -1236,8 +1133,7 @@ function showSavedFromBrowser(id: string) {
   if (!unlocked || isEditing()) return
   closeSettings()
   closeReport()
-  if (!search(listing.entries, searchInput.value, filter).some((e) => e.id === id)) {
-    filter = ALL
+  if (!records.find(id, searchInput.value)) {
     searchInput.value = ''
     fillSidebar()
     refresh()
@@ -1318,7 +1214,7 @@ async function openReport(tool: Tool, draw: () => Promise<void>) {
 
 /** Tools › Tidy up imported folders, after asking. */
 async function tidyImported() {
-  if (!unlocked || !await ask(tidyQuestion(listing.inImportGroups), 'Tidy up')) return
+  if (!unlocked || !await ask(tidyQuestion(records.listing.inImportGroups), 'Tidy up')) return
   try {
     applyListing(await api.tidyImported(), 'Imported folders tidied up', false)
   } catch (e) {
@@ -1334,7 +1230,8 @@ const openHome = () =>
   openReport('home', async () => {
     // Home shows no list: a search left in the field would only wait for Esc.
     searchInput.value = ''
-    const inUse = listing.entries.filter((e) => e.kind === 'entry')
+    const { listing } = records
+    const inUse = listing.entries.filter(editable)
     const now = Date.now()
     renderHome(reportView, {
       title: listing.database.name || 'Home',
@@ -1372,7 +1269,7 @@ const openExport = () =>
 
 /** What merging needs, from Find similar entries and from the list's menu. */
 const similarOptions: SimilarOptions = {
-  entry: (id) => listing.entries.find((e) => e.id === id),
+  entry: records.entry,
   icon: iconOf,
   changed: (next, message) => applyListing(next, message, false),
   fail: (message) => notify(message),
@@ -1414,7 +1311,7 @@ function showSettingsView() {
 }
 
 function iconOf(id: string): HTMLElement {
-  const entry = listing.entries.find((e) => e.id === id)
+  const entry = records.entry(id)
   return entry ? iconImage(entry) : el('img', { className: 'icon', alt: '', src: DEFAULT_ICON })
 }
 
@@ -1422,7 +1319,7 @@ function iconOf(id: string): HTMLElement {
 function changePassword(id: string) {
   closeReport()
   searchInput.value = ''
-  filter = ALL
+  records.setFilter(ALL)
   fillSidebar()
   refresh()
   select(id)
@@ -1435,10 +1332,7 @@ function changePassword(id: string) {
  *  default user name a new entry gets), and the entry shown is fetched again
  *  when it closes (new history limits may have trimmed its history). */
 const drawSettings = () =>
-  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), (database) => {
-    listing = { ...listing, database }
-    current = null
-  })
+  renderSettings(settingsView, closeSettings, (message) => notify(message, 6), records.setDatabase)
 
 /** The settings, at `tab` when given (the sidebar's list of them). */
 async function openSettings(tab?: SettingsTab) {
@@ -1468,7 +1362,7 @@ function closeSettings() {
   if (unlocked) {
     showContent()
     searchInput.focus()
-    if (!current) select(selectedId)
+    if (!records.current) select(records.selectedId)
   } else if (chooseView.childElementCount) {
     chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()
@@ -1501,19 +1395,21 @@ function hideWindow() {
 }
 
 function perform(action: Action, e: KeyboardEvent) {
+  const { current, several, view } = records
+  const shown = records.shownDetail()
   switch (action) {
     case 'copy-username':
       // A protected user name is among the fields instead.
-      if (shownDetail()?.username || shownDetail()?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
+      if (shown?.username || shown?.fields.some((f) => f.name === USERNAME)) copy(USERNAME, 'User name')
       break
     case 'copy-password':
-      if (shownDetail()?.hasPassword) copy(PASSWORD, 'Password')
+      if (shown?.hasPassword) copy(PASSWORD, 'Password')
       break
     case 'open-url':
       openUrl()
       break
     case 'toggle-password':
-      if (shownDetail()?.hasPassword) toggleReveal(PASSWORD)
+      if (shown?.hasPassword) toggleReveal(PASSWORD)
       break
     case 'lock':
       lock()
@@ -1535,7 +1431,8 @@ function perform(action: Action, e: KeyboardEvent) {
       // Several chosen: in the trash, they are deleted for good; elsewhere,
       // moved to it. The list shows one or the other, never both.
       if (several) {
-        const [moved, trashed] = [[...chosenInUse(), ...chosenTemplates()], chosenInTrash()]
+        const { inUse, templates, trashed } = records.chosen()
+        const moved = [...inUse, ...templates]
         if (moved.length) deleteSeveral(moved.map((x) => x.id))
         else if (trashed.length) deleteForGood(trashed.map((x) => x.id))
       } else deleteEntry()
@@ -1543,7 +1440,7 @@ function perform(action: Action, e: KeyboardEvent) {
     case 'entry-menu': {
       // Under the entry chosen last, as if it were right-clicked there.
       e.preventDefault()
-      const id = several?.anchor ?? selectedId
+      const id = several?.anchor ?? records.selectedId
       const li = id ? list.querySelector<HTMLLIElement>(`[data-id="${CSS.escape(id)}"]`) : null
       if (li) openEntryMenu(id!, li.getBoundingClientRect().left + 24, li.getBoundingClientRect().bottom)
       break
