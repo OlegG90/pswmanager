@@ -1333,6 +1333,8 @@ const openHealth = (only?: HealthGroup) => openReport('health', () => renderHeal
  *  actions and a password generator. */
 const openHome = () =>
   openReport('home', async () => {
+    // Home shows no list: a search left in the field would only wait for Esc.
+    searchInput.value = ''
     const inUse = listing.entries.filter((e) => e.kind === 'entry')
     const now = Date.now()
     renderHome(reportView, {

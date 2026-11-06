@@ -184,7 +184,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   its icon, in bold, and folds what it holds away and back, downwards; what a heading holds is indented
   under it. Every section is folded when the app starts; two buttons at the sidebar's top right fold and
   unfold them all. When the open sections do not fit, the sidebar scrolls.
-- Beside the sidebar: for Home, its page; for a group or a tag, the **list** of its entries and the selected **entry** (see
+- Beside the sidebar: for Home, its page; for a group or a tag, the **list** of its entries and the
+  selected **entry** (see
   *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
   *Import from Google Authenticator*, *Export to a file*; chosen again, a tool starts over); for a settings
   tab, the settings at that tab (see *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
@@ -653,8 +654,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   entry has is refused.
 - Every edit pushes the previous version into the entry's history, except one that changes only the tags
   (see *Entry history*).
-- **Password generator** in the editor: length (default 20, 8–64; the backend allows 4 for Home's PIN), upper / lower / digits / symbols,
-  exclude look-alike characters. Generated with the OS CSPRNG.
+- **Password generator** in the editor: length (default 20, 8–64; the backend allows 4 for Home's PIN),
+  upper / lower / digits / symbols, exclude look-alike characters. Generated with the OS CSPRNG.
 - **Strength indicator** (zxcvbn) next to the password field.
 - **TOTP** (#278, `docs/totp-research.md`): codes with a countdown, from whichever layout the entry keeps
   them in, looked for in KeePassXC's order so both apps show the same code:

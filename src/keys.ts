@@ -35,7 +35,7 @@ export interface Shortcut {
  *  here, so the panel cannot drift from what the keys do. The global hotkey,
  *  which the settings change, is shown apart. */
 export const SHORTCUTS: Shortcut[] = [
-  { group: 'Window', keys: 'Esc', does: 'Back from a version or the history, clear the search, then hide to the tray', actions: ['escape'] },
+  { group: 'Window', keys: 'Esc', does: 'Back from a version or the history, clear the search, close a page, then Home, then hide to the tray', actions: ['escape'] },
   { group: 'Window', keys: 'Ctrl+L', does: 'Lock', actions: ['lock'], ctrl: 'KeyL' },
   { group: 'Window', keys: 'Ctrl+,', does: 'Settings', actions: ['settings'], ctrl: 'Comma' },
   { group: 'Window', keys: 'F1', does: 'These shortcuts', actions: ['shortcuts'] },

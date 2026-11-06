@@ -48,10 +48,11 @@ export function renderHome(container: HTMLElement, options: HomeOptions) {
     ...HEALTH_GROUPS.map(({ label }) => figure(0, label, '', () => {})),
     figure(options.expired, 'Expired or expiring soon', 'warn', options.showExpired))
   api.passwordHealth().then((health) => {
+    if (!stats.isConnected) return // Home was left meanwhile
     stats.replaceChildren(
       ...HEALTH_GROUPS.map(({ group, label, severity }) => figure(health[group].length, label, severity, () => options.health(group))),
       figure(options.expired, 'Expired or expiring soon', 'warn', options.showExpired))
-  }, (e) => options.fail(String(e)))
+  }, (e) => stats.isConnected && options.fail(String(e)))
 
   const actions = el('div', { className: 'tool-actions' },
     button('New entry', 'New entry (Ctrl+N)', options.newEntry, 'primary'),
@@ -78,10 +79,16 @@ function generator(options: HomeOptions): HTMLElement {
   const card = el('div', { className: 'generator home-generator' })
 
   const settings = () => chosen.get(need)!
+  // Only the password asked for last is shown: a quick run of changes to the
+  // length may be answered out of order.
+  let asked = 0
   const regenerate = async () => {
+    const ask = ++asked
     try {
-      preview.textContent = await api.generatePassword(settings())
+      const password = await api.generatePassword(settings())
+      if (ask === asked) preview.textContent = password
     } catch (e) {
+      if (ask !== asked) return
       preview.textContent = ''
       options.fail(String(e))
     }
