@@ -9,8 +9,9 @@ export interface SimilarOptions {
   entry: (id: string) => Entry | undefined
   /** Draws an entry's icon. */
   icon: (id: string) => HTMLElement
-  /** Shows the listing a merge left, saying what was done. */
-  changed: (listing: Listing, message: string) => void
+  /** Shows the listing a merge left, saying what was done; `merged` are the
+   *  entries it changed, the one kept first. */
+  changed: (listing: Listing, message: string, merged: string[]) => void
   fail: (message: string) => void
 }
 
@@ -53,7 +54,7 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
       mergedCard(preview, options.icon(kept.id)),
       el('div', { className: 'similar-actions' },
         busyButton('Merge', 'Merge them into it', async () => {
-          options.changed(await api.mergeEntries(kept.id, ids), `Merged into ${into}`)
+          options.changed(await api.mergeEntries(kept.id, ids), `Merged into ${into}`, [kept.id, ...ids])
           await report.redraw()
         }, options.fail, 'primary'),
         button('Cancel', 'Back to the similar entries', () => back())),
@@ -112,7 +113,7 @@ export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptio
   }, 'Cancel', 'merge')
   if (!merged) return
   try {
-    options.changed(await api.mergeEntries(kept.id, [other.id]), `Merged into "${titleOf(kept)}"`)
+    options.changed(await api.mergeEntries(kept.id, [other.id]), `Merged into "${titleOf(kept)}"`, [kept.id, other.id])
   } catch (e) {
     options.fail(String(e))
   }

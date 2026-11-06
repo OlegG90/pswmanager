@@ -990,8 +990,8 @@ async function newFromTemplate(id: string) {
 }
 
 /** Shows a listing the backend sent after a change, then says what happened. */
-function applyListing(next: Listing, message: string, focusSearch = true) {
-  records.apply(next)
+function applyListing(next: Listing, message: string, focusSearch = true, touched: string[] = []) {
+  records.apply(next, touched)
   showApplied(message, focusSearch)
 }
 
@@ -1119,7 +1119,7 @@ async function askForOtherKey(again = false) {
 function showDiskChange({ listing: next, changed }: DiskChange) {
   if (!unlocked) return
   // Focus stays where the user left it.
-  applyListing(next, 'Updated from another device', false)
+  applyListing(next, 'Updated from another device', false, changed)
   changedElsewhere(changed)
 }
 
@@ -1268,7 +1268,7 @@ const openExport = () =>
 const similarOptions: SimilarOptions = {
   entry: records.entry,
   icon: iconOf,
-  changed: (next, message) => applyListing(next, message, false),
+  changed: (next, message, merged) => applyListing(next, message, false, merged),
   fail: (message) => notify(message),
 }
 

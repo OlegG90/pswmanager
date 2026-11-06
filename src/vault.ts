@@ -70,10 +70,11 @@ export function vaultState() {
   }
 
   /** The listing the backend sent after a change. The entry shown is fetched
-   *  again and shown from the top: a version's revealed values go. */
-  const apply = (next: Listing) => {
+   *  again and shown from the top: a version's revealed values go, and so do
+   *  its own when it is among the entries the change `touched` (#367). */
+  const apply = (next: Listing, touched: readonly string[] = []) => {
     setListing(next)
-    if (view.kind !== 'entry') revealed.clear()
+    if (view.kind !== 'entry' || (selectedId !== null && touched.includes(selectedId))) revealed.clear()
     view = ENTRY_VIEW
     current = null
   }
@@ -146,8 +147,7 @@ export function vaultState() {
     saved(id: string, next: Listing, query: string): boolean {
       const kept = find(id, query, next.entries)
       selectedId = id
-      revealed.clear()
-      apply(next)
+      apply(next, [id])
       return kept
     },
 

@@ -199,7 +199,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   (KeePass's modification time, as a date and time on this PC); an entry with older versions also offers
   **History** (see *Entry history*). Protected attributes are masked like the
   password. Each line ends in its commands as icons, as on the phone: **copy**, the **eye** to show a
-  secret (crossed out to hide it again; a saved entry shows its secrets hidden again) and **open** (the URL in the browser; see *Web addresses*). Next to a file, **open**
+  secret (crossed out to hide it again; they are hidden again once the entry is saved, merged or changed on
+  another device, #367) and **open** (the URL in the browser; see *Web addresses*). Next to a file, **open**
   opens it in the app Windows uses for its type and **save** writes it where the user chooses; files are
   added (the paperclip), renamed (the pencil) and removed (the bin) in the editor
   (see *Editing*). A file's content goes between the database and the disk in the backend, never through
