@@ -2633,6 +2633,28 @@ input[type='radio']:focus-visible {
   font-size: 12px;
 }
 
+/* Merge from the list's menu (#348): the kept entry needs the room of the
+   entry view, and a long one scrolls inside the dialog. */
+dialog.modal.merge {
+  width: min(600px, 90vw);
+}
+
+.modal.merge .merge-keep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.modal.merge .merge-preview {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.modal.merge .merge-card {
+  margin-top: 0;
+}
+
 .similar-actions {
   display: flex;
   gap: 8px;

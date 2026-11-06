@@ -1,6 +1,7 @@
 import { api, type Entry, type Listing } from './api'
 import { busyButton, button, el } from './dom'
 import { describeEntries, titleOf } from './entry-text'
+import { dialog } from './modal'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_SIMILAR, NONE_TICKED, similarCriteria, similarHint, SIMILAR_INTRO, siteChoice, similarSites, type Site } from './similar-parts'
 
 export interface SimilarOptions {
@@ -21,6 +22,10 @@ interface Report {
   /** Shows `nodes` in the report's place; returns what puts the report back as it was. */
   replace: (nodes: Node[]) => () => void
 }
+
+/** What the preview of merging `others` into `kept` says above it. */
+const mergeIntro = (kept: Entry, others: Entry[]) =>
+  `"${titleOf(kept)}" as the merge would leave it. ${describeEntries(others)} ${others.length === 1 ? 'goes' : 'go'} to the recycle bin.`
 
 /**
  * One site's entries. Proceed shows the kept one as the merge would leave it,
@@ -44,7 +49,7 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
     const preview = await api.mergePreview(kept.id, ids)
     const back = report.replace([
       el('header', {}, el('h1', {}, `Merge into ${into}`), button('Cancel', 'Back to the similar entries', () => back())),
-      el('p', { className: 'muted intro' }, `${into} as the merge would leave it. ${describeEntries(others)} ${others.length === 1 ? 'goes' : 'go'} to the recycle bin.`),
+      el('p', { className: 'muted intro' }, mergeIntro(kept, others)),
       mergedCard(preview, options.icon(kept.id)),
       el('div', { className: 'similar-actions' },
         busyButton('Merge', 'Merge them into it', async () => {
@@ -61,6 +66,56 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
       busyButton('Proceed', 'See the kept entry as the merge would leave it', proceed, options.fail, 'primary'),
       button('Leave as is', 'Leave these entries as they are', () => leave(section))))
   return section
+}
+
+/**
+ * Merges two entries chosen in the list (#348) as a site's section does: a
+ * dialog keeps one of them (`pair[0]` at first; the other can be chosen
+ * instead) and shows it as the merge would leave it. Merge merges the other
+ * into it; Cancel leaves both as they are.
+ */
+export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptions, 'icon' | 'changed' | 'fail'>) {
+  let [kept, other] = pair
+  const intro = el('p', { className: 'muted' })
+  const card = el('div', { className: 'merge-preview' })
+  const merged = await dialog('Which one is kept? What the other has goes into it.', false, (answer) => {
+    // Seen first: what Merge does is on screen before it can be pressed.
+    const merge = button('Merge', 'Merge the other one into the kept one', () => answer(true), 'primary')
+    // Only the last choice's preview is shown, however the answers come back.
+    let latest = 0
+    async function show() {
+      const request = ++latest
+      merge.disabled = true
+      try {
+        const preview = await api.mergePreview(kept.id, [other.id])
+        if (request !== latest) return
+        intro.textContent = mergeIntro(kept, [other])
+        card.replaceChildren(mergedCard(preview, options.icon(kept.id)))
+        merge.disabled = false
+      } catch (e) {
+        if (request !== latest) return
+        intro.textContent = String(e)
+        card.replaceChildren()
+      }
+    }
+    const keepRows = pair.map((entry) => {
+      const radio = el('input', { type: 'radio', name: 'merge-keep', checked: entry === kept })
+      // A radio changes only when it is checked: the other one was kept.
+      radio.addEventListener('change', () => {
+        ;[kept, other] = [other, kept]
+        void show()
+      })
+      return el('label', { className: 'merge-keep' }, radio, `Keep "${titleOf(entry)}"`)
+    })
+    void show()
+    return { body: [...keepRows, intro, card], buttons: [merge] }
+  }, 'Cancel', 'merge')
+  if (!merged) return
+  try {
+    options.changed(await api.mergeEntries(kept.id, [other.id]), `Merged into "${titleOf(kept)}"`)
+  } catch (e) {
+    options.fail(String(e))
+  }
 }
 
 /**

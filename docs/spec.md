@@ -246,11 +246,16 @@ which shows entries without user tags (the `Favorite` star does not count); then
 - **The list's menu** (#255): a right-click on an entry, or Shift+F10 / the menu key for the chosen one,
   opens a menu for it, or for all the chosen entries when it is one of them (a right-click elsewhere
   chooses that entry first). An entry in use offers **Auto-Type** and **Duplicate** (one entry only), **Add tag**, **Remove
-  tag** (when it has tags) and **Delete**, which asks first and moves it to the recycle bin; a template
+  tag** (when it has tags) and **Delete**, which asks first and moves it to the recycle bin; two entries in
+  use also **Merge** (#348); a template
   only **Delete**; one in the trash **Restore** and **Delete permanently**. Tags work as for several
   entries above. **Duplicate** copies the entry next to it, as KeePassXC's Clone does: a new UUID,
   " (Copy)" after the title, no history, created now; its fields, tags, files, icon, colours, auto-type
-  and custom data are the original's. The copy is shown and saved at once.
+  and custom data are the original's. The copy is shown and saved at once. **Merge** merges one of the
+  two into the other as *Similar entries* does, whatever they have in common: a dialog keeps the entry
+  the menu was opened on (the other can be chosen) and shows it as the merge would leave it, as Proceed
+  does; **Merge** can be pressed only once that is shown, and the other entry goes to the recycle bin.
+  **Cancel** (or Esc) merges nothing.
 - **A tag in the sidebar** can be **renamed** (in every entry; to a name another tag has, the two merge)
   or **removed** from every entry, after a confirmation. The entries themselves stay.
 - **Trash:** **Restore** puts an entry back where it was (the group it was deleted from, which KDBX 4.1

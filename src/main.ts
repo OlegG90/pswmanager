@@ -18,7 +18,7 @@ import { showShortcuts } from './shortcuts'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
-import { renderSimilar } from './similar'
+import { mergePair, renderSimilar, type SimilarOptions } from './similar'
 import { renderImport } from './file-import'
 import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
 import { renderGauthImport } from './gauth-import'
@@ -814,6 +814,11 @@ function openEntryMenu(id: string, x: number, y: number) {
       { label: 'Auto-Type', title: 'Type it into the window behind PswManager (Ctrl+Shift+V)', action: () => autoTypeEntry(id) },
       { label: 'Duplicate', title: 'A copy of the entry, without its history', action: () => duplicate(id) })
   }
+  if (chosen.length === 2 && inUse.length === 2) {
+    // The one the menu was opened on is kept, unless the other is chosen.
+    const pair: [Entry, Entry] = inUse[0].id === id ? [inUse[0], inUse[1]] : [inUse[1], inUse[0]]
+    items.push({ label: 'Merge…', title: 'Merge one into the other, as Find similar entries does', action: () => mergePair(pair, similarOptions) })
+  }
   if (inUse.length) {
     const theirTags = tagsOf(inUse)
     items.push({ label: 'Add tag…', title: 'Give a tag', action: () => tagSeveral(idsOf(inUse)) })
@@ -1330,15 +1335,15 @@ const openExport = () =>
   // Without an answer about Windows Hello, the master password is asked for instead.
   openReport('export', async () => renderExport(reportView, await api.helloReady().catch(() => false), (message) => notify(message)))
 
-const openSimilar = () =>
-  openReport('similar', async () =>
-    renderSimilar(reportView, {
-      entry: (id) => listing.entries.find((e) => e.id === id),
-      icon: iconOf,
-      changed: (next, message) => applyListing(next, message, false),
-      fail: (message) => notify(message),
-    }),
-  )
+/** What merging needs, from Find similar entries and from the list's menu. */
+const similarOptions: SimilarOptions = {
+  entry: (id) => listing.entries.find((e) => e.id === id),
+  icon: iconOf,
+  changed: (next, message) => applyListing(next, message, false),
+  fail: (message) => notify(message),
+}
+
+const openSimilar = () => openReport('similar', async () => renderSimilar(reportView, similarOptions))
 
 function closeReport() {
   if (!reportOpen) return
