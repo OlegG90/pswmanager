@@ -21,7 +21,7 @@ export type View =
 const ENTRY_VIEW: View = { kind: 'entry' }
 
 /** What the list chooses: one entry (or none), or several. */
-export type Pick = { one: string | null } | { several: Choice }
+export type ListChoice = { one: string | null } | { several: Choice }
 
 /** Chosen entries, by what can be done to them. */
 export interface Chosen {
@@ -191,7 +191,7 @@ export function vaultState() {
 
     /** Re-runs the search, and says what the list chooses now: what was chosen,
      *  as far as it is still shown, else the first entry. */
-    search(query: string): Pick {
+    search(query: string): ListChoice {
       shown = search(listing.entries, query, filter)
       if (several) {
         const still = several.chosen.filter(isShown)
@@ -205,7 +205,7 @@ export function vaultState() {
     find,
 
     /** What a click on entry `id` chooses: it alone, or with Ctrl / Shift, several. */
-    pick(id: string, keys: { ctrl: boolean; shift: boolean }): Pick {
+    pick(id: string, keys: { ctrl: boolean; shift: boolean }): ListChoice {
       if (!keys.ctrl && !keys.shift) return { one: id }
       const now = several ?? (selectedId ? { chosen: [selectedId], anchor: selectedId } : null)
       const next = clicked(shown.map((e) => e.id), now, id, keys)
@@ -314,4 +314,3 @@ export function vaultState() {
   }
 }
 
-export type Vault = ReturnType<typeof vaultState>

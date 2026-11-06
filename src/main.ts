@@ -28,7 +28,7 @@ import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import type { Choice } from './selection'
-import { count, editable, inTrash, isTemplate, tagsOf, vaultState, type Pick } from './vault'
+import { count, editable, inTrash, isTemplate, tagsOf, vaultState, type ListChoice } from './vault'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -308,7 +308,7 @@ function showFilter(choice: Filter) {
 
 /** Re-runs the search and redraws the list, keeping the selection if it is still shown. */
 function refresh() {
-  const pick = records.search(searchInput.value)
+  const choice = records.search(searchInput.value)
   const { shown, filter, listing } = records
   list.replaceChildren(...shown.map(listItem))
   $('entry-count').textContent = count(shown.length)
@@ -321,13 +321,13 @@ function refresh() {
     const empty = searchInput.value ? 'Nothing found' : sameFilter(filter, ALL) ? 'The database is empty' : 'No entries here'
     list.append(el('li', { className: 'empty' }, empty))
   }
-  showPick(pick)
+  showPick(choice)
 }
 
 /** Shows what the list chose: one entry, or several. */
-function showPick(pick: Pick) {
-  if ('several' in pick) chooseSeveral(pick.several)
-  else select(pick.one)
+function showPick(choice: ListChoice) {
+  if ('several' in choice) chooseSeveral(choice.several)
+  else select(choice.one)
 }
 
 /** An entry's own image, else the drawing chosen for it, else its site's icon, else the key. */
