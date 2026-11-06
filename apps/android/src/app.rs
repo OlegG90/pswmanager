@@ -546,7 +546,7 @@ fn lock_later(app: AppHandle, unlocked: bool) {
     crate::provider::app_in_front(false);
     let wait = app.state::<LockLater>().0.next();
     // Hidden while locked, there is nothing to lock: an unlock by the credential
-    // provider meanwhile keeps to its own timer (never under a minute, provider.rs),
+    // provider meanwhile keeps to its own timer (never under a minute, the core's autofill.rs),
     // which this one would cut short.
     if !unlocked && !app.state::<Session>().is_unlocked() {
         return;
