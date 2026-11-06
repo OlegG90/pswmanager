@@ -669,6 +669,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
   use (not the recycle bin): **reused** (the same password in more than one entry), **weak** (zxcvbn score 0–1, as the
   strength indicator rates it) and **unchanged for over a year**. Each entry is listed once, under the
   first of these that applies.
+- Above the lists, a figure for each says how many entries it holds. A figure with entries shows its list
+  alone (#352), marked as chosen; clicked again, every list shows. A figure at zero is not a control.
 - A password's age runs from when it was last set: the oldest version in the entry's history with the
   same password, so an edit to anything else does not make it newer.
 - Worked out in the backend on demand: the window gets titles and reasons, never a password, and nothing
