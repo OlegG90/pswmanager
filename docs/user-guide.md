@@ -28,13 +28,17 @@ a browser, a website, another app, a cloud store — asks it for something.
 
 ## 2. Your database
 
-The first screen asks which database to use. You have three choices:
+The first screen asks which database to use:
 
 | Choice | When to use it |
 |---|---|
 | **Create a new database** | You are starting from scratch. Pick where the file goes and set a master password (typed twice). |
-| **Open a local file** | You already have a `.kdbx` file on this PC (from KeePassXC, say). |
-| **Open from a store** | Your database is in Dropbox, OneDrive, Google Drive or a shared network folder (a NAS). The app downloads it to a file on this PC and keeps the two in step from then on. |
+| **Open a local file** | You already have a `.kdbx` file on this PC or a USB drive (from KeePassXC, say). |
+| **Open from a folder** | Your database is in a shared network folder (a NAS). |
+| **Open from Dropbox / Google Drive / OneDrive** | Your database is in that cloud store. Sign in, then pick the file. |
+
+A database opened from a folder or a cloud store is copied to a file on this PC, and the app keeps the two
+in step from then on (see *Sync with your phone and other PCs*).
 
 **The master password** must have at least 6 characters, upper- and lower-case letters and one character
 that is not a letter or a digit (a space counts). The rules are listed under the field and ticked as you
@@ -52,11 +56,12 @@ is.
   part of the key; keep it apart from the database).
 - **Windows Hello** (face, fingerprint or PIN): after you unlock once with the master password, the next
   unlocks can use Windows Hello. Every 14 days the app asks for the master password again, so you don't
-  forget it.
+  forget it. Both are in *Settings → General*: *Unlock with Windows Hello* and how often the master
+  password is asked (1 to 90 days).
 - **Lock** with **Ctrl+L**, the lock button or the tray menu. The app also locks by itself:
   - after 5 minutes without use (change it in *Settings → General*);
   - when you lock Windows or switch user;
-  - when you hide the window, if you turn that on.
+  - when you hide the window, if you turn on *Lock when hidden*.
 
 Locked, the app forgets everything it decrypted; only the encrypted file is left.
 
@@ -82,7 +87,7 @@ Locked, the app forgets everything it decrypted; only the encrypted file is left
 | Trash | deleted entries, until you empty it |
 
 **Tags** are your own way of sorting: `#work`, `#bank`, anything. **Untagged** shows the entries that have
-none. Right-click a tag in the sidebar to rename or remove it everywhere.
+none. A tag's **⋯** menu in the sidebar renames or removes it in every entry.
 
 ## 5. Find and copy a password
 
@@ -111,7 +116,7 @@ stay out of Windows' clipboard history and cloud clipboard.
   Ctrl+E.** Nothing is saved until you press **Save**; **Cancel** drops the changes.
 - **Password generator** (in the editor): length and which kinds of characters; by default 20 characters
   without look-alikes such as `l` and `1`.
-- **Tags**: type a tag and press Enter or a comma. The star makes an entry a favourite.
+- **Tags**: type a tag and press Enter or a comma. The star makes an entry a favorite.
 - **Expiry date**: the entry then shows up in *Expired* when it is time to change it.
 - **One-time codes (2FA)**: paste the secret the site gives you, or use the **scan** button: take a
   snip of the site's QR code with **Win+Shift+S** first (or pick a picture of it). The entry then shows
@@ -145,7 +150,7 @@ Windows has no built-in autofill for password managers, so PswManager offers two
 2. Press **Ctrl+Alt+A**.
 3. If one entry fits, it is typed at once: user name, Tab, password, Enter. If several fit, a small
    window lists them: choose one and press **Enter** (or **User name**, **Password**, **TOTP** to type only
-   that).
+   that). To be asked even when one entry fits, turn on *Always ask* in *Settings → General → Auto-Type*.
 
 Which entries fit:
 
@@ -161,8 +166,7 @@ Good to know:
 - Typing stops if you switch window or the browser goes to another page meanwhile.
 - A program running *as administrator* cannot be typed into; the app tells you so.
 - On keyboard layouts that type letters with **AltGr** (Polish `ą` is AltGr+A), Windows reads
-  **Ctrl+Alt** as AltGr: pick another hotkey in
-  *Settings → General → Auto-Type*.
+  **Ctrl+Alt** as AltGr: pick another hotkey in *Settings → General → Auto-Type*.
 - You can change what is typed for an entry (its *sequence*) in the editor's *Auto-Type* part.
 
 ### The KeePassXC-Browser extension — Chrome, Edge, Firefox, Brave, Vivaldi
@@ -174,7 +178,7 @@ PswManager speaks the same language as KeePassXC, so it works with KeePassXC's f
 1. In PswManager: *Settings → General → Browser*, turn on **KeePassXC-Browser extension**.
 2. Install **KeePassXC-Browser** from your browser's extension store.
 3. Click the extension's icon and choose **Connect**.
-4. PswManager asks: *A browser extension asks to connect to "<database>"*. Give the connection a name
+4. PswManager asks: *A browser extension asks to connect to "your database"*. Give the connection a name
    (e.g. "Chrome at home") and confirm.
 
 Only PswManager *or* KeePassXC can serve the extension at a time. If KeePassXC starts with its own browser
@@ -184,27 +188,28 @@ integration on, it takes the extension over; the setting tells you when that hap
 small list beside the field. If the database is locked, the extension says so; click it to bring up
 PswManager's unlock.
 
-## 9. When a browser or website asks PswManager
+## 9. Questions from the browser extension
 
 These questions come up in PswManager's window. **Each waits two minutes**; after that it closes as
 "cancelled".
 
 | The question | What it means | What to do |
 |---|---|---|
-| *A browser extension asks to connect to "<database>"* | An extension wants access to this database's logins. | Accept only if **you** just clicked *Connect* in your own browser. Otherwise **Cancel**. |
+| *A browser extension asks to connect to "your database"* | An extension wants access to this database's logins. | Accept only if **you** just clicked *Connect* in your own browser. Otherwise **Cancel**. |
 | A login was saved (the window shows the entry) | You saved a new login through the extension. The entry is titled after the site. | Check the entry; edit it if you want a better title or tags. |
-| *Replace the password of …?* | You logged in with a new password, and the extension wants to update an existing entry. | **Yes** if you really changed the password on that site. The old one stays in the entry's history. |
-| *Sign in to <site> with a passkey:* | The site asks for a passkey, and the database has one for it. | Choose the passkey. Choosing it is your confirmation. |
-| *Where to keep the new passkey?* | The site wants to create a passkey for you. | Choose **a new entry** or an existing entry for that site. |
+| *Replace the password of "an entry" with the one the site offers?* | You logged in with a new password, and the extension wants to update an existing entry. | **Replace** if you really changed the password on that site. The old one stays in the entry's history. |
+| *Sign in to the site with a passkey:* | The site asks for a passkey, and the database has one for it. | Choose the passkey. Choosing it is your confirmation. |
+| *Save a passkey for your account on the site in:* | The site wants to create a passkey for you. | Choose **A new entry** or one of the site's entries. |
 
 **Passkeys** work through the extension only after you turn on its own *Passkeys* option (it is off by
-default). If the database has no passkey for a site, the browser falls back to its own (Windows Hello, a
-phone or a security key).
+default). If the database has no passkey for a site, the extension hands the request to the browser's own
+passkeys (Windows Hello, a phone or a security key), as long as its fallback option is on (it is by
+default).
 
-**Removing a connection**: *Settings → Database → Browser extensions* lists every connected extension and
-when it connected. **Remove…** cuts it off; it has to connect again.
+**Removing a connection**: *Settings → Database* lists every connected browser extension and when it
+connected. **Remove…** cuts it off; it has to connect again.
 
-## 10. Other requests PswManager makes or gets
+## 10. Other requests
 
 | Situation | What happens | What to do |
 |---|---|---|
@@ -221,11 +226,11 @@ To use the same database on several devices, sync it with a store: Dropbox, OneD
 network folder.
 
 - **Set it up**: *Settings → Sync* → **Upload…** (put this database into a store as a new file) or
-  **Link…** (sync with a file already in a store). If both files differ, the app asks: **Merge both** (usually the right choice),
-  **Use the remote file** or **Keep the local file**.
+  **Link…** (sync with a file already in a store). If both files differ, the app asks: **Merge both**
+  (usually the right choice), **Use the remote file** or **Keep this file**.
 - **When it syncs**: when you unlock, about 10 seconds after a change, when you hide the window, when you
-  lock or quit, every 5 minutes while unlocked, and when you press **Sync now** (in the window or the tray
-  menu).
+  lock or quit, every 5 minutes while unlocked (*Check for remote changes* in *Settings → Sync*), and when
+  you press **Sync now** (in the window or the tray menu).
 - **The status** next to the Sync button says what happened: *Synced 12:04*, *Syncing…*, *Changes waiting —
   offline*, *Merged 3 entries from Dropbox*…
 - **Offline** is fine: you keep working, and the changes go up the next time.
@@ -245,14 +250,15 @@ All in the sidebar under **Tools**.
 - **Similar entries**: finds duplicates (the same site and user name, say) and merges them into one. You
   see the result before you press **Merge**; the others go to the Trash.
 - **Import from a file**: a CSV or JSON exported from another password manager (Google, Chrome, Edge,
-  Firefox, Bitwarden, 1Password, KeePass, KeePassXC, Aegis). New entries get the tag *Imported from
-  <file> <date>*. Such a file holds every password in plain text: **delete it** afterwards — the app
+  Firefox, Bitwarden, 1Password, KeePass, KeePassXC, Aegis). New entries get a tag such as *Imported from
+  export.csv 2026-11-06*. Such a file holds every password in plain text: **delete it** afterwards — the app
   offers to.
 - **Import from Google Authenticator**: in Google Authenticator choose *Transfer accounts → Export
   accounts*, then snip each QR code with **Win+Shift+S** (or save it as a picture) and let the app read
   it.
 - **Export to a file**: CSV (for browsers, Bitwarden, 1Password) or CXF JSON. The app asks you to confirm
-  it is you (Windows Hello or the master password) first, and never writes over an existing file. Delete
+  it is you (Windows Hello or the master password) first; that holds for 5 minutes. It never writes over
+  an existing file. Delete
   the file once you have imported it elsewhere.
 
 ## 13. Settings
@@ -264,7 +270,7 @@ All in the sidebar under **Tools**.
 | **General** | when to lock, Windows Hello, how long copied values stay, Auto-Type, the browser extension |
 | **Window** | light or dark theme, the show/hide hotkey, start with Windows, site icons |
 | **Database** | the database's name and description, the default user name, how much history to keep, **change the master password or key file**, the encryption, connected browser extensions |
-| **Sync** | the store, *Sync now*, *Stop syncing* |
+| **Sync** | *Upload…* / *Link…* or *Stop syncing*, how often to check for remote changes |
 | **Backup** | a backup folder and how often (every 2, 7 or 30 days); *Backup now* |
 | **About** | the version, *Check for updates*, the source code on GitHub |
 
@@ -290,7 +296,9 @@ store's version history still open with the old one.
 # Part 2 — Android
 
 The phone app opens **the same database** as the PC, through the same store, and follows the same rules
-for groups, tags, history and sync. This part covers what is different on the phone.
+for groups, tags, history and sync. This part covers what is different on the phone. Not on the phone yet:
+several databases, backups, password health, renaming or removing a tag everywhere, and restoring an
+older version of an entry.
 
 ## 1. Install
 
@@ -342,13 +350,13 @@ The phone has **one database** at a time. *Use another database…* on the unloc
 - Tap a value, or its **copy** icon, to copy it. A message says when the clipboard will be cleared (after
   20 seconds). Copied passwords are hidden from the keyboard's clipboard suggestions.
 - The **eye** shows a hidden value; **open** opens a web address in the browser or a file in another app.
-- The toolbar has the **star** (favourite), the **pencil** (edit) and **⋮ → Delete**.
+- The toolbar has the **star** (favorite), the **pencil** (edit) and **⋮ → Delete**.
 - **History (N)** lists older versions. On the phone you can look at them and copy from them, but restore
   one only on the PC.
 
 ## 6. Editing
 
-As on the PC: title, user name, password with the **generator**, web address, notes, tags, favourite,
+As on the PC: title, user name, password with the **generator**, web address, notes, tags, favorite,
 expiry date, one-time code secret, extra fields and files. **✓** saves, **←** cancels (it asks before
 dropping changes).
 
@@ -402,9 +410,9 @@ as the *preferred service* (Android offers Google first).
 | The question | What it means | What to do |
 |---|---|---|
 | **Unlock PswManager** (in a login field or Android's sheet) | The database is locked; nothing about your entries has been shown. | Tap it and unlock. |
-| ***Trust this app?*** (with the app's certificate) | An app wants a login, or you are linking an entry to it, and the entry has never been used with this app before. Any app can call itself anything; the certificate shows who really made it. | Trust it only if it is the app you expect — e.g. you installed it from Google Play yourself. Once trusted, the entry remembers it, and a fake app with the same name gets nothing. |
+| ***Trust this app?*** (with the app's certificate) | An app wants a login from an entry that does not know this app's certificate yet (one made in Keepass2Android, say), or you are linking an entry to the app. Any app can call itself anything; the certificate shows who really made it. | Trust it only if it is the app you expect — e.g. you installed it from Google Play yourself. Once trusted, the entry remembers it, and a fake app with the same name gets nothing. |
 | **Save to PswManager?** | You typed a new password into a form. | *Save*, then choose where it goes. Or dismiss it. |
-| **Where to keep the passkey?** | A site or app wants to create a passkey. | A new entry, or an existing one for that site. |
+| **Creating a passkey** (PswManager asks where it goes) | A site or app wants to create a passkey. | A new entry, or an existing one for that site. |
 | **The export screen**, naming another app | Another password manager asks Android to import your database from PswManager. | Only if **you** started that import. You confirm with your fingerprint or the master password **every time**. Nothing in your database changes. |
 | **The new key** screen | The master password was changed on another device. | Type the new one. *Not now* lets you keep working; changes wait. |
 | **Camera access** | You chose to scan a QR code. | Allow it, or pick a screenshot instead. |
