@@ -68,6 +68,12 @@ export function chip(label: string, title: string, pressed: boolean, onChange: (
   return chip
 }
 
+/** Sets how far a range input's track is filled, for the CSS: the input cannot tell it. */
+export function fillRange(range: HTMLInputElement) {
+  const [min, max, value] = [range.min, range.max, range.value].map(Number)
+  range.style.setProperty('--fill', `${((value - min) / (max - min)) * 100}%`)
+}
+
 /** The password generator panel; `use` receives the chosen password. */
 export function generatorPanel(generate: (options: GeneratorOptions) => Promise<string>, use: (password: string) => void, onError: (message: string) => void) {
   const preview = el('code', { className: 'preview' })
@@ -87,8 +93,7 @@ export function generatorPanel(generate: (options: GeneratorOptions) => Promise<
   // 8–64: the range the backend allows.
   const length = el('input', { type: 'range', min: 8, max: 64, value: String(generatorOptions.length), ariaLabel: 'Length' })
   const lengthValue = el('span', { className: 'length-value' }, String(generatorOptions.length))
-  // How far the track is filled, for the CSS: a range input cannot tell it.
-  const fill = () => length.style.setProperty('--fill', `${((Number(length.value) - 8) / (64 - 8)) * 100}%`)
+  const fill = () => fillRange(length)
   fill()
   length.addEventListener('input', () => {
     generatorOptions = { ...generatorOptions, length: Number(length.value) || 20 }

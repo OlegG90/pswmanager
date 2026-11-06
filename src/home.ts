@@ -1,6 +1,7 @@
 import { api, type GeneratorOptions } from './api'
 import { button, el } from './dom'
-import { chip } from './editor-parts'
+import { chip, fillRange } from './editor-parts'
+import { statFigure } from './health'
 import { HEALTH_GROUPS, type HealthGroup } from './health-parts'
 import { NEEDS, type Need } from './home-parts'
 
@@ -32,26 +33,20 @@ export interface HomeOptions {
 let need: Need = 'website'
 const chosen = new Map<Need, GeneratorOptions>(NEEDS.map((n) => [n.need, n.options]))
 
-/** A figure on Home: its count, and a click to its list while it has any. */
-function figure(count: number, label: string, severity: string, open: () => void): HTMLElement {
-  const parts = [el('span', { className: 'count' }, String(count)), el('span', { className: 'hint' }, label)]
-  return count
-    ? el('button', { type: 'button', className: `stat ${severity}`, title: `Show: ${label.toLowerCase()}`, onclick: open }, ...parts)
-    : el('div', { className: 'stat' }, ...parts)
-}
-
 /** Fills `container` with Home (#351): the database, its password health,
  *  the quick actions and a password generator for a given need. */
 export function renderHome(container: HTMLElement, options: HomeOptions) {
-  // Password health is worked out in the backend; its figures come in when it answers.
-  const stats = el('div', { className: 'stats home-stats' },
-    ...HEALTH_GROUPS.map(({ label }) => figure(0, label, '', () => {})),
-    figure(options.expired, 'Expired or expiring soon', 'warn', options.showExpired))
+  // Each figure opens its list while it has any. Password health is worked
+  // out in the backend; its counts come in when it answers.
+  const figure = (count: number, label: string, severity: string, open: () => void) =>
+    statFigure(count, label, severity, { title: `Show: ${label.toLowerCase()}`, onclick: open })
+  const figures = (count: (group: HealthGroup) => number) => [
+    ...HEALTH_GROUPS.map(({ group, label, severity }) => figure(count(group), label, severity, () => options.health(group))),
+    figure(options.expired, 'Expired or expiring soon', 'warn', options.showExpired),
+  ]
+  const stats = el('div', { className: 'stats home-stats' }, ...figures(() => 0))
   api.passwordHealth().then((health) => {
-    if (!stats.isConnected) return // Home was left meanwhile
-    stats.replaceChildren(
-      ...HEALTH_GROUPS.map(({ group, label, severity }) => figure(health[group].length, label, severity, () => options.health(group))),
-      figure(options.expired, 'Expired or expiring soon', 'warn', options.showExpired))
+    if (stats.isConnected) stats.replaceChildren(...figures((group) => health[group].length)) // else Home was left meanwhile
   }, (e) => stats.isConnected && options.fail(String(e)))
 
   const actions = el('div', { className: 'tool-actions' },
@@ -93,11 +88,6 @@ function generator(options: HomeOptions): HTMLElement {
       options.fail(String(e))
     }
   }
-  // How far the track is filled, for the CSS: a range input cannot tell it.
-  const fill = () => {
-    const [min, max] = [Number(length.min), Number(length.max)]
-    length.style.setProperty('--fill', `${((Number(length.value) - min) / (max - min)) * 100}%`)
-  }
   const kind = (key: keyof GeneratorOptions, label: string) =>
     chip(label, label, settings()[key] as boolean, (on) => {
       chosen.set(need, { ...settings(), [key]: on })
@@ -115,7 +105,7 @@ function generator(options: HomeOptions): HTMLElement {
     ;[length.min, length.max] = preset.lengths.map(String)
     length.value = String(settings().length)
     lengthValue.textContent = length.value
-    fill()
+    fillRange(length)
     kinds.hidden = need !== 'custom'
     kinds.replaceChildren(kind('upper', 'A–Z'), kind('lower', 'a–z'), kind('digits', '0–9'), kind('symbols', '!#$'), kind('excludeLookAlikes', 'No look-alikes'))
     void regenerate()
@@ -123,7 +113,7 @@ function generator(options: HomeOptions): HTMLElement {
   length.addEventListener('input', () => {
     chosen.set(need, { ...settings(), length: Number(length.value) })
     lengthValue.textContent = length.value
-    fill()
+    fillRange(length)
     void regenerate()
   })
 

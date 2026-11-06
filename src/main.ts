@@ -1312,9 +1312,7 @@ async function openReport(tool: Tool, draw: () => Promise<void>) {
   reportOpen = true
   reportTool = tool
   showContent()
-  // Home keeps the search first: typing shows the list.
-  if (tool === 'home') searchInput.focus()
-  else reportView.querySelector<HTMLElement>('button, input')?.focus()
+  reportView.querySelector<HTMLElement>('button, input')?.focus()
 }
 
 /** Tools › Tidy up imported folders, after asking. */
@@ -1351,6 +1349,9 @@ const openHome = () =>
       copy: async (password) => notify(`Password copied · clears in ${await api.copyGenerated(password)} s`),
       fail: (message) => notify(message),
     })
+  }).then(() => {
+    // Home keeps the search first: typing shows the list.
+    if (reportTool === 'home') searchInput.focus()
   })
 
 const openImport = () =>
