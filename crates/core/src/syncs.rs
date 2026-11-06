@@ -4,6 +4,7 @@
 //! run, and what the last one did is kept for the status line. The sync itself
 //! is [crate::sync]'s; the app hands each run the sync to do.
 
+use crate::session::Session;
 use crate::store::Store;
 use crate::sync::{self, Outcome, SyncError};
 use serde::Serialize;
@@ -43,7 +44,7 @@ impl Report {
     }
 
     /// With why the visible copy was not written after the sync, if it was not: a problem too.
-    pub fn with_copy_problem(self, copy_problem: Option<String>) -> Report {
+    fn with_copy_problem(self, copy_problem: Option<String>) -> Report {
         Report { problem: self.problem || copy_problem.is_some(), copy_problem, ..self }
     }
 }
@@ -148,6 +149,19 @@ impl Syncs {
             _ if settled => Ok(()),
             last => Err(format!("The database could not sync first ({})", last.map(|s| s.text).unwrap_or_default())),
         }
+    }
+
+    /// One sync of the database on `store` with `session`: the unlocked
+    /// database (merges if need be), or with none unlocked uploads only (a
+    /// merge waits for the next unlock); `write_copy` then writes the visible
+    /// copy and says why it could not. The sync's report, kept as the last
+    /// one (none when the database syncs with nothing), and whether it is
+    /// settled ([sync::settled]).
+    pub fn once(&self, store: &Store, session: &Session, write_copy: impl FnOnce() -> Option<String>) -> (Option<Report>, bool) {
+        let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return (None, true) };
+        let result = sync::sync(location.open().as_ref(), store, session);
+        let report = self.keep(Report::of(store, &result).with_copy_problem(write_copy()));
+        (Some(report), sync::settled(&result))
     }
 
     /// Keeps `report` as the last sync's (for a page that missed it) and gives it back.
@@ -285,6 +299,16 @@ mod tests {
         assert!(sign_in.sign_in && sign_in.problem);
         assert_eq!(sign_in.text, "Sign in to Dropbox again");
         assert!(Report::of(&store, &Err(SyncError::OtherKey)).other_key);
+    }
+
+    #[test]
+    fn a_database_that_syncs_with_nothing_is_settled_without_a_report() {
+        let (_dir, store) = store();
+        let syncs = Syncs::default();
+        let (report, settled) = syncs.once(&store, &Session::default(), || panic!("no copy to write"));
+        assert_eq!(report, None);
+        assert!(settled);
+        assert_eq!(syncs.last(), None);
     }
 
     #[test]

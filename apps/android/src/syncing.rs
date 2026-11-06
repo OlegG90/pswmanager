@@ -14,10 +14,10 @@ use pswm_core::syncs::{Report, Syncs};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 
-pub use pswm_core::syncs::OTHER_KEY;
+pub(crate) use pswm_core::syncs::OTHER_KEY;
 
 /// The app's state for its syncs.
-pub fn manage(app: &AppHandle) {
+pub(crate) fn manage(app: &AppHandle) {
     app.manage(Syncs::default());
     app.manage(UploadSoon::default());
 }
@@ -35,7 +35,7 @@ pub fn last_sync(syncs: State<Syncs>) -> Option<Report> {
 
 /// Runs `change` to where the database syncs while no sync runs (refused
 /// while one does); a sync asked for meanwhile runs after it, with the change.
-pub fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub(crate) fn while_not_syncing<T>(app: &AppHandle, change: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     app.state::<Syncs>().while_not_syncing(change, || start(app.clone()))
 }
 
@@ -49,7 +49,7 @@ pub(crate) fn sync_first(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Syncs in the background and tells the page (`synced`) what happened.
-pub fn start(app: AppHandle) {
+pub(crate) fn start(app: AppHandle) {
     run(app, true);
 }
 
@@ -65,17 +65,15 @@ fn run(app: AppHandle, unlocked: bool) {
     });
 }
 
-/// One sync with `session`: the unlocked database (merges if need be), or a
-/// locked one (uploads only; a merge waits for the next unlock). Whether it
-/// is settled ([sync::settled]).
+/// One sync with `session` ([Syncs::once]), told to the page (`synced`);
+/// whether it is settled.
 fn sync_once(app: &AppHandle, session: &Session) -> bool {
-    let store = app.state::<Store>();
-    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return true };
-    let result = sync::sync(location.open().as_ref(), &store, session);
-    let report = Report::of(&store, &result).with_copy_problem(crate::visible::refresh(app));
-    // A page that is not listening reads it with `last_sync`.
-    let _ = app.emit("synced", app.state::<Syncs>().keep(report));
-    sync::settled(&result)
+    let (report, settled) = app.state::<Syncs>().once(&app.state::<Store>(), session, || crate::visible::refresh(app));
+    if let Some(report) = report {
+        // A page that is not listening reads it with `last_sync`.
+        let _ = app.emit("synced", report);
+    }
+    settled
 }
 
 /// Going to the background: what has not gone up yet goes now, as an upload
@@ -98,7 +96,7 @@ pub(crate) fn upload_pending(app: AppHandle) {
 /// Asks WorkManager to upload the waiting changes later (`background.rs`):
 /// when a change is saved, as the app may go at any moment (Back ends it at
 /// once), and again on going to the background or locking.
-pub fn schedule_background_upload(app: &AppHandle, store: &Store) {
+fn schedule_background_upload(app: &AppHandle, store: &Store) {
     let cloud = store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some()));
     let Ok(data) = app.path().app_data_dir() else { return };
     // Only a fallback: the upload that follows may well send the changes.
@@ -108,7 +106,7 @@ pub fn schedule_background_upload(app: &AppHandle, store: &Store) {
 /// The background upload with the app running in this process: what has not
 /// gone up yet goes now, as an upload only, after a sync that runs (waiting
 /// two minutes at most). Whether it is settled ([sync::settled]).
-pub fn upload_pending_now(app: &AppHandle) -> bool {
+pub(crate) fn upload_pending_now(app: &AppHandle) -> bool {
     app.state::<Syncs>().after_running(120, Duration::from_secs(1), || sync_once(app, &Session::default()))
 }
 
