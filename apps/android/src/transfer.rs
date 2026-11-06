@@ -317,7 +317,7 @@ fn add(app: &AppHandle, import: Import, locked: &str, from_file: bool, file: Opt
         .map_err(|e| if session.is_unlocked() { e } else { locked.to_string() })?;
     if added > 0 {
         crate::icons::fetch(app, &listing);
-        crate::editing::upload_soon(app);
+        crate::syncing::upload_soon(app);
     }
     let deletable = file.is_some();
     *app.state::<ImportedFile>().0.lock().unwrap() = file;

@@ -72,7 +72,7 @@ pub(crate) fn text(env: &Env, value: &JString) -> Result<String, String> {
 /// merge at the next sync, never data.
 fn upload(env: &mut Env, context: &JObject, state: &JString) -> Result<bool, String> {
     if let Some(app) = APP.get() {
-        return Ok(crate::app::upload_pending_now(app));
+        return Ok(crate::syncing::upload_pending_now(app));
     }
     let state = text(env, state)?;
     Kotlin::install(env, context)?;

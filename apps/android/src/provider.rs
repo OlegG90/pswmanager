@@ -35,7 +35,7 @@ fn autofill() -> &'static Autofill {
     static AUTOFILL: LazyLock<Autofill> = LazyLock::new(|| {
         let changed = || {
             if let Some(app) = APP.get() {
-                crate::editing::upload_soon(app);
+                crate::syncing::upload_soon(app);
             }
         };
         let lock = || match APP.get() {
@@ -179,7 +179,7 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
         autofill().unlocked(vault, Settings::of(store).lock_in_background());
     })?;
     if let Some(app) = APP.get() {
-        crate::app::start_sync(app.clone());
+        crate::syncing::start(app.clone());
     }
     Ok(())
 }

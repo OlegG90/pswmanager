@@ -9,39 +9,10 @@ use pswm_core::generator;
 use pswm_core::health;
 use pswm_core::session::Session;
 use pswm_core::similar;
-use pswm_core::store::Store;
 use pswm_core::staged::StagedFile;
 use pswm_core::vault::{Listing, MergePreview, Saved};
-use std::time::Duration;
 use tauri::{AppHandle, Manager, State, Wry};
 use zeroize::Zeroizing;
-
-/// How long after the last change it goes up.
-const UPLOAD_DELAY: Duration = Duration::from_secs(10);
-
-/// The upload waiting for the last change.
-#[derive(Default)]
-pub struct UploadSoon(crate::app::Latest);
-
-/// A change was saved: should the app go before it is sent, WorkManager
-/// sends it later.
-fn changed(app: &AppHandle) {
-    crate::app::schedule_background_upload(app, &app.state::<Store>());
-}
-
-/// Syncs `UPLOAD_DELAY` after the last change. Going to the background first
-/// sends it at once (`sync_if_pending`).
-pub(crate) fn upload_soon(app: &AppHandle) {
-    changed(app);
-    let wait = app.state::<UploadSoon>().0.next();
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(UPLOAD_DELAY);
-        if app.state::<UploadSoon>().0.is_latest(wait) {
-            crate::app::start_sync(app);
-        }
-    });
-}
 
 /// The entry with every value, secrets included, for the editor.
 #[tauri::command(async)]
@@ -71,9 +42,9 @@ pub fn save_entry(
     crate::icons::fetch(&app, &saved.listing);
     // Tags alone can wait for the next sync (going to the background, locking).
     if edit::needs_upload(base.as_ref(), &data, &files) {
-        upload_soon(&app);
+        crate::syncing::upload_soon(&app);
     } else {
-        changed(&app);
+        crate::syncing::changed(&app);
     }
     Ok(saved)
 }
@@ -122,7 +93,7 @@ pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>)
         v.delete_entries(&ids)?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -146,7 +117,7 @@ pub fn merge_entries(app: AppHandle, session: State<Session>, keep: String, othe
         v.merge_entries(&keep, &others)?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -157,7 +128,7 @@ pub fn restore_entry(app: AppHandle, session: State<Session>, id: String) -> Res
         v.restore(&[id])?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -168,7 +139,7 @@ pub fn delete_for_good(app: AppHandle, session: State<Session>, id: String) -> R
         v.delete_for_good(&[id])?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -179,7 +150,7 @@ pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, S
         v.empty_bin()?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -190,7 +161,7 @@ pub fn add_starter_templates(app: AppHandle, session: State<Session>) -> Result<
         v.add_starter_templates()?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
@@ -202,7 +173,7 @@ pub fn set_tag(app: AppHandle, session: State<Session>, ids: Vec<String>, tag: S
         v.set_tag(&ids, &tag, on)?;
         Ok(v.listing())
     })?;
-    changed(&app);
+    crate::syncing::changed(&app);
     Ok(listing)
 }
 
@@ -213,7 +184,7 @@ pub fn tidy_imported(app: AppHandle, session: State<Session>) -> Result<Listing,
         v.tidy_imported()?;
         Ok(v.listing())
     })?;
-    upload_soon(&app);
+    crate::syncing::upload_soon(&app);
     Ok(listing)
 }
 
