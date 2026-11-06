@@ -31,10 +31,10 @@ function rules(more: Partial<EditorRules> = {}) {
     id: 'Mail',
     dirty: () => false,
     store: async () => SAVED,
-    saved: () => done.push('saved'),
-    closed: () => done.push('closed'),
+    onSaved: () => done.push('saved'),
+    onClosed: () => done.push('closed'),
     focus: () => done.push('focus'),
-    fail: (message) => done.push(`fail: ${message}`),
+    showError: (message) => done.push(`fail: ${message}`),
     ...more,
   }
   return { done, rules: r }

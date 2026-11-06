@@ -159,13 +159,13 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     id: options.id,
     dirty: () => JSON.stringify(collect()) !== untouched || files.changes().length > 0,
     store: () => api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes()),
-    saved: options.onSaved,
-    closed: () => {
+    onSaved: options.onSaved,
+    onClosed: () => {
       files.release()
       options.onClose()
     },
     focus: () => lastField.focus(),
-    fail: showError,
+    showError,
   })
 
   const row = (label: string, ...controls: Node[]) =>

@@ -1,7 +1,7 @@
 import type { Saved } from './api'
 
 /** What the open editor does when the window asks it to. */
-interface Open {
+interface OpenEditor {
   save: () => Promise<void>
   close: () => Promise<void>
   /** Closes without saving or asking: nothing of the edit is kept. */
@@ -20,12 +20,12 @@ export interface EditorRules {
   dirty: () => boolean
   /** Saves the form, as the backend answers. */
   store: () => Promise<Saved>
-  saved: (saved: Saved) => void
+  onSaved: (saved: Saved) => void
   /** Closed without saving: what the form staged goes, the entry shows as it was. */
-  closed: () => void
+  onClosed: () => void
   focus: () => void
   /** Says something went wrong, in the form. */
-  fail: (message: string) => void
+  showError: (message: string) => void
 }
 
 /** The questions the editor asks, on the window's dialogs. */
@@ -36,17 +36,17 @@ export interface EditorQuestions {
 
 export const CHANGED_ELSEWHERE = 'This entry was just changed on another device. Saving keeps your version; the other one goes to the entry\'s history.'
 
-const nothing = async () => {}
+const idle = async () => {}
 
 /**
  * The window's one editor, from the moment it starts loading to the moment
  * it saves or closes, with the rules on what happens meanwhile: locking (see
  * [clear]) leaves no editor however far it got, a second Save waits for the
- * first, and a question that was answered too late does nothing. Nothing of
- * the page: the form is drawn, and the backend asked, by the caller.
+ * first, and a question that was answered too late does nothing. It touches
+ * no page: the caller draws the form and asks the backend.
  */
 export function editorSession(questions: EditorQuestions) {
-  let active: Open | null = null
+  let active: OpenEditor | null = null
 
   return {
     isEditing: (): boolean => active !== null,
@@ -56,8 +56,8 @@ export function editorSession(questions: EditorQuestions) {
       active = null
     },
 
-    save: (): Promise<void> => active?.save() ?? nothing(),
-    close: (): Promise<void> => active?.close() ?? nothing(),
+    save: (): Promise<void> => active?.save() ?? idle(),
+    close: (): Promise<void> => active?.close() ?? idle(),
 
     changedElsewhere(ids: string[]) {
       active?.changedElsewhere(ids)
@@ -86,7 +86,7 @@ export function editorSession(questions: EditorQuestions) {
      * meanwhile; when loading fails, there is no editor and the error is thrown.
      */
     async load<T>(load: () => Promise<T>): Promise<T | null> {
-      const loading: Open = { save: nothing, close: nothing, discard: () => {}, focus: () => {}, changedElsewhere: () => {} }
+      const loading: OpenEditor = { save: idle, close: idle, discard: () => {}, focus: () => {}, changedElsewhere: () => {} }
       active = loading
       try {
         const loaded = await load()
@@ -100,7 +100,7 @@ export function editorSession(questions: EditorQuestions) {
     /** The loaded editor is open by `rules`; what its Save and Cancel buttons do. */
     open(rules: EditorRules): { save: () => Promise<void>; close: () => Promise<void> } {
       let saving = false
-      const self: Open = {
+      const self: OpenEditor = {
         async save() {
           if (saving) return
           saving = true
@@ -109,16 +109,16 @@ export function editorSession(questions: EditorQuestions) {
             // Locking while the save ran closed this editor: the vault is gone.
             if (active !== self) return
             active = null
-            rules.saved(saved)
+            rules.onSaved(saved)
           } catch (e) {
-            if (active === self) rules.fail(String(e))
+            if (active === self) rules.showError(String(e))
           } finally {
             saving = false
           }
         },
         discard() {
           active = null
-          rules.closed()
+          rules.onClosed()
         },
         async close() {
           if (rules.dirty()) {
@@ -132,7 +132,7 @@ export function editorSession(questions: EditorQuestions) {
         // wins where both changed the entry, and the other version goes to
         // its history.
         changedElsewhere(ids) {
-          if (rules.id && ids.includes(rules.id)) rules.fail(CHANGED_ELSEWHERE)
+          if (rules.id && ids.includes(rules.id)) rules.showError(CHANGED_ELSEWHERE)
         },
       }
       active = self
