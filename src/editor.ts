@@ -1,13 +1,12 @@
 import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { chip, collectEntry, fieldNameList, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
+import { chip, fieldNameList, fieldRow, input, newEntryData, showHide } from './editor-parts'
 import { editorSession } from './editor-session'
-import { dateOf, keep, trimmedLine } from './entry-text'
+import { changeTracker, entryForm, formError } from './entry-form'
+import { keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
 import { iconAction } from './icons'
-import { tagInput } from './tag-input'
-import { FAVORITE } from './search'
 
 export interface EditorOptions {
   /** The entry to change; null creates one. */
@@ -103,36 +102,26 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   if (!loaded) return // locked while loading
   const { data, attachments } = loaded
 
-  const title = input(data.title, { placeholder: 'Title' })
-  const username = input(data.username)
-  const password = input(data.password, { type: 'password', className: 'secret' })
-  const url = input(data.url, { placeholder: 'https://' })
-  const otp = input(data.otp, { type: 'password', className: 'secret', placeholder: 'Secret or otpauth:// URI' })
-  const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), options.knownTags)
-  let starred = data.tags.includes(FAVORITE)
-  const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
-  // A date input holds a day: an expiry time on that day stays as it was.
-  const expiryDay = data.expires ? dateOf(data.expires) : ''
-  const expires = el('input', { type: 'date', value: expiryDay, ariaLabel: 'Expires' })
+  const error = formError()
+  const showError = error.show
+  // A template's files are not changed (as before), so it has no files section.
+  const fields = entryForm(data, {
+    // The date input has no label of its own in this layout.
+    attributes: { title: { placeholder: 'Title' }, expires: { ariaLabel: 'Expires' } },
+    knownTags: options.knownTags,
+    attachments: options.template ? [] : attachments,
+    files: {
+      pick: api.pickFileToAttach,
+      release: api.releaseFiles,
+      askName: (current) => askText('Rename the file to:', current, 'Rename', beforeExtension(current)),
+    },
+    passwordStrength: api.passwordStrength,
+    generatePassword: api.generatePassword,
+    showError,
+  })
+  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator } = fields
   const neverExpires = button('Never', 'Does not expire', () => (expires.value = ''), 'ghost')
   const icon = iconPicker(data.icon, options.autoIcon, (message) => showError(message))
-  const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false })
-  const error = el('p', { className: 'error', hidden: true })
-  const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
-  // A template's files are not changed (as before), so it has no files section.
-  const files = filesEditor(options.template ? [] : attachments, {
-    pick: api.pickFileToAttach,
-    release: api.releaseFiles,
-    askName: (current) => askText('Rename the file to:', current, 'Rename', beforeExtension(current)),
-  }, (message) => showError(message))
-
-  // Under the heading, and scrolled to: at the bottom of a long form the
-  // message ended up out of sight.
-  const showError = (message: string) => {
-    error.textContent = message
-    error.hidden = false
-    error.scrollIntoView({ block: 'nearest' })
-  }
 
   // A TOTP secret from a QR code (#279): the picture on the clipboard (a
   // snip of the site's code), or one picked.
@@ -142,22 +131,15 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     }).catch((e) => showError(String(e)))
   })
 
-  const strength = strengthMeter(password, api.passwordStrength)
-
-  const generator = generatorPanel(api.generatePassword, (chosen) => {
-    password.value = chosen
-    strength.refresh()
-  }, showError)
-
-  const inputs = { title, username, password, url, otp, notes, tags, starred: () => starred, fieldList, expires }
   const autoType = autoTypeEditor(data.autoType)
-  const collect = (): EntryData => ({ ...collectEntry(data, inputs), icon: icon.value(), autoType: autoType.value() })
+  const collect = (): EntryData => ({ ...fields.collect(), icon: icon.value(), autoType: autoType.value() })
 
   // The field last used, for the way back into the form.
   let lastField: HTMLElement = title
   const { save, close } = session.open({
     id: options.id,
-    dirty: () => JSON.stringify(collect()) !== untouched || files.changes().length > 0,
+    // What counts as unchanged is taken once the form is drawn (below).
+    dirty: () => dirty(),
     store: () => api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes()),
     onSaved: options.onSaved,
     onClosed: () => {
@@ -174,7 +156,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
     el('h2', {}, `${options.id ? 'Edit' : 'New'} ${options.template ? 'template' : 'entry'}`),
-    error,
+    error.line,
     row('Title', title),
     row('User name', username),
     row('Password', password, showHide(password), generator.open),
@@ -204,6 +186,6 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   )
   form.addEventListener('focusin', (e) => (lastField = e.target as HTMLElement))
   container.replaceChildren(form)
-  const untouched = JSON.stringify(collect())
+  const dirty = changeTracker(collect, files)
   ;(options.focusPassword ? password : title).focus()
 }

@@ -1,9 +1,9 @@
 import { button, el, enterPresses } from '../../../../src/dom'
-import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from '../../../../src/editor-parts'
-import { beforeExtension, dateOf, titleOf } from '../../../../src/entry-text'
+import { fieldRow, input, newEntryData, showHide } from '../../../../src/editor-parts'
+import { changeTracker, entryForm, formError } from '../../../../src/entry-form'
+import { beforeExtension, titleOf } from '../../../../src/entry-text'
 import { iconAction } from '../../../../src/icons'
-import { FAVORITE, sameFilter, search, tagCounts, TEMPLATES } from '../../../../src/search'
-import { tagInput } from '../../../../src/tag-input'
+import { sameFilter, search, tagCounts, TEMPLATES } from '../../../../src/search'
 import { api, type EntryData, type EntryDetail, type Listing } from './api'
 import { entryScreen } from './entry'
 import { listScreen } from './list'
@@ -67,28 +67,24 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     snack(String(e))
     return
   }
-  const error = el('p', { className: 'error', hidden: true })
-  const showError = (message: string) => {
-    error.textContent = message
-    error.hidden = false
-    error.scrollIntoView({ block: 'nearest' })
-  }
-  const title = input(data.title, { className: 'field' })
-  const username = input(data.username, { className: 'field', autocapitalize: 'off' })
-  const password = input(data.password, { type: 'password', className: 'field secret' })
-  const url = input(data.url, { type: 'url', className: 'field', placeholder: 'https://' })
-  const otp = input(data.otp, { type: 'password', className: 'field secret', placeholder: 'Secret or otpauth:// URI' })
-  const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), tagCounts(listing.entries).map(([tag]) => tag))
-  let starred = data.tags.includes(FAVORITE)
-  const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
-  const expires = el('input', { type: 'date', value: data.expires ? dateOf(data.expires) : '', className: 'field' })
-  const notes = el('textarea', { value: data.notes, rows: 4, spellcheck: false, className: 'field' })
-  const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
-  const files = filesEditor(attachments, {
-    pick: () => onPhone('The file to attach', (done, picker) => browsePhone({ first: () => false, pick: api.attachFileAt, done, picker }), api.pickFileToAttach),
-    release: api.releaseFiles,
-    askName,
-  }, (message) => showError(message))
+  const error = formError()
+  const showError = error.show
+  const fields = entryForm(data, {
+    fieldClass: 'field',
+    // A user name starts with a small letter; a URL gets the keyboard for one.
+    attributes: { username: { autocapitalize: 'off' }, url: { type: 'url' } },
+    knownTags: tagCounts(listing.entries).map(([tag]) => tag),
+    attachments,
+    files: {
+      pick: () => onPhone('The file to attach', (done, picker) => browsePhone({ first: () => false, pick: api.attachFileAt, done, picker }), api.pickFileToAttach),
+      release: api.releaseFiles,
+      askName,
+    },
+    passwordStrength: api.passwordStrength,
+    generatePassword: api.generatePassword,
+    showError,
+  })
+  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator, collect } = fields
   // A TOTP secret from a QR code: with the camera (#280), or in a picture,
   // a screenshot of the site's code (#279).
   const scan = (camera: boolean) => {
@@ -102,15 +98,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     button('From a picture…', 'A screenshot of the code', () => (close(), scan(false)), 'item'),
   ]), 'state')
 
-  const strength = strengthMeter(password, api.passwordStrength)
-  const generator = generatorPanel(api.generatePassword, (chosen) => {
-    password.value = chosen
-    strength.refresh()
-  }, showError)
-
-  const inputs = { title, username, password, url, otp, notes, tags, starred: () => starred, fieldList, expires }
-  const collect = () => collectEntry(data, inputs)
-  const untouched = JSON.stringify(collect())
+  const dirty = changeTracker(collect, files)
 
   let saving = false
   const save = async () => {
@@ -132,7 +120,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     back()
   }
   const close = () => {
-    if (JSON.stringify(collect()) === untouched && !files.changes().length) leaveEditor()
+    if (!dirty()) leaveEditor()
     else confirmSheet('Discard the changes?', 'Discard', leaveEditor)
   }
   // Android's Back cancels too, and stays on the editor when the changes are kept.
@@ -145,7 +133,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Cancel', close), el('h1', {}, `${id ? 'Edit' : 'New'} ${template ? 'template' : 'entry'}`), iconButton('check', 'Save', () => void save())),
     el('form', { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), void save()) },
-      error,
+      error.line,
       label('Title', title),
       label('User name', username),
       label('Password', together(password, showHide(password), generator.open)),
