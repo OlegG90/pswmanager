@@ -1,6 +1,6 @@
 import { api, type ExportFormat } from './api'
-import { busyButton, button, el, enterPresses } from './dom'
-import { EXPORT_FORMATS, exportedReport, fileExportAbout } from './file-export-parts'
+import { busyButton, button, choiceList, el, enterPresses } from './dom'
+import { EXPORT_FORMATS, EXPORT_INTRO, EXPORT_WARNING, exportedReport } from './file-export-parts'
 
 /**
  * Tools › Export to a file (#240), beside the sidebar: the format, the user
@@ -13,15 +13,19 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
   const page = el('div')
   container.replaceChildren(page)
   const left = () => !page.isConnected
-  const show = (...body: Node[]) => {
-    page.replaceChildren(el('header', {}, el('h1', {}, 'Export to a file')), el('section', { className: 'tool' }, ...body))
+  const showSection = (section: HTMLElement) => {
+    page.replaceChildren(el('header', {}, el('h1', {}, 'Export to a file')), section)
     page.querySelector<HTMLElement>('section input, section button')?.focus()
   }
+  const show = (...body: Node[]) => showSection(el('section', { className: 'tool' }, ...body))
   const actions = (...buttons: HTMLElement[]) => el('div', { className: 'tool-actions' }, ...buttons)
 
+  // The formats as a list, each its button with what it carries (#353).
   const start = (): void =>
-    show(...fileExportAbout(), actions(...EXPORT_FORMATS.map(([format, name]) =>
-      busyButton(name, `Export as ${name}`, () => chosen(format), fail, 'primary'))))
+    showSection(el('section', { className: 'choose' },
+      el('p', {}, EXPORT_INTRO),
+      choiceList(EXPORT_FORMATS.map(([format, name, what]) => [busyButton(name, `Export as ${name}`, () => chosen(format), fail), what])),
+      el('p', { className: 'muted' }, EXPORT_WARNING)))
 
   // Windows Hello first; when it cannot, the master password.
   const chosen = async (format: ExportFormat): Promise<void> => {

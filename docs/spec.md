@@ -726,7 +726,11 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 - *Tools → Import from a file* (#238; on the phone a *Tools* item of its own): a file another password
   manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). Its
   page beside the sidebar says what it takes first; then the file is picked, and the page says what came
-  over and what did not, and offers to delete the file (or import another).
+  over and what did not, and offers to delete the file (or import another). On Windows (#354) the page
+  lists the sources as rows in a card, as *Password health* lists its entries: each row a button (**CSV**,
+  **JSON**, **Aegis**) with what it reads beside it, the button opening the picker with that kind's
+  filter (the file is still read by what it holds), and a last row **Google Authenticator** that opens
+  *Import from Google Authenticator*.
   - **CSV**, its columns found by the names in its first line (any case; the usual names, e.g. title
     `name` or `title`, URL `url`, `login_uri` or `website`, TOTP `totp` or `otpauth`): title, URL (one a
     line in the cell: more go to `KP2A_URL_n`), user name, password, notes, TOTP, folder or group (a path
@@ -800,8 +804,9 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 
 - *Tools → Export to a file* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
   bin or templates) written to a file another password manager imports, the reverse of *Import from a
-  file*. Its page beside the sidebar offers the formats, each with what it carries (the master password,
-  when asked for, is typed there too; then the page says what was written):
+  file*. Its page beside the sidebar offers the formats, each with what it carries (on Windows a row in a
+  card, its button with the text beside it, #353; the master password, when asked for, is typed there too;
+  then the page says what was written):
   - **CSV**: `name,url,username,password,note,totp`, the columns Google Password Manager and Chrome
     write (browsers, Google Password Manager, Bitwarden and 1Password read them); logins only.
   - **CXF JSON**: the Credential Exchange file the phone's Credential Transfer hands over

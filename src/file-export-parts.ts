@@ -10,12 +10,16 @@ export const EXPORT_FORMATS: [ExportFormat, string, string][] = [
   ['cxf', 'CXF JSON', 'everything, passkeys too, in the new Credential Exchange format; few managers read it yet'],
 ]
 
+/** What comes before the formats, and after them. */
+export const EXPORT_INTRO = 'Write the entries in use to a file another password manager imports:'
+export const EXPORT_WARNING = 'The file holds every password in clear text: keep it safe, and delete it once it is imported.'
+
 /** Before the format is chosen. */
 export function fileExportAbout(): Node[] {
   return [
-    el('p', {}, 'Write the entries in use to a file another password manager imports:'),
+    el('p', {}, EXPORT_INTRO),
     el('ul', { className: 'formats' }, ...EXPORT_FORMATS.map(([, name, what]) => el('li', {}, el('b', {}, name), ` — ${what}`))),
-    el('p', { className: 'muted' }, 'The file holds every password in clear text: keep it safe, and delete it once it is imported.'),
+    el('p', { className: 'muted' }, EXPORT_WARNING),
   ]
 }
 

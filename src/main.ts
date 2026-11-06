@@ -1322,7 +1322,7 @@ const openHealth = () => openReport('health', () => renderHealth(reportView, { f
 
 const openImport = () =>
   openReport('import', async () =>
-    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
+    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), authenticator: openGauth, fail: (message) => notify(message) }))
 
 // Chosen again, it starts over: the codes read before are let go of.
 const openGauth = () =>
