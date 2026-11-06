@@ -23,6 +23,10 @@ interface Report {
   replace: (nodes: Node[]) => () => void
 }
 
+/** What the preview of merging `others` into `kept` says above it. */
+const mergeIntro = (kept: Entry, others: Entry[]) =>
+  `"${titleOf(kept)}" as the merge would leave it. ${describeEntries(others)} ${others.length === 1 ? 'goes' : 'go'} to the recycle bin.`
+
 /**
  * One site's entries. Proceed shows the kept one as the merge would leave it,
  * with Merge (what the ticked ones have goes into it, and they go to the
@@ -45,7 +49,7 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
     const preview = await api.mergePreview(kept.id, ids)
     const back = report.replace([
       el('header', {}, el('h1', {}, `Merge into ${into}`), button('Cancel', 'Back to the similar entries', () => back())),
-      el('p', { className: 'muted intro' }, `${into} as the merge would leave it. ${describeEntries(others)} ${others.length === 1 ? 'goes' : 'go'} to the recycle bin.`),
+      el('p', { className: 'muted intro' }, mergeIntro(kept, others)),
       mergedCard(preview, options.icon(kept.id)),
       el('div', { className: 'similar-actions' },
         busyButton('Merge', 'Merge them into it', async () => {
@@ -71,8 +75,7 @@ function siteSection(site: Site, report: Report, leave: (section: HTMLElement) =
  * into it; Cancel leaves both as they are.
  */
 export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptions, 'icon' | 'changed' | 'fail'>) {
-  let kept = pair[0]
-  const other = () => (kept === pair[0] ? pair[1] : pair[0])
+  let [kept, other] = pair
   const intro = el('p', { className: 'muted' })
   const card = el('div', { className: 'merge-preview' })
   const merged = await dialog('Which one is kept? What the other has goes into it.', false, (answer) => {
@@ -84,9 +87,9 @@ export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptio
       const request = ++latest
       merge.disabled = true
       try {
-        const preview = await api.mergePreview(kept.id, [other().id])
+        const preview = await api.mergePreview(kept.id, [other.id])
         if (request !== latest) return
-        intro.textContent = `"${titleOf(kept)}" as the merge would leave it. "${titleOf(other())}" goes to the recycle bin.`
+        intro.textContent = mergeIntro(kept, [other])
         card.replaceChildren(mergedCard(preview, options.icon(kept.id)))
         merge.disabled = false
       } catch (e) {
@@ -97,8 +100,9 @@ export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptio
     }
     const keepRows = pair.map((entry) => {
       const radio = el('input', { type: 'radio', name: 'merge-keep', checked: entry === kept })
+      // A radio changes only when it is checked: the other one was kept.
       radio.addEventListener('change', () => {
-        kept = entry
+        ;[kept, other] = [other, kept]
         void show()
       })
       return el('label', { className: 'merge-keep' }, radio, `Keep "${titleOf(entry)}"`)
@@ -108,7 +112,7 @@ export async function mergePair(pair: [Entry, Entry], options: Pick<SimilarOptio
   }, 'Cancel', 'merge')
   if (!merged) return
   try {
-    options.changed(await api.mergeEntries(kept.id, [other().id]), `Merged into "${titleOf(kept)}"`)
+    options.changed(await api.mergeEntries(kept.id, [other.id]), `Merged into "${titleOf(kept)}"`)
   } catch (e) {
     options.fail(String(e))
   }
