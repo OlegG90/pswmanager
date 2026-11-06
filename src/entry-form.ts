@@ -67,6 +67,18 @@ export function entryForm(data: EntryData, host: EntryFormHost) {
   }
 }
 
+/** The form's error line, under its heading: a message shows there and is
+  *  scrolled to (at the foot of a long form it was out of sight). */
+export function formError() {
+  const line = el('p', { className: 'error', hidden: true })
+  const show = (message: string) => {
+    line.textContent = message
+    line.hidden = false
+    line.scrollIntoView({ block: 'nearest' })
+  }
+  return { line, show }
+}
+
 /** Whether the editor has changes: `collect` differs from what it gave when
  *  this was called, or a file was added, renamed or removed. */
 export function changeTracker(collect: () => EntryData, files: { changes: () => unknown[] }): () => boolean {

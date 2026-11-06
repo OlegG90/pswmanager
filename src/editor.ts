@@ -2,7 +2,7 @@ import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } f
 import { button, el } from './dom'
 import { chip, fieldNameList, fieldRow, input, newEntryData, showHide } from './editor-parts'
 import { editorSession } from './editor-session'
-import { changeTracker, entryForm } from './entry-form'
+import { changeTracker, entryForm, formError } from './entry-form'
 import { keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -102,14 +102,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   if (!loaded) return // locked while loading
   const { data, attachments } = loaded
 
-  const error = el('p', { className: 'error', hidden: true })
-  // Under the heading, and scrolled to: at the bottom of a long form the
-  // message ended up out of sight.
-  const showError = (message: string) => {
-    error.textContent = message
-    error.hidden = false
-    error.scrollIntoView({ block: 'nearest' })
-  }
+  const error = formError()
+  const showError = error.show
   // A template's files are not changed (as before), so it has no files section.
   const fields = entryForm(data, {
     // The date input has no label of its own in this layout.
@@ -162,7 +156,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
     el('h2', {}, `${options.id ? 'Edit' : 'New'} ${options.template ? 'template' : 'entry'}`),
-    error,
+    error.line,
     row('Title', title),
     row('User name', username),
     row('Password', password, showHide(password), generator.open),

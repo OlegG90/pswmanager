@@ -1,6 +1,6 @@
 import { button, el, enterPresses } from '../../../../src/dom'
 import { fieldRow, input, newEntryData, showHide } from '../../../../src/editor-parts'
-import { changeTracker, entryForm } from '../../../../src/entry-form'
+import { changeTracker, entryForm, formError } from '../../../../src/entry-form'
 import { beforeExtension, titleOf } from '../../../../src/entry-text'
 import { iconAction } from '../../../../src/icons'
 import { sameFilter, search, tagCounts, TEMPLATES } from '../../../../src/search'
@@ -67,12 +67,8 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     snack(String(e))
     return
   }
-  const error = el('p', { className: 'error', hidden: true })
-  const showError = (message: string) => {
-    error.textContent = message
-    error.hidden = false
-    error.scrollIntoView({ block: 'nearest' })
-  }
+  const error = formError()
+  const showError = error.show
   const fields = entryForm(data, {
     fieldClass: 'field',
     // A user name starts with a small letter; a URL gets the keyboard for one.
@@ -137,7 +133,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
   show([
     el('header', { className: 'bar' }, iconButton('back', 'Cancel', close), el('h1', {}, `${id ? 'Edit' : 'New'} ${template ? 'template' : 'entry'}`), iconButton('check', 'Save', () => void save())),
     el('form', { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), void save()) },
-      error,
+      error.line,
       label('Title', title),
       label('User name', username),
       label('Password', together(password, showHide(password), generator.open)),
