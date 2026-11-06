@@ -14,7 +14,7 @@ use crate::background::{native, text, Kotlin, APP};
 use jni::objects::{JByteArray, JObject, JString};
 use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::{Env, EnvUnowned};
-use pswm_core::autofill::{self, Answer, Asking, Autofill, Give, Offer, Save, Wait};
+use pswm_core::autofill::{self, Answer, Asking, Autofill, Give, Offer, Save};
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
@@ -30,14 +30,19 @@ pub fn session() -> Session {
 }
 
 /// The provider on that session: a change saved here goes up with the next
-/// sync, once the app has started.
+/// sync, once the app has started; a lock due tells the app's window too.
 fn autofill() -> &'static Autofill {
     static AUTOFILL: LazyLock<Autofill> = LazyLock::new(|| {
-        Autofill::new(session(), || {
+        let changed = || {
             if let Some(app) = APP.get() {
                 crate::editing::upload_soon(app);
             }
-        })
+        };
+        let lock = || match APP.get() {
+            Some(app) => crate::app::lock_and_tell(app),
+            None => session().set(None),
+        };
+        Autofill::new(session(), changed, lock)
     });
     &AUTOFILL
 }
@@ -171,7 +176,7 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
         if let Some(app) = APP.get() {
             crate::icons::fetch(app, &listing);
         }
-        lock_later(autofill().unlocked(vault, Settings::of(store).lock_in_background()));
+        autofill().unlocked(vault, Settings::of(store).lock_in_background());
     })?;
     if let Some(app) = APP.get() {
         crate::app::start_sync(app.clone());
@@ -493,18 +498,4 @@ fn with_store<T>(env: &mut Env, state: &JString, work: impl FnOnce(&Store) -> T)
     }
     let state = text(env, state)?;
     Ok(work(&Store::load(PathBuf::from(state))))
-}
-
-/// Locks once `wait` is waited out, if [Autofill::lock_due] says so then.
-fn lock_later(wait: Option<Wait>) {
-    let Some(wait) = wait else { return };
-    std::thread::spawn(move || {
-        std::thread::sleep(wait.after);
-        if autofill().lock_due(&wait) {
-            match APP.get() {
-                Some(app) => crate::app::lock_and_tell(app),
-                None => session().set(None),
-            }
-        }
-    });
 }

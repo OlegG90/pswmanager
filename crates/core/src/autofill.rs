@@ -12,12 +12,13 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
 /// The shortest time a database unlocked for the provider stays so: a
 /// passkey is used right after the unlock.
-pub const GRACE: Duration = Duration::from_secs(60);
+const GRACE: Duration = Duration::from_secs(60);
 
 /// The provider's side of the one session the app shares (unlocking in
 /// either unlocks both).
@@ -25,10 +26,18 @@ pub struct Autofill {
     session: Session,
     /// Run after each change saved here: the app sends it up with the next sync.
     changed: Box<dyn Fn() + Send + Sync>,
+    /// Shared with the wait for a lock after an unlock here.
+    relock: Arc<Relock>,
+}
+
+/// When a database unlocked here locks again.
+struct Relock {
     /// The latest unlock, here or in the app: a lock waiting since an earlier one no longer counts.
     unlocks: AtomicU64,
     /// Whether the app's window is in front: its own rules apply then.
     app_in_front: AtomicBool,
+    /// Locks the database (and tells the app's window, when it runs).
+    lock: Box<dyn Fn() + Send + Sync>,
 }
 
 /// Who asks, as Kotlin tells it: a browser trusted to speak for a site gives
@@ -109,17 +118,35 @@ pub enum Save<'a> {
 }
 
 /// A lock waiting to happen after an unlock here: due after `after`, if
-/// [Autofill::lock_due] says so then.
+/// [Relock::due] says so then.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Wait {
+struct Wait {
     unlock: u64,
-    pub after: Duration,
+    after: Duration,
+}
+
+impl Relock {
+    /// The wait for a lock after an unlock here, as the app's *In the
+    /// background* setting says (`lock_in_background`; none with `None`), but
+    /// never sooner than [GRACE]. Either way, a wait from before no longer counts.
+    fn wait(&self, lock_in_background: Option<Duration>) -> Option<Wait> {
+        let unlock = self.unlocks.fetch_add(1, Ordering::SeqCst) + 1;
+        lock_in_background.map(|after| Wait { unlock, after: after.max(GRACE) })
+    }
+
+    /// Whether `wait`, waited out, locks the database now: not when it was
+    /// unlocked again since (here or in the app), nor while the app is in front.
+    fn due(&self, wait: &Wait) -> bool {
+        self.unlocks.load(Ordering::SeqCst) == wait.unlock && !self.app_in_front.load(Ordering::SeqCst)
+    }
 }
 
 impl Autofill {
-    /// The provider on `session`, the app's; `changed` runs after each change saved here.
-    pub fn new(session: Session, changed: impl Fn() + Send + Sync + 'static) -> Autofill {
-        Autofill { session, changed: Box::new(changed), unlocks: AtomicU64::new(0), app_in_front: AtomicBool::new(false) }
+    /// The provider on `session`, the app's; `changed` runs after each change
+    /// saved here, `lock` when a database unlocked here is due to lock again.
+    pub fn new(session: Session, changed: impl Fn() + Send + Sync + 'static, lock: impl Fn() + Send + Sync + 'static) -> Autofill {
+        let relock = Relock { unlocks: AtomicU64::new(0), app_in_front: AtomicBool::new(false), lock: Box::new(lock) };
+        Autofill { session, changed: Box::new(changed), relock: Arc::new(relock) }
     }
 
     /// What the database offers for a request; `failed` and why while locked
@@ -213,28 +240,27 @@ impl Autofill {
     /// Unlocked here with `vault`: the session (the app's too) has it, and it
     /// locks again as the app's *In the background* setting says
     /// (`lock_in_background`; never with `None`), but never sooner than
-    /// [GRACE]: the [Wait] to wait out for that. Either way, a wait from
-    /// before no longer counts.
-    pub fn unlocked(&self, vault: Vault, lock_in_background: Option<Duration>) -> Option<Wait> {
+    /// [GRACE]; not when unlocked again first, or while the app is in front.
+    pub fn unlocked(&self, vault: Vault, lock_in_background: Option<Duration>) {
         self.session.set(Some(vault));
-        let unlock = self.unlocks.fetch_add(1, Ordering::SeqCst) + 1;
-        lock_in_background.map(|after| Wait { unlock, after: after.max(GRACE) })
+        let Some(wait) = self.relock.wait(lock_in_background) else { return };
+        let relock = self.relock.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(wait.after);
+            if relock.due(&wait) {
+                (relock.lock)();
+            }
+        });
     }
 
     /// The app unlocked, or came to the front: a lock waiting here no longer counts.
     pub fn unlocked_in_app(&self) {
-        self.unlocks.fetch_add(1, Ordering::SeqCst);
+        self.relock.unlocks.fetch_add(1, Ordering::SeqCst);
     }
 
     /// The app's window shows or hides.
     pub fn app_in_front(&self, shown: bool) {
-        self.app_in_front.store(shown, Ordering::SeqCst);
-    }
-
-    /// Whether `wait`, waited out, locks the database now: not when it was
-    /// unlocked again since (here or in the app), nor while the app is in front.
-    pub fn lock_due(&self, wait: &Wait) -> bool {
-        self.unlocks.load(Ordering::SeqCst) == wait.unlock && !self.app_in_front.load(Ordering::SeqCst)
+        self.relock.app_in_front.store(shown, Ordering::SeqCst);
     }
 }
 
@@ -469,9 +495,10 @@ mod tests {
     fn provider() -> (Autofill, std::sync::Arc<AtomicU64>) {
         let changes = std::sync::Arc::new(AtomicU64::new(0));
         let counted = changes.clone();
-        (Autofill::new(Session::default(), move || {
+        let changed = move || {
             counted.fetch_add(1, Ordering::SeqCst);
-        }), changes)
+        };
+        (Autofill::new(Session::default(), changed, || ()), changes)
     }
 
     /// A copy of a test database in `dir`, opened.
@@ -657,21 +684,23 @@ mod tests {
     fn a_database_unlocked_here_locks_again_but_no_sooner_than_a_minute() {
         let dir = tempfile::tempdir().unwrap();
         let (autofill, _) = provider();
-        let wait = autofill.unlocked(database(dir.path()), Some(Duration::from_secs(10))).unwrap();
+        autofill.unlocked(database(dir.path()), None);
         assert!(autofill.session.is_unlocked());
+        let relock = &autofill.relock;
+        let wait = relock.wait(Some(Duration::from_secs(10))).unwrap();
         assert_eq!(wait.after, GRACE, "a passkey is used right after the unlock");
-        assert!(autofill.lock_due(&wait));
+        assert!(relock.due(&wait));
         autofill.app_in_front(true);
-        assert!(!autofill.lock_due(&wait), "the app's own rules apply while it is in front");
+        assert!(!relock.due(&wait), "the app's own rules apply while it is in front");
         autofill.app_in_front(false);
         autofill.unlocked_in_app();
-        assert!(!autofill.lock_due(&wait), "the app unlocked since");
+        assert!(!relock.due(&wait), "the app unlocked since");
 
         let five_minutes = Duration::from_secs(300);
-        let earlier = autofill.unlocked(database(dir.path()), Some(five_minutes)).unwrap();
+        let earlier = relock.wait(Some(five_minutes)).unwrap();
         assert_eq!(earlier.after, five_minutes);
-        assert_eq!(autofill.unlocked(database(dir.path()), None), None, "never locked by the setting");
-        assert!(!autofill.lock_due(&earlier), "an unlock since voids the wait");
+        assert_eq!(relock.wait(None), None, "never locked by the setting");
+        assert!(!relock.due(&earlier), "an unlock since voids the wait");
     }
 
     #[test]
