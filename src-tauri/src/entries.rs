@@ -69,6 +69,15 @@ pub fn copy_field(store: State<Store>, session: State<Session>, id: String, fiel
     Ok(clear_after.as_secs())
 }
 
+/// Copies a password Home's generator made (#351), the clipboard cleared as
+/// for a copied field. Returns the seconds until it is cleared.
+#[tauri::command(async)]
+pub fn copy_generated(store: State<Store>, password: String) -> Result<u64, String> {
+    let clear_after = Settings::of(&store).clear_clipboard_after();
+    clipboard::copy(Zeroizing::new(password), clear_after)?;
+    Ok(clear_after.as_secs())
+}
+
 /// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
 /// default browser (web addresses only).
 #[tauri::command(async)]

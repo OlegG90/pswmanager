@@ -624,6 +624,8 @@ export const api = {
   totp: (id: string) => invoke<TotpCode | null>('totp', { id }),
   copyTotp: (id: string) => invoke<number>('copy_totp', { id }),
   generatePassword: (options: GeneratorOptions) => invoke<string>('generate_password', { options }),
+  /** Copies a password Home's generator made (#351); resolves to the seconds until the clipboard is cleared. */
+  copyGenerated: (password: string) => invoke<number>('copy_generated', { password }),
   passwordStrength: (password: string) => invoke<Strength>('password_strength', { password }),
   passwordHealth: () => invoke<Health>('password_health'),
   similarEntries: (criteria: SimilarCriteria) => invoke<Similar[]>('similar_entries', { criteria }),

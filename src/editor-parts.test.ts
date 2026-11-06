@@ -31,6 +31,14 @@ describe('newEntryData', () => {
     expect(made.group).toEqual([])
   })
 
+  it('starts with the values given, over the default user name (#351)', () => {
+    const otp = 'otpauth://totp/Shop:bob?secret=JBSWY3DPEHPK3PXP'
+    expect(newEntryData([], { defaultUsername: 'me', prefill: { title: 'Shop', username: 'bob', otp } }))
+      .toEqual({ ...EMPTY_ENTRY, title: 'Shop', username: 'bob', otp, group: [] })
+    expect(newEntryData([], { defaultUsername: 'me', prefill: { password: 'x7#Kq' } }))
+      .toEqual({ ...EMPTY_ENTRY, username: 'me', password: 'x7#Kq', group: [] })
+  })
+
   it('gives only a blank entry the default user name', () => {
     expect(newEntryData(['Work'], { defaultUsername: 'me' })).toEqual({ ...EMPTY_ENTRY, username: 'me', group: ['Work'] })
     expect(newEntryData([], { template: true, defaultUsername: 'me' }).username).toBe('')

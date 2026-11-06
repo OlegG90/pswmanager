@@ -928,6 +928,7 @@ button.icon.state svg {
    in a column of its own: a long name is cut short instead of pushing the
    menu out. The groups, tools and settings keep that column empty, so every
    count and every highlight lines up. */
+#home-item li,
 #groups li,
 #tags li,
 #tools li,
@@ -2361,6 +2362,37 @@ button.switch[aria-checked='true'] .knob {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 20px;
+}
+
+/* Home (#351): the health figures and expired entries in one row, the
+   generator on the page's card layer rather than as a flyout. */
+#report .home-stats {
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 0;
+}
+
+/* Home's blocks, each under its heading, set well apart. */
+#report section.home-block {
+  margin-top: 32px;
+}
+
+#report section.home-block .tool-actions {
+  margin-top: 0;
+}
+
+#report .home-generator {
+  background: var(--color-card);
+  box-shadow: none;
+}
+
+#report .home-generator .hint {
+  margin: -6px 0 0;
+}
+
+.needs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 #report .stat {

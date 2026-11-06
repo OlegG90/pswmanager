@@ -18,6 +18,9 @@ import { showShortcuts } from './shortcuts'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
 import { renderChoose } from './choose'
 import { renderHealth } from './health'
+import type { HealthGroup } from './health-parts'
+import { renderHome } from './home'
+import { entryFromOtpUri } from './home-parts'
 import { mergePair, renderSimilar, type SimilarOptions } from './similar'
 import { renderImport } from './file-import'
 import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
@@ -57,7 +60,7 @@ let settingsOpen = false
 /** A report (password health, similar entries) is in the vault, beside the sidebar. */
 let reportOpen = false
 /** The tools, each shown beside the sidebar. */
-type Tool = 'health' | 'similar' | 'import' | 'gauth' | 'export'
+type Tool = 'home' | 'health' | 'similar' | 'import' | 'gauth' | 'export'
 /** The tool whose report is shown, marked in the sidebar. */
 let reportTool: Tool | null = null
 /** Back from the choose-database screen to the unlock screen; null on the first run. */
@@ -254,6 +257,7 @@ function showVault(next: Listing) {
   } else {
     showContent()
     searchInput.focus()
+    void openHome()
   }
 }
 
@@ -1025,8 +1029,10 @@ async function copyTotp() {
 
 // ---------------------------------------------------------------- editing
 
-function startEditor(id: string | null, start: { focusPassword?: boolean; from?: EntryData; template?: boolean } = {}) {
+function startEditor(id: string | null, start: { focusPassword?: boolean; from?: EntryData; template?: boolean; prefill?: Partial<EntryData> } = {}) {
   if (isEditing()) return
+  // Started from a page beside the sidebar (Home, #351), the editor takes the entry's place.
+  closeReport()
   several = null
   stopTotp()
   openEditor(detail, {
@@ -1262,7 +1268,7 @@ function markSidebar() {
   // Google Authenticator's page is reached from Import's list (#354), which stays marked.
   const tool = reportTool === 'gauth' ? 'import' : reportTool
   const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${tool}` : null
-  for (const b of document.querySelectorAll<HTMLElement>('#tools .side-item, #settings-tabs .side-item')) {
+  for (const b of document.querySelectorAll<HTMLElement>('#home-item .side-item, #tools .side-item, #settings-tabs .side-item')) {
     if (shown && b.dataset.choice === shown) b.setAttribute('aria-current', 'true')
     else b.removeAttribute('aria-current')
   }
@@ -1276,6 +1282,7 @@ let tidyTool: HTMLLIElement | undefined
 function fillTools() {
   tidyTool = sideCommand(TIDY_LABEL, TIDY_HINT, 'tidy', tidyImported)
   tidyTool.hidden = true
+  $('home-item').replaceChildren(sideCommand('Home', 'The database at a glance, its health and a password generator (Esc)', 'home', openHome, 'tool:home'))
   $('tools').replaceChildren(
     sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
     sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
@@ -1319,7 +1326,34 @@ async function tidyImported() {
   }
 }
 
-const openHealth = () => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf }))
+const openHealth = (only?: HealthGroup) => openReport('health', () => renderHealth(reportView, { fix: changePassword, icon: iconOf, only }))
+
+/** Home (#351), the page the app starts on: the database, its health, quick
+ *  actions and a password generator. */
+const openHome = () =>
+  openReport('home', async () => {
+    // Home shows no list: a search left in the field would only wait for Esc.
+    searchInput.value = ''
+    const inUse = listing.entries.filter((e) => e.kind === 'entry')
+    const now = Date.now()
+    renderHome(reportView, {
+      title: listing.database.name || 'Home',
+      place: $('database-kind').textContent ?? '',
+      entries: inUse.length,
+      expired: inUse.filter((e) => expiry(e, now)).length,
+      health: (only) => void openHealth(only),
+      showExpired: () => showFilter({ kind: 'group', group: 'expired' }),
+      newEntry: () => void newEntry(),
+      scanQr: () => void api.scanTotpQr().then((uri) => uri !== null && startEditor(null, { prefill: entryFromOtpUri(uri) }), (e) => notify(String(e))),
+      importFile: () => void openImport(),
+      newWithPassword: (password) => startEditor(null, { prefill: { password } }),
+      copy: async (password) => notify(`Password copied · clears in ${await api.copyGenerated(password)} s`),
+      fail: (message) => notify(message),
+    })
+  }).then(() => {
+    // Home keeps the search first: typing shows the list.
+    if (reportTool === 'home') searchInput.focus()
+  })
 
 const openImport = () =>
   openReport('import', async () =>
@@ -1461,7 +1495,7 @@ $('sync-button').addEventListener('click', () => api.syncNow().catch((e) => noti
 $('key-button').addEventListener('click', () => askForOtherKey(true))
 $('shortcuts-button').addEventListener('click', showShortcuts)
 
-/** Esc with nothing left to close: back to the tray. */
+/** Esc on Home: back to the tray. */
 function hideWindow() {
   api.hideWindow().catch((e) => notify(String(e)))
 }
@@ -1528,7 +1562,7 @@ function perform(action: Action, e: KeyboardEvent) {
         refresh()
         searchInput.focus()
       } else {
-        hideWindow()
+        void openHome()
       }
       break
     case 'settings':
@@ -1549,10 +1583,15 @@ document.addEventListener('keydown', (e) => {
   if (reportOpen) {
     if (e.key === 'Escape') {
       e.preventDefault()
-      closeReport()
+      if (reportTool === 'home') hideWindow()
+      else void openHome()
     } else if (e.ctrlKey && e.code === 'KeyL') {
       e.preventDefault()
       lock()
+    } else if (reportTool === 'home') {
+      // On Home the keys that need no entry work as over the list.
+      const action = actionFor(e, keyContext(e))
+      if (action && HOME_ACTIONS.includes(action)) perform(action, e)
     }
     return
   }
@@ -1560,6 +1599,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault()
       closeSettings()
+      if (unlocked) void openHome()
     } else if (unlocked && e.ctrlKey && e.code === 'KeyL') {
       e.preventDefault()
       lock()
@@ -1582,14 +1622,22 @@ document.addEventListener('keydown', (e) => {
     if (!editorKey(e) && e.ctrlKey && e.code === 'KeyL') lock()
     return
   }
+  const action = actionFor(e, keyContext(e))
+  if (action) perform(action, e)
+})
+
+/** Where a key was pressed, for what it does. */
+function keyContext(e: KeyboardEvent) {
   const target = e.target as HTMLElement
   const inTextField = target instanceof HTMLInputElement && target.type !== 'button'
   const inSelect = target instanceof HTMLSelectElement
   const fieldSelection = target instanceof HTMLInputElement && target.selectionStart !== target.selectionEnd
   const hasSelection = fieldSelection || !!document.getSelection()?.toString()
-  const action = actionFor(e, { inTextField, inSelect, hasSelection })
-  if (action) perform(action, e)
-})
+  return { inTextField, inSelect, hasSelection }
+}
+
+/** The keys Home answers: none needs an entry. */
+const HOME_ACTIONS: Action[] = ['new-entry', 'settings', 'shortcuts', 'type-to-search']
 
 // ---------------------------------------------------------------- start
 
