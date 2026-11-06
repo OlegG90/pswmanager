@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryDetail, Listing, VersionDetail } from './api'
-import { ALL, TEMPLATES, TRASH } from './search'
-import { EMPTY, tagsOf, vaultState } from './vault'
+import { ALL, tagsOf, TEMPLATES, TRASH } from './search'
+import { EMPTY, vaultState } from './vault'
 
 const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   id: title,
@@ -90,7 +90,6 @@ describe('the list', () => {
 
   it('sorts the chosen entries by what can be done to them', () => {
     const vault = opened()
-    vault.setFilter(ALL)
     expect(vault.chosen()).toEqual({ all: [], inUse: [], trashed: [], templates: [] })
     const { all, inUse, trashed, templates } = vault.chosen(['Old', 'Login', 'Bank'])
     expect(all.map((e) => e.id)).toEqual(['Bank', 'Login', 'Old'])

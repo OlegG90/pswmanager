@@ -85,3 +85,22 @@ export function sameFilter(a: Filter, b: Filter): boolean {
   if (a.kind === 'tag') return b.kind === 'tag' && a.tag === b.tag
   return b.kind === 'untagged'
 }
+
+/** An entry in use: starred, tagged, given files. Templates are edited and
+ *  deleted too (see [isTemplate]); the trash's are only restored or deleted. */
+export function editable<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'entry' } {
+  return entry?.kind === 'entry'
+}
+
+export function isTemplate<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'template' } {
+  return entry?.kind === 'template'
+}
+
+export function inTrash<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'trash' } {
+  return entry?.kind === 'trash'
+}
+
+/** The tags of `entries`, without the star, in order. */
+export function tagsOf(entries: Entry[]): string[] {
+  return [...new Set(entries.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
+}

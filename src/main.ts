@@ -12,7 +12,7 @@ import { sidebarResizer } from './sidebar-resize'
 import { ask, askText, choose, isAsking } from './modal'
 import { formatDate, formatDateTime, formatSize, labelOf, splitCode, titleOf } from './entry-text'
 import { actionFor, type Action } from './keys'
-import { ALL, expiry, FAVORITE, GROUPS, sameFilter, search, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
+import { ALL, editable, expiry, FAVORITE, GROUPS, inTrash, isTemplate, sameFilter, search, tagsOf, TEMPLATES, TRASH, UNTAGGED, type Filter } from './search'
 import { renderSettings, settingsTab, showSettingsTab, SETTINGS_TABS, type SettingsTab } from './settings'
 import { showShortcuts } from './shortcuts'
 import { answerAssociate, answerPasskeyGet, answerPasskeyRegister, answerUpdate, expire } from './browser'
@@ -28,7 +28,7 @@ import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import type { Choice } from './selection'
-import { count, editable, inTrash, isTemplate, tagsOf, vaultState, type ListChoice } from './vault'
+import { count, vaultState, type ListChoice } from './vault'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
@@ -652,8 +652,7 @@ async function openVersion(index: number) {
   }
 }
 
-/** One step back: from a version to the history, from the history to the
- *  entry. False when the entry itself is shown. */
+/** One step back (see the vault's `back`), drawn. */
 function back(): boolean {
   if (!records.back()) return false
   renderDetail()
@@ -850,8 +849,7 @@ async function addStarterTemplates() {
 
 // ---------------------------------------------------------------- tags
 
-/** How many entries have the tag: templates and the trash's too, as renaming
- *  and removing a tag change every entry (a template would bring it back). */
+/** How many entries renaming or removing the tag changes. */
 function entriesTagged(tag: string): string {
   return count(records.tagged(tag))
 }
@@ -991,8 +989,7 @@ async function newFromTemplate(id: string) {
   }
 }
 
-/** Shows a listing the backend sent after a change, then says what happened.
- *  The open entry is fetched again. */
+/** Shows a listing the backend sent after a change, then says what happened. */
 function applyListing(next: Listing, message: string, focusSearch = true) {
   records.apply(next)
   showApplied(message, focusSearch)

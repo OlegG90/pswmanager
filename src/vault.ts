@@ -1,5 +1,5 @@
 import type { DatabaseSettings, Entry, EntryDetail, Listing, Version, VersionDetail } from './api'
-import { ALL, FAVORITE, sameFilter, search, tagCounts, TEMPLATES, type Filter } from './search'
+import { ALL, editable, inTrash, isTemplate, sameFilter, search, tagCounts, TEMPLATES, type Filter } from './search'
 import { clicked, type Choice } from './selection'
 
 /** The listing while no database is unlocked. */
@@ -34,27 +34,8 @@ export interface Chosen {
   templates: Entry[]
 }
 
-/** An entry in use: starred, tagged, given files. Templates are edited and
- *  deleted too (see [isTemplate]); the trash's are only restored or deleted. */
-export function editable<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'entry' } {
-  return entry?.kind === 'entry'
-}
-
-export function isTemplate<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'template' } {
-  return entry?.kind === 'template'
-}
-
-export function inTrash<T extends Entry>(entry: T | null | undefined): entry is T & { kind: 'trash' } {
-  return entry?.kind === 'trash'
-}
-
 export function count(n: number): string {
   return `${n} ${n === 1 ? 'entry' : 'entries'}`
-}
-
-/** The tags of `entries`, without the star, in order. */
-export function tagsOf(entries: Entry[]): string[] {
-  return [...new Set(entries.flatMap((e) => e.tags.filter((t) => t !== FAVORITE)))].sort((a, b) => a.localeCompare(b))
 }
 
 /**
@@ -79,7 +60,6 @@ export function vaultState() {
   /** Values revealed in the entry shown, by field name. */
   const revealed = new Map<string, string>()
 
-  const isShown = (id: string | null) => shown.some((e) => e.id === id)
   const tags = () => tagCounts(listing.entries)
 
   /** A tag no entry in use has any more goes back to All. */
@@ -194,12 +174,13 @@ export function vaultState() {
     search(query: string): ListChoice {
       shown = search(listing.entries, query, filter)
       if (several) {
-        const still = several.chosen.filter(isShown)
+        const ids = new Set(shown.map((e) => e.id))
+        const still = several.chosen.filter((id) => ids.has(id))
         if (still.length > 1) return { several: { ...several, chosen: still } }
         several = null
         if (still.length) return { one: still[0] }
       }
-      return { one: isShown(selectedId) ? selectedId : (shown[0]?.id ?? null) }
+      return { one: shown.some((e) => e.id === selectedId) ? selectedId : (shown[0]?.id ?? null) }
     },
 
     find,
@@ -265,7 +246,8 @@ export function vaultState() {
 
     /** The entries `ids` names, by what can be done to them; by default the several chosen. */
     chosen(ids = several?.chosen ?? []): Chosen {
-      const all = listing.entries.filter((e) => ids.includes(e.id))
+      const wanted = new Set(ids)
+      const all = listing.entries.filter((e) => wanted.has(e.id))
       return { all, inUse: all.filter(editable), trashed: all.filter(inTrash), templates: all.filter(isTemplate) }
     },
 
