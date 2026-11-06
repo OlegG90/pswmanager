@@ -990,7 +990,7 @@ async function newFromTemplate(id: string) {
 }
 
 /** Shows a listing the backend sent after a change, then says what happened. */
-function applyListing(next: Listing, message: string, focusSearch = true, touched: string[] = []) {
+function applyListing(next: Listing, message: string, focusSearch = true, touched: readonly string[] = []) {
   records.apply(next, touched)
   showApplied(message, focusSearch)
 }
