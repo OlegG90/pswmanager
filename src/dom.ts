@@ -46,6 +46,14 @@ export function busyButton(label: string, title: string, action: () => Promise<u
   return pressed
 }
 
+/** Choices in a card, one a row: its button, and what it does beside it
+ *  (#353), as Password health lists its entries. `what` starts in lower case,
+ *  as it reads after a dash in a list, and is shown as a sentence. */
+export function choiceList(rows: [HTMLButtonElement, string][]): HTMLDivElement {
+  return el('div', { className: 'card choices' }, ...rows.map(([b, what]) =>
+    el('div', { className: 'choice' }, b, el('span', {}, what.charAt(0).toUpperCase() + what.slice(1)))))
+}
+
 /** Enter in any of `inputs` presses `target`, the form's main button. */
 export function enterPresses(target: HTMLButtonElement, ...inputs: HTMLElement[]) {
   for (const input of inputs) {

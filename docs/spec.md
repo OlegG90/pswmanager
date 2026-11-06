@@ -185,9 +185,9 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   under it. Every section is folded when the app starts; two buttons at the sidebar's top right fold and
   unfold them all. When the open sections do not fit, the sidebar scrolls.
 - Beside the sidebar: for Home, its page; for a group or a tag, the **list** of its entries and the
-  selected **entry** (see
-  *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
-  *Import from Google Authenticator*, *Export to a file*; chosen again, a tool starts over); for a settings
+  selected **entry** (see *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*,
+  *Import from a file* with *Import from Google Authenticator* reached from it, *Export to a file*; chosen
+  again, a tool starts over); for a settings
   tab, the settings at that tab (see *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
   menu.
 - The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
@@ -750,7 +750,11 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 - *Tools → Import from a file* (#238; on the phone a *Tools* item of its own): a file another password
   manager exported, as Windows has no system transfer between managers (`docs/cxp-research.md`). Its
   page beside the sidebar says what it takes first; then the file is picked, and the page says what came
-  over and what did not, and offers to delete the file (or import another).
+  over and what did not, and offers to delete the file (or import another). On Windows (#354) the page
+  lists the sources as rows in a card, as *Password health* lists its entries: each row a button (**CSV**,
+  **JSON**, **Aegis**) with what it reads beside it, the button opening the picker with that kind's
+  filter (the file is still read by what it holds), and a last row **Google Authenticator** that opens
+  *Import from Google Authenticator*.
   - **CSV**, its columns found by the names in its first line (any case; the usual names, e.g. title
     `name` or `title`, URL `url`, `login_uri` or `website`, TOTP `totp` or `otpauth`): title, URL (one a
     line in the cell: more go to `KP2A_URL_n`), user name, password, notes, TOTP, folder or group (a path
@@ -800,7 +804,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 
 ## Import from Google Authenticator
 
-- *Tools → Import from Google Authenticator* (#281, `docs/totp-research.md`; on the phone a *Tools* item of
+- *Import from Google Authenticator* (#281, `docs/totp-research.md`; on Windows the last row of *Tools →
+  Import from a file*'s list, #354, which stays marked in the sidebar; on the phone a *Tools* item of
   its own): Google Authenticator's *Transfer accounts → Export accounts* shows one or more QR codes
   `otpauth-migration://offline?data=…`, each a protobuf of some of the accounts (Google publishes no schema;
   the field numbers are the community's, as GNOME Authenticator reads them).
@@ -824,8 +829,9 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 
 - *Tools → Export to a file* (#240; on the phone a *Tools* item too): the entries in use (not the recycle
   bin or templates) written to a file another password manager imports, the reverse of *Import from a
-  file*. Its page beside the sidebar offers the formats, each with what it carries (the master password,
-  when asked for, is typed there too; then the page says what was written):
+  file*. Its page beside the sidebar offers the formats, each with what it carries (on Windows a row in a
+  card, its button with the text beside it, #353; the master password, when asked for, is typed there too;
+  then the page says what was written):
   - **CSV**: `name,url,username,password,note,totp`, the columns Google Password Manager and Chrome
     write (browsers, Google Password Manager, Bitwarden and 1Password read them); logins only.
   - **CXF JSON**: the Credential Exchange file the phone's Credential Transfer hands over

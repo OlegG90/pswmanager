@@ -1,11 +1,13 @@
-import { api, type FileImported, type Listing } from './api'
-import { busyButton, button, el, enterPresses, errorLine } from './dom'
-import { fileImportAbout, importedMessage, skippedList } from './file-import-parts'
+import { api, type FileImported, type ImportKind, type Listing } from './api'
+import { busyButton, button, choiceList, el, enterPresses, errorLine } from './dom'
+import { IMPORT_SOURCES, IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
   /** Gets the new listing and the message to show. */
   imported: (listing: Listing, message: string) => void
+  /** Opens *Import from Google Authenticator*, its row in the list. */
+  authenticator: () => void
   fail: (message: string) => void
 }
 
@@ -21,15 +23,24 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
   container.replaceChildren(page)
   const header = () => el('header', {}, el('h1', {}, 'Import from a file'))
 
+  // The sources as a list, each its button with what it reads (#354). A
+  // button only sets the picker's filter, as a file is read by what it holds;
+  // Google Authenticator's export, QR codes rather than a file, has its own page.
   const start = () => {
-    page.replaceChildren(header(), el('section', { className: 'tool' }, ...fileImportAbout(),
-      el('div', { className: 'tool-actions' },
-        busyButton('Choose the file…', 'Choose the file to import', choose, options.fail, 'primary'))))
+    page.replaceChildren(header(), el('section', { className: 'choose' },
+      el('p', {}, 'Add the entries another password manager or authenticator exported:'),
+      choiceList([
+        ...IMPORT_SOURCES.map(([kind, name, what]): [HTMLButtonElement, string] =>
+          [busyButton(name, `Choose the ${name} file to import`, () => choose(kind), options.fail), what]),
+        [button('Google Authenticator', 'Read the QR codes of its export', options.authenticator), 'its Export accounts QR codes, read from a snip or a picture'],
+      ]),
+      el('p', {}, IMPORT_TAGGED),
+      el('p', { className: 'muted' }, IMPORT_WARNING)))
     page.querySelector('button')?.focus()
   }
 
-  const choose = async () => {
-    const step = await api.importFile()
+  const choose = async (kind: ImportKind) => {
+    const step = await api.importFile(kind)
     if (!step) return
     if (step.step === 'done') done(step)
     else askPassword(step.file)

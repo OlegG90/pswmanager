@@ -2501,6 +2501,39 @@ button.switch[aria-checked='true'] .knob {
   min-width: 120px;
 }
 
+/* Export's formats and import's sources (#353, #354): a row each in a card,
+   as Password health lists its entries, the buttons in one column. */
+#report section.choose > p {
+  margin: 0 0 12px;
+}
+
+#report section.choose > .choices + p {
+  margin-top: 16px;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+}
+
+.choice {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  column-gap: 16px;
+  align-items: center;
+  min-height: 56px;
+  padding: 10px 16px;
+}
+
+.choice + .choice {
+  border-top: 1px solid var(--color-stroke);
+}
+
+.choice button {
+  min-width: 120px;
+}
+
 #report section:last-child,
 #report > p:last-child {
   padding-bottom: 48px;
