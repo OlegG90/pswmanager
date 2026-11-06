@@ -5,11 +5,14 @@ import { dateOf } from './entry-text'
 import { FAVORITE } from './search'
 import { tagInput } from './tag-input'
 
+/** Attributes an app gives some of the fields besides the form's own. */
+type FieldAttributes = Partial<Record<'title' | 'username' | 'url' | 'expires', object>>
+
 /** What the form needs from the app it is in. */
 export interface EntryFormHost {
-  /** The phone's form: its fields have the class `field`, the user name is
-   *  not capitalised and the URL gets the keyboard for one. */
-  phone?: boolean
+  /** The class every field has in this app's layout, if one. */
+  fieldClass?: string
+  attributes?: FieldAttributes
   /** The database's tags, offered when adding one. */
   knownTags: string[]
   /** The files the form starts with (none for a template, on Windows). */
@@ -29,26 +32,26 @@ export interface EntryFormHost {
  * and saves and closes the editor its own way.
  */
 export function entryForm(data: EntryData, host: EntryFormHost) {
-  const phone = !!host.phone
-  const field = (className = '') => [phone ? 'field' : '', className].filter(Boolean).join(' ') || undefined
-  const props = (own: object, className?: string) => {
-    const name = field(className)
-    return name ? { ...own, className: name } : own
+  const extra = host.attributes ?? {}
+  /** `attributes` with the app's field class and `className`, when there is one. */
+  const withClass = (attributes: object, className = '') => {
+    const classes = [host.fieldClass, className].filter(Boolean).join(' ')
+    return classes ? { ...attributes, className: classes } : attributes
   }
 
-  const title = input(data.title, phone ? props({}) : { placeholder: 'Title' })
-  const username = input(data.username, props(phone ? { autocapitalize: 'off' } : {}))
-  const password = input(data.password, props({ type: 'password' }, 'secret'))
-  const url = input(data.url, props(phone ? { type: 'url', placeholder: 'https://' } : { placeholder: 'https://' }))
-  const otp = input(data.otp, props({ type: 'password', placeholder: 'Secret or otpauth:// URI' }, 'secret'))
+  const title = input(data.title, withClass({ ...extra.title }))
+  const username = input(data.username, withClass({ ...extra.username }))
+  const password = input(data.password, withClass({ type: 'password' }, 'secret'))
+  const url = input(data.url, withClass({ ...extra.url, placeholder: 'https://' }))
+  const otp = input(data.otp, withClass({ type: 'password', placeholder: 'Secret or otpauth:// URI' }, 'secret'))
   const tags = tagInput(data.tags.filter((t) => t !== FAVORITE), host.knownTags)
   let starred = data.tags.includes(FAVORITE)
   const star = chip('★ Favorite', 'Listed under Favorites', starred, (on) => (starred = on))
   // A date input holds a day: an expiry time on that day stays as it was.
-  const expires = el('input', props({ type: 'date', value: data.expires ? dateOf(data.expires) : '', ...(phone ? {} : { ariaLabel: 'Expires' }) }))
-  const notes = el('textarea', props({ value: data.notes, rows: 4, spellcheck: false }))
+  const expires = el('input', withClass({ type: 'date', value: data.expires ? dateOf(data.expires) : '', ...extra.expires }))
+  const notes = el('textarea', withClass({ value: data.notes, rows: 4, spellcheck: false }))
   const fieldList = el('div', { className: 'fields' }, ...data.fields.map((f) => fieldRow(f)))
-  const files = filesEditor(host.attachments, host.files, (message) => host.showError(message))
+  const files = filesEditor(host.attachments, host.files, host.showError)
 
   const strength = strengthMeter(password, host.passwordStrength)
   const generator = generatorPanel(host.generatePassword, (chosen) => {

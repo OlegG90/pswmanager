@@ -73,8 +73,10 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     error.hidden = false
     error.scrollIntoView({ block: 'nearest' })
   }
-  const form = entryForm(data, {
-    phone: true,
+  const fields = entryForm(data, {
+    fieldClass: 'field',
+    // A user name starts with a small letter; a URL gets the keyboard for one.
+    attributes: { username: { autocapitalize: 'off' }, url: { type: 'url' } },
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
     attachments,
     files: {
@@ -86,7 +88,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     generatePassword: api.generatePassword,
     showError,
   })
-  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator, collect } = form
+  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator, collect } = fields
   // A TOTP secret from a QR code: with the camera (#280), or in a picture,
   // a screenshot of the site's code (#279).
   const scan = (camera: boolean) => {

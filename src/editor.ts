@@ -111,7 +111,9 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     error.scrollIntoView({ block: 'nearest' })
   }
   // A template's files are not changed (as before), so it has no files section.
-  const form = entryForm(data, {
+  const fields = entryForm(data, {
+    // The date input has no label of its own in this layout.
+    attributes: { title: { placeholder: 'Title' }, expires: { ariaLabel: 'Expires' } },
     knownTags: options.knownTags,
     attachments: options.template ? [] : attachments,
     files: {
@@ -123,7 +125,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     generatePassword: api.generatePassword,
     showError,
   })
-  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator } = form
+  const { title, username, password, url, otp, tags, star, expires, notes, fieldList, files, strength, generator } = fields
   const neverExpires = button('Never', 'Does not expire', () => (expires.value = ''), 'ghost')
   const icon = iconPicker(data.icon, options.autoIcon, (message) => showError(message))
 
@@ -136,12 +138,13 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
   })
 
   const autoType = autoTypeEditor(data.autoType)
-  const collect = (): EntryData => ({ ...form.collect(), icon: icon.value(), autoType: autoType.value() })
+  const collect = (): EntryData => ({ ...fields.collect(), icon: icon.value(), autoType: autoType.value() })
 
   // The field last used, for the way back into the form.
   let lastField: HTMLElement = title
   const { save, close } = session.open({
     id: options.id,
+    // What counts as unchanged is taken once the form is drawn (below).
     dirty: () => dirty(),
     store: () => api.saveEntry(options.id, options.id ? data : null, collect(), options.template, files.changes()),
     onSaved: options.onSaved,
@@ -155,7 +158,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
 
   const row = (label: string, ...controls: Node[]) =>
     el('div', { className: 'edit-row' }, el('span', { className: 'label' }, label), el('div', { className: 'controls' }, ...controls))
-  const formElement = el(
+  const form = el(
     'form',
     { className: 'editor', onsubmit: (e: SubmitEvent) => (e.preventDefault(), save()) },
     el('h2', {}, `${options.id ? 'Edit' : 'New'} ${options.template ? 'template' : 'entry'}`),
@@ -187,8 +190,8 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
       button('Cancel', 'Cancel (Esc)', close),
       ...(options.id ? [el('span', { className: 'hint' }, 'Saving keeps the previous version in history.')] : [])),
   )
-  formElement.addEventListener('focusin', (e) => (lastField = e.target as HTMLElement))
-  container.replaceChildren(formElement)
+  form.addEventListener('focusin', (e) => (lastField = e.target as HTMLElement))
+  container.replaceChildren(form)
   const dirty = changeTracker(collect, files)
   ;(options.focusPassword ? password : title).focus()
 }
