@@ -176,6 +176,39 @@ export function fieldRow(field: FieldData = { name: '', value: '', protected: fa
   return row
 }
 
+/** Names an additional field often has, offered while the entry has none of them. */
+const USUAL_FIELDS = ['Email', 'PIN', 'Code']
+/** A further URL, as Keepass2Android and KeePassXC name them. */
+const FURTHER_URL = /^KP2A_URL_(\d+)$/
+
+/**
+ * The names offered for an additional field (#347), given the entry's other
+ * field `names`: the usual ones it does not have (in any case), and its next
+ * further URL, numbered after the highest it has.
+ */
+export function fieldNameSuggestions(names: string[]): string[] {
+  const taken = new Set(names.map((n) => n.trim().toLowerCase()))
+  const last = Math.max(0, ...names.map((n) => Number(FURTHER_URL.exec(n.trim())?.[1] ?? 0)))
+  return [...USUAL_FIELDS.filter((n) => !taken.has(n.toLowerCase())), `KP2A_URL_${last + 1}`]
+}
+
+/**
+ * The suggestions for the names of the fields in `fieldList` (rows of
+ * `fieldRow`): a name input that gets the focus is given them, worked out from
+ * the names of the other rows as they are then. The list goes into the form.
+ */
+export function fieldNameList(fieldList: HTMLElement): HTMLDataListElement {
+  const list = el('datalist', { id: 'field-names' })
+  fieldList.addEventListener('focusin', (e) => {
+    const name = e.target
+    if (!(name instanceof HTMLInputElement) || !name.classList.contains('name')) return
+    const others = [...fieldList.querySelectorAll<HTMLInputElement>('.field-row input.name')].filter((i) => i !== name)
+    list.replaceChildren(...fieldNameSuggestions(others.map((i) => i.value)).map((value) => el('option', { value })))
+    name.setAttribute('list', list.id)
+  })
+  return list
+}
+
 export function readField(row: HTMLElement): FieldData {
   const name = row.querySelector('input')!
   const value = row.querySelector('textarea')!

@@ -1,6 +1,6 @@
 import { api, type Attachment, type AutoTypeData, type EntryData, type Saved } from './api'
 import { button, el } from './dom'
-import { chip, collectEntry, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
+import { chip, collectEntry, fieldNameList, fieldRow, filesEditor, generatorPanel, input, newEntryData, showHide, strengthMeter } from './editor-parts'
 import { dateOf, keep, trimmedLine } from './entry-text'
 import { ask, askText, beforeExtension, isAsking } from './modal'
 import { iconPicker } from './icon-picker'
@@ -244,6 +244,7 @@ export async function openEditor(container: HTMLElement, options: EditorOptions)
     row('Notes', notes),
     el('h3', {}, 'Additional fields'),
     fieldList,
+    fieldNameList(fieldList),
     button('+ Add field', 'Add a field', () => fieldList.append(fieldRow()), 'ghost add-field'),
     ...(options.template ? [] : [el('h3', {}, 'Files'), files.element]),
     el('h3', {}, 'Auto-Type'),
