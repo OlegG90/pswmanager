@@ -1,6 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
 import { api, type Synced } from './api'
-import { AGAIN_AFTER } from './app-state'
 import { chooseScreen } from './first-run'
 import { listScreen } from './list'
 import { app, applySettings, screens } from './page'
@@ -34,11 +33,8 @@ void listen('locked', () => {
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
 /** Syncs on its own while unlocked: coming back to the app after a minute
- *  (AGAIN_AFTER), and as often as the setting says while it is in front;
+ *  (see appState), and as often as the setting says while it is in front;
  *  going away sends what is waiting. */
-const syncIfOlder = (age: number) => {
-  if (!document.hidden && app.syncDue(age)) void api.syncNow()
-}
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     app.wentAway()
@@ -54,7 +50,7 @@ document.addEventListener('visibilitychange', () => {
     else screens.runReturn()
     void api.stayUnlocked()
     if (lockNow) void lock()
-    else syncIfOlder(AGAIN_AFTER)
+    else if (app.returnSyncDue()) void api.syncNow()
   }
 })
 setInterval(() => !document.hidden && app.everySyncDue() && void api.syncNow(), 30 * 1000)

@@ -130,6 +130,7 @@ describe('appState', () => {
     expect(app.syncDue(60_000)).toBe(false)
     at(60_000)
     expect(app.syncDue(60_000)).toBe(true)
+    expect(app.returnSyncDue()).toBe(true)
     expect(app.syncDue(0)).toBe(false)
     expect(app.everySyncDue()).toBe(false)
     at(5 * 60_000)

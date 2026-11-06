@@ -13,7 +13,7 @@ import { type IconName, svgIcon } from './icons'
 import { app, confirmSheet, copied, iconButton, overlay, screens, sheet, show, snack } from './page'
 import { settingsPeek, settingsScreen } from './settings'
 import { closing, slide, type Sliding, swipes } from './slides'
-import { askForKey, otherKeyScreen, pullToSync, syncButton, syncSheet } from './sync'
+import { otherKeyScreen, pullToSync, syncButton, syncSheet } from './sync'
 import { toolsSheet } from './tools'
 import { lock } from './unlock'
 
@@ -160,9 +160,9 @@ export function listScreen(opened: Listing) {
     status.classList.toggle('problem', synced.problem)
     newKey.hidden = !synced.otherKey
     if (synced.changed) void api.listing().then((fresh) => ((listing = fresh), fill()))
-    askForKey()
+    if (app.askForKey()) void otherKeyScreen()
   })
-  askForKey()
+  if (app.askForKey()) void otherKeyScreen()
 }
 
 const entriesCount = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`

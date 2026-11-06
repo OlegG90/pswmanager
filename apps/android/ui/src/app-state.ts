@@ -3,7 +3,7 @@ import { ALL, sameFilter, search, TEMPLATES, type Filter } from '../../../../src
 
 /** Where the list was when an entry was opened from it, for that group or tag
  *  and search: going back finds it there again (#228). */
-export interface ListPlace {
+interface ListPlace {
   top: number
   id: string
   filter: Filter
@@ -14,7 +14,7 @@ export interface ListPlace {
 const RETURN_PROMPT = 3000
 
 /** Coming back to the app after this long syncs (ms). */
-export const AGAIN_AFTER = 60 * 1000
+const AGAIN_AFTER = 60 * 1000
 
 /**
  * What the phone's screens share: the database, the settings, the list's
@@ -139,6 +139,9 @@ export function appState(clock = () => Date.now()) {
     /** Whether a sync is due while in front: the last one is `age` (ms) old or older. */
     syncDue: (age: number) => state.unlocked && age > 0 && clock() - state.lastSynced >= age,
 
+    /** The sync on coming back is due. */
+    returnSyncDue: () => state.syncDue(AGAIN_AFTER),
+
     /** The sync the setting asks for while in front is due. */
     everySyncDue: () => state.syncDue((state.settings?.syncEveryMinutes ?? 5) * 60 * 1000),
 
@@ -150,5 +153,3 @@ export function appState(clock = () => Date.now()) {
   }
   return state
 }
-
-export type AppState = ReturnType<typeof appState>

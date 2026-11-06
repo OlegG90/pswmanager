@@ -44,11 +44,6 @@ export async function filesIn(cloud: Cloud): Promise<CloudFile[]> {
   }
 }
 
-/** Opens the new-key screen when a sync found the key changed elsewhere (see appState's askForKey). */
-export function askForKey() {
-  if (app.askForKey()) void otherKeyScreen()
-}
-
 /** Picks the folder for the visible copy and writes it there. */
 async function chooseCopyFolder() {
   try {
