@@ -50,10 +50,19 @@ pub(crate) fn sync_first(app: &AppHandle) -> Result<(), String> {
 
 /// Syncs in the background and tells the page (`synced`) what happened.
 pub fn start(app: AppHandle) {
+    run(app, true);
+}
+
+/// Runs the syncs in the background unless one runs (it goes again then):
+/// with the session, or (`unlocked` false) as uploads only.
+fn run(app: AppHandle, unlocked: bool) {
     if !app.state::<Syncs>().begin() {
         return;
     }
-    tauri::async_runtime::spawn_blocking(move || app.state::<Syncs>().drain(|| sync_once(&app, &app.state::<Session>())));
+    tauri::async_runtime::spawn_blocking(move || {
+        let locked = Session::default();
+        app.state::<Syncs>().drain(|| sync_once(&app, if unlocked { app.state::<Session>().inner() } else { &locked }))
+    });
 }
 
 /// One sync with `session`: the unlocked database (merges if need be), or a
@@ -63,7 +72,7 @@ fn sync_once(app: &AppHandle, session: &Session) -> bool {
     let store = app.state::<Store>();
     let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return true };
     let result = sync::sync(location.open().as_ref(), &store, session);
-    let report = Report::of(&store, &result, crate::visible::refresh(app));
+    let report = Report::of(&store, &result).with_copy_problem(crate::visible::refresh(app));
     // A page that is not listening reads it with `last_sync`.
     let _ = app.emit("synced", app.state::<Syncs>().keep(report));
     sync::settled(&result)
@@ -83,10 +92,7 @@ pub(crate) fn upload_pending(app: AppHandle) {
     }
     // In case Android stops the app before this upload is through.
     schedule_background_upload(&app, &store);
-    if !app.state::<Syncs>().begin() {
-        return;
-    }
-    tauri::async_runtime::spawn_blocking(move || app.state::<Syncs>().drain(|| sync_once(&app, &Session::default())));
+    run(app, false);
 }
 
 /// Asks WorkManager to upload the waiting changes later (`background.rs`):
@@ -115,14 +121,14 @@ struct UploadSoon(Latest);
 
 /// A change was saved: should the app go before it is sent, WorkManager
 /// sends it later.
-pub(crate) fn changed(app: &AppHandle) {
+pub(crate) fn upload_later(app: &AppHandle) {
     schedule_background_upload(app, &app.state::<Store>());
 }
 
 /// Syncs `UPLOAD_DELAY` after the last change. Going to the background first
 /// sends it at once (`sync_if_pending`).
 pub(crate) fn upload_soon(app: &AppHandle) {
-    changed(app);
+    upload_later(app);
     let wait = app.state::<UploadSoon>().0.next();
     let app = app.clone();
     std::thread::spawn(move || {

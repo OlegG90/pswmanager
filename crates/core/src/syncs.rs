@@ -29,17 +29,22 @@ pub struct Report {
 }
 
 impl Report {
-    /// What `result` did, with why the visible copy was not written after it, if it was not.
-    pub fn of(store: &Store, result: &Result<Outcome, SyncError>, copy_problem: Option<String>) -> Report {
+    /// What `result` did.
+    pub fn of(store: &Store, result: &Result<Outcome, SyncError>) -> Report {
         let (text, problem) = sync::describe(store, result);
         Report {
             text,
-            problem: problem || copy_problem.is_some(),
+            problem,
             changed: matches!(result, Ok(Outcome::Downloaded(c) | Outcome::Merged(c)) if !c.is_empty()),
             sign_in: matches!(result, Err(SyncError::SignIn(_))),
-            copy_problem,
+            copy_problem: None,
             other_key: matches!(result, Err(SyncError::OtherKey)),
         }
+    }
+
+    /// With why the visible copy was not written after the sync, if it was not: a problem too.
+    pub fn with_copy_problem(self, copy_problem: Option<String>) -> Report {
+        Report { problem: self.problem || copy_problem.is_some(), copy_problem, ..self }
     }
 }
 
@@ -47,7 +52,7 @@ impl Report {
 pub const OTHER_KEY: &str = "The remote file has another master password or key file";
 
 /// The answer to a change asked for while a sync runs.
-pub const SYNC_RUNNING: &str = "A sync is running; try again in a moment";
+const SYNC_RUNNING: &str = "A sync is running; try again in a moment";
 
 #[derive(Default)]
 struct Flags {
@@ -75,7 +80,7 @@ impl Syncs {
         true
     }
 
-    pub fn is_running(&self) -> bool {
+    fn is_running(&self) -> bool {
         self.flags.lock().unwrap().running
     }
 
@@ -269,17 +274,17 @@ mod tests {
     #[test]
     fn the_report_says_what_the_sync_did() {
         let (_dir, store) = store();
-        let merged = Report::of(&store, &Ok(Outcome::Merged(vec!["Mail".into()])), None);
+        let merged = Report::of(&store, &Ok(Outcome::Merged(vec!["Mail".into()])));
         assert!(merged.changed && !merged.problem && !merged.sign_in && !merged.other_key);
-        assert!(!Report::of(&store, &Ok(Outcome::Downloaded(Vec::new())), None).changed);
-        assert!(!Report::of(&store, &Ok(Outcome::Uploaded), None).problem);
-        let copy = Report::of(&store, &Ok(Outcome::UpToDate), Some("No folder".into()));
+        assert!(!Report::of(&store, &Ok(Outcome::Downloaded(Vec::new()))).changed);
+        assert!(!Report::of(&store, &Ok(Outcome::Uploaded)).problem);
+        let copy = Report::of(&store, &Ok(Outcome::UpToDate)).with_copy_problem(Some("No folder".into()));
         assert!(copy.problem);
         assert_eq!(copy.copy_problem.as_deref(), Some("No folder"));
-        let sign_in = Report::of(&store, &Err(SyncError::SignIn("Sign in to Dropbox again".into())), None);
+        let sign_in = Report::of(&store, &Err(SyncError::SignIn("Sign in to Dropbox again".into())));
         assert!(sign_in.sign_in && sign_in.problem);
         assert_eq!(sign_in.text, "Sign in to Dropbox again");
-        assert!(Report::of(&store, &Err(SyncError::OtherKey), None).other_key);
+        assert!(Report::of(&store, &Err(SyncError::OtherKey)).other_key);
     }
 
     #[test]

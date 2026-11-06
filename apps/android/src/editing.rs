@@ -44,7 +44,7 @@ pub fn save_entry(
     if edit::needs_upload(base.as_ref(), &data, &files) {
         crate::syncing::upload_soon(&app);
     } else {
-        crate::syncing::changed(&app);
+        crate::syncing::upload_later(&app);
     }
     Ok(saved)
 }
@@ -173,7 +173,7 @@ pub fn set_tag(app: AppHandle, session: State<Session>, ids: Vec<String>, tag: S
         v.set_tag(&ids, &tag, on)?;
         Ok(v.listing())
     })?;
-    crate::syncing::changed(&app);
+    crate::syncing::upload_later(&app);
     Ok(listing)
 }
 
