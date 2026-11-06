@@ -1,7 +1,16 @@
 # PswManager — User guide
 
-PswManager keeps your passwords in one encrypted file: a KeePass database (`.kdbx`). The same file also
-opens in KeePassXC (Windows, macOS, Linux) and Keepass2Android, so you are never locked in.
+PswManager keeps your passwords in one encrypted file: a KeePass database (`.kdbx`, KDBX 4). It is an
+open, standard format, so you are never locked in: the same file also opens in other KeePass apps.
+
+| Platform | Apps that open the same file |
+|---|---|
+| Windows (also macOS and Linux) | [KeePassXC](https://keepassxc.org/) |
+| Android | [KeePassDX](https://www.keepassdx.com/), [Keepass2Android](https://github.com/PhilippC/keepass2android) |
+| iOS and iPadOS | [KeePassium](https://keepassium.com/) |
+
+Use one of them where PswManager has no app (an iPhone, a Mac), or alongside it. Put the file in a cloud
+store they all reach, and changes made in any of them are merged when PswManager syncs.
 
 This guide says, in plain words, what you can do with the app and what to do when something outside it —
 a browser, a website, another app, a cloud store — asks it for something.
