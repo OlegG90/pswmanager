@@ -2,7 +2,8 @@ import type { ImportKind } from './api'
 import { el } from './dom'
 
 /** What both apps' *Import from a file* says alike (docs/spec.md, *Import
- *  from a file*); each asks and answers in its own way. */
+ *  from a file*): the phone lists it as it is, Windows lays the sources out
+ *  as rows with a button each (#354); each asks and answers in its own way. */
 
 /** What an import brought, in a sentence (without the full stop). */
 export const importedMessage = (added: number, tag: string) =>

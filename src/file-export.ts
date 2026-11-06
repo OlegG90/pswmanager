@@ -13,19 +13,20 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
   const page = el('div')
   container.replaceChildren(page)
   const left = () => !page.isConnected
-  const showSection = (section: HTMLElement) => {
-    page.replaceChildren(el('header', {}, el('h1', {}, 'Export to a file')), section)
+  // A step in a card (`tool`), or the formats' list (`choose`).
+  const showIn = (className: string, ...body: Node[]) => {
+    page.replaceChildren(el('header', {}, el('h1', {}, 'Export to a file')), el('section', { className }, ...body))
     page.querySelector<HTMLElement>('section input, section button')?.focus()
   }
-  const show = (...body: Node[]) => showSection(el('section', { className: 'tool' }, ...body))
+  const show = (...body: Node[]) => showIn('tool', ...body)
   const actions = (...buttons: HTMLElement[]) => el('div', { className: 'tool-actions' }, ...buttons)
 
   // The formats as a list, each its button with what it carries (#353).
   const start = (): void =>
-    showSection(el('section', { className: 'choose' },
+    showIn('choose',
       el('p', {}, EXPORT_INTRO),
       choiceList(EXPORT_FORMATS.map(([format, name, what]) => [busyButton(name, `Export as ${name}`, () => chosen(format), fail), what])),
-      el('p', { className: 'muted' }, EXPORT_WARNING)))
+      el('p', { className: 'muted' }, EXPORT_WARNING))
 
   // Windows Hello first; when it cannot, the master password.
   const chosen = async (format: ExportFormat): Promise<void> => {
