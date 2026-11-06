@@ -121,7 +121,7 @@ pub async fn sync_with_cloud(app: AppHandle, cloud: Cloud, file: Option<CloudFil
         let working = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
         // The copy that was the file meanwhile, as the last sync with it left it.
         let copy_written = store.read(|s| s.remote().and_then(|r| r.revision.clone()));
-        crate::app::while_not_syncing(&app, || {
+        crate::syncing::while_not_syncing(&app, || {
             match file {
                 Some(file) => {
                     let key = app.state::<Session>().read(Vault::snapshot).ok().flatten().ok_or("Unlock the database first")?;
@@ -139,7 +139,7 @@ pub async fn sync_with_cloud(app: AppHandle, cloud: Cloud, file: Option<CloudFil
             }
             crate::visible::restore(&store, copy_written)
         })?;
-        crate::app::start_sync(app.clone());
+        crate::syncing::start(app.clone());
         Ok(crate::app::status_of(&store, &app.state::<Session>()))
     })
     .await

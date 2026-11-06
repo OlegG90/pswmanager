@@ -28,6 +28,8 @@ mod provider;
 #[cfg(mobile)]
 mod secrets;
 #[cfg(mobile)]
+mod syncing;
+#[cfg(mobile)]
 mod system;
 #[cfg(mobile)]
 mod transfer;

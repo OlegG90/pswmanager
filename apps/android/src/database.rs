@@ -7,7 +7,7 @@
 use crate::app::{self, off_main, Status};
 use crate::biometric::Biometric;
 use crate::documents::{Documents, Picked};
-use crate::editing::upload_soon;
+use crate::syncing::upload_soon;
 use pswm_core::documents::DocumentStore;
 use pswm_core::edit;
 use pswm_core::encryption;
@@ -110,11 +110,11 @@ pub async fn change_master_key(app: AppHandle, current: String, password: String
         let next = key_file.chosen(now);
         let next_content = next.as_ref().map(read).transpose()?;
         let new = if password.is_empty() && next.is_none() { None } else { Some(key(&password, next_content.as_ref())?) };
-        app::sync_first(&app).map_err(|e| format!("{e}; the key is unchanged"))?;
+        crate::syncing::sync_first(&app).map_err(|e| format!("{e}; the key is unchanged"))?;
         let session = app.state::<Session>();
         session.with_mut(|v| v.change_key_to(&current, new))?;
         take_key(&app, next.as_ref()).map_err(|e| format!("The key is changed, but {e}"))?;
-        app::start_sync(app.clone());
+        crate::syncing::start(app.clone());
         Ok(app::status_of(&store, &session))
     })
     .await
@@ -161,10 +161,10 @@ pub async fn enter_other_key(app: AppHandle, password: String, key_file: NewKeyF
         let given = key(&password, content.as_ref())?;
         let session = app.state::<Session>();
         session.with_mut(|v| v.remember_key(given.clone()))?;
-        if let Err(e) = app::sync_first(&app) {
+        if let Err(e) = crate::syncing::sync_first(&app) {
             // A key that opened nothing is not kept.
             session.with_mut(|v| v.forget_key(&given))?;
-            return Err(if e == app::OTHER_KEY { "This master password or key file does not open it either".into() } else { e });
+            return Err(if e == crate::syncing::OTHER_KEY { "This master password or key file does not open it either".into() } else { e });
         }
         if session.read(|v| v.uses_key(&given))?? {
             take_key(&app, next.as_ref()).map_err(|e| format!("The new key is in use, but {e}"))?;
