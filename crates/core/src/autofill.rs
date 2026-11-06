@@ -513,6 +513,9 @@ mod tests {
         let mail = app("com.example.mail", b"mail's certificate");
         assert_eq!(autofill.offer(Offer::Logins(&mail)), Answer::failed(LOCKED));
         assert_eq!(autofill.offer(Offer::Search("mail")), Answer::failed(LOCKED));
+        assert_eq!(autofill.offer(Offer::LoginChoices { asking: &mail, cloud: true }), Answer::failed(LOCKED));
+        let create = r#"{"rp": {"id": "shop.example"}, "user": {"id": "dQ", "name": "bob"}, "challenge": "Yw"}"#;
+        assert_eq!(autofill.offer(Offer::PasskeyChoices { request: create, cloud: true }), Answer::failed(LOCKED));
         assert_eq!(autofill.answer("any", Give::Login { asking: &mail, confirmed: false }), Answer::failed(LOCKED));
         let save = Save::Login { id: None, asking: &mail, confirmed: false, title: "Mail", username: "alice", password: "pw" };
         assert_eq!(autofill.save(save), Answer::failed(LOCKED));

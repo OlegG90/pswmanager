@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 /**
  * What Rust answers through [ProviderBridge] (#315): one JSON object told apart
- * by its key, as `provider.rs` makes it, so a new state is a new case here
+ * by its key, as the core's `autofill.rs` makes it, so a new state is a new case here
  * rather than a new prefix to strip at every call.
  */
 sealed class Answer {
