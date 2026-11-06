@@ -403,6 +403,9 @@ export interface GauthProgress {
   accounts: number
 }
 
+/** The kind of file the user said they import (#354): only the picker's filter, as a file is read by what it holds. */
+export type ImportKind = 'csv' | 'json' | 'aegis'
+
 /** An import's next step: done, or the file's password is needed (an encrypted Aegis export). */
 export type ImportStep = ({ step: 'done' } & FileImported) | { step: 'password'; file: string }
 
@@ -524,8 +527,8 @@ export const api = {
   pickKeyFile: () => invoke<Status>('pick_key_file'),
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
-  /** Picks a file another password manager exported and imports it; null when none was picked. */
-  importFile: () => invoke<ImportStep | null>('import_file'),
+  /** Picks a file another password manager exported, `kind` setting the picker's filter, and imports it; null when none was picked. */
+  importFile: (kind: ImportKind) => invoke<ImportStep | null>('import_file', { kind }),
   /** Imports the file waiting for its password; a wrong one leaves it waiting. */
   importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
   /** Lets go of the file waiting for its password. */

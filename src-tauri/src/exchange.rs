@@ -8,7 +8,7 @@ use pswm_core::{cxf, file_export, file_import, gauth, qr, vault};
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::vault::Listing;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Window};
@@ -44,20 +44,41 @@ pub(crate) struct ImportedFile(Mutex<Option<PathBuf>>);
 /// The file waiting for its password, with where it was read.
 pub(crate) type WaitingFile = file_import::WaitingFile<PathBuf>;
 
+/// The kind of file the user said they import (#354), which only sets the
+/// picker's filter: the file is read by what it holds, whichever was chosen.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportKind {
+    Csv,
+    Json,
+    Aegis,
+}
+
+impl ImportKind {
+    fn filter(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            ImportKind::Csv => ("Exported passwords (CSV)", &["csv"]),
+            ImportKind::Json => ("Bitwarden or Credential Exchange (JSON)", &["json"]),
+            ImportKind::Aegis => ("Aegis export (JSON)", &["json"]),
+        }
+    }
+}
+
 /// Imports a file another password manager exported (#238, see
 /// [file_import]): the user picks it, and everything in it is added as new
 /// entries with the tag `Imported from <file> <date>`, saved and synced as
 /// one change. `None` when no file was picked; a file only its password opens
 /// waits for it ([ImportStep::Password]).
 #[tauri::command(async)]
-pub fn import_file(app: AppHandle, window: Window) -> Result<Option<ImportStep>, String> {
+pub fn import_file(app: AppHandle, window: Window, kind: ImportKind) -> Result<Option<ImportStep>, String> {
     if !app.state::<Session>().is_unlocked() {
         return Err("Unlock the database first".into());
     }
     // Only the file this import reads may be deleted after it.
     app.state::<ImportedFile>().0.lock().unwrap().take();
     app.state::<WaitingFile>().cancel();
-    let Some(path) = pick(&window, "Exported passwords (CSV, JSON)", &["csv", "json"])? else { return Ok(None) };
+    let (filter, extensions) = kind.filter();
+    let Some(path) = pick(&window, filter, extensions)? else { return Ok(None) };
     let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
     if file_import::needs_password(&content) {

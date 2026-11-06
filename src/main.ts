@@ -1259,7 +1259,9 @@ function sideCommand(label: string, title: string, picture: SidebarIcon, action:
 
 /** Marks in the sidebar what is shown beside it: a group or tag, a tool's report or a settings tab. */
 function markSidebar() {
-  const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${reportTool}` : null
+  // Google Authenticator's page is reached from Import's list (#354), which stays marked.
+  const tool = reportTool === 'gauth' ? 'import' : reportTool
+  const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${tool}` : null
   for (const b of document.querySelectorAll<HTMLElement>('#tools .side-item, #settings-tabs .side-item')) {
     if (shown && b.dataset.choice === shown) b.setAttribute('aria-current', 'true')
     else b.removeAttribute('aria-current')
@@ -1277,8 +1279,7 @@ function fillTools() {
   $('tools').replaceChildren(
     sideCommand('Password health', 'Find reused, weak and old passwords', 'health', openHealth, 'tool:health'),
     sideCommand('Similar entries', 'Find entries for the same site and user name, to merge them', 'similar', openSimilar, 'tool:similar'),
-    sideCommand('Import from a file', 'Add the entries another password manager exported (CSV, Bitwarden JSON)', 'import', openImport, 'tool:import'),
-    sideCommand('Import from Google Authenticator', 'Add the accounts of its export, read from its QR codes', 'authenticator', openGauth, 'tool:gauth'),
+    sideCommand('Import from a file', 'Add the entries another password manager or authenticator exported (CSV, JSON, Aegis, Google Authenticator)', 'import', openImport, 'tool:import'),
     sideCommand('Export to a file', 'Write the entries to a file another password manager imports (CSV, CXF JSON)', 'export', openExport, 'tool:export'),
     tidyTool,
   )
@@ -1322,7 +1323,7 @@ const openHealth = () => openReport('health', () => renderHealth(reportView, { f
 
 const openImport = () =>
   openReport('import', async () =>
-    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), fail: (message) => notify(message) }))
+    renderImport(reportView, { imported: (next, message) => applyListing(next, message, false), authenticator: openGauth, fail: (message) => notify(message) }))
 
 // Chosen again, it starts over: the codes read before are let go of.
 const openGauth = () =>
