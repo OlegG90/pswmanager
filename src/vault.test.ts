@@ -164,6 +164,17 @@ describe('finding an entry', () => {
     expect(vault.selectedId).toBe('New')
     expect(vault.search('')).toEqual({ one: 'New' })
   })
+
+  it('masks again what was revealed before a save, in the entry saved or another', () => {
+    const vault = opened()
+    vault.reveal('Mail', 'Password', 'before the edit')
+    vault.saved('Mail', listing(mail, bank), '')
+    expect(vault.revealedValue('Password')).toBeUndefined()
+    vault.show('Mail', detail(mail))
+    vault.reveal('Mail', 'Password', 'of Mail')
+    vault.saved('New', listing(mail, entry('New')), '')
+    expect(vault.revealedValue('Password')).toBeUndefined()
+  })
 })
 
 describe('the entry shown', () => {

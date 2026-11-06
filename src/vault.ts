@@ -161,10 +161,12 @@ export function vaultState() {
     apply,
 
     /** Entry `id` was saved into `next`: it is selected, and shows in the list
-     *  (see [find]). False when the search must be cleared too. */
+     *  (see [find]). False when the search must be cleared too. The values
+     *  revealed before go: they were another entry's, or are older. */
     saved(id: string, next: Listing, query: string): boolean {
       const kept = find(id, query, next.entries)
       selectedId = id
+      revealed.clear()
       apply(next)
       return kept
     },
