@@ -184,8 +184,8 @@ open database (unlocked: every change is a save), next to *Settings → Sync*.
   under it. Every section is folded when the app starts; two buttons at the sidebar's top right fold and
   unfold them all. When the open sections do not fit, the sidebar scrolls.
 - Beside the sidebar: for a group or a tag, the **list** of its entries and the selected **entry** (see
-  *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*,
-  *Import from Google Authenticator*, *Export to a file*; chosen again, a tool starts over); for a settings
+  *Groups and tags*); for a tool, its page (*Password health*, *Similar entries*, *Import from a file*
+  with *Import from Google Authenticator* reached from it, *Export to a file*; chosen again, a tool starts over); for a settings
   tab, the settings at that tab (see *Settings*). Typing a search shows the list again. The sidebar marks what is shown. There is no filter
   menu.
 - The sidebar's width is changed by dragging its edge (140 to 420 px, the list and the entry keeping their
@@ -780,7 +780,8 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 
 ## Import from Google Authenticator
 
-- *Tools → Import from Google Authenticator* (#281, `docs/totp-research.md`; on the phone a *Tools* item of
+- *Import from Google Authenticator* (#281, `docs/totp-research.md`; on Windows the last row of *Tools →
+  Import from a file*'s list, #354, which stays marked in the sidebar; on the phone a *Tools* item of
   its own): Google Authenticator's *Transfer accounts → Export accounts* shows one or more QR codes
   `otpauth-migration://offline?data=…`, each a protobuf of some of the accounts (Google publishes no schema;
   the field numbers are the community's, as GNOME Authenticator reads them).
