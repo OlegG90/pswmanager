@@ -234,6 +234,22 @@ describe('the entry shown', () => {
     expect(vault.revealedValue('Password')).toBeUndefined()
   })
 
+  it('keeps its revealed values after a change to other entries', () => {
+    const vault = opened()
+    vault.reveal('Mail', 'Password', 'secret')
+    // Another entry starred, merged or changed on another device.
+    vault.apply(listing(mail, bank), ['Bank', 'Shop'])
+    expect(vault.revealedValue('Password')).toBe('secret')
+  })
+
+  it('masks its revealed values when a change touched it', () => {
+    const vault = opened()
+    vault.reveal('Mail', 'Password', 'secret')
+    // The entry shown changed on another device, or was merged.
+    vault.apply(listing(mail, bank), ['Bank', 'Mail'])
+    expect(vault.revealedValue('Password')).toBeUndefined()
+  })
+
   it('is forgotten with everything else on lock', () => {
     const vault = opened()
     vault.reveal('Mail', 'Password', 'secret')
