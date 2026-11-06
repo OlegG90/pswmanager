@@ -5,6 +5,7 @@
 //! sign-in) is handed in.
 
 pub mod aegis;
+pub mod autofill;
 pub mod autotype;
 pub mod backup;
 pub mod browser;
@@ -25,7 +26,6 @@ pub mod oauth;
 pub mod onedrive;
 pub mod opened;
 pub mod otp;
-pub mod provider;
 pub mod qr;
 pub mod remote;
 pub mod secrets;
