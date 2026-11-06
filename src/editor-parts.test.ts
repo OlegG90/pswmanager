@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_ENTRY, newEntryData } from './editor-parts'
+import { EMPTY_ENTRY, fieldNameSuggestions, newEntryData } from './editor-parts'
 
 describe('newEntryData', () => {
   const template = {
@@ -34,5 +34,17 @@ describe('newEntryData', () => {
   it('gives only a blank entry the default user name', () => {
     expect(newEntryData(['Work'], { defaultUsername: 'me' })).toEqual({ ...EMPTY_ENTRY, username: 'me', group: ['Work'] })
     expect(newEntryData([], { template: true, defaultUsername: 'me' }).username).toBe('')
+  })
+})
+
+describe('fieldNameSuggestions', () => {
+  it('offers the usual names the entry does not have, and the first further URL', () => {
+    expect(fieldNameSuggestions([])).toEqual(['Email', 'PIN', 'Code', 'KP2A_URL_1'])
+    expect(fieldNameSuggestions(['email ', 'Port'])).toEqual(['PIN', 'Code', 'KP2A_URL_1'])
+  })
+
+  it('numbers the further URL after the highest one there', () => {
+    expect(fieldNameSuggestions(['KP2A_URL_1', 'KP2A_URL_3', 'PIN'])).toEqual(['Email', 'Code', 'KP2A_URL_4'])
+    expect(fieldNameSuggestions(['KP2A_URL_x', 'kp2a_url_2'])).toEqual(['Email', 'PIN', 'Code', 'KP2A_URL_1'])
   })
 })

@@ -604,6 +604,9 @@ PswManager speaks KeePassXC's protocol, so no extension of its own is needed.
 - Editable: title, user name, password, URL, notes, tags, favorite, expiry date (KeePass's *Expires*, set to the start of the chosen day on this PC; a time another client set stays while the day is unchanged; none
   by default), TOTP secret, additional attributes (add / rename / remove, protected or not: the padlock, closed when protected; the eye shows a value),
   Auto-Type (see *Auto-Type*). The group is not edited (see *Groups and tags*).
+- On Windows, an additional field's name offers, as it is typed (#347), **Email**, **PIN** and **Code** while no other
+  field of the entry has that name (in any case), and the entry's next further URL, `KP2A_URL_n` numbered
+  after the highest it has (`KP2A_URL_1` when it has none). Any other name can still be typed.
 - Tags are chips: each has a remove button; new ones are typed (Enter or a comma adds one) with the
   database's other tags offered.
 - **Attachments** are part of editing, as in SafeInCloud and Keepass2Android: in the editor's *Files* a
