@@ -36,13 +36,13 @@ class AutofillFields(
      * else by words in its id or hint; a text field just before the first
      * password is taken for the user name when nothing says so.
      *
-     * The structure is another app's and may hold anything, nulls where the
-     * platform types promise none among them: a screen that cannot be read
-     * has no login fields, rather than stopping the autofill service.
+     * The structure is another app's and may hold anything, including nulls
+     * the platform types say never occur: a screen that cannot be read has
+     * no login fields, rather than stopping the autofill service.
      */
-    fun of(structure: AssistStructure): AutofillFields? =
+    fun of(structure: AssistStructure?): AutofillFields? =
       try {
-        read(structure)
+        structure?.let(::read)
       } catch (e: RuntimeException) {
         android.util.Log.w("PswmAutofill", "Unreadable screen: ${e.javaClass.simpleName}")
         null
@@ -107,7 +107,7 @@ class AutofillFields(
       if (hints.any { it in USERNAME_HINTS }) return Kind.USERNAME
       // A page's input: its type, then its name and id.
       val html = node.htmlInfo?.takeIf { it.tag.equals("input", ignoreCase = true) }
-      val attributes = html?.attributes.orEmpty().filter { it?.first != null }.associate { it.first.lowercase() to it.second.orEmpty().lowercase() }
+      val attributes = html?.attributes.orEmpty().filter { it.first != null }.associate { it.first.lowercase() to it.second.orEmpty().lowercase() }
       when (attributes["type"]) {
         "password" -> return Kind.PASSWORD
         "email" -> return Kind.USERNAME
