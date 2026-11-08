@@ -35,8 +35,20 @@ class AutofillFields(
      * what it is by its autofill hints, its HTML attributes or its input type,
      * else by words in its id or hint; a text field just before the first
      * password is taken for the user name when nothing says so.
+     *
+     * The structure is another app's and may hold anything, including nulls
+     * the platform types say never occur: a screen that cannot be read has
+     * no login fields, rather than stopping the autofill service.
      */
-    fun of(structure: AssistStructure): AutofillFields? {
+    fun of(structure: AssistStructure?): AutofillFields? =
+      try {
+        structure?.let(::read)
+      } catch (e: RuntimeException) {
+        android.util.Log.w("PswmAutofill", "Unreadable screen: ${e.javaClass.simpleName}")
+        null
+      }
+
+    private fun read(structure: AssistStructure): AutofillFields? {
       var username: Field? = null
       var password: Field? = null
       // On a form that changes the password (current, new, again), the one
@@ -46,7 +58,8 @@ class AutofillFields(
       var lastText: Field? = null
       // A field is on the page of its nearest node with a web domain: an
       // iframe from another site is a page of its own.
-      fun visit(node: ViewNode, page: Page?) {
+      fun visit(node: ViewNode?, page: Page?) {
+        if (node == null) return
         val here = node.webDomain?.takeIf { it.isNotEmpty() }?.let { Page(it, node.webScheme) } ?: page
         val id = node.autofillId
         if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
@@ -64,7 +77,7 @@ class AutofillFields(
         }
         for (i in 0 until node.childCount) visit(node.getChildAt(i), here)
       }
-      for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i).rootViewNode, null)
+      for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i)?.rootViewNode, null)
       val pass = password
       val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       val page = (pass ?: user ?: return null).page
@@ -85,16 +98,16 @@ class AutofillFields(
 
     /** A password field for a new password: by its autofill hint or its `autocomplete`. */
     private fun isNewPassword(node: ViewNode): Boolean =
-      node.autofillHints.orEmpty().any { it.equals("new-password", ignoreCase = true) } ||
+      node.autofillHints.orEmpty().any { it?.equals("new-password", ignoreCase = true) == true } ||
         node.htmlInfo?.attributes.orEmpty().any { it.first.equals("autocomplete", ignoreCase = true) && it.second.equals("new-password", ignoreCase = true) }
 
     private fun kind(node: ViewNode): Kind {
-      val hints = node.autofillHints?.map { it.lowercase() }.orEmpty()
+      val hints = node.autofillHints?.mapNotNull { it?.lowercase() }.orEmpty()
       if (hints.any { it in PASSWORD_HINTS }) return Kind.PASSWORD
       if (hints.any { it in USERNAME_HINTS }) return Kind.USERNAME
       // A page's input: its type, then its name and id.
       val html = node.htmlInfo?.takeIf { it.tag.equals("input", ignoreCase = true) }
-      val attributes = html?.attributes.orEmpty().associate { it.first.lowercase() to it.second.orEmpty().lowercase() }
+      val attributes = html?.attributes.orEmpty().filter { it.first != null }.associate { it.first.lowercase() to it.second.orEmpty().lowercase() }
       when (attributes["type"]) {
         "password" -> return Kind.PASSWORD
         "email" -> return Kind.USERNAME

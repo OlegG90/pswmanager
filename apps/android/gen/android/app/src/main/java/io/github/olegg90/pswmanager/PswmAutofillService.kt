@@ -36,7 +36,7 @@ import kotlin.concurrent.thread
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
-    val fields = request.fillContexts.lastOrNull()?.structure?.let { AutofillFields.of(it) }
+    val fields = AutofillFields.of(request.fillContexts.lastOrNull()?.structure)
     // PswManager's own screens are not filled from it.
     if (fields == null || fields.packageName == packageName) return callback.onSuccess(null)
     // Off the main thread: a sync or a save may hold the database a moment.
@@ -70,7 +70,7 @@ class PswmAutofillService : AutofillService() {
    * unlocks if need be and asks where they go.
    */
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-    val fields = request.fillContexts.lastOrNull()?.structure?.let { AutofillFields.of(it) }
+    val fields = AutofillFields.of(request.fillContexts.lastOrNull()?.structure)
     val password = fields?.passwordText
     if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")

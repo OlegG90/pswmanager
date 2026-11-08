@@ -407,7 +407,8 @@ row, as the phone shows autofill).
 - **The fields:** a screen's user name and password fields, by what they say they are (autofill hints,
   a page's `type`, the input type), else by words in their id or hint (*user*, *login*, *email*,
   *password*…); a text field just before the first password is taken for the user name. A sign-in in two
-  steps gets the user name first, then the password. PswManager's own screens are not filled.
+  steps gets the user name first, then the password. PswManager's own screens are not filled. A screen
+  that cannot be read has no login fields: nothing is offered, and the autofill service keeps running.
 - **Who asks**, as for the credential provider (*Credential provider*): an **app** by its package among
   an entry's URLs (`androidapp://<package>`, `KP2A_URL_n`) and its signing certificate (*An app's
   certificate*); a **page** by its host, which must be that of the entry's URL or of one of its further
