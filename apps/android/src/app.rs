@@ -637,32 +637,32 @@ async fn pick_folder(app: AppHandle) -> Result<Option<documents::Picked>, String
     off_main(move || app.state::<Documents<Wry>>().pick_folder()).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn listing(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
     let listing = session.read(Vault::listing)?;
     crate::icons::fetch(&app, &listing);
     Ok(listing)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn entry(session: State<Session>, id: String) -> Result<EntryDetail, String> {
     session.with(|v| v.detail(&id))
 }
 
 /// The entry's older versions, newest first: when, and what changed; never values.
-#[tauri::command]
+#[tauri::command(async)]
 fn entry_history(session: State<Session>, id: String) -> Result<Vec<Version>, String> {
     session.with(|v| v.history(&id))
 }
 
 /// One older version, read only, secrets masked, with how it differs from the entry now.
-#[tauri::command]
+#[tauri::command(async)]
 fn entry_version(session: State<Session>, id: String, index: usize) -> Result<VersionDetail, String> {
     session.with(|v| v.version(&id, index))
 }
 
 /// One field's value (of an older version with `version`), for showing it.
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal(session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<String, String> {
     session.with(|v| v.field_in(&id, version, &field)).map(|value| value.to_string())
 }
@@ -678,7 +678,7 @@ async fn copy_field(app: AppHandle, id: String, field: String, version: Option<u
     copy_to_clipboard(app, value).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String> {
     session.read(|v| v.totp(&id))?
 }

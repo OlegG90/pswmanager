@@ -36,13 +36,13 @@ import kotlin.concurrent.thread
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
-    val fields = AutofillFields.of(request.fillContexts.lastOrNull()?.structure)
-    // PswManager's own screens are not filled from it.
-    if (fields == null || fields.packageName == packageName) return callback.onSuccess(null)
-    // Off the main thread: a sync or a save may hold the database a moment.
+    // Off the main thread: a page in a browser can have thousands of nodes to
+    // read, and a sync or a save may hold the database a moment.
     thread {
       val response = try {
-        respond(fields)
+        val fields = AutofillFields.of(request.fillContexts.lastOrNull()?.structure)
+        // PswManager's own screens are not filled from it.
+        if (fields == null || fields.packageName == packageName) null else respond(fields)
       } catch (e: Exception) {
         android.util.Log.w("PswmAutofill", "No offer: ${e.javaClass.simpleName}")
         null
