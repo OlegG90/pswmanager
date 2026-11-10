@@ -131,6 +131,21 @@ pub(crate) fn file_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// The file `name` (checked with [`file_name`]) in the browsed `folder`, and
+/// that name.
+pub(crate) fn in_browsed(folder: &str, name: &str) -> Result<(PathBuf, String), String> {
+    let name = file_name(name)?;
+    Ok((within_storage(Some(folder))?.join(&name), name))
+}
+
+/// A file `name` still in the browsed `folder`, and that name.
+fn existing(folder: &str, name: &str) -> Result<(PathBuf, String), String> {
+    let (path, name) = in_browsed(folder, name)?;
+    if !path.is_file() {
+        return Err(format!("{name} is not in the folder any more"));
+    }
+    Ok((path, name))
+}
 
 /// The folders and files in `path` (none: the storage's top), with All files
 /// access on; hidden ones (a leading dot) are left out.
@@ -163,11 +178,7 @@ pub async fn browse(path: Option<String>) -> Result<Browsed, String> {
 #[tauri::command]
 pub async fn key_file_at(folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
-        let name = file_name(&name)?;
-        let path = within_storage(Some(&folder))?.join(&name);
-        if !path.is_file() {
-            return Err(format!("{name} is not in the folder any more"));
-        }
+        let (path, name) = existing(&folder, &name)?;
         Ok(Picked { uri: path_uri(&path), name })
     })
     .await
@@ -178,11 +189,7 @@ pub async fn key_file_at(folder: String, name: String) -> Result<Picked, String>
 #[tauri::command]
 pub async fn open_database_at(app: AppHandle, folder: String, name: String) -> Result<Status, String> {
     off_main(move || {
-        let name = file_name(&name)?;
-        let path = within_storage(Some(&folder))?.join(&name);
-        if !path.is_file() {
-            return Err(format!("{name} is not in the folder any more"));
-        }
+        let (path, name) = existing(&folder, &name)?;
         app::adopt(&app, pswm_core::remote::Location::Folder { path })
     })
     .await
@@ -193,8 +200,7 @@ pub async fn open_database_at(app: AppHandle, folder: String, name: String) -> R
 #[tauri::command]
 pub async fn create_key_file_at(folder: String, name: String) -> Result<Picked, String> {
     off_main(move || {
-        let name = file_name(&name)?;
-        let path = within_storage(Some(&folder))?.join(&name);
+        let (path, name) = in_browsed(&folder, &name)?;
         if path.exists() {
             return Err(format!("{name} is already there: choose another name"));
         }
@@ -208,8 +214,7 @@ pub async fn create_key_file_at(folder: String, name: String) -> Result<Picked, 
 #[tauri::command]
 pub async fn attach_file_at(app: AppHandle, folder: String, name: String) -> Result<pswm_core::staged::StagedFile, String> {
     off_main(move || {
-        let name = file_name(&name)?;
-        let path = within_storage(Some(&folder))?.join(&name);
+        let (path, name) = in_browsed(&folder, &name)?;
         let size = std::fs::metadata(&path).map_err(|e| format!("Cannot read {name}: {e}"))?.len();
         pswm_core::edit::check_size(size)?;
         let content = std::fs::read(&path).map_err(|e| format!("Cannot read {name}: {e}"))?;
@@ -224,14 +229,8 @@ pub async fn attach_file_at(app: AppHandle, folder: String, name: String) -> Res
 pub async fn save_attachment_at(app: AppHandle, id: String, name: String, version: Option<usize>, folder: String, file_name: String) -> Result<(), String> {
     let data = app.state::<Session>().with(|v| v.attachment(&id, version, &name))?;
     off_main(move || {
-        let file_name = self::file_name(&file_name)?;
-        let path = within_storage(Some(&folder))?.join(&file_name);
-        if path.exists() {
-            return Err(format!("{file_name} is already there: choose another name"));
-        }
-        // A new file only: never over one there, nor through a link to one.
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e| format!("Cannot save {file_name}: {e}"))?;
-        std::io::Write::write_all(&mut file, &data).map_err(|e| format!("Cannot save {file_name}: {e}"))
+        let (path, file_name) = in_browsed(&folder, &file_name)?;
+        pswm_core::file_export::write_new(&path, &file_name, &data)
     })
     .await
 }

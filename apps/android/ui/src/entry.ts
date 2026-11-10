@@ -7,7 +7,7 @@ import { api, type EntryDetail, type Listing, type Version } from './api'
 import { editorScreen, newFromTemplate } from './editor'
 import type { IconName } from './icons'
 import { icon, listScreen, toListSaying } from './list'
-import { confirmSheet, copied, iconButton, screens, sheet, show, snack } from './page'
+import { backBar, confirmSheet, copied, iconButton, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
 
 // An entry, read only: its lines (copied, revealed, opened), its history and
@@ -167,7 +167,7 @@ async function historyScreen(entry: EntryDetail, listing: Listing) {
     return item
   })
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back to the entry', toEntry), el('h1', {}, 'History')),
+    backBar('History', toEntry, 'Back to the entry'),
     el('p', { className: 'muted' }, `${titleOf(entry)} · ${versions.length} older ${versions.length === 1 ? 'version' : 'versions'}`),
     el('ul', { className: 'entries versions' }, ...items),
   ], toEntry)
@@ -192,7 +192,7 @@ async function versionScreen(entry: EntryDetail, listing: Listing, index: number
   }
   const toHistory = () => void historyScreen(entry, listing)
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back to the history', toHistory), el('h1', {}, titleOf(at))),
+    backBar(titleOf(at), toHistory, 'Back to the history'),
     el('p', { className: 'muted' }, `Version saved ${savedAt(at)} · read only`),
     ...rows,
   ], toHistory)

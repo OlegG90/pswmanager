@@ -10,7 +10,7 @@ use pswm_core::health;
 use pswm_core::session::Session;
 use pswm_core::similar;
 use pswm_core::staged::StagedFile;
-use pswm_core::vault::{Listing, MergePreview, Saved};
+use pswm_core::vault::{Listing, MergePreview, Saved, Vault};
 use tauri::{AppHandle, Manager, State, Wry};
 use zeroize::Zeroizing;
 
@@ -86,15 +86,21 @@ pub fn release_files(session: State<Session>, files: Vec<u64>) {
     session.staged().release(files);
 }
 
+/// Makes `change` to the open database, which saves it, and has it go up
+/// through `upload` (soon, or with the next sync). The entries as changed.
+fn changed(app: &AppHandle, session: &Session, upload: fn(&AppHandle), change: impl FnOnce(&mut Vault) -> Result<(), String>) -> Result<Listing, String> {
+    let listing = session.with_mut(|v| {
+        change(v)?;
+        Ok(v.listing())
+    })?;
+    upload(app);
+    Ok(listing)
+}
+
 /// Moves entries to the recycle bin.
 #[tauri::command(async)]
 pub fn delete_entries(app: AppHandle, session: State<Session>, ids: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.delete_entries(&ids)?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.delete_entries(&ids))
 }
 
 /// The entries alike in `criteria`, the same site and account when not given
@@ -113,79 +119,44 @@ pub fn merge_preview(session: State<Session>, keep: String, others: Vec<String>)
 /// Merges entries into `keep`, moving them to the recycle bin.
 #[tauri::command(async)]
 pub fn merge_entries(app: AppHandle, session: State<Session>, keep: String, others: Vec<String>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.merge_entries(&keep, &others)?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.merge_entries(&keep, &others))
 }
 
 /// Puts an entry from the recycle bin back where it was.
 #[tauri::command(async)]
 pub fn restore_entry(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.restore(&[id])?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.restore(&[id]))
 }
 
 /// Removes an entry in the recycle bin for good.
 #[tauri::command(async)]
 pub fn delete_for_good(app: AppHandle, session: State<Session>, id: String) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.delete_for_good(&[id])?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.delete_for_good(&[id]))
 }
 
 /// Removes everything in the recycle bin for good.
 #[tauri::command(async)]
 pub fn empty_trash(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.empty_bin()?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.empty_bin())
 }
 
 /// Adds the starter templates to a database with no templates (#338).
 #[tauri::command(async)]
 pub fn add_starter_templates(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.add_starter_templates()?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.add_starter_templates())
 }
 
 /// Gives entries a tag or takes it off (the star is the tag Favorite); a tag
 /// goes up with the next sync.
 #[tauri::command(async)]
 pub fn set_tag(app: AppHandle, session: State<Session>, ids: Vec<String>, tag: String, on: bool) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.set_tag(&ids, &tag, on)?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_later(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_later, |v| v.set_tag(&ids, &tag, on))
 }
 
 /// Tidies up the groups older imports made (#335).
 #[tauri::command(async)]
 pub fn tidy_imported(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
-    let listing = session.with_mut(|v| {
-        v.tidy_imported()?;
-        Ok(v.listing())
-    })?;
-    crate::syncing::upload_soon(&app);
-    Ok(listing)
+    changed(&app, &session, crate::syncing::upload_soon, |v| v.tidy_imported().map(drop))
 }
 
 #[tauri::command(async)]

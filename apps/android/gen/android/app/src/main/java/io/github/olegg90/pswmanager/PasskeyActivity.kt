@@ -8,7 +8,6 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import kotlin.concurrent.thread
@@ -32,11 +31,7 @@ class PasskeyActivity : AppCompatActivity() {
     val option = request?.credentialOptions?.filterIsInstance<GetPublicKeyCredentialOption>()?.firstOrNull()
     val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY)
     if (request == null || option == null || id == null) return fail("Nothing to sign in to")
-    val caller = try {
-      Caller.of(this, request.callingAppInfo)
-    } catch (e: Exception) {
-      return fail("Cannot tell who asks: ${e.message}")
-    }
+    val caller = Caller.read(this, request.callingAppInfo).getOrElse { return fail("Cannot tell who asks: ${it.message}") }
     verifyUser(this, "Sign in with your passkey", intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: "", {
       thread {
         val answer = Answer.of(ProviderBridge.sign(id, option.requestJson, caller.origin, caller.clientDataHash(option.clientDataHash), caller.packageName, caller.certificate))
@@ -52,15 +47,8 @@ class PasskeyActivity : AppCompatActivity() {
     finish()
   }
 
-  private fun fail(why: String) = finishWith(GetCredentialUnknownException(why))
+  private fun fail(why: String) = finishGet(GetCredentialUnknownException(why))
 
-  private fun cancel() = finishWith(GetCredentialCancellationException("Cancelled"))
-
-  private fun finishWith(exception: GetCredentialException) {
-    val result = Intent()
-    PendingIntentHandler.setGetCredentialException(result, exception)
-    setResult(RESULT_OK, result)
-    finish()
-  }
+  private fun cancel() = finishGet(GetCredentialCancellationException("Cancelled"))
 
 }

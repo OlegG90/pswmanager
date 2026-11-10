@@ -6,7 +6,7 @@ import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-imp
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, similarCriteria, similarHint, similarSites, type Site, siteChoice } from '../../../../src/similar-parts'
 import { api, type Exported, type ExportFormat, type GauthProgress, type Imported, type ImportStep, type Listing, type Similar } from './api'
 import { icon, listScreen } from './list'
-import { confirmSheet, iconButton, screen, screens, sheet, show, snack } from './page'
+import { backBar, confirmSheet, screen, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
 
 // Tools (#183): import from another app, a file or Google Authenticator,
@@ -117,7 +117,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
       const sites = [...screen.childNodes]
       const cancel = () => display(sites, toList)
       display([
-        el('header', { className: 'bar' }, iconButton('back', 'Back to the similar entries', cancel), el('h1', {}, `Merge into ${into}`)),
+        backBar(`Merge into ${into}`, cancel, 'Back to the similar entries'),
         el('p', { className: 'muted' }, `${into} as the merge would leave it. ${describeEntries(others, quote)} ${others.length === 1 ? 'goes' : 'go'} to the recycle bin.`),
         mergedCard(preview, icon(kept, listing)),
         busyButton('Merge', 'Merge them into it', () =>
@@ -140,7 +140,7 @@ async function similarScreen(listing: Listing, left = new Set<string>()) {
   const byId = new Map(listing.entries.map((e) => [e.id, e]))
   const sites = similarSites(found, (id) => byId.get(id), left)
   display([
-    el('header', { className: 'bar' }, iconButton('back', 'Back to the list', toList), el('h1', {}, 'Similar entries')),
+    backBar('Similar entries', toList, 'Back to the list'),
     el('p', { className: 'muted' }, SIMILAR_INTRO),
     // A changed tick scans again (#267); Leave as is holds until then.
     criteriaChecks(() => void similarScreen(listing)),
@@ -239,18 +239,15 @@ async function confirmExport(then: () => void) {
   }
   sheet((close) => {
     const password = el('input', { type: 'password', className: 'field', ariaLabel: 'Master password' })
-    const error = el('p', { className: 'error', hidden: true })
+    const error = errorLine()
     const ok = busyButton('Export', 'Export', async () => {
       await api.confirmExport(password.value)
       close()
       then()
-    }, (message) => {
-      error.textContent = message
-      error.hidden = false
-    }, 'primary')
+    }, error.show, 'primary')
     enterPresses(ok, password)
     setTimeout(() => password.focus())
-    return [el('b', {}, 'Enter the master password to export'), password, error, ok, button('Cancel', 'Cancel', close, 'link')]
+    return [el('b', {}, 'Enter the master password to export'), password, error.line, ok, button('Cancel', 'Cancel', close, 'link')]
   })
 }
 

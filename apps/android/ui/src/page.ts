@@ -79,3 +79,8 @@ export function iconButton(name: IconName, title: string, onClick: () => void, c
   b.append(svgIcon(name))
   return b
 }
+
+/** A screen's top bar: Back (`label` for a screen reader), then its title. */
+export function backBar(title: string, back: () => void, label = 'Back') {
+  return el('header', { className: 'bar' }, iconButton('back', label, back), el('h1', {}, title))
+}

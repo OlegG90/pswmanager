@@ -244,8 +244,7 @@ pub async fn import_file_at(app: AppHandle, folder: String, name: String) -> Res
         }
         app.state::<ImportedFile>().0.lock().unwrap().take();
         app.state::<WaitingFile>().cancel();
-        let name = crate::phone_files::file_name(&name)?;
-        let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
+        let (path, name) = crate::phone_files::in_browsed(&folder, &name)?;
         let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {name}: {e}"))?);
         import_read(&app, name, content, Some(path))
     })
@@ -286,8 +285,7 @@ pub async fn export_at(app: AppHandle, format: Format, folder: String, name: Str
     off_main(move || {
         let session = app.state::<Session>();
         let export = session.export(format)?;
-        let name = crate::phone_files::file_name(&name)?;
-        let path = crate::phone_files::within_storage(Some(&folder))?.join(&name);
+        let (path, name) = crate::phone_files::in_browsed(&folder, &name)?;
         file_export::write_new(&path, &name, export.content.as_bytes())?;
         session.exported();
         Ok(export.written(name))

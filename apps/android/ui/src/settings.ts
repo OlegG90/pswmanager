@@ -6,7 +6,7 @@ import { formatSize } from '../../../../src/entry-text'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { api, type Cloud, type CloudFile, type Settings, type Status } from './api'
 import { svgIcon } from './icons'
-import { app, applySettings, confirmSheet, iconButton, overlay, screen, screens, sheet, show, snack } from './page'
+import { app, applySettings, confirmSheet, backBar, iconButton, overlay, screen, screens, sheet, show, snack } from './page'
 import { keyFileChooser } from './phone-files'
 import { leaving, slide, type Sliding, swipes } from './slides'
 import { CLOUDS, filesIn, STORES } from './sync'
@@ -200,7 +200,7 @@ async function changeKeyScreen() {
       }, (e) => error.show(String(e))))
   }, (e) => error.show(e.replace(/^Error: /, '')), 'primary')
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', () => (clear(), back())), el('h1', {}, 'Master password')),
+    backBar('Master password', () => (clear(), back())),
     current,
     el('div', { className: 'together' }, password, showHide(password)),
     again,
@@ -217,23 +217,22 @@ async function changeKeyScreen() {
 
 /** Another cipher and / or key derivation, with a Test that times an unlock on this phone. */
 function encryptionScreen(now: Encryption) {
-  const error = el('p', { className: 'error', hidden: true })
-  const showError = (message: string) => ((error.textContent = message), (error.hidden = false))
-  const form = encryptionForm(now, api.encryptionUnlockTime, showError, 'this phone', () => (error.hidden = true))
+  const error = errorLine()
+  const form = encryptionForm(now, api.encryptionUnlockTime, error.show, 'this phone', error.hide)
   // The settings again, read afresh.
   const back = () => void settingsScreen(settingsBack)
   const save = async () => {
     const ms = form.unchanged() ? 0 : await form.measure()
     if (ms === null) return
-    const change = () => void api.setEncryption(form.wanted()).then(() => (back(), snack('Encryption changed')), (e) => showError(String(e)))
+    const change = () => void api.setEncryption(form.wanted()).then(() => (back(), snack('Encryption changed')), (e) => error.show(String(e)))
     if (form.heavy(ms)) confirmSheet(HEAVY_QUESTION, 'Change', change)
     else change()
   }
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Encryption')),
+    backBar('Encryption', back),
     el('div', { className: 'encryption' }, ...form.fields),
-    error,
-    busyButton('Change', 'Save the database with this encryption', save, showError, 'primary'),
+    error.line,
+    busyButton('Change', 'Save the database with this encryption', save, error.show, 'primary'),
   ], back)
 }
 
@@ -270,7 +269,7 @@ function settingsParts(s: Settings, back: () => void): SettingsParts {
   }
   fill()
   return {
-    nodes: [el('header', { className: 'bar' }, iconButton('back', 'Back', goBack), el('h1', {}, 'Settings')), scrolledTabs(bar), body],
+    nodes: [backBar('Settings', goBack), scrolledTabs(bar), body],
     body,
     fill,
     goBack,

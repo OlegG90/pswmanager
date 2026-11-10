@@ -86,24 +86,16 @@ class SystemPlugin(private val activity: Activity) : Plugin(activity) {
 
   /** Android's choice of autofill service, with PswManager offered (the user decides there). */
   @Command
-  fun chooseAutofill(invoke: Invoke) {
-    try {
-      activity.startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:${activity.packageName}")))
-      invoke.resolve(JSObject())
-    } catch (e: Exception) {
-      invoke.reject(e.message ?: e.toString())
-    }
+  fun chooseAutofill(invoke: Invoke) = answer(invoke) {
+    activity.startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:${activity.packageName}")))
+    JSObject()
   }
 
   /** Changes are waiting: they go up in the background if the app cannot send them first. */
   @Command
-  fun scheduleUpload(invoke: Invoke) {
-    try {
-      val args = invoke.parseArgs(UploadArgs::class.java)
-      UploadWorker.schedule(activity.applicationContext, args.state, args.cloud)
-      invoke.resolve(JSObject())
-    } catch (e: Exception) {
-      invoke.reject(e.message ?: e.toString())
-    }
+  fun scheduleUpload(invoke: Invoke) = answer(invoke) {
+    val args = invoke.parseArgs(UploadArgs::class.java)
+    UploadWorker.schedule(activity.applicationContext, args.state, args.cloud)
+    JSObject()
   }
 }

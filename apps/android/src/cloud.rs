@@ -115,7 +115,7 @@ pub async fn open_cloud_file(app: AppHandle, cloud: Cloud, file: CloudFile, fold
 pub async fn sync_with_cloud(app: AppHandle, cloud: Cloud, file: Option<CloudFile>) -> Result<Status, String> {
     off_main(move || {
         let store = app.state::<Store>();
-        if store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())) {
+        if store.read(|s| s.syncs_with_cloud()) {
             return Err("This database syncs with a cloud store already".into());
         }
         let working = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
