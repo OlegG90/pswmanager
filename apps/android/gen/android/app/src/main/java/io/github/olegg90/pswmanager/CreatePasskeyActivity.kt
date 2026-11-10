@@ -57,7 +57,7 @@ class CreatePasskeyActivity : AppCompatActivity() {
     if (answer !is Answer.Ok) return fail(answer.why)
     val choices = answer.json
     if (choices.getBoolean("excluded")) {
-      return finishWith(CreatePublicKeyCredentialDomException(InvalidStateError(), "PswManager has a passkey for this site already"))
+      return finishCreate(CreatePublicKeyCredentialDomException(InvalidStateError(), "PswManager has a passkey for this site already"))
     }
     cloud = choices.getBoolean("cloud")
     val site = choices.getString("site")
