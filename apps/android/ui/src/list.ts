@@ -28,9 +28,11 @@ export function listScreen(opened: Listing) {
   const searchField = el('input', { type: 'search', className: 'field search', value: app.query })
   const status = el('footer', { className: 'status' }, app.syncLine || 'Not synced yet')
   const list = el('ul', { className: 'entries', role: 'listbox', ariaMultiSelectable: 'true', ariaLabel: 'Entries' })
-  const inBin = () => search(listing.entries, '', TRASH).length
+  // Counted once per listing, not on every key typed in the search.
+  let inBin = 0
+  let hasTemplates = false
   const emptyBin = button('Empty the recycle bin…', 'Delete everything in it for good', () =>
-    confirmSheet(`Delete ${entriesCount(inBin())} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
+    confirmSheet(`Delete ${entriesCount(inBin)} permanently? This cannot be undone: other devices delete them too when they sync.`, 'Delete permanently', () =>
       void api.emptyTrash().then(toListSaying('Deleted permanently'), (e) => snack(String(e)))), 'link danger above-list')
   const starters = button('Add starter templates', 'Credit card, bank account, ID document, email account and Wi-Fi', () =>
     void api.addStarterTemplates().then(toListSaying('Starter templates added'), (e) => snack(String(e))), 'link above-list')
@@ -88,19 +90,31 @@ export function listScreen(opened: Listing) {
     void entryScreen(entry.id, listing)
   }
   const press = (entry: Entry) => (sameFilter(app.filter, TRASH) ? quickCopy(entry) : toggle(entry.id))
+  // The rows of the group or tag, made when the listing or the filter changes;
+  // the search only hides those it does not match.
+  let rowsOf: { listing: Listing; filter: Filter } | null = null
+  const nothing = el('li', { className: 'muted empty' }, 'Nothing here.')
   const fill = () => {
+    if (rowsOf?.listing !== listing) {
+      inBin = search(listing.entries, '', TRASH).length
+      hasTemplates = listing.entries.some((e) => e.kind === 'template')
+    }
+    if (rowsOf?.listing !== listing || !sameFilter(rowsOf.filter, app.filter)) {
+      rowsOf = { listing, filter: app.filter }
+      list.replaceChildren(...search(listing.entries, '', app.filter).map((entry) => row(entry, listing, pick, press)), nothing)
+    }
     title.textContent = filterLabel(app.filter)
     searchField.placeholder = `Search ${filterLabel(app.filter)}`
-    emptyBin.hidden = !sameFilter(app.filter, TRASH) || !inBin()
-    starters.hidden = !sameFilter(app.filter, TEMPLATES) || listing.entries.some((e) => e.kind === 'template')
+    emptyBin.hidden = !sameFilter(app.filter, TRASH) || !inBin
+    starters.hidden = !sameFilter(app.filter, TEMPLATES) || hasTemplates
     const newLabel = sameFilter(app.filter, TEMPLATES) ? 'New template' : 'New entry'
     add.title = newLabel
     add.setAttribute('aria-label', newLabel)
-    const shown = search(listing.entries, app.query, app.filter)
+    const shown = new Set(search(listing.entries, app.query, app.filter).map((e) => e.id))
     // What is no longer shown is no longer chosen.
-    for (const id of [...chosen]) if (!shown.some((e) => e.id === id)) chosen.delete(id)
-    list.replaceChildren(...shown.map((entry) => row(entry, listing, pick, press)))
-    if (shown.length === 0) list.append(el('li', { className: 'muted empty' }, 'Nothing here.'))
+    for (const id of [...chosen]) if (!shown.has(id)) chosen.delete(id)
+    for (const item of list.querySelectorAll<HTMLElement>('li[data-id]')) item.hidden = !shown.has(item.dataset.id!)
+    nothing.hidden = shown.size > 0
     marked()
   }
   searchField.addEventListener('input', () => {

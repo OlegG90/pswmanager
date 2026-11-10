@@ -44,6 +44,14 @@ describe('search', () => {
     expect(titles(search(entries, 'nothing'))).toEqual([])
   })
 
+  it('searches a changed entry, a new object, by what it says now', () => {
+    const before = entry('Mail', { notes: 'old note' })
+    expect(titles(search([before], 'old'))).toEqual(['Mail'])
+    const after = { ...before, notes: 'new note' }
+    expect(titles(search([after], 'old'))).toEqual([])
+    expect(titles(search([after], 'new'))).toEqual(['Mail'])
+  })
+
   it('shows each group, templates and the trash only in their own', () => {
     const shown = (g: Parameters<typeof group>[0]) => titles(search(entries, '', group(g), NOW))
     expect(shown('favorites')).toEqual(['Mail'])
