@@ -148,7 +148,8 @@ class PswmCredentialService : CredentialProviderService() {
     callback: OutcomeReceiver<BeginGetCredentialResponse, GetCredentialException>,
   ) {
     // Off the main thread: the lookup reads the database, which a sync or a
-    // save may hold a moment, and who asks (the browser allowlist the first time).
+    // save may hold a moment, and telling who asks reads the browser allowlist
+    // the first time.
     thread {
       val response = try {
         if (ProviderBridge.isUnlocked()) {

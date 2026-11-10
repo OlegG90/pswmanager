@@ -202,7 +202,7 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
     Status { database, unlocked: session.is_unlocked() }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>) -> Status {
     status_of(&store, &session)
 }
@@ -587,7 +587,7 @@ pub(crate) fn remember_key_file(store: &Store, picked: &documents::Picked) -> Re
 }
 
 /// The database is unlocked without a key file from now on.
-#[tauri::command]
+#[tauri::command(async)]
 fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
     forget_key_file(&store)?;
     Ok(status_of(&store, &session))
@@ -691,7 +691,7 @@ async fn copy_totp(app: AppHandle, id: String) -> Result<u64, String> {
 
 /// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
 /// default browser (web addresses only).
-#[tauri::command]
+#[tauri::command(async)]
 fn open_url(app: AppHandle, session: State<Session>, id: String, field: Option<String>) -> Result<(), String> {
     let url = session.with(|v| Some(v.link(&id, field.as_deref())))?.ok_or("Not a web address")?;
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
