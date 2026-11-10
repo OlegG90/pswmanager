@@ -91,6 +91,12 @@ impl State {
         self.current()?.remote.as_ref()
     }
 
+    /// Whether the current database syncs with a cloud store, whose uploads
+    /// wait for a network.
+    pub fn syncs_with_cloud(&self) -> bool {
+        self.remote().is_some_and(|r| r.location.cloud().is_some())
+    }
+
     pub fn current_mut(&mut self) -> Option<&mut Known> {
         let file = self.current.clone()?;
         self.databases.iter_mut().find(|d| d.file == file)

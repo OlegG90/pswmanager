@@ -107,7 +107,7 @@ fn asking(env: &mut Env, origin: &JString, client_data_hash: Option<&JByteArray>
 
 /// Whether the database syncs with a cloud store (an upload then waits for a network).
 fn syncs_with_cloud(env: &mut Env, state: &JString) -> Result<bool, String> {
-    with_store(env, state, |store| store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())))
+    with_store(env, state, |store| store.read(|s| s.syncs_with_cloud()))
 }
 
 /// The answer to a JNI call that should not fail: `false` on a panic.

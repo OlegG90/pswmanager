@@ -67,13 +67,9 @@ class BiometricPlugin(private val activity: Activity) : Plugin(activity) {
 
   /** Deletes the sealed key and the Keystore key. */
   @Command
-  fun forget(invoke: Invoke) {
-    try {
-      BiometricKey.forget(activity)
-      invoke.resolve(JSObject())
-    } catch (e: Exception) {
-      invoke.reject(e.message ?: e.toString())
-    }
+  fun forget(invoke: Invoke) = answer(invoke) {
+    BiometricKey.forget(activity)
+    JSObject()
   }
 
   private fun prompt(invoke: Invoke, title: String, cipher: Cipher, done: (Cipher) -> JSObject) {

@@ -2,7 +2,7 @@ import { busyButton, button, el, errorLine } from '../../../../src/dom'
 import { input, showHide, strengthMeter } from '../../../../src/editor-parts'
 import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-password'
 import { api, type Cloud, type CloudFile, type Picked, type Status } from './api'
-import { app, iconButton, screen, show, snack } from './page'
+import { app, backBar, iconButton, screen, show, snack } from './page'
 import { browsePhone, onPhone, phoneFolder } from './phone-files'
 import { CLOUDS, filesIn, signIn, STORES } from './sync'
 import { unlockScreen } from './unlock'
@@ -75,7 +75,7 @@ function newDatabaseScreen() {
     if (picked) await create({ kind: 'folder', folder: picked })
   }, fail, 'card')
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'New database')),
+    backBar('New database', chooseScreen),
     name,
     el('div', { className: 'together' }, password, showHide(password)),
     again,
@@ -112,7 +112,7 @@ function filesScreen(cloud: Cloud, files: CloudFile[]) {
   const error = errorLine()
   const pick = (file: CloudFile) => button(file.name, `Use ${file.name}`, () => folderScreen(cloud, files, file), 'card')
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', chooseScreen), el('h1', {}, 'Pick the file')),
+    backBar('Pick the file', chooseScreen),
     el('p', { className: 'muted' }, folder),
     ...(files.length ? files.map(pick) : [el('p', {}, 'There is no .kdbx in the app’s folder yet. Put one there from PswManager on Windows (Settings → Sync → Upload) and come back.')]),
     el('p', { className: 'muted' }, `PswManager sees only its app folder in ${name}. PswManager for Windows opens the same file there.`),
@@ -143,7 +143,7 @@ function folderScreen(cloud: Cloud, files: CloudFile[], file: CloudFile) {
   }, error.show)
   const back = () => filesScreen(cloud, files)
   show([
-    el('header', { className: 'bar' }, iconButton('back', 'Back', back), el('h1', {}, 'Where to keep it')),
+    backBar('Where to keep it', back),
     el('p', {}, `${file.name} syncs with ${STORES[cloud].name}. A copy of it is kept in a folder on this phone, where you can see it and back it up; it is updated after every change.`),
     choose,
     chosen,

@@ -8,7 +8,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.CreatePasswordRequest
 import androidx.credentials.CreatePasswordResponse
 import androidx.credentials.exceptions.CreateCredentialCancellationException
-import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 
@@ -32,11 +31,7 @@ class CreatePasswordActivity : AppCompatActivity() {
     if (savedInstanceState != null) return cancel()
     val provided = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
     val request = provided?.callingRequest as? CreatePasswordRequest ?: return fail("No password to save")
-    val caller = try {
-      Caller.of(this, provided.callingAppInfo)
-    } catch (e: Exception) {
-      return fail("Cannot tell who asks: ${e.message}")
-    }
+    val caller = Caller.read(this, provided.callingAppInfo).getOrElse { return fail("Cannot tell who asks: ${it.message}") }
     saving = SaveLogin(this, caller, request.id, request.password, ::saved, ::cancel, ::fail)
     if (ProviderBridge.isUnlocked()) saving.choose() else unlock.launch(Intent(this, UnlockActivity::class.java))
   }
@@ -48,14 +43,7 @@ class CreatePasswordActivity : AppCompatActivity() {
     finish()
   }
 
-  private fun fail(why: String) = finishWith(CreateCredentialUnknownException(why))
+  private fun fail(why: String) = finishCreate(CreateCredentialUnknownException(why))
 
-  private fun cancel() = finishWith(CreateCredentialCancellationException("Cancelled"))
-
-  private fun finishWith(exception: CreateCredentialException) {
-    val result = Intent()
-    PendingIntentHandler.setCreateCredentialException(result, exception)
-    setResult(RESULT_OK, result)
-    finish()
-  }
+  private fun cancel() = finishCreate(CreateCredentialCancellationException("Cancelled"))
 }

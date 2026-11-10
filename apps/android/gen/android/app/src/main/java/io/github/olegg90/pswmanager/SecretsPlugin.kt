@@ -40,12 +40,13 @@ class SecretsPlugin(private val activity: Activity) : Plugin(activity) {
     Keystore.delete(activity, invoke.parseArgs(SecretName::class.java).name)
     JSObject()
   }
+}
 
-  private fun answer(invoke: Invoke, work: () -> JSObject) {
-    try {
-      invoke.resolve(work())
-    } catch (e: Exception) {
-      invoke.reject(e.message ?: e.toString())
-    }
+/** Answers a plugin command with what `work` gives, or rejects it with the error `work` throws. */
+fun answer(invoke: Invoke, work: () -> JSObject) {
+  try {
+    invoke.resolve(work())
+  } catch (e: Exception) {
+    invoke.reject(e.message ?: e.toString())
   }
 }

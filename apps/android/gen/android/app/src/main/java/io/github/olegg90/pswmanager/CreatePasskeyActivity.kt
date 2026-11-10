@@ -13,7 +13,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.exceptions.CreateCredentialCancellationException
-import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.domerrors.InvalidStateError
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
@@ -48,11 +47,7 @@ class CreatePasskeyActivity : AppCompatActivity() {
     if (savedInstanceState != null) return cancel()
     val provided = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
     request = provided?.callingRequest as? CreatePublicKeyCredentialRequest ?: return fail("Nothing to make a passkey for")
-    caller = try {
-      Caller.of(this, provided.callingAppInfo)
-    } catch (e: Exception) {
-      return fail("Cannot tell who asks: ${e.message}")
-    }
+    caller = Caller.read(this, provided.callingAppInfo).getOrElse { return fail("Cannot tell who asks: ${it.message}") }
     if (ProviderBridge.isUnlocked()) choose() else unlock.launch(Intent(this, UnlockActivity::class.java))
   }
 
@@ -106,14 +101,7 @@ class CreatePasskeyActivity : AppCompatActivity() {
     finish()
   }
 
-  private fun fail(why: String) = finishWith(CreateCredentialUnknownException(why))
+  private fun fail(why: String) = finishCreate(CreateCredentialUnknownException(why))
 
-  private fun cancel() = finishWith(CreateCredentialCancellationException("Cancelled"))
-
-  private fun finishWith(exception: CreateCredentialException) {
-    val result = Intent()
-    PendingIntentHandler.setCreateCredentialException(result, exception)
-    setResult(RESULT_OK, result)
-    finish()
-  }
+  private fun cancel() = finishCreate(CreateCredentialCancellationException("Cancelled"))
 }

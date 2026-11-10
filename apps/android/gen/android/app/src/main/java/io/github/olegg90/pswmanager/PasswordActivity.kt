@@ -7,7 +7,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PasswordCredential
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.PendingIntentHandler
 import kotlin.concurrent.thread
@@ -28,11 +27,7 @@ class PasswordActivity : AppCompatActivity() {
     if (savedInstanceState != null) return cancel()
     val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return fail("No login chosen")
     val request = PendingIntentHandler.retrieveProviderGetCredentialRequest(intent) ?: return fail("Cannot tell who asks")
-    val caller = try {
-      Caller.of(this, request.callingAppInfo)
-    } catch (e: Exception) {
-      return fail("Cannot tell who asks: ${e.message}")
-    }
+    val caller = Caller.read(this, request.callingAppInfo).getOrElse { return fail("Cannot tell who asks: ${it.message}") }
     val title = intent.getStringExtra(ProviderBridge.EXTRA_TITLE) ?: ""
     verifyUser(this, "Use your password", title, { release(id, title, caller, false) }, ::cancel, ::fail)
   }
@@ -58,15 +53,8 @@ class PasswordActivity : AppCompatActivity() {
     finish()
   }
 
-  private fun fail(why: String) = finishWith(GetCredentialUnknownException(why))
+  private fun fail(why: String) = finishGet(GetCredentialUnknownException(why))
 
-  private fun cancel() = finishWith(GetCredentialCancellationException("Cancelled"))
-
-  private fun finishWith(exception: GetCredentialException) {
-    val result = Intent()
-    PendingIntentHandler.setGetCredentialException(result, exception)
-    setResult(RESULT_OK, result)
-    finish()
-  }
+  private fun cancel() = finishGet(GetCredentialCancellationException("Cancelled"))
 
 }

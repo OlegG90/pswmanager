@@ -32,10 +32,15 @@ struct UploadArgs<'a> {
 }
 
 impl<R: Runtime> System<R> {
+    /// Asks the plugin to do `method`, which answers nothing.
+    fn run(&self, method: &str, args: impl Serialize) -> Result<(), String> {
+        self.0.run_mobile_plugin::<serde_json::Value>(method, args).map(|_| ()).map_err(|e| e.to_string())
+    }
+
     /// The app's window follows the *Allow screenshots* setting at once
     /// (other screens read it as they open).
     pub fn apply_screenshots(&self) -> Result<(), String> {
-        self.0.run_mobile_plugin::<serde_json::Value>("applyScreenshots", ()).map(|_| ()).map_err(|e| e.to_string())
+        self.run("applyScreenshots", ())
     }
 
     pub fn autofill_status(&self) -> Result<AutofillStatus, String> {
@@ -44,12 +49,12 @@ impl<R: Runtime> System<R> {
 
     /// Opens Android's choice of autofill service, with PswManager offered.
     pub fn choose_autofill(&self) -> Result<(), String> {
-        self.0.run_mobile_plugin::<serde_json::Value>("chooseAutofill", ()).map(|_| ()).map_err(|e| e.to_string())
+        self.run("chooseAutofill", ())
     }
 
     /// Asks WorkManager to upload what the state file `state` says is waiting,
     /// once there is a network for a `cloud` store (`UploadWorker.kt`).
     pub fn schedule_upload(&self, state: &str, cloud: bool) -> Result<(), String> {
-        self.0.run_mobile_plugin::<serde_json::Value>("scheduleUpload", UploadArgs { state, cloud }).map(|_| ()).map_err(|e| e.to_string())
+        self.run("scheduleUpload", UploadArgs { state, cloud })
     }
 }

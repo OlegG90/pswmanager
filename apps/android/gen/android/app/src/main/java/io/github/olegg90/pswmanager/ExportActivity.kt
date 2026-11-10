@@ -41,7 +41,7 @@ class ExportActivity : AppCompatActivity() {
     if (callingPackage != PLAY_SERVICES || !ExportRegistration.matches(this, request.credId)) {
       return refuse("PswManager exports only through Android's transfer")
     }
-    val destination = label(request.callingAppInfo.packageName)
+    val destination = appLabel(request.callingAppInfo.packageName)
     val database = ExportRegistration.name(this) ?: "PswManager"
     val pad = (24 * resources.displayMetrics.density).toInt()
     password = EditText(this).apply {
@@ -71,14 +71,6 @@ class ExportActivity : AppCompatActivity() {
     })
     if (savedInstanceState == null && offered) askFingerprint()
   }
-
-  /** The app the entries go to, by its name when Android tells it. */
-  private fun label(packageName: String): String =
-    try {
-      packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
-    } catch (e: Exception) {
-      packageName
-    }
 
   private fun fingerprintOffered(): Boolean =
     BiometricKey.available(this) && BiometricKey.isStored(this) && ProviderBridge.fingerprintAllowed(ProviderBridge.state(this))

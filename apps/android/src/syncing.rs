@@ -97,7 +97,7 @@ pub(crate) fn upload_pending(app: AppHandle) {
 /// when a change is saved, as the app may go at any moment (Back ends it at
 /// once), and again on going to the background or locking.
 fn schedule_background_upload(app: &AppHandle, store: &Store) {
-    let cloud = store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some()));
+    let cloud = store.read(|s| s.syncs_with_cloud());
     let Ok(data) = app.path().app_data_dir() else { return };
     // Only a fallback: the upload that follows may well send the changes.
     let _ = app.state::<crate::system::System<Wry>>().schedule_upload(&data.join(crate::app::STATE_FILE).to_string_lossy(), cloud);
@@ -147,7 +147,7 @@ pub async fn stop_syncing(app: AppHandle) -> Result<Status, String> {
     off_main(move || {
         while_not_syncing(&app, || {
             let store = app.state::<Store>();
-            if !store.read(|s| s.remote().is_some_and(|r| r.location.cloud().is_some())) {
+            if !store.read(|s| s.syncs_with_cloud()) {
                 return Err("This database does not sync with a cloud store".into());
             }
             crate::visible::stop_syncing(&store)?;

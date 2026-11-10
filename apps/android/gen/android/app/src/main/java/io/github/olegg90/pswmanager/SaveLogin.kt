@@ -100,7 +100,7 @@ class SaveLogin(
 
   /** Saves, the user verified; asks to confirm the app first when the entry needs it. */
   private fun store(id: String?, entry: String, confirmed: Boolean) {
-    val title = caller.origin?.let { Uri.parse(it).host } ?: appName(caller.packageName)
+    val title = caller.origin?.let { Uri.parse(it).host } ?: activity.appLabel(caller.packageName)
     thread {
       val answer = Answer.of(ProviderBridge.saveLogin(id, caller.origin, caller.packageName, caller.certificate, title, username, password, confirmed))
       if (answer is Answer.Ok) UploadWorker.schedule(activity.applicationContext, ProviderBridge.state(activity), cloud)
@@ -117,13 +117,5 @@ class SaveLogin(
         }
       }
     }
-  }
-
-  /** The app's name as the phone shows it, else its package (Android may hide other apps). */
-  private fun appName(packageName: String): String = try {
-    val packageManager = activity.packageManager
-    packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
-  } catch (e: Exception) {
-    packageName
   }
 }

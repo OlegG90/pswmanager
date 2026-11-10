@@ -1,6 +1,8 @@
 package io.github.olegg90.pswmanager
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import androidx.annotation.RequiresApi
@@ -9,7 +11,10 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.provider.CallingAppInfo
+import androidx.credentials.provider.PendingIntentHandler
 import androidx.fragment.app.FragmentActivity
 
 /**
@@ -26,6 +31,15 @@ class Caller(val origin: String?, val packageName: String, val certificate: Byte
   val label: String get() = origin ?: packageName
 
   companion object {
+    /** Who asks, or why that cannot be told (the list of privileged browsers cannot be read). */
+    @RequiresApi(34)
+    fun read(context: Context, app: CallingAppInfo): Result<Caller> =
+      try {
+        Result.success(of(context, app))
+      } catch (e: Exception) {
+        Result.failure(e)
+      }
+
     /** Throws when the list of privileged browsers cannot be read: who asks is then unknown. */
     @RequiresApi(34)
     fun of(context: Context, app: CallingAppInfo): Caller {
@@ -105,3 +119,29 @@ fun confirmApp(activity: FragmentActivity, packageName: String, entry: String, c
     .setOnCancelListener { cancelled() }
     .show()
 }
+
+/** Ends a Credential Manager request to get a credential with `exception`. */
+@RequiresApi(34)
+fun Activity.finishGet(exception: GetCredentialException) {
+  val result = Intent()
+  PendingIntentHandler.setGetCredentialException(result, exception)
+  setResult(Activity.RESULT_OK, result)
+  finish()
+}
+
+/** Ends a Credential Manager request to save a credential with `exception`. */
+@RequiresApi(34)
+fun Activity.finishCreate(exception: CreateCredentialException) {
+  val result = Intent()
+  PendingIntentHandler.setCreateCredentialException(result, exception)
+  setResult(Activity.RESULT_OK, result)
+  finish()
+}
+
+/** An app's name as the phone shows it, else its package (Android may hide other apps). */
+fun Context.appLabel(packageName: String): String =
+  try {
+    packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
+  } catch (e: Exception) {
+    packageName
+  }
