@@ -42,7 +42,6 @@ export const phoneFolder = (what: string) =>
 /** A key file to choose (`make`: a new one to make) (#207). */
 export function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
   onPhone<Picked>(make ? 'Where the new key file goes' : 'Where the key file is',
-    // Rust lists key files first (`is_key_file`).
     (finish, picker) => browsePhone({
       ...(make ? { make: api.createKeyFileAt, makeName: NEW_KEY_FILE } : { pick: api.keyFileAt }),
       done: finish,
@@ -55,10 +54,10 @@ export function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fa
 /** The name a new key file is offered under. */
 const NEW_KEY_FILE = 'PswManager.keyx'
 
-/** The phone's files, folder by folder, in a sheet (All files access on),
- *  key files first; then files `first` likes, if given. `pick` takes the file tapped; `make`
- *  makes one, named here, in the folder shown; `folder` takes the folder
- *  shown. `done` gets what they gave, or null when the sheet closed without;
+/** The phone's files, folder by folder, in a sheet (All files access on).
+ *  Rust lists key files first (`is_key_file`); files `first` likes, if
+ *  given, go before the rest. `pick` takes the file tapped; `make` makes
+ *  one, named here, in the folder shown; `folder` takes the folder shown. `done` gets what they gave, or null when the sheet closed without;
  *  a failure is said in the sheet. */
 export function browsePhone<T>(how: {
   first?: (name: string) => boolean
