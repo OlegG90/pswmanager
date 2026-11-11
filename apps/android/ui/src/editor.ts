@@ -76,7 +76,7 @@ export async function editorScreen(id: string | null, listing: Listing, back: ()
     knownTags: tagCounts(listing.entries).map(([tag]) => tag),
     attachments,
     files: {
-      pick: () => onPhone('The file to attach', (done, picker) => browsePhone({ first: () => false, pick: api.attachFileAt, done, picker }), api.pickFileToAttach),
+      pick: () => onPhone('The file to attach', (done, picker) => browsePhone({ pick: api.attachFileAt, done, picker }), api.pickFileToAttach),
       release: api.releaseFiles,
       askName,
     },
