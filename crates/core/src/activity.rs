@@ -15,10 +15,12 @@ impl Default for Activity {
 }
 
 impl Activity {
+    /// The user did something now.
     pub fn touch(&self) {
         *self.0.lock().unwrap() = Instant::now();
     }
 
+    /// How long since the user last did something.
     pub fn idle_for(&self) -> Duration {
         self.0.lock().unwrap().elapsed()
     }
