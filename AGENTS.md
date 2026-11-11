@@ -73,7 +73,7 @@ npm run cleanup               # removes builds and generated files (target, dist
   on forks); install it with `adb install -r <apk>`.
 - The **Google Play build** (#394) is the same code without All files access (`PSWM_PLAY_BUILD=true`). To
   try it, start the *Android* workflow by hand with *play* on: its APK replaces the usual one in the
-  artifact, beside `pswmanager-play-aab`.
+  artifact, beside `pswmanager-play-aab`. It needs the release key's secrets (no Play build on a fork).
 - The Kotlin unit tests (`apps/android/gen/android/app/src/test`, plain JVM, no Android classes) run in
   the same workflow, after the APK.
 - Check changes to the Android UI or its Kotlin plugins on a real phone before the pull request.

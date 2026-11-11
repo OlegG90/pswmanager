@@ -185,11 +185,15 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
    *  leaves the permission out, and Android's setting would show its switch off. */
   @Command
   fun allFilesAccess(invoke: Invoke) {
-    // From Android 11; before, the app has no such access.
-    val offered = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+    invoke.resolve(JSObject().put("granted", allFilesOffered && Environment.isExternalStorageManager()).put("offered", allFilesOffered))
+  }
+
+  /** From Android 11 (before, the app has no such access), when the manifest
+   *  asks for it; the manifest does not change while the app runs. */
+  private val allFilesOffered by lazy {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
       activity.packageManager.getPackageInfo(activity.packageName, PackageManager.GET_PERMISSIONS)
         .requestedPermissions.orEmpty().contains(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-    invoke.resolve(JSObject().put("granted", offered && Environment.isExternalStorageManager()).put("offered", offered))
   }
 
   /** Android's page that turns All files access on for this app. */

@@ -80,6 +80,10 @@ jobs:
           echo "ANDROID_KEYSTORE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
+      # Only the release build leaves All files access out, and it needs the key.
+      - if: inputs.play == true && steps.key.outputs.signed != 'true'
+        run: echo "::error::The Google Play build needs the release key's secrets" && exit 1
+
       - if: steps.key.outputs.signed == 'true'
         run: npx tauri android build --apk ${{ inputs.play == true && '--aab' || '' }} --target aarch64 --ci
       - if: steps.key.outputs.signed != 'true'

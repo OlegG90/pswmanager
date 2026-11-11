@@ -149,6 +149,8 @@ jobs:
           npx tauri android build --aab --target aarch64 --ci
           aab="$(find apps/android/gen/android/app/build/outputs/bundle -name '*-release.aab' | head -1)"
           if [ -z "$aab" ]; then echo "::error::No release bundle was built"; exit 1; fi
+          # A bundle is signed when it carries the key's signature block.
+          if ! unzip -l "$aab" | grep -qE 'META-INF/[^/]+\.(RSA|EC|DSA)$'; then echo "::error::The release bundle is not signed"; exit 1; fi
           mkdir -p play
           cp "$aab" play/pswmanager-play.aab
 
