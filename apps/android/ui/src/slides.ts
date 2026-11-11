@@ -1,5 +1,3 @@
-import { screens } from './page'
-
 // The touch idioms: sideways swipes, and the panels that come in with the finger.
 
 /** Sideways swipes across `target` (#194) bring a panel in with the finger:
@@ -77,35 +75,6 @@ function afterSlide(node: HTMLElement, done: () => void) {
   const ended = (e: TransitionEvent) => e.target === node && finish()
   node.addEventListener('transitionend', ended)
   setTimeout(finish, 400)
-}
-
-/** The screen shown, taken away to the right by a swipe; let go far enough, `away` runs. */
-export function leaving(node: HTMLElement, away: () => void): Sliding {
-  let moved = 0
-  const place = (x: string) => (node.style.transform = x)
-  return {
-    follow: (dx) => {
-      node.style.transition = 'none'
-      moved = Math.max(0, dx)
-      place(`translateX(${moved}px)`)
-    },
-    release: (go) => {
-      const before = screens.current
-      // The next screen first, then the node back in place: no flash of the
-      // old one. Not when Back already left this screen meanwhile.
-      const done = () => {
-        if (go && screens.current === before) away()
-        node.style.transition = ''
-        place('')
-      }
-      if (!go && moved === 0) return done()
-      node.style.transition = 'transform 200ms ease-out'
-      requestAnimationFrame(() => {
-        afterSlide(node, done)
-        place(go ? 'translateX(100%)' : 'translateX(0)')
-      })
-    },
-  }
 }
 
 /** A panel coming in over `shade` from its side (`sign` -1: the left, 1: the
