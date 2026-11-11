@@ -2,119 +2,41 @@ package io.github.olegg90.pswmanager
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.InputType
-import android.view.Gravity
-import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.annotation.RequiresApi
-import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.provider.BeginGetCredentialResponse
 import androidx.credentials.provider.PendingIntentHandler
-import kotlin.concurrent.thread
 
 /**
  * Unlocking PswManager for another app, outside the app's window (#161): the
  * fingerprint (the key sealed for biometric unlock) when it is allowed, else
  * the master password. The database is then unlocked in Rust for the app too,
- * and [done] answers what the other app asked for, now unlocked. Captured on
- * screen only if the settings allow screenshots.
+ * and [done] answers what the other app asked for, now unlocked.
  */
-abstract class UnlockScreen : AppCompatActivity() {
+abstract class UnlockScreen : PasswordScreen() {
   /** What the unlock is for, under the title. */
   protected abstract val purpose: String
 
   /** Unlocked: answers the request that opened the screen, and closes it. */
   protected abstract fun done()
 
-  private lateinit var password: EditText
-  private lateinit var message: TextView
-  private lateinit var unlockButton: Button
-  /** An unlock is running: no second one meanwhile. */
-  private var busy = false
+  override val heading = "Unlock PswManager"
+  override val action = "Unlock"
+  override val working = "Unlocking…"
+  override val promptTitle = "Unlock PswManager"
+  override val invalidated = "A new fingerprint or face was added: unlock with the master password, then in PswManager once"
+
+  override fun body(fingerprint: Boolean) = purpose
+
+  override fun attempt(typed: String?, sealed: String?) =
+    Answer.of(ProviderBridge.unlock(applicationContext, ProviderBridge.state(this), typed, sealed))
+
+  override fun succeeded(answer: Answer.Ok) = done()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    Screenshots.apply(this)
-    keepOutOfAutofill(this)
-    val pad = (24 * resources.displayMetrics.density).toInt()
-    password = EditText(this).apply {
-      hint = "Master password"
-      inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-      imeOptions = EditorInfo.IME_ACTION_DONE
-      setOnEditorActionListener { _, _, _ -> unlockWith(text.toString(), null); true }
-    }
-    message = TextView(this)
-    unlockButton = Button(this).apply { text = "Unlock"; setOnClickListener { unlockWith(password.text.toString(), null) } }
-    val offered = fingerprintOffered()
-    val cancel = Button(this).apply { text = "Cancel"; setOnClickListener { finish() } }
-    setContentView(LinearLayout(this).apply {
-      orientation = LinearLayout.VERTICAL
-      gravity = Gravity.CENTER_VERTICAL
-      setPadding(pad, pad, pad, pad)
-      addView(TextView(this@UnlockScreen).apply { text = "Unlock PswManager"; textSize = 22f })
-      addView(TextView(this@UnlockScreen).apply { text = purpose })
-      addView(password)
-      addView(message)
-      addView(unlockButton)
-      if (offered) addView(Button(this@UnlockScreen).apply { text = "Use fingerprint"; setOnClickListener { askFingerprint() } })
-      addView(cancel)
-    })
+    showScreen()
     if (ProviderBridge.isUnlocked()) return done()
-    if (savedInstanceState == null && offered) askFingerprint()
-  }
-
-  private fun fingerprintOffered(): Boolean =
-    BiometricKey.available(this) && BiometricKey.isStored(this) && ProviderBridge.fingerprintAllowed(ProviderBridge.state(this))
-
-  private fun askFingerprint() {
-    if (busy) return
-    val cipher = try {
-      BiometricKey.decrypting(this) ?: return
-    } catch (e: BiometricKey.Invalidated) {
-      return show("A new fingerprint or face was added: unlock with the master password, then in PswManager once")
-    } catch (e: Exception) {
-      return show(e.message ?: e.toString())
-    }
-    BiometricKey.prompt(this, "Unlock PswManager", cipher, { ready ->
-      val sealed = try {
-        BiometricKey.open(this, ready)
-      } catch (e: Exception) {
-        return@prompt show(e.message ?: e.toString())
-      }
-      unlockWith(null, sealed)
-    }) { cancelled, text -> if (!cancelled) show(text) }
-  }
-
-  /**
-   * Unlocks off the main thread; with the sealed key, or the typed password
-   * (a Kotlin string cannot be wiped; the field is cleared when this closes).
-   */
-  private fun unlockWith(typed: String?, sealed: String?) {
-    if (busy) return
-    busy = true
-    unlockButton.isEnabled = false
-    show("Unlocking…")
-    thread {
-      val answer = Answer.of(ProviderBridge.unlock(applicationContext, ProviderBridge.state(this), typed, sealed))
-      if (answer is Answer.Failed && answer.stale) BiometricKey.forget(applicationContext)
-      runOnUiThread {
-        busy = false
-        unlockButton.isEnabled = true
-        if (answer is Answer.Ok) done() else show(answer.why)
-      }
-    }
-  }
-
-  override fun onDestroy() {
-    password.text.clear()
-    super.onDestroy()
-  }
-
-  private fun show(text: String) {
-    message.text = text
+    askFirst(savedInstanceState)
   }
 }
 
