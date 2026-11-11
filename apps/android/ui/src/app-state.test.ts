@@ -117,21 +117,16 @@ describe('appState', () => {
     expect(app.touched()).toBe(true)
   })
 
-  it('syncs on its own when the last sync is old enough, while unlocked', () => {
+  it('syncs on coming back when the last sync is a minute old, while unlocked', () => {
     const { app, at } = clocked()
     app.unlocked = true
     app.synced(synced(false))
     at(59_999)
-    expect(app.syncDue(60_000)).toBe(false)
+    expect(app.returnSyncDue()).toBe(false)
     at(60_000)
-    expect(app.syncDue(60_000)).toBe(true)
     expect(app.returnSyncDue()).toBe(true)
-    expect(app.syncDue(0)).toBe(false)
-    expect(app.everySyncDue()).toBe(false)
-    at(5 * 60_000)
-    expect(app.everySyncDue()).toBe(true)
     app.unlocked = false
-    expect(app.syncDue(60_000)).toBe(false)
+    expect(app.returnSyncDue()).toBe(false)
   })
 
   it('has a sync to start by hand only with a cloud store, and swipes unless turned off', () => {
