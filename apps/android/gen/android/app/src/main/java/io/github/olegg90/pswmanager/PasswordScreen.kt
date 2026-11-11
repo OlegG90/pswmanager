@@ -63,10 +63,10 @@ abstract class PasswordScreen : AppCompatActivity() {
       hint = "Master password"
       inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
       imeOptions = EditorInfo.IME_ACTION_DONE
-      setOnEditorActionListener { _, _, _ -> go(text.toString(), null); true }
+      setOnEditorActionListener { _, _, _ -> submit(text.toString(), null); true }
     }
     message = TextView(this)
-    actionButton = Button(this).apply { text = action; setOnClickListener { go(password.text.toString(), null) } }
+    actionButton = Button(this).apply { text = action; setOnClickListener { submit(password.text.toString(), null) } }
     offered = BiometricKey.available(this) && BiometricKey.isStored(this) && ProviderBridge.fingerprintAllowed(ProviderBridge.state(this))
     setContentView(LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
@@ -102,7 +102,7 @@ abstract class PasswordScreen : AppCompatActivity() {
       } catch (e: Exception) {
         return@prompt show(e.message ?: e.toString())
       }
-      go(null, sealed)
+      submit(null, sealed)
     }) { cancelled, text -> if (!cancelled) show(text) }
   }
 
@@ -111,7 +111,7 @@ abstract class PasswordScreen : AppCompatActivity() {
    * password (a Kotlin string cannot be wiped; the field is cleared when this
    * closes).
    */
-  private fun go(typed: String?, sealed: String?) {
+  private fun submit(typed: String?, sealed: String?) {
     if (busy) return
     busy = true
     actionButton.isEnabled = false
