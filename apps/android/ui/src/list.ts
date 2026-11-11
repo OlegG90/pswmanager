@@ -92,16 +92,17 @@ export function listScreen(opened: Listing) {
   const press = (entry: Entry) => (sameFilter(app.filter, TRASH) ? quickCopy(entry) : toggle(entry.id))
   // The rows of the group or tag, made when the listing or the filter changes;
   // the search only hides those it does not match.
-  let rowsOf: { listing: Listing; filter: Filter } | null = null
-  const nothing = el('li', { className: 'muted empty' }, 'Nothing here.')
+  let built: { listing: Listing; filter: Filter } | null = null
+  const emptyRow = el('li', { className: 'muted empty' }, 'Nothing here.')
   const fill = () => {
-    if (rowsOf?.listing !== listing) {
+    const newListing = built?.listing !== listing
+    if (newListing) {
       inBin = search(listing.entries, '', TRASH).length
       hasTemplates = listing.entries.some((e) => e.kind === 'template')
     }
-    if (rowsOf?.listing !== listing || !sameFilter(rowsOf.filter, app.filter)) {
-      rowsOf = { listing, filter: app.filter }
-      list.replaceChildren(...search(listing.entries, '', app.filter).map((entry) => row(entry, listing, pick, press)), nothing)
+    if (newListing || !sameFilter(built!.filter, app.filter)) {
+      built = { listing, filter: app.filter }
+      list.replaceChildren(...search(listing.entries, '', app.filter).map((entry) => row(entry, listing, pick, press)), emptyRow)
     }
     title.textContent = filterLabel(app.filter)
     searchField.placeholder = `Search ${filterLabel(app.filter)}`
@@ -114,7 +115,7 @@ export function listScreen(opened: Listing) {
     // What is no longer shown is no longer chosen.
     for (const id of [...chosen]) if (!shown.has(id)) chosen.delete(id)
     for (const item of list.querySelectorAll<HTMLElement>('li[data-id]')) item.hidden = !shown.has(item.dataset.id!)
-    nothing.hidden = shown.size > 0
+    emptyRow.hidden = shown.size > 0
     marked()
   }
   searchField.addEventListener('input', () => {

@@ -62,7 +62,7 @@ as a **visible file** the user can see and back up:
 - After every save and every sync that changed the working copy, the working copy is written there (in
   place, read back). Offline changes reach it at once, so it always holds the latest state, also what has
   not reached the store yet. A sync that changed nothing leaves the file alone (it is not even read), so a
-  copy the user removed is made again with the next change.
+  copy the user removed is made again, and one something else changed is reported, with the next change.
 - It is a **copy for the user**, never read back: Keepass2Android and the PC use the store itself. If
   something else changed it since the app last wrote it, the app does not overwrite it and says so.
 - A file of the same name already in the folder at first run is kept as `<name>.kdbx.bak` before it is
