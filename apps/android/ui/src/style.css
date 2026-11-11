@@ -259,6 +259,11 @@ main.list-screen {
   border: 0;
 }
 
+/* A row the search does not match. */
+.entries li[hidden] {
+  display: none;
+}
+
 .icon {
   flex: none;
   width: 36px;

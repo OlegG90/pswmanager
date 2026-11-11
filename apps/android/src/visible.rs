@@ -18,7 +18,7 @@ const KEY: &str = "visibleCopy";
 /// the database's file), to come back when it syncs with a store again.
 const STOPPED: &str = "stoppedCopy";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VisibleCopy {
     /// The folder the user picked, and its name for messages.
@@ -135,17 +135,25 @@ pub fn restore(store: &Store, written: Option<String>) -> Result<(), String> {
 /// else what went wrong.
 pub fn refresh(app: &AppHandle) -> Option<String> {
     let store = app.state::<Store>();
-    let mut copy = get(&store)?;
+    let before = get(&store)?;
+    let mut copy = before.clone();
     let result = write(app, &mut copy);
-    set(&store, Some(&copy)).err().or(result.err())
+    // The state file is saved only when the copy's place or hash changed.
+    let saved = if copy == before { Ok(()) } else { set(&store, Some(&copy)) };
+    saved.err().or(result.err())
 }
 
 /// The working copy into `copy`, unless it is the same already or something
 /// else changed it since the app last wrote it. A file the user removed is
-/// made again.
+/// made again at the next change.
 fn write(app: &AppHandle, copy: &mut VisibleCopy) -> Result<(), String> {
     let Some(bytes) = working(app)? else { return Ok(()) };
     let hash = hash_hex(&bytes);
+    // Most syncs change nothing (the periodic one above all): the working copy
+    // is then what the app wrote last, and the file is not read through SAF.
+    if copy.written.as_ref() == Some(&hash) {
+        return Ok(());
+    }
     let documents = app.state::<Documents<Wry>>();
     let there = documents.read(&copy.uri)?.map(|b| hash_hex(&b));
     if there.as_ref() == Some(&hash) {

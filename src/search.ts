@@ -58,6 +58,20 @@ function inFilter(entry: Entry, filter: Filter, now: number): boolean {
   }
 }
 
+/** What a search looks in, lowercase, by entry: made once for each entry a
+ *  listing brings (a search runs on every key typed) and gone with it. Entries
+ *  are not changed in place: a changed one comes as a new object. */
+const haystacks = new WeakMap<Entry, string>()
+
+function haystack(e: Entry): string {
+  let text = haystacks.get(e)
+  if (text === undefined) {
+    text = [e.title, e.username, e.url, ...e.tags, e.notes].join('\n').toLocaleLowerCase()
+    haystacks.set(e, text)
+  }
+  return text
+}
+
 /** Entries matching every word of the query (title, user name, URL, tags and
  *  notes; never passwords), within the group or tag. */
 export function search(entries: Entry[], query: string, filter: Filter = ALL, now = Date.now()): Entry[] {
@@ -65,7 +79,7 @@ export function search(entries: Entry[], query: string, filter: Filter = ALL, no
   return entries.filter((e) => {
     if (!inFilter(e, filter, now)) return false
     if (words.length === 0) return true
-    const text = [e.title, e.username, e.url, ...e.tags, e.notes].join('\n').toLocaleLowerCase()
+    const text = haystack(e)
     return words.every((w) => text.includes(w))
   })
 }
