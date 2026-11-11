@@ -83,7 +83,7 @@ function entryLines(entry: EntryDetail, version: number | null): [Node[], () => 
   if (entry.attachments.length) {
     const open = (name: string) => void api.openAttachment(id, name, version).catch((e) => snack(String(e)))
     const save = (name: string) => void onPhone<boolean>(`Where ${name} goes`,
-      (done, picker) => browsePhone({ first: () => false, makeName: name, make: (folder, as) => api.saveAttachmentAt(id, name, version, folder, as).then(() => true), done, picker }),
+      (done, picker) => browsePhone({ makeName: name, make: (folder, as) => api.saveAttachmentAt(id, name, version, folder, as).then(() => true), done, picker }),
       () => api.saveAttachment(id, name, version)).then((saved) => saved && snack(`${name} saved`), (e) => snack(String(e)))
     rows.push(el('h2', {}, 'Attachments'), ...entry.attachments.map((a) => line(a.name, formatSize(a.size), null, [
       ['Open', 'fileOutput', () => open(a.name)],

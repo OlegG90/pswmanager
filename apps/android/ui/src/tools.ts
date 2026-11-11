@@ -256,7 +256,7 @@ async function exportAs(format: ExportFormat) {
   try {
     const name = await api.exportName(format)
     const exported = await onPhone<Exported>('Where the file goes',
-      (done, picker) => browsePhone({ first: () => false, makeName: name, make: (folder, as) => api.exportAt(format, folder, as), done, picker }),
+      (done, picker) => browsePhone({ makeName: name, make: (folder, as) => api.exportAt(format, folder, as), done, picker }),
       () => api.exportTo(format))
     if (exported) sheet((close) => [el('b', {}, 'Exported'), ...exportedReport(exported), button('OK', 'OK', close, 'primary')])
   } catch (e) {

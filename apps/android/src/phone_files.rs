@@ -40,6 +40,8 @@ pub async fn pick_key_folder(app: AppHandle) -> Result<Option<KeyFolder>, String
     .await
 }
 
+/// A key file by its name (`.keyx`, `.key`): the folders listed here put
+/// them first, and the page relies on that order (#380).
 fn is_key_file(name: &str) -> bool {
     let lower = name.to_lowercase();
     lower.ends_with(".keyx") || lower.ends_with(".key")

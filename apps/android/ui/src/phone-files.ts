@@ -37,14 +37,13 @@ export function onPhone<T>(what: string, browse: (done: (it: T | null) => void, 
 
 /** A folder on the phone, for a new database or the visible copy. */
 export const phoneFolder = (what: string) =>
-  onPhone<Picked>(what, (done, picker) => browsePhone({ first: () => false, folder: api.folderAt, done, picker }), api.pickFolder)
+  onPhone<Picked>(what, (done, picker) => browsePhone({ folder: api.folderAt, done, picker }), api.pickFolder)
 
 /** A key file to choose (`make`: a new one to make) (#207). */
 export function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fail: (message: string) => void) {
   onPhone<Picked>(make ? 'Where the new key file goes' : 'Where the key file is',
     (finish, picker) => browsePhone({
-      first: isKeyFileName,
-      ...(make ? { make: api.createKeyFileAt, makeName: 'PswManager.keyx' } : { pick: api.keyFileAt }),
+      ...(make ? { make: api.createKeyFileAt, makeName: NEW_KEY_FILE } : { pick: api.keyFileAt }),
       done: finish,
       picker,
     }),
@@ -52,15 +51,16 @@ export function chooseKeyFile(make: boolean, done: (keyFile: Picked) => void, fa
   ).then((keyFile) => keyFile && done(keyFile), (e) => fail(String(e)))
 }
 
-const isKeyFileName = (name: string) => /\.keyx?$/i.test(name)
+/** The name a new key file is offered under. */
+const NEW_KEY_FILE = 'PswManager.keyx'
 
 /** The phone's files, folder by folder, in a sheet (All files access on).
- *  Files `first` likes come first. `pick` takes the file tapped; `make`
- *  makes one, named here, in the folder shown; `folder` takes the folder
- *  shown. `done` gets what they gave, or null when the sheet closed without;
+ *  Rust lists key files first (`is_key_file`); files `first` likes, if
+ *  given, go before the rest. `pick` takes the file tapped; `make` makes
+ *  one, named here, in the folder shown; `folder` takes the folder shown. `done` gets what they gave, or null when the sheet closed without;
  *  a failure is said in the sheet. */
 export function browsePhone<T>(how: {
-  first: (name: string) => boolean
+  first?: (name: string) => boolean
   pick?: (folder: string, name: string) => Promise<T>
   make?: (folder: string, name: string) => Promise<T>
   makeName?: string
@@ -93,7 +93,8 @@ export function browsePhone<T>(how: {
       shown = folder.path
       where.textContent = folder.path.replace(/^\/storage\/emulated\/0/, 'Phone')
       error.hide()
-      const files = [...folder.files].sort((a, b) => Number(how.first(b)) - Number(how.first(a)))
+      const first = how.first
+      const files = first ? [...folder.files].sort((a, b) => Number(first(b)) - Number(first(a))) : folder.files
       items.replaceChildren(
         ...(folder.up ? [button('↑ Up', 'The folder above', () => open(folder.up), 'item')] : []),
         ...folder.folders.map((f) => button(`${f}/`, `Open ${f}`, () => open(`${folder.path}/${f}`), 'item')),
@@ -133,7 +134,7 @@ function newKeyFileInFolder(made: (keyFile: Picked) => void, fail: (message: str
   void api.pickKeyFolder().then((found) => {
     if (!found) return
     sheet((close) => {
-      const name = input('PswManager.keyx', { className: 'field', ariaLabel: 'Name' })
+      const name = input(NEW_KEY_FILE, { className: 'field', ariaLabel: 'Name' })
       const create = button('Make it', 'Make the key file in this folder', () => {
         close()
         void api.createKeyFileIn(found.folder.uri, name.value).then(made, (e) => fail(String(e)))
