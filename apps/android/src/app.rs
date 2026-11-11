@@ -6,6 +6,7 @@ use crate::biometric::{Biometric, Failure};
 use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::cloud;
+use pswm_core::activity::Activity;
 use pswm_core::documents::DocumentStore;
 use pswm_core::opened;
 use pswm_core::otp;
@@ -43,6 +44,9 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             // Shared with the credential provider (provider.rs).
             app.manage(crate::provider::session());
             app.manage(LockLater::default());
+            app.manage(Activity::default());
+            app.manage(InFront::default());
+            watch_idle(app.handle().clone());
             crate::syncing::manage(app.handle());
             app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
@@ -89,6 +93,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             crate::icons::icon,
             lock_later,
             stay_unlocked,
+            touch,
             crate::syncing::sync_now,
             crate::syncing::last_sync,
             pick_folder,
@@ -380,6 +385,7 @@ fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Res
     crate::icons::fetch(app, &listing);
     app.state::<Session>().set(Some(vault));
     crate::provider::unlocked_in_app();
+    app.state::<Activity>().touch();
     crate::syncing::start(app.clone());
     Ok(listing)
 }
@@ -460,9 +466,11 @@ fn lock(app: AppHandle) {
 }
 
 /// Locks and tells the page (`locked`), which shows the unlock screen.
-pub(crate) fn lock_and_tell(app: &AppHandle) {
+/// `in_front`: the app was in front (left alone there), not in the
+/// background, so the page counts it as its own lock.
+pub(crate) fn lock_and_tell(app: &AppHandle, in_front: bool) {
     lock_now(app);
-    let _ = app.emit("locked", ());
+    let _ = app.emit("locked", in_front);
 }
 
 fn lock_now(app: &AppHandle) {
@@ -504,6 +512,7 @@ struct LockLater(Latest);
 #[tauri::command]
 fn lock_later(app: AppHandle, unlocked: bool) {
     crate::provider::app_in_front(false);
+    app.state::<InFront>().0.store(false, std::sync::atomic::Ordering::SeqCst);
     let wait = app.state::<LockLater>().0.next();
     // Hidden while locked, there is nothing to lock: an unlock by the credential
     // provider meanwhile keeps to its own timer (never under a minute, the core's autofill.rs),
@@ -515,16 +524,49 @@ fn lock_later(app: AppHandle, unlocked: bool) {
     std::thread::spawn(move || {
         std::thread::sleep(after);
         if app.state::<LockLater>().0.is_latest(wait) && app.state::<Session>().is_unlocked() {
-            lock_and_tell(&app);
+            lock_and_tell(&app, false);
         }
     });
 }
 
 #[tauri::command]
-fn stay_unlocked(later: State<LockLater>) {
+fn stay_unlocked(later: State<LockLater>, activity: State<Activity>, in_front: State<InFront>) {
     crate::provider::app_in_front(true);
     crate::provider::unlocked_in_app();
     later.0.next();
+    // Coming back counts as use: the idle time starts again.
+    activity.touch();
+    in_front.0.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether the app is in front: only then does the idle lock count (in the
+/// background, `lock_later` does).
+#[derive(Default)]
+struct InFront(std::sync::atomic::AtomicBool);
+
+/// The page reports use (a touch, a key, a scroll), which keeps the database
+/// unlocked, as on Windows.
+#[tauri::command]
+fn touch(activity: State<Activity>) {
+    activity.touch();
+}
+
+/// How often the idle lock is checked.
+const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Locks once the app has been left alone in front for `lockAfterMinutes`
+/// (#378): timed here, not by the page, whose timers Android may throttle.
+fn watch_idle(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(CHECK_EVERY);
+        if !app.state::<InFront>().0.load(std::sync::atomic::Ordering::SeqCst) || !app.state::<Session>().is_unlocked() {
+            continue;
+        }
+        let idle = app.state::<Activity>().idle_for();
+        if Settings::of(&app.state()).lock_after().is_some_and(|limit| idle >= limit) {
+            lock_and_tell(&app, true);
+        }
+    });
 }
 
 /// The screen turned off: locks when the setting says so; whether it did.

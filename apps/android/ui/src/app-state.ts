@@ -12,6 +12,8 @@ interface ListPlace {
 
 /** How soon after coming back the unlock screen still counts as come back to (ms). */
 const RETURN_PROMPT = 3000
+/** How often use is reported to the backend, at most (ms), as on Windows. */
+const REPORT_EVERY = 5000
 
 /** Coming back to the app after this long syncs (ms). */
 const AGAIN_AFTER = 60 * 1000
@@ -49,9 +51,9 @@ export function appState(clock = () => Date.now()) {
     lastSynced: 0,
     /** When the app last came back from another app. */
     returnedAt: 0,
-    /** When the app went to the background, and when it was last touched. */
+    /** When the app went to the background, and when a touch was last reported. */
     hiddenAt: clock(),
-    lastTouch: clock(),
+    lastReported: 0,
     listPlace: null as ListPlace | null,
 
     /** Whether the database syncs with a cloud store: only then is there a sync
@@ -123,7 +125,7 @@ export function appState(clock = () => Date.now()) {
     /** The app came back to the front: true when it must lock now, as the
      *  backend's timer may not have run on time (Android asleep). */
     cameBack(): boolean {
-      state.returnedAt = state.lastTouch = clock()
+      state.returnedAt = clock()
       const after = state.settings?.lockInBackground
       return state.unlocked && after != null && clock() - state.hiddenAt > after * 1000
     },
@@ -131,9 +133,12 @@ export function appState(clock = () => Date.now()) {
     /** The unlock screen shown now counts as come back to: its prompt opens by itself. */
     justReturned: () => clock() - state.returnedAt < RETURN_PROMPT,
 
-    /** A touch, a key or a scroll. */
-    touched() {
-      state.lastTouch = clock()
+    /** A touch, a key or a scroll: whether to report it to the backend, which
+     *  times the idle lock (#378); at most every few seconds, while unlocked. */
+    touched(): boolean {
+      if (!state.unlocked || clock() - state.lastReported < REPORT_EVERY) return false
+      state.lastReported = clock()
+      return true
     },
 
     /** Whether a sync is due while in front: the last one is `age` (ms) old or older. */
@@ -144,12 +149,6 @@ export function appState(clock = () => Date.now()) {
 
     /** The sync the setting asks for while in front is due. */
     everySyncDue: () => state.syncDue((state.settings?.syncEveryMinutes ?? 5) * 60 * 1000),
-
-    /** Untouched for as long as the setting says while in front: it locks. */
-    idle(): boolean {
-      const idle = (state.settings?.lockAfterMinutes ?? 5) * 60 * 1000
-      return state.unlocked && idle > 0 && clock() - state.lastTouch > idle
-    },
   }
   return state
 }

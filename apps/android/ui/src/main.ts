@@ -22,9 +22,10 @@ async function start() {
   else unlockScreen()
 }
 
-/** Shows the unlock screen after the database locked by itself (in the background). */
-void listen('locked', () => {
-  app.locked(false)
+/** Shows the unlock screen after the database locked by itself: left alone
+ *  in front (`true`, as the page's own lock), or in the background. */
+void listen<boolean>('locked', (e) => {
+  app.locked(e.payload === true)
   unlockScreen()
 })
 
@@ -57,8 +58,8 @@ setInterval(() => !document.hidden && app.everySyncDue() && void api.syncNow(), 
 
 // ------------------------------------------------------------ locking
 
-for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListener(type, () => app.touched(), { passive: true, capture: true })
-setInterval(() => !document.hidden && app.idle() && void lock(), 10 * 1000)
+// The backend times the idle lock (#378); the page only reports use.
+for (const type of ['pointerdown', 'keydown', 'scroll']) document.addEventListener(type, () => app.touched() && void api.touch().catch(() => {}), { passive: true, capture: true })
 /** The screen turned off (SystemPlugin.kt): the backend locks when the setting says so. */
 ;(window as unknown as { pswmScreenOff: () => void }).pswmScreenOff = () => {
   if (app.unlocked) void api.screenOff().then((locked) => locked && afterLock())

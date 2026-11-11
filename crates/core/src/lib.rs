@@ -4,6 +4,7 @@
 //! knows the platform: what does (where secrets are kept, the browser for a
 //! sign-in) is handed in.
 
+pub mod activity;
 pub mod aegis;
 pub mod autofill;
 pub mod autotype;

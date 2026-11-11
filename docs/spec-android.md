@@ -301,6 +301,9 @@ PC's where both have one (`crates/core/src/settings.rs`). The screen opens from 
 | Clear clipboard after copying | 20 s (5–120) |
 
 - Locking drops the key and every decrypted value in the backend, as on Windows.
+- **Inactivity** is timed by the backend, as on Windows (#378): the page reports a touch, a key or a
+  scroll (at most every 5 s), coming back to the app and unlocking count as use, and the lock is checked
+  every 10 s while the app is in front.
 - **Clipboard:** a copied secret is marked sensitive (`ClipDescription.EXTRA_IS_SENSITIVE`, Android 13+),
   so the keyboard's clipboard suggestions and the system's copy preview do not show it. It is cleared after
   the set time only if it still holds the copied value, as far as Android lets the app tell (an app in the
