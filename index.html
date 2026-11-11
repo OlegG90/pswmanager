@@ -81,6 +81,12 @@
       <div id="list-pane">
         <div id="list-header">
           <span id="entry-count"></span>
+          <select id="list-sort" aria-label="Sort the list" title="The order of the list">
+            <option value="name">Name, A to Z</option>
+            <option value="name-desc">Name, Z to A</option>
+            <option value="modified-desc">Newest change first</option>
+            <option value="modified">Oldest change first</option>
+          </select>
           <button type="button" id="empty-trash" class="danger" title="Delete everything in the trash permanently" hidden>Empty trash…</button>
           <button type="button" id="starter-templates" title="Credit card, bank account, ID document, email account and Wi-Fi" hidden>Add starter templates</button>
           <button type="button" id="new-entry" class="primary" title="New entry (Ctrl+N)">New entry</button>

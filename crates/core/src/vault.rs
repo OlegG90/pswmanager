@@ -179,6 +179,9 @@ pub struct EntrySummary {
     pub passkey: bool,
     /// When it expires (UTC, RFC 3339), if it does.
     pub expires: Option<String>,
+    /// When it was last changed (UTC, RFC 3339), if the file says; the
+    /// entry view shows it and the list sorts by it (#390).
+    pub modified: Option<String>,
 }
 
 /// Where an entry is, for the sidebar's groups.
@@ -217,8 +220,6 @@ pub struct EntryDetail {
     pub summary: EntrySummary,
     pub fields: Vec<Field>,
     pub attachments: Vec<Attachment>,
-    /// When the entry was last changed (UTC, RFC 3339), if the file says.
-    pub modified: Option<String>,
     /// How many older versions its history keeps.
     pub versions: usize,
 }
@@ -1393,8 +1394,7 @@ fn detail_of(entry: &EntryRef<'_>) -> EntryDetail {
     let mut attachments: Vec<Attachment> =
         entry.attachments_named().map(|(name, a)| Attachment { name: name.to_string(), size: a.data.get().len() }).collect();
     attachments.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    let modified = entry.times.last_modification.map(edit::time_text);
-    EntryDetail { summary: summary(entry), fields, attachments, modified, versions: versions_of(entry) }
+    EntryDetail { summary: summary(entry), fields, attachments, versions: versions_of(entry) }
 }
 
 /// A history limit as the window and the file write it: -1 for no limit.
@@ -1495,6 +1495,7 @@ fn summary(e: &EntryRef<'_>) -> EntrySummary {
         otp: otp::has(&e.fields),
         passkey: e.fields.keys().any(|name| name.starts_with(edit::passkey::PREFIX)),
         expires: edit::expiry_of(&e.times),
+        modified: e.times.last_modification.map(edit::time_text),
     }
 }
 
@@ -1736,8 +1737,8 @@ pub mod tests {
         let id = in_use(&vault)[1].id.clone();
         let detail = vault.detail(&id).unwrap();
         let modified = vault.db.entry(parse_id(&id).unwrap()).unwrap().times.last_modification.unwrap();
-        assert_eq!(detail.modified, Some(edit::time_text(modified)));
-        assert!(detail.modified.as_deref().is_some_and(|t| t.ends_with('Z')));
+        assert_eq!(detail.summary.modified, Some(edit::time_text(modified)));
+        assert!(detail.summary.modified.as_deref().is_some_and(|t| t.ends_with('Z')));
         assert_eq!(
             detail.fields,
             [
@@ -1902,6 +1903,7 @@ pub mod tests {
         assert_eq!(shop.expires.as_deref(), Some("2030-01-02T03:04:05Z"));
         let mail = by_title("Mail");
         assert!(!mail.otp && !mail.passkey && mail.expires.is_none());
+        assert!(mail.modified.as_deref().is_some_and(|t| t.ends_with('Z')), "the list sorts by it (#390)");
         let json = serde_json::to_string(&listing.entries).unwrap();
         assert!(!json.contains("JBSWY3DP") && !json.contains("\"key\""), "{json}");
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryDetail, Listing, VersionDetail } from './api'
 import { ALL, tagsOf, TEMPLATES, TRASH } from './search'
-import { EMPTY, vaultState } from './vault'
+import { EMPTY, sorted, vaultState } from './vault'
 
 const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   id: title,
@@ -20,10 +20,11 @@ const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   otp: false,
   passkey: false,
   expires: null,
+  modified: null,
   ...more,
 })
 
-const detail = (e: Entry): EntryDetail => ({ ...e, fields: [], attachments: [], modified: null, versions: 2 })
+const detail = (e: Entry): EntryDetail => ({ ...e, fields: [], attachments: [], versions: 2 })
 const version = (e: Entry): VersionDetail => ({ ...detail(e), differs: [] })
 const listing = (...entries: Entry[]): Listing => ({ ...EMPTY, entries })
 
@@ -43,6 +44,54 @@ function opened() {
   return vault
 }
 
+describe('the order of the list', () => {
+  const titles = (entries: Entry[]) => entries.map((e) => e.title)
+  const at = (title: string, modified: string | null) => entry(title, { modified })
+  const entries = [
+    at('beta', '2030-01-02T00:00:00Z'),
+    at('Alpha', '2030-01-03T00:00:00Z'),
+    at('Écran', '2030-01-01T00:00:00Z'),
+    at('Delta', '2030-01-02T00:00:00Z'),
+    at('carol', null),
+  ]
+
+  it('is by title, as people read them: case and accents aside', () => {
+    expect(titles(sorted(entries, 'name'))).toEqual(['Alpha', 'beta', 'carol', 'Delta', 'Écran'])
+    expect(titles(sorted(entries, 'name-desc'))).toEqual(['Écran', 'Delta', 'carol', 'beta', 'Alpha'])
+  })
+
+  it('is by the time last changed, the same times by title, none as the oldest', () => {
+    expect(titles(sorted(entries, 'modified'))).toEqual(['carol', 'Écran', 'beta', 'Delta', 'Alpha'])
+    expect(titles(sorted(entries, 'modified-desc'))).toEqual(['Alpha', 'beta', 'Delta', 'Écran', 'carol'])
+  })
+
+  it('keeps the same titles in one order', () => {
+    const twins = [entry('Mail', { id: 'b' }), entry('mail', { id: 'a' })]
+    expect(sorted(twins, 'name').map((e) => e.id)).toEqual(['a', 'b'])
+    expect(sorted(twins, 'name-desc').map((e) => e.id)).toEqual(['b', 'a'])
+    expect(twins.map((e) => e.id)).toEqual(['b', 'a'])
+  })
+
+  it('applies to every group, the templates and the trash too, and to a search', () => {
+    const vault = vaultState()
+    const newer = (e: Entry, modified: string) => ({ ...e, modified })
+    vault.open(listing(newer(mail, '2030-01-02T00:00:00Z'), newer(bank, '2030-01-01T00:00:00Z'), shop, entry('Card', { kind: 'template' }), login,
+      newer(old, '2030-01-01T00:00:00Z'), entry('Gone', { kind: 'trash' })))
+    vault.setSort('modified-desc')
+    vault.search('')
+    expect(titles(vault.shown)).toEqual(['Mail', 'Bank', 'Shop'])
+    vault.search('a')
+    expect(titles(vault.shown)).toEqual(['Mail', 'Bank'])
+    vault.setFilter(TRASH)
+    vault.search('')
+    expect(titles(vault.shown)).toEqual(['Old', 'Gone'])
+    vault.setSort('name-desc')
+    vault.setFilter(TEMPLATES)
+    vault.search('')
+    expect(titles(vault.shown)).toEqual(['Login', 'Card'])
+  })
+})
+
 const plain = { ctrl: false, shift: false }
 const ctrl = { ctrl: true, shift: false }
 const shift = { ctrl: false, shift: true }
@@ -51,9 +100,10 @@ describe('the list', () => {
   it('chooses its first entry, and keeps the one selected while it is still shown', () => {
     const vault = vaultState()
     vault.open(listing(mail, bank, shop))
-    expect(vault.search('')).toEqual({ one: 'Mail' })
-    vault.select('Bank')
-    expect(vault.search('ba')).toEqual({ one: 'Bank' })
+    // By name, A to Z.
+    expect(vault.search('')).toEqual({ one: 'Bank' })
+    vault.select('Mail')
+    expect(vault.search('a')).toEqual({ one: 'Mail' })
     expect(vault.search('shop')).toEqual({ one: 'Shop' })
     expect(vault.search('nothing')).toEqual({ one: null })
   })
@@ -72,17 +122,17 @@ describe('the list', () => {
     expect(vault.pick('Shop', plain)).toEqual({ one: 'Shop' })
     // Ctrl+click adds to the entry selected.
     expect(vault.pick('Shop', ctrl)).toEqual({ several: { chosen: ['Mail', 'Shop'], anchor: 'Shop' } })
-    expect(vault.pick('Shop', shift)).toEqual({ several: { chosen: ['Mail', 'Bank', 'Shop'], anchor: 'Mail' } })
+    expect(vault.pick('Bank', shift)).toEqual({ several: { chosen: ['Bank', 'Mail'], anchor: 'Mail' } })
     // Ctrl+click on the only one chosen keeps it.
     expect(vault.pick('Mail', ctrl)).toEqual({ one: 'Mail' })
   })
 
   it('steps from the entry selected, or from the last of several clicked, within the list', () => {
     const vault = opened()
-    expect(vault.step(1)).toBe('Bank')
-    expect(vault.step(-1)).toBe('Mail')
-    vault.chooseSeveral({ chosen: ['Mail', 'Shop'], anchor: 'Shop' })
     expect(vault.step(1)).toBe('Shop')
+    expect(vault.step(-1)).toBe('Bank')
+    vault.chooseSeveral({ chosen: ['Bank', 'Mail'], anchor: 'Bank' })
+    expect(vault.step(1)).toBe('Mail')
     expect(vault.step(-1)).toBe('Bank')
     vault.search('nothing')
     expect(vault.step(1)).toBeNull()

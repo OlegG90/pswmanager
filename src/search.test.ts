@@ -19,6 +19,7 @@ const entry = (title: string, more: Partial<Entry> = {}): Entry => ({
   otp: false,
   passkey: false,
   expires: null,
+  modified: null,
   ...more,
 })
 
