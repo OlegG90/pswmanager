@@ -18,6 +18,9 @@ const SYNC_EVERY_MINUTES: (u64, u64, u64) = (5, 1, 60);
 const CLEAR_SECONDS: (u64, u64, u64) = (20, 5, 120);
 /// Light or dark, or as the system is set (`system`, the default).
 const THEMES: [&str; 3] = ["system", "light", "dark"];
+/// On the PC, the order of the list (#390): by name A to Z (the default) or Z
+/// to A, by date modified oldest or newest first.
+const LIST_SORTS: [&str; 4] = ["name", "name-desc", "modified", "modified-desc"];
 /// On the phone, seconds in the background before locking: at once, 30 s
 /// (the default), 1 min, 5 min; `null` for never.
 const LOCK_IN_BACKGROUND: [u64; 4] = [0, 30, 60, 300];
@@ -119,8 +122,18 @@ impl<'a> Settings<'a> {
 
     /// `system`, `light` or `dark`.
     pub fn theme(&self) -> &'static str {
-        let chosen = self.get("theme", |v| v.as_str().map(str::to_string));
-        THEMES.into_iter().find(|t| chosen.as_deref() == Some(*t)).unwrap_or(THEMES[0])
+        self.one_of("theme", &THEMES)
+    }
+
+    /// On the PC: the list's order, one of [LIST_SORTS].
+    pub fn list_sort(&self) -> &'static str {
+        self.one_of("listSort", &LIST_SORTS)
+    }
+
+    /// The choice kept under `name` when it is one of `choices`, else the first of them.
+    fn one_of(&self, name: &str, choices: &[&'static str]) -> &'static str {
+        let chosen = self.get(name, |v| v.as_str().map(str::to_string));
+        choices.iter().copied().find(|c| chosen.as_deref() == Some(*c)).unwrap_or(choices[0])
     }
 
     /// Every setting as it is in effect, for the settings screen.
@@ -134,6 +147,7 @@ impl<'a> Settings<'a> {
             sync_every_minutes: in_minutes(self.sync_every()),
             download_icons: self.download_icons(),
             theme: self.theme(),
+            list_sort: self.list_sort(),
             hotkey: self.hotkey(),
             auto_type_hotkey: self.auto_type_hotkey(),
             auto_type_always_ask: self.auto_type_always_ask(),
@@ -173,6 +187,7 @@ pub struct View {
     pub sync_every_minutes: u64,
     pub download_icons: bool,
     pub theme: &'static str,
+    pub list_sort: &'static str,
     pub hotkey: String,
     /// Empty when Auto-Type has no hotkey.
     pub auto_type_hotkey: String,
@@ -201,6 +216,7 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "passwordEveryDays" => within(PASSWORD_EVERY_DAYS, false),
         "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
+        "listSort" => value.as_str().is_some_and(|t| LIST_SORTS.contains(&t)),
         // Checked and registered by the caller before it is kept.
         "hotkey" => value.as_str().is_some_and(|k| !k.trim().is_empty()),
         // Empty turns it off.
@@ -324,6 +340,18 @@ mod tests {
         assert_eq!(settings.theme(), "system");
         settings.set("theme", "dark".into()).unwrap();
         assert_eq!(settings.theme(), "dark");
+    }
+
+    #[test]
+    fn the_list_is_sorted_by_name_until_another_order_is_chosen() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let settings = Settings::of(&store);
+        assert_eq!(settings.view().list_sort, "name");
+        assert!(settings.set("listSort", "size".into()).is_err());
+        assert!(settings.set("listSort", 1.into()).is_err());
+        settings.set("listSort", "modified-desc".into()).unwrap();
+        assert_eq!(Settings::of(&Store::load(dir.path().join("pswm.json"))).list_sort(), "modified-desc");
     }
 
     #[test]

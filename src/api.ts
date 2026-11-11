@@ -133,6 +133,8 @@ export interface Entry {
   passkey: boolean
   /** When it expires (RFC 3339), if it does. */
   expires: string | null
+  /** When it was last changed (RFC 3339), if the file says. */
+  modified: string | null
 }
 
 /** In use, a template, or in the recycle bin. */
@@ -157,8 +159,6 @@ export interface Attachment {
 export interface EntryDetail extends Entry {
   fields: Field[]
   attachments: Attachment[]
-  /** When the entry was last changed (RFC 3339), if the file says. */
-  modified: string | null
   /** How many older versions its history keeps. */
   versions: number
 }
@@ -352,6 +352,9 @@ export interface Strength {
 /** Light or dark, or as Windows is set. */
 export type Theme = 'system' | 'light' | 'dark'
 
+/** The list's order (#390): by name A to Z or Z to A, by date modified oldest or newest first. */
+export type ListSort = 'name' | 'name-desc' | 'modified' | 'modified-desc'
+
 export interface Settings {
   lockAfterMinutes: number
   lockOnSessionLock: boolean
@@ -361,6 +364,8 @@ export interface Settings {
   syncEveryMinutes: number
   downloadIcons: boolean
   theme: Theme
+  /** The order of the PC's list. */
+  listSort: ListSort
   /** The show / hide hotkey, e.g. `Ctrl+Alt+P`. */
   hotkey: string
   /** Auto-Type's hotkey; empty when it is off. */

@@ -1,4 +1,4 @@
-import type { DatabaseSettings, Entry, EntryDetail, Listing, Version, VersionDetail } from './api'
+import type { DatabaseSettings, Entry, EntryDetail, Listing, ListSort, Version, VersionDetail } from './api'
 import { ALL, editable, inTrash, isTemplate, sameFilter, search, tagCounts, TEMPLATES, type Filter } from './search'
 import { clicked, type Choice } from './selection'
 
@@ -38,6 +38,28 @@ export function count(n: number): string {
   return `${n} ${n === 1 ? 'entry' : 'entries'}`
 }
 
+/** Titles as people read them: by the language's rules, case and accents aside. */
+const titles = new Intl.Collator(undefined, { sensitivity: 'base' })
+
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Same titles keep one order, by id. */
+const byTitle = (a: Entry, b: Entry) => titles.compare(a.title, b.title) || compare(a.id, b.id)
+
+/** The time last changed is UTC text, which sorts as the times do; none counts as the oldest. */
+const byModified = (a: Entry, b: Entry) => compare(a.modified ?? '', b.modified ?? '')
+
+/** Same times go by title A to Z either way. */
+const ORDERS: Record<ListSort, (a: Entry, b: Entry) => number> = {
+  name: byTitle,
+  'name-desc': (a, b) => byTitle(b, a),
+  modified: (a, b) => byModified(a, b) || byTitle(a, b),
+  'modified-desc': (a, b) => byModified(b, a) || byTitle(a, b),
+}
+
+/** `entries` in the list's order (#390). */
+export const sorted = (entries: readonly Entry[], sort: ListSort): Entry[] => [...entries].sort(ORDERS[sort])
+
 /**
  * The records pane of an unlocked database: its listing, what the sidebar
  * filters it to, the entries the list shows, the one selected or the several
@@ -51,6 +73,8 @@ export function vaultState() {
   let filter: Filter = ALL
   /** The entries the list shows, in its order. */
   let shown: Entry[] = []
+  /** The list's order, as the settings keep it. */
+  let sort: ListSort = 'name'
   let selectedId: string | null = null
   /** Several entries chosen with Ctrl / Shift+click; null while one (or none) is. */
   let several: Choice | null = null
@@ -164,15 +188,21 @@ export function vaultState() {
       filter = next
     },
 
+    /** Takes effect with the next search. */
+    setSort(next: ListSort) {
+      sort = next
+    },
+
     /** The tag shown was renamed: the sidebar follows it. */
     renameTag(from: string, to: string) {
       if (sameFilter(filter, { kind: 'tag', tag: from })) filter = { kind: 'tag', tag: to }
     },
 
-    /** Re-runs the search, and says what the list chooses now: what was chosen,
-     *  as far as it is still shown, else the first entry. */
+    /** Re-runs the search, in the list's order, and says what the list
+     *  chooses now: what was chosen, as far as it is still shown, else the
+     *  first entry. */
     search(query: string): ListChoice {
-      shown = search(listing.entries, query, filter)
+      shown = sorted(search(listing.entries, query, filter), sort)
       if (several) {
         const ids = new Set(shown.map((e) => e.id))
         const still = several.chosen.filter((id) => ids.has(id))

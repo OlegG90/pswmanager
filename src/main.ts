@@ -2,7 +2,7 @@ import { DEFAULT_ICON, glyphIcon } from './glyphs'
 import { siteIconCache } from './site-icons'
 import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
-import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type Saved, type Status, type SyncStatus } from './api'
+import { api, OTP, PASSWORD, URL_FIELD, USERNAME, type Attachment, type BrowserAssociate, type BrowserPasskeyGet, type BrowserPasskeyRegister, type BrowserUpdate, type DatabaseInfo, type EntryData, type Version, type DiskChange, type Entry, type EntryDetail, type KeyNeeded, type Listing, type ListSort, type Saved, type Status, type SyncStatus } from './api'
 import { button, el } from './dom'
 import { changedElsewhere, closeEditor, editorKey, isEditing, leaveEditor, openEditor } from './editor'
 import { closeMenus, contextMenu, menuButton, type MenuItem } from './menu'
@@ -323,6 +323,21 @@ function refresh() {
   }
   showPick(choice)
 }
+
+/** The list's order (#390): kept in the settings, so it stays across restarts. */
+const sortBox = $<HTMLSelectElement>('list-sort')
+
+function showSort(sort: ListSort) {
+  records.setSort(sort)
+  sortBox.value = sort
+}
+
+sortBox.addEventListener('change', () => {
+  const sort = sortBox.value as ListSort
+  records.setSort(sort)
+  refresh()
+  api.setSetting('listSort', sort).catch((e) => notify(String(e)))
+})
 
 /** Shows what the list chose: one entry, or several. */
 function showPick(choice: ListChoice) {
@@ -1621,7 +1636,8 @@ $('unfold-all').addEventListener('click', () => sidebarSections.foldAll(false))
 // Which copy this is, under the name on the unlock screen.
 getVersion().then((version) => ($('app-version').textContent = `Version ${version}`), () => {})
 
-api.status().then(async (status) => {
+// The list's order is known before it is first drawn.
+Promise.all([api.status(), api.settings().then((s) => showSort(s.listSort), () => {})]).then(async ([status]) => {
   if (status.unlocked) showVault(await api.listing())
   else showUnlock(status)
 })

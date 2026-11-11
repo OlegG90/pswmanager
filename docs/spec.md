@@ -263,6 +263,11 @@ which shows entries without user tags (the `Favorite` star does not count); then
 - The KDBX groups an entry sits in are not shown or edited any more; entries stay where they are in the
   file, and new ones go to its top group (new templates to the templates' group), imported ones too.
   Search runs within the chosen group or tag.
+- **The list's order** (#390): a choice above the list sorts it by name, A to Z (the default) or Z to A
+  (by the language's rules, case and accents aside), or by the time each entry was last changed, newest
+  or oldest first (the same time by name; one the file keeps no time for counts as the oldest). It
+  applies to every group and tag, the templates and the trash too, and to search results, and is kept in
+  the settings, so it stays across restarts.
 - **Several entries at once:** Ctrl+click and Shift+click select several entries in the list; a bar then
   offers **Add tag**, **Remove tag**, **Favorite** / **Not favorite** and **Delete** for all of them, saved as one
   change (tags, the star among them, keep no version in history: see *Entry history*).
