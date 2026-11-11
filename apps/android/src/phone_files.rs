@@ -9,7 +9,7 @@
 //! also be chosen in a folder picked with Android's folder picker.
 
 use crate::app::{self, off_main, Status};
-use crate::documents::{path_uri, Documents, Picked};
+use crate::documents::{file_name, path_uri, Documents, Picked};
 use pswm_core::documents::DocumentStore;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
@@ -122,15 +122,6 @@ pub(crate) fn within_storage(path: Option<&str>) -> Result<PathBuf, String> {
         return Err("Only the phone's own storage is browsed".into());
     }
     Ok(canonical)
-}
-
-/// A file's name as given (a key file, an export…): trimmed, and a name, not a path.
-pub(crate) fn file_name(name: &str) -> Result<String, String> {
-    let name = name.trim();
-    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
-        return Err("Give the file a name (without / or \\)".into());
-    }
-    Ok(name.to_string())
 }
 
 /// The file `name` (checked with [`file_name`]) in the browsed `folder`, and

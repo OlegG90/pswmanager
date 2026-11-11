@@ -20,9 +20,26 @@ pub fn local(uri: &str) -> Option<&Path> {
     uri.strip_prefix("file://").map(Path::new)
 }
 
+/// Whether `name` is a name, not a path: the one rule for a file in any
+/// folder, picked or browsed (#379). A name a file already has is taken as it
+/// is (Android allows spaces around it, and `\`).
+fn is_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// A file's name the user gives (a key file, an export…): trimmed, a name
+/// ([is_name]), and without `\`, which other systems take for a folder.
+pub(crate) fn file_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if !is_name(name) || name.contains('\\') {
+        return Err("Give the file a name (without / or \\)".into());
+    }
+    Ok(name.to_string())
+}
+
 /// `name` in a folder reached by its path: a name, not a path.
 fn in_folder(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+    if !is_name(name) {
         return Err(format!("{name} is not a file's name"));
     }
     Ok(dir.join(name))
