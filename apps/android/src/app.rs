@@ -46,7 +46,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             app.manage(LockLater::default());
             app.manage(Activity::default());
             app.manage(InFront::default());
-            watch_idle(app.handle().clone());
+            watch_in_front(app.handle().clone());
             crate::syncing::manage(app.handle());
             app.manage(crate::icons::Icons::default());
             // Copies of attachments a crash left behind.
@@ -551,20 +551,25 @@ fn touch(activity: State<Activity>) {
     activity.touch();
 }
 
-/// How often the idle lock is checked.
+/// How often the idle lock and the regular sync are checked.
 const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Locks once the app has been left alone in front for `lockAfterMinutes`
-/// (#378): timed here, not by the page, whose timers Android may throttle.
-fn watch_idle(app: AppHandle) {
+/// While the app is in front and unlocked: locks once it has been left alone
+/// for `lockAfterMinutes` (#378), else syncs every `syncEveryMinutes` (#388).
+/// Timed here, not by the page, whose timers Android may throttle.
+fn watch_in_front(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(CHECK_EVERY);
         if !app.state::<InFront>().0.load(std::sync::atomic::Ordering::SeqCst) || !app.state::<Session>().is_unlocked() {
             continue;
         }
+        let store = app.state::<Store>();
+        let settings = Settings::of(&store);
         let idle = app.state::<Activity>().idle_for();
-        if Settings::of(&app.state()).lock_after().is_some_and(|limit| idle >= limit) {
+        if settings.lock_after().is_some_and(|limit| idle >= limit) {
             lock_and_tell(&app, true);
+        } else if settings.sync_every().is_some_and(|every| app.state::<pswm_core::syncs::Syncs>().due(every)) {
+            crate::syncing::start(app.clone());
         }
     });
 }

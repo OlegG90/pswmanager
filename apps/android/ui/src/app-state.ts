@@ -141,14 +141,9 @@ export function appState(clock = () => Date.now()) {
       return true
     },
 
-    /** Whether a sync is due while in front: the last one is `age` (ms) old or older. */
-    syncDue: (age: number) => state.unlocked && age > 0 && clock() - state.lastSynced >= age,
-
-    /** The sync on coming back is due. */
-    returnSyncDue: () => state.syncDue(AGAIN_AFTER),
-
-    /** The sync the setting asks for while in front is due. */
-    everySyncDue: () => state.syncDue((state.settings?.syncEveryMinutes ?? 5) * 60 * 1000),
+    /** The sync on coming back is due: unlocked, and the last one a minute
+     *  old or older. The regular one while in front is the backend's (#388). */
+    returnSyncDue: () => state.unlocked && clock() - state.lastSynced >= AGAIN_AFTER,
   }
   return state
 }

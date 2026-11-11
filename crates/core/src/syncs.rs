@@ -10,7 +10,7 @@ use crate::sync::{self, Outcome, SyncError};
 use serde::Serialize;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// What a sync did, for the status line (the page's event `synced`).
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -66,6 +66,8 @@ struct Flags {
 pub struct Syncs {
     flags: Mutex<Flags>,
     last: Mutex<Option<Report>>,
+    /// When the last sync ended, for the regular one ([Syncs::due]).
+    ended: Mutex<Option<Instant>>,
 }
 
 impl Syncs {
@@ -158,10 +160,25 @@ impl Syncs {
     /// one (none when the database syncs with nothing), and whether it is
     /// settled ([sync::settled]).
     pub fn once(&self, store: &Store, session: &Session, write_copy: impl FnOnce() -> Option<String>) -> (Option<Report>, bool) {
-        let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else { return (None, true) };
+        let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {
+            self.ended();
+            return (None, true);
+        };
         let result = sync::sync(location.open().as_ref(), store, session);
         let report = self.keep(Report::of(store, &result).with_copy_problem(write_copy()));
+        self.ended();
         (Some(report), sync::settled(&result))
+    }
+
+    fn ended(&self) {
+        *self.ended.lock().unwrap() = Some(Instant::now());
+    }
+
+    /// Whether the regular sync is due (`syncEveryMinutes`, #388): none runs,
+    /// and the last one ended `every` ago or longer. Never before a first
+    /// sync, which the unlock starts.
+    pub fn due(&self, every: Duration) -> bool {
+        !self.is_running() && self.ended.lock().unwrap().is_some_and(|at| at.elapsed() >= every)
     }
 
     /// Keeps `report` as the last sync's (for a page that missed it) and gives it back.
@@ -191,6 +208,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::load(dir.path().join("pswm.json"));
         (dir, store)
+    }
+
+    #[test]
+    fn the_regular_sync_is_due_after_the_last_one_and_not_while_one_runs() {
+        let (_dir, store) = store();
+        let syncs = Syncs::default();
+        assert!(!syncs.due(Duration::ZERO), "not before a first sync");
+        syncs.once(&store, &Session::default(), || None);
+        assert!(syncs.due(Duration::ZERO));
+        assert!(!syncs.due(Duration::from_secs(60)), "the last one is not a minute old");
+        assert!(syncs.begin());
+        assert!(!syncs.due(Duration::ZERO), "not while one runs");
     }
 
     fn report(other_key: bool) -> Report {

@@ -34,8 +34,8 @@ void listen<boolean>('locked', (e) => {
 void listen<Synced>('synced', (e) => applySync(e.payload))
 
 /** Syncs on its own while unlocked: coming back to the app after a minute
- *  (see appState), and as often as the setting says while it is in front;
- *  going away sends what is waiting. */
+ *  (see appState); going away sends what is waiting. The backend syncs as
+ *  often as the setting says while the app is in front (#388). */
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     app.wentAway()
@@ -54,7 +54,6 @@ document.addEventListener('visibilitychange', () => {
     else if (app.returnSyncDue()) void api.syncNow()
   }
 })
-setInterval(() => !document.hidden && app.everySyncDue() && void api.syncNow(), 30 * 1000)
 
 // ------------------------------------------------------------ locking
 
