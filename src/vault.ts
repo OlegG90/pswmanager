@@ -46,13 +46,15 @@ const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 /** Same titles keep one order, by id. */
 const byTitle = (a: Entry, b: Entry) => titles.compare(a.title, b.title) || compare(a.id, b.id)
 
-/** The time last changed is UTC text, which sorts as the times do; none counts
- *  as the oldest. Same times go by title A to Z either way. */
+/** The time last changed is UTC text, which sorts as the times do; none counts as the oldest. */
+const byModified = (a: Entry, b: Entry) => compare(a.modified ?? '', b.modified ?? '')
+
+/** Same times go by title A to Z either way. */
 const ORDERS: Record<ListSort, (a: Entry, b: Entry) => number> = {
   name: byTitle,
   'name-desc': (a, b) => byTitle(b, a),
-  modified: (a, b) => compare(a.modified ?? '', b.modified ?? '') || byTitle(a, b),
-  'modified-desc': (a, b) => compare(b.modified ?? '', a.modified ?? '') || byTitle(a, b),
+  modified: (a, b) => byModified(a, b) || byTitle(a, b),
+  'modified-desc': (a, b) => byModified(b, a) || byTitle(a, b),
 }
 
 /** `entries` in the list's order (#390). */

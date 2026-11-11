@@ -426,6 +426,7 @@ impl Vault {
                 summary
             })
             .collect();
+        // The PC's list sorts again in the order the user chose (#390).
         entries.sort_by_cached_key(|e| (e.title.to_lowercase(), e.id.clone()));
         // An icon that is not an image the webview can show falls back to the site's.
         for entry in &mut entries {

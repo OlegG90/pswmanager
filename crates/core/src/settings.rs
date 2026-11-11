@@ -122,14 +122,18 @@ impl<'a> Settings<'a> {
 
     /// `system`, `light` or `dark`.
     pub fn theme(&self) -> &'static str {
-        let chosen = self.get("theme", |v| v.as_str().map(str::to_string));
-        THEMES.into_iter().find(|t| chosen.as_deref() == Some(*t)).unwrap_or(THEMES[0])
+        self.one_of("theme", &THEMES)
     }
 
     /// On the PC: the list's order, one of [LIST_SORTS].
     pub fn list_sort(&self) -> &'static str {
-        let chosen = self.get("listSort", |v| v.as_str().map(str::to_string));
-        LIST_SORTS.into_iter().find(|t| chosen.as_deref() == Some(*t)).unwrap_or(LIST_SORTS[0])
+        self.one_of("listSort", &LIST_SORTS)
+    }
+
+    /// The choice kept under `name` when it is one of `choices`, else the first of them.
+    fn one_of(&self, name: &str, choices: &[&'static str]) -> &'static str {
+        let chosen = self.get(name, |v| v.as_str().map(str::to_string));
+        choices.iter().copied().find(|c| chosen.as_deref() == Some(*c)).unwrap_or(choices[0])
     }
 
     /// Every setting as it is in effect, for the settings screen.
