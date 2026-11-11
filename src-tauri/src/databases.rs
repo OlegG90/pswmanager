@@ -1,7 +1,7 @@
 //! The databases in the list and the one open: choosing, creating and renaming
 //! them, their keys and encryption, unlocking and locking, and what changes in
 //! the file on disk.
-use crate::activity::Activity;
+use pswm_core::activity::Activity;
 use crate::{browser_host, chooser, clipboard, file_watch, hello, need_key, pick, sync, window, AutoTypeTarget, FileWatch, Notice};
 use crate::entries::fetch_icons;
 use pswm_core::{dbfile, edit, encryption, gauth, opened, remote, store, vault};

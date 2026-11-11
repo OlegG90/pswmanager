@@ -105,21 +105,16 @@ describe('appState', () => {
     expect(app.justReturned()).toBe(false)
   })
 
-  it('locks when untouched for the setting (5 min unless set, never with 0)', () => {
+  it('reports use to the backend at most every 5 s, while unlocked', () => {
     const { app, at } = clocked()
+    expect(app.touched()).toBe(false)
     app.unlocked = true
-    at(5 * 60_000)
-    expect(app.idle()).toBe(false)
-    at(5 * 60_000 + 1)
-    expect(app.idle()).toBe(true)
-    app.touched()
-    expect(app.idle()).toBe(false)
-    app.settings = settings({ lockAfterMinutes: 0 })
-    at(60 * 60_000)
-    expect(app.idle()).toBe(false)
-    app.unlocked = false
-    app.settings = settings({ lockAfterMinutes: 1 })
-    expect(app.idle()).toBe(false)
+    at(10_000)
+    expect(app.touched()).toBe(true)
+    at(14_999)
+    expect(app.touched()).toBe(false)
+    at(15_000)
+    expect(app.touched()).toBe(true)
   })
 
   it('syncs on its own when the last sync is old enough, while unlocked', () => {

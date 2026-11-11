@@ -39,7 +39,7 @@ fn autofill() -> &'static Autofill {
             }
         };
         let lock = || match APP.get() {
-            Some(app) => crate::app::lock_and_tell(app),
+            Some(app) => crate::app::lock_and_tell(app, false),
             None => session().set(None),
         };
         Autofill::new(session(), changed, lock)

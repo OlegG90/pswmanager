@@ -1,4 +1,6 @@
-//! When the user last did something in the app, for locking after inactivity.
+//! When the user last did something in the app, for locking after inactivity
+//! (`lockAfterMinutes`): the window or page reports use, and the app's own
+//! timer locks (Windows and the phone alike, #378).
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -13,10 +15,12 @@ impl Default for Activity {
 }
 
 impl Activity {
+    /// The user did something now.
     pub fn touch(&self) {
         *self.0.lock().unwrap() = Instant::now();
     }
 
+    /// How long since the user last did something.
     pub fn idle_for(&self) -> Duration {
         self.0.lock().unwrap().elapsed()
     }

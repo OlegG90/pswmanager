@@ -162,6 +162,8 @@ export const api = {
   /** Opens Android's choice of autofill service, with PswManager offered. */
   chooseAutofill: () => invoke<void>('choose_autofill'),
   stayUnlocked: () => invoke<void>('stay_unlocked'),
+  /** The page was used: the backend's idle lock waits again (#378). */
+  touch: () => invoke<void>('touch'),
   syncNow: () => invoke<void>('sync_now'),
   lastSync: () => invoke<Synced | null>('last_sync'),
   signIn: (cloud: Cloud) => invoke<void>('sign_in', { cloud }),

@@ -2,7 +2,6 @@
 use pswm_core::{qr, gauth, icons, opened, settings, store, updates};
 use pswm_core::session::{KeyNeeded, Session};
 
-mod activity;
 mod app_settings;
 mod auto_type_flow;
 mod autotype;
@@ -27,7 +26,7 @@ mod syncing;
 mod tray;
 mod window;
 
-use activity::Activity;
+use pswm_core::activity::Activity;
 use app_settings::register_hotkeys;
 use auto_type_flow::cancel_auto_type;
 use backups::start_backup_clock;
