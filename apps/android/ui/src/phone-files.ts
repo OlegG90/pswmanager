@@ -10,13 +10,15 @@ import { app, sheet, snack } from './page'
  *  access on, the phone's folders are browsed here (`browse`, which hands back
  *  what was chosen, or null); otherwise a sheet offers Android's `picker`
  *  (which refuses some folders, one named Data, say) or turning the access
- *  on. Null when nothing was chosen. */
+ *  on; a build that cannot have the access (the Play build) goes straight to
+ *  the picker. Null when nothing was chosen. */
 export function onPhone<T>(what: string, browse: (done: (it: T | null) => void, picker: () => void) => void, picker: () => Promise<T | null>): Promise<T | null> {
   return new Promise((resolve, reject) => {
     // Browsing reaches the phone's own storage: Android's picker stays for an SD card, say.
     const toPicker = () => picker().then(resolve, reject)
     void api.allFilesAccess().then((granted) => {
       if (granted) return browse(resolve, toPicker)
+      if (granted === null) return toPicker()
       let handedOn = false
       sheet((close) => [
         el('b', {}, what),

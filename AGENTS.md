@@ -71,6 +71,9 @@ npm run cleanup               # removes builds and generated files (target, dist
   itself; starting it by hand as well cancels one of the two runs. The artifact `pswmanager-apk` holds
   `universal/release/app-universal-release.apk` (a debug APK where the signing secrets are missing, as
   on forks); install it with `adb install -r <apk>`.
+- The **Google Play build** (#394) is the same code without All files access (`PSWM_PLAY_BUILD=true`). To
+  try it, start the *Android* workflow by hand with *play* on: its APK replaces the usual one in the
+  artifact, beside `pswmanager-play-aab`.
 - The Kotlin unit tests (`apps/android/gen/android/app/src/test`, plain JVM, no Android classes) run in
   the same workflow, after the APK.
 - Check changes to the Android UI or its Kotlin plugins on a real phone before the pull request.
@@ -84,3 +87,5 @@ Version tags and releases are cut from `main` after the merge, never from a bran
 2. After it is merged: `git tag vX.Y.Z` on `main` and `git push origin vX.Y.Z`.
 3. The *Release* workflow checks the tag matches the version and publishes `pswm-x64.exe`,
    `pswm-arm64.exe` and `pswmanager-android.apk`. Make sure all three are on the release.
+4. The same run keeps `pswmanager-play.aab` (the Google Play build) as its artifact `pswmanager-play`, not on
+   the release; it is uploaded to the Play Console by hand.

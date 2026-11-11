@@ -12,6 +12,13 @@ on:
   push:
     paths: ['apps/android/**', 'crates/core/**', 'Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/android.yml']
   workflow_dispatch:
+    inputs:
+      play:
+        # The Google Play build (#394): its APK to try on the phone, and the
+        # bundle (AAB) for the Play Console.
+        description: The Google Play build (no All files access), with its AAB
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,6 +31,8 @@ env:
   # The Tauri CLI works on the Android app, not on the Windows one in src-tauri.
   TAURI_APP_PATH: apps/android
   TAURI_FRONTEND_PATH: .
+  # Read by app/build.gradle.kts: "true" leaves All files access out.
+  PSWM_PLAY_BUILD: ${{ inputs.play == true }}
 
 jobs:
   apk:
@@ -72,7 +81,7 @@ jobs:
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - if: steps.key.outputs.signed == 'true'
-        run: npx tauri android build --apk --target aarch64 --ci
+        run: npx tauri android build --apk ${{ inputs.play == true && '--aab' || '' }} --target aarch64 --ci
       - if: steps.key.outputs.signed != 'true'
         run: npx tauri android build --debug --apk --target aarch64 --ci
 
@@ -80,6 +89,13 @@ jobs:
         with:
           name: pswmanager-apk
           path: apps/android/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      - if: inputs.play == true && steps.key.outputs.signed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pswmanager-play-aab
+          path: apps/android/gen/android/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
 
       # The Kotlin unit tests (app/src/test), after the upload: a failing test

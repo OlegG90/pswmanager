@@ -67,6 +67,13 @@ android {
             )
         }
     }
+    // The Google Play build (#394), made with PSWM_PLAY_BUILD=true: the same
+    // code, its manifest without All files access (src/play/), which Play keeps
+    // from a password manager. Not a product flavor: Tauri's flavors (the ABIs)
+    // name the Gradle tasks its CLI runs.
+    if (System.getenv("PSWM_PLAY_BUILD") == "true") {
+        sourceSets.getByName("release").manifest.srcFile("src/play/AndroidManifest.xml")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
