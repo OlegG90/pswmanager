@@ -187,13 +187,16 @@ impl<R: Runtime> Documents<R> {
         Ok(self.call::<PickAnswer>("pickToSave", Args { name })?.uri)
     }
 
-    /// Whether the app may read any file on the phone's storage (All files access).
-    pub fn all_files_access(&self) -> Result<bool, String> {
+    /// Whether the app may read any file on the phone's storage (All files
+    /// access); `None` when this build cannot have it (the Play build).
+    pub fn all_files_access(&self) -> Result<Option<bool>, String> {
         #[derive(Deserialize)]
-        struct Granted {
+        struct Access {
             granted: bool,
+            offered: bool,
         }
-        Ok(self.call::<Granted>("allFilesAccess", ())?.granted)
+        let access = self.call::<Access>("allFilesAccess", ())?;
+        Ok(access.offered.then_some(access.granted))
     }
 
     /// Opens Android's page that turns All files access on for this app.

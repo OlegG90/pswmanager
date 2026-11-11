@@ -91,9 +91,10 @@ pub fn use_key_file(app: AppHandle, key_file: Picked) -> Result<Status, String> 
 /// Where browsing the phone's files starts, and what it never leaves.
 const STORAGE: &str = "/storage/emulated/0";
 
-/// Whether the app may browse the phone's files (All files access).
+/// Whether the app may browse the phone's files (All files access); `None`
+/// when this build cannot have it.
 #[tauri::command]
-pub async fn all_files_access(app: AppHandle) -> Result<bool, String> {
+pub async fn all_files_access(app: AppHandle) -> Result<Option<bool>, String> {
     off_main(move || app.state::<Documents<Wry>>().all_files_access()).await
 }
 

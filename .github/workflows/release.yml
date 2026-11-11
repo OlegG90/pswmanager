@@ -139,3 +139,22 @@ jobs:
         with:
           name: pswmanager-android
           path: release/
+
+      # The Google Play build (#394): the same commit without All files access,
+      # as a bundle uploaded to the Play Console by hand; not on the release.
+      - name: The Google Play bundle
+        env:
+          PSWM_PLAY_BUILD: 'true'
+        run: |
+          npx tauri android build --aab --target aarch64 --ci
+          aab="$(find apps/android/gen/android/app/build/outputs/bundle -name '*-release.aab' | head -1)"
+          if [ -z "$aab" ]; then echo "::error::No release bundle was built"; exit 1; fi
+          # A bundle is signed when it carries the key's signature block.
+          if ! unzip -l "$aab" | grep -qE 'META-INF/[^/]+\.(RSA|EC|DSA)$'; then echo "::error::The release bundle is not signed"; exit 1; fi
+          mkdir -p play
+          cp "$aab" play/pswmanager-play.aab
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pswmanager-play
+          path: play/

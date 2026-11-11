@@ -23,7 +23,7 @@ the current file; v1, kept for reference, also shows things that come in later s
 | Platform | Android 10 (API 29) or newer; phones, portrait only |
 | Reference device | Samsung Galaxy S24 Ultra |
 | UI language | English only |
-| Distribution | A signed APK attached to the GitHub Release; installed by hand. No Google Play, no F-Droid, no auto-update |
+| Distribution | A signed APK attached to the GitHub Release; installed by hand. A **Google Play build** of the same commit (#394), without *All files access*, as a bundle for the Play Console. No F-Droid, no auto-update |
 | License | MIT |
 
 ### Role
@@ -38,7 +38,7 @@ completely is a goal for later stages.
 
 Several databases in the list (one database on the phone), backup, managing tags
 (rename, merge, remove), password health, restoring a history version, a LAN folder as a store, tablets and
-landscape, Google Play. Importing from another password manager (#152) and exporting to one (#153) are in
+landscape. Importing from another password manager (#152) and exporting to one (#153) are in
 (*Screens*); SafeInCloud's migration stays with `sic2kdbx.py`.
 
 ## The database on the phone
@@ -77,8 +77,9 @@ chosen; never needed otherwise). With it on, every place the app opens or writes
 browses the phone's own storage in the app instead (its sheet keeps *Android's picker…* for an SD card or another volume): a key file (chosen or made), a database to open, the folder
 for a new database or for the visible copy, a file to attach, an attachment saved. What was chosen is then
 kept by its path and read and written as a picked document is. Without it, Android's pickers work as
-before. This is possible because the APK this project builds is not on Google Play, whose policy keeps
-that permission from password managers.
+before. Google Play's policy keeps that permission from password managers, so the **Google Play build**
+(#394) leaves it out of its manifest: it never offers *All files access* and opens Android's pickers
+straight away; the APK on the GitHub Release keeps the option.
 
 ### A local file
 
@@ -285,7 +286,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 |---|---|
 | General | locking, screenshots and the clipboard (see *Security behaviour*); biometric unlock and how often the master password is asked (stage A3); **Autofill**: whether PswManager is the phone's autofill service, and Android's choice of it (see *Autofill*) |
 | Appearance | theme; download site icons; swipes on the list (#194) |
-| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength, the eye on the first field and the rules for a new master password, #224) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; fine for the APK this project builds, which is not on Google Play, whose policy keeps that permission from password managers), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows (a copy that says it changed back to a key the phone was moved off is asked for the same way, never followed by itself) |
+| Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength, the eye on the first field and the rules for a new master password, #224) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; not in the Google Play build, see *Files and folders on the phone*), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows (a copy that says it changed back to a key the phone was moved off is asked for the same way, never followed by itself) |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; with a cloud store linked, **Sync now** and **Stop syncing** (e.g. when the store cannot be reached or the account has a problem), the one way out as on Windows (#225): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone and the store's account stays signed in. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
 | About | version; database format (KDBX 4.1); a link to the GitHub repository, opened in the browser |
 
@@ -425,9 +426,11 @@ row, as the phone shows autofill).
   A field in a frame from another site goes by that site. A page in another browser is taken for that
   browser, as an app. On a form that changes the password (current, new, again), the one saved is the
   new one: the field marked `new-password`, else the last. To read the
-  certificate of the app being filled, the APK asks for `QUERY_ALL_PACKAGES` (Android 11 hides other apps
-  otherwise; fine for this APK, which is not on Google Play, where it would need a declaration, #306):
-  only that app's certificate is read.
+  certificate of the app being filled, the app declares a query for the apps with a launcher icon
+  (Android 11 hides other apps otherwise), which makes them visible, browsers among them, without
+  `QUERY_ALL_PACKAGES`, which Google Play keeps from a password manager (#306, #394): only the
+  certificate of the app being filled is read. An app without a launcher icon stays hidden, and nothing
+  is offered or saved there.
 - **Locked:** the only offer is *Unlock PswManager*, which nothing about the entries is told with; it opens
   the unlock screen of the credential provider (fingerprint when allowed, else the master password), and
   the fields then offer the entries.
@@ -532,6 +535,13 @@ background.
   what is tried is what is released (a run without the key's secret, a fork's or Dependabot's, builds a
   debug APK). A `v*` tag builds the **release APK** the same way and attaches it to the GitHub Release beside
   the Windows exes. Both apps have one version (the root `Cargo.toml`), which the tag must match.
+- **Google Play build** (#394): the same code, made with `PSWM_PLAY_BUILD=true`, which merges
+  `app/src/play/AndroidManifest.xml` over the release build's manifest and so leaves out All files access
+  (not a product flavor: Tauri's flavors, the ABIs, name the Gradle tasks its CLI runs). The app asks at run
+  time whether its manifest requests the permission, so the code stays one. The tag's run also builds
+  it as a bundle (AAB, arm64 only), signed with the same key and kept as the run's artifact
+  `pswmanager-play` for the Play Console, not on the release; the *Android* workflow started by hand with
+  *play* builds its APK to try on the phone, and its AAB.
 - **Signing key:** made once: a PKCS#12 store (alias `pswmanager`, one password for the store and the key),
   kept in the CI secrets (base64) with its password, and a copy is kept by the owner outside the repo (as an
   attachment in the PswManager database). Any workflow in the repo can use the secrets, so a change to a

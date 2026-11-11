@@ -1,7 +1,9 @@
 package io.github.olegg90.pswmanager
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -178,11 +180,20 @@ class DocumentsPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(JSObject().put("uri", if (result.resultCode == Activity.RESULT_OK) uri?.toString() else null))
   }
 
-  /** Whether the app may read any file on the phone's storage (All files access). */
+  /** Whether the app may read any file on the phone's storage (All files
+   *  access), and whether it can be turned on at all: the Play build's manifest
+   *  leaves the permission out, and Android's setting would show its switch off. */
   @Command
   fun allFilesAccess(invoke: Invoke) {
-    // From Android 11; before, the app has no such access.
-    invoke.resolve(JSObject().put("granted", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()))
+    invoke.resolve(JSObject().put("granted", allFilesOffered && Environment.isExternalStorageManager()).put("offered", allFilesOffered))
+  }
+
+  /** From Android 11 (before, the app has no such access), when the manifest
+   *  asks for it; the manifest does not change while the app runs. */
+  private val allFilesOffered by lazy {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+      activity.packageManager.getPackageInfo(activity.packageName, PackageManager.GET_PERMISSIONS)
+        .requestedPermissions.orEmpty().contains(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
   }
 
   /** Android's page that turns All files access on for this app. */

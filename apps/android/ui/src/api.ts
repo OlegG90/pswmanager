@@ -212,8 +212,9 @@ export const api = {
   /** A folder for a key file (Android's folder picker) and its files; null when cancelled (#207). */
   pickKeyFolder: () => invoke<{ folder: Picked; files: string[] } | null>('pick_key_folder'),
   keyFileIn: (folder: string, name: string) => invoke<Picked>('key_file_in', { folder, name }),
-  /** All files access: on, the app browses the phone's files for a key file. */
-  allFilesAccess: () => invoke<boolean>('all_files_access'),
+  /** All files access: on, the app browses the phone's files for a key file;
+   *  null when this build cannot have it (the Play build). */
+  allFilesAccess: () => invoke<boolean | null>('all_files_access'),
   /** Android's page that turns All files access on. */
   askAllFilesAccess: () => invoke<void>('ask_all_files_access'),
   /** A folder of the phone's storage (null: its top), with All files access on. */
