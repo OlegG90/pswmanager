@@ -333,9 +333,10 @@ function showSort(sort: ListSort) {
 }
 
 sortBox.addEventListener('change', () => {
-  records.setSort(sortBox.value as ListSort)
+  const sort = sortBox.value as ListSort
+  records.setSort(sort)
   refresh()
-  api.setSetting('listSort', sortBox.value as ListSort).catch((e) => notify(String(e)))
+  api.setSetting('listSort', sort).catch((e) => notify(String(e)))
 })
 
 /** Shows what the list chose: one entry, or several. */

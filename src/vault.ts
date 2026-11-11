@@ -43,19 +43,20 @@ const titles = new Intl.Collator(undefined, { sensitivity: 'base' })
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
-/** `entries` in the list's order (#390): by title, else by the time last
- *  changed (UTC text, which sorts as the times do; none counts as oldest),
- *  same times by title A to Z. Same titles keep one order, by id. */
-export function sorted(entries: readonly Entry[], sort: ListSort): Entry[] {
-  const byTitle = (a: Entry, b: Entry) => titles.compare(a.title, b.title) || compare(a.id, b.id)
-  const order = {
-    name: byTitle,
-    'name-desc': (a: Entry, b: Entry) => byTitle(b, a),
-    modified: (a: Entry, b: Entry) => compare(a.modified ?? '', b.modified ?? '') || byTitle(a, b),
-    'modified-desc': (a: Entry, b: Entry) => compare(b.modified ?? '', a.modified ?? '') || byTitle(a, b),
-  }[sort]
-  return [...entries].sort(order)
+/** Same titles keep one order, by id. */
+const byTitle = (a: Entry, b: Entry) => titles.compare(a.title, b.title) || compare(a.id, b.id)
+
+/** The time last changed is UTC text, which sorts as the times do; none counts
+ *  as the oldest. Same times go by title A to Z either way. */
+const ORDERS: Record<ListSort, (a: Entry, b: Entry) => number> = {
+  name: byTitle,
+  'name-desc': (a, b) => byTitle(b, a),
+  modified: (a, b) => compare(a.modified ?? '', b.modified ?? '') || byTitle(a, b),
+  'modified-desc': (a, b) => compare(b.modified ?? '', a.modified ?? '') || byTitle(a, b),
 }
+
+/** `entries` in the list's order (#390). */
+export const sorted = (entries: readonly Entry[], sort: ListSort): Entry[] => [...entries].sort(ORDERS[sort])
 
 /**
  * The records pane of an unlocked database: its listing, what the sidebar
