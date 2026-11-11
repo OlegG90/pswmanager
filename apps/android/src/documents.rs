@@ -20,12 +20,19 @@ pub fn local(uri: &str) -> Option<&Path> {
     uri.strip_prefix("file://").map(Path::new)
 }
 
-/// `name` in a folder reached by its path: a name, not a path.
-fn in_folder(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
-        return Err(format!("{name} is not a file's name"));
+/// A file's name (a key file, an export, a copy…): trimmed, and a name, not
+/// a path. The one rule for every folder, picked or browsed (#379).
+pub(crate) fn file_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
+        return Err("Give the file a name (without / or \\)".into());
     }
-    Ok(dir.join(name))
+    Ok(name.to_string())
+}
+
+/// `name` in a folder reached by its path.
+fn in_folder(dir: &Path, name: &str) -> Result<std::path::PathBuf, String> {
+    Ok(dir.join(file_name(name)?))
 }
 
 /// [local]'s URI for `path`.
