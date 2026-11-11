@@ -382,10 +382,23 @@ main.list-screen {
   touch-action: pan-y;
 }
 
-/* The settings' toolbar coming in from the right before the screen opens. */
+/* The settings fill the screen, so a swipe below them counts too. */
+main.settings-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.settings-screen .settings {
+  flex: 1;
+}
+
+/* The settings coming in from the right before the screen opens, or going
+   away the same way; kept scrolled where the screen was. */
 .peek {
   position: absolute;
   inset: 0;
+  overflow: hidden;
   padding: max(16px, env(safe-area-inset-top)) 16px 0;
   background: var(--color-bg);
 }

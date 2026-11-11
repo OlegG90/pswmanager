@@ -8,7 +8,7 @@ import { api, type Cloud, type CloudFile, type Settings, type Status } from './a
 import { svgIcon } from './icons'
 import { app, applySettings, confirmSheet, backBar, iconButton, overlay, screen, screens, sheet, show, snack } from './page'
 import { keyFileChooser } from './phone-files'
-import { leaving, slide, type Sliding, swipes } from './slides'
+import { slide, type Sliding, swipes } from './slides'
 import { CLOUDS, filesIn, STORES } from './sync'
 
 // The settings screen and its tabs, with the screens they open (the key, the
@@ -25,6 +25,30 @@ export function settingsPeek(back: () => void): Sliding {
   const close = overlay(shade)
   const sliding = slide(shade, panel, 1, close)
   return { ...sliding, release: (open) => sliding.release(open, () => (close(), void settingsScreen(back, parts ?? undefined))) }
+}
+
+/** The settings screen taken away to the right by a swipe, as `settingsPeek`
+ *  brought it in: the screen it came from is drawn under it at once and the
+ *  settings go over it as a panel, so the two move together. Let go short,
+ *  the settings are the screen again, scrolled where they were. */
+function settingsLeaving(parts: SettingsParts, back: () => void): Sliding {
+  const y = window.scrollY
+  // Back there first (a field being typed in left, so it is saved); the
+  // parts are then off the screen, free for the panel.
+  parts.goBack()
+  const panel = el('main', { className: 'peek' }, ...parts.nodes)
+  const shade = el('div', { className: 'shade' }, panel)
+  const close = overlay(shade)
+  panel.scrollTop = y
+  const sliding = slide(shade, panel, 1, close)
+  // Not when Back took the panel away meanwhile.
+  const stay = () => {
+    if (!shade.isConnected) return
+    close()
+    void settingsScreen(back, parts)
+    window.scrollTo(0, y)
+  }
+  return { follow: sliding.back, release: (away) => sliding.release(!away, stay) }
 }
 
 type Tab = 'general' | 'appearance' | 'database' | 'sync' | 'about'
@@ -268,7 +292,7 @@ function settingsParts(s: Settings, back: () => void): SettingsParts {
     back()
   }
   fill()
-  return {
+  const parts: SettingsParts = {
     nodes: [backBar('Settings', goBack), scrolledTabs(bar), body],
     body,
     fill,
@@ -279,6 +303,10 @@ function settingsParts(s: Settings, back: () => void): SettingsParts {
       if (settingsTab === 'database' && !body.contains(document.activeElement)) fill()
     },
   }
+  // A swipe to the right takes the settings away, back where they came from;
+  // only once they are the screen, not while a swipe has them on a panel.
+  swipes(body, () => app.swipesOn() && screen.contains(body), { right: () => settingsLeaving(parts, back) })
+  return parts
 }
 
 /** The settings screen; `drawn` when a swipe brought its parts in already. */
@@ -286,9 +314,7 @@ export async function settingsScreen(back: () => void, drawn?: SettingsParts) {
   settingsBack = back
   if (!app.settings) applySettings(await api.settings())
   const parts = drawn ?? settingsParts(app.settings!, back)
-  show(parts.nodes, parts.goBack)
-  // A swipe to the right takes the settings away, back where they came from.
-  swipes(parts.body, app.swipesOn, { right: () => leaving(screen, parts.goBack) })
+  show(parts.nodes, parts.goBack, 'settings-screen')
   screens.onSynced((synced) => synced.changed && parts.synced())
   parts.body.parentElement?.querySelector('.tabs .chosen')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
   // As they are now (another device or the tray may have changed one).
