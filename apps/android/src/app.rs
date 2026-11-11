@@ -563,7 +563,8 @@ fn watch_in_front(app: AppHandle) {
         if !app.state::<InFront>().0.load(std::sync::atomic::Ordering::SeqCst) || !app.state::<Session>().is_unlocked() {
             continue;
         }
-        let settings = Settings::of(&app.state());
+        let store = app.state::<Store>();
+        let settings = Settings::of(&store);
         let idle = app.state::<Activity>().idle_for();
         if settings.lock_after().is_some_and(|limit| idle >= limit) {
             lock_and_tell(&app, true);
