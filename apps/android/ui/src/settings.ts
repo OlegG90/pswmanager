@@ -20,7 +20,7 @@ export function settingsPeek(back: () => void): Sliding {
   // The screen itself, drawn now; once in, the same parts become the screen.
   // Before the settings were ever read, only its toolbar's look.
   const parts = app.settings ? settingsParts(app.settings, back) : null
-  const panel = el('main', { className: 'peek' }, ...(parts?.nodes ?? [el('header', { className: 'bar' }, el('span', { className: 'icon' }, svgIcon('back')), el('h1', {}, 'Settings'))]))
+  const panel = el('main', { className: 'peek settings-screen' }, ...(parts?.nodes ?? [el('header', { className: 'bar' }, el('span', { className: 'icon' }, svgIcon('back')), el('h1', {}, 'Settings'))]))
   const shade = el('div', { className: 'shade' }, panel)
   const close = overlay(shade)
   const sliding = slide(shade, panel, 1, close)
@@ -32,21 +32,25 @@ export function settingsPeek(back: () => void): Sliding {
  *  settings go over it as a panel, so the two move together. Let go short,
  *  the settings are the screen again, scrolled where they were. */
 function settingsLeaving(parts: SettingsParts, back: () => void): Sliding {
-  const y = window.scrollY
+  const scrolled = window.scrollY
+  // Taken off the page and back, the tabs would lose how far they scrolled.
+  const tabs = parts.tabs.scrollLeft
   // Back there first (a field being typed in left, so it is saved); the
   // parts are then off the screen, free for the panel.
   parts.goBack()
-  const panel = el('main', { className: 'peek' }, ...parts.nodes)
+  const panel = el('main', { className: 'peek settings-screen' }, ...parts.nodes)
   const shade = el('div', { className: 'shade' }, panel)
   const close = overlay(shade)
-  panel.scrollTop = y
+  panel.scrollTop = scrolled
+  parts.tabs.scrollLeft = tabs
   const sliding = slide(shade, panel, 1, close)
   // Not when Back took the panel away meanwhile.
   const stay = () => {
     if (!shade.isConnected) return
     close()
     void settingsScreen(back, parts)
-    window.scrollTo(0, y)
+    window.scrollTo(0, scrolled)
+    parts.tabs.scrollLeft = tabs
   }
   return { follow: sliding.back, release: (away) => sliding.release(!away, stay) }
 }
@@ -265,6 +269,8 @@ function encryptionScreen(now: Encryption) {
 interface SettingsParts {
   nodes: Node[]
   body: HTMLElement
+  /** The row of tabs, scrolled sideways. */
+  tabs: HTMLElement
   fill: () => void
   /** Back where the settings came from, a field being typed in left first (so it is saved). */
   goBack: () => void
@@ -295,6 +301,7 @@ function settingsParts(s: Settings, back: () => void): SettingsParts {
   const parts: SettingsParts = {
     nodes: [backBar('Settings', goBack), scrolledTabs(bar), body],
     body,
+    tabs: bar,
     fill,
     goBack,
     synced: () => {

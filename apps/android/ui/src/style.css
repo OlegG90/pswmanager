@@ -382,15 +382,18 @@ main.list-screen {
   touch-action: pan-y;
 }
 
-/* The settings fill the screen, so a swipe below them counts too. */
+/* The settings fill the screen down to its foot, so a swipe below them
+   counts too; the same on the panel a swipe moves them on, so they stay put. */
 main.settings-screen {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+  padding-bottom: 0;
 }
 
 .settings-screen .settings {
   flex: 1;
+  padding-bottom: calc(32px + env(safe-area-inset-bottom));
 }
 
 /* The settings coming in from the right before the screen opens, or going
