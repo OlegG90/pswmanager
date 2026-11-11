@@ -202,7 +202,7 @@ pub fn status_of(store: &Store, session: &Session) -> Status {
     Status { database, unlocked: session.is_unlocked() }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn status(store: State<Store>, session: State<Session>) -> Status {
     status_of(&store, &session)
 }
@@ -587,7 +587,7 @@ pub(crate) fn remember_key_file(store: &Store, picked: &documents::Picked) -> Re
 }
 
 /// The database is unlocked without a key file from now on.
-#[tauri::command]
+#[tauri::command(async)]
 fn clear_key_file(store: State<Store>, session: State<Session>) -> Result<Status, String> {
     forget_key_file(&store)?;
     Ok(status_of(&store, &session))
@@ -637,32 +637,32 @@ async fn pick_folder(app: AppHandle) -> Result<Option<documents::Picked>, String
     off_main(move || app.state::<Documents<Wry>>().pick_folder()).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn listing(app: AppHandle, session: State<Session>) -> Result<Listing, String> {
     let listing = session.read(Vault::listing)?;
     crate::icons::fetch(&app, &listing);
     Ok(listing)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn entry(session: State<Session>, id: String) -> Result<EntryDetail, String> {
     session.with(|v| v.detail(&id))
 }
 
 /// The entry's older versions, newest first: when, and what changed; never values.
-#[tauri::command]
+#[tauri::command(async)]
 fn entry_history(session: State<Session>, id: String) -> Result<Vec<Version>, String> {
     session.with(|v| v.history(&id))
 }
 
 /// One older version, read only, secrets masked, with how it differs from the entry now.
-#[tauri::command]
+#[tauri::command(async)]
 fn entry_version(session: State<Session>, id: String, index: usize) -> Result<VersionDetail, String> {
     session.with(|v| v.version(&id, index))
 }
 
 /// One field's value (of an older version with `version`), for showing it.
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal(session: State<Session>, id: String, field: String, version: Option<usize>) -> Result<String, String> {
     session.with(|v| v.field_in(&id, version, &field)).map(|value| value.to_string())
 }
@@ -678,7 +678,7 @@ async fn copy_field(app: AppHandle, id: String, field: String, version: Option<u
     copy_to_clipboard(app, value).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn totp(session: State<Session>, id: String) -> Result<Option<otp::Code>, String> {
     session.read(|v| v.totp(&id))?
 }
@@ -691,7 +691,7 @@ async fn copy_totp(app: AppHandle, id: String) -> Result<u64, String> {
 
 /// Opens the entry's URL, or the further URL `field` (`KP2A_URL_n`), in the
 /// default browser (web addresses only).
-#[tauri::command]
+#[tauri::command(async)]
 fn open_url(app: AppHandle, session: State<Session>, id: String, field: Option<String>) -> Result<(), String> {
     let url = session.with(|v| Some(v.link(&id, field.as_deref())))?.ok_or("Not a web address")?;
     app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())

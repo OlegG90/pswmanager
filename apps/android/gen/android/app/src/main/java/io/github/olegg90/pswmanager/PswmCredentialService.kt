@@ -10,6 +10,7 @@ import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.CreateCredentialUnsupportedException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialUnknownException
 import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
@@ -26,6 +27,7 @@ import androidx.credentials.provider.ProviderClearCredentialStateRequest
 import androidx.credentials.provider.PublicKeyCredentialEntry
 import org.json.JSONArray
 import java.io.File
+import kotlin.concurrent.thread
 
 /** What Rust does for the credential provider (`src/provider.rs`). */
 object ProviderBridge {
@@ -145,12 +147,24 @@ class PswmCredentialService : CredentialProviderService() {
     cancellationSignal: CancellationSignal,
     callback: OutcomeReceiver<BeginGetCredentialResponse, GetCredentialException>,
   ) {
-    if (!ProviderBridge.isUnlocked()) {
-      val unlock = AuthenticationAction(title = "Unlock PswManager", pendingIntent = unlockIntent(this))
-      callback.onResult(BeginGetCredentialResponse(authenticationActions = listOf(unlock)))
-      return
+    // Off the main thread: the lookup reads the database, which a sync or a
+    // save may hold a moment, and telling who asks reads the browser allowlist
+    // the first time.
+    thread {
+      val response = try {
+        if (ProviderBridge.isUnlocked()) {
+          credentials(this, request)
+        } else {
+          val unlock = AuthenticationAction(title = "Unlock PswManager", pendingIntent = unlockIntent(this))
+          BeginGetCredentialResponse(authenticationActions = listOf(unlock))
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("PswmProvider", "No credentials offered: ${e.javaClass.simpleName}")
+        null
+      }
+      if (cancellationSignal.isCanceled) return@thread
+      if (response != null) callback.onResult(response) else callback.onError(GetCredentialUnknownException("PswManager cannot answer"))
     }
-    callback.onResult(credentials(this, request))
   }
 
   override fun onBeginCreateCredentialRequest(
