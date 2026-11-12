@@ -1,181 +1,110 @@
-//! Running syncs in the app: when they happen, one at a time, and what the
-//! window and the tray show about them. The sync itself is `pswm_core::sync`.
+//! Running syncs in the app: the driver's rules (`sync_driver`) on the app's
+//! state, the clock that ticks it, and what the window and the tray show.
+//! The sync itself is `pswm_core::sync`.
 
 use crate::settings::Settings;
+use crate::sync_driver::{Driver, Host};
 use crate::Session;
 use pswm_core::dbfile::OpenError;
 use pswm_core::store::Store;
 use pswm_core::sync::{sync, Outcome, SyncError};
 // The sync itself, for the rest of the app beside the driver here.
 pub use pswm_core::sync::{attach, ensure_working_copy, has_pending, is_pending, keep_as_local, link, start, LinkChoice};
-use serde::Serialize;
-use std::sync::Mutex;
+pub use crate::sync_driver::Status;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Edits go up this long after the last one, so a few edits in a row make one upload.
-const UPLOAD_DELAY: Duration = Duration::from_secs(10);
 /// Quitting waits this long at most for the last upload.
 const QUIT_WAIT: Duration = Duration::from_secs(10);
 
-/// What the window and the tray show about syncing.
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    /// False for a local file: nothing to show.
-    pub remote: bool,
-    pub busy: bool,
-    pub text: String,
-    /// The last sync did not finish: offline or an error.
-    pub problem: bool,
+/// The app, as the driver sees it.
+struct App<'a>(&'a AppHandle);
+
+impl Host for App<'_> {
+    fn synced(&self) -> bool {
+        self.0.state::<Store>().read(|s| s.remote().is_some())
+    }
+
+    fn unlocked(&self) -> bool {
+        self.0.state::<Session>().is_unlocked()
+    }
+
+    fn check_every(&self) -> Option<Duration> {
+        Settings::of(&self.0.state()).sync_every()
+    }
+
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn sync(&self) -> Result<Outcome, SyncError> {
+        let store = self.0.state::<Store>();
+        let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {
+            return Ok(Outcome::UpToDate);
+        };
+        let outcome = sync(location.open().as_ref(), &store, &self.0.state::<Session>())?;
+        if let Outcome::Downloaded(changed) | Outcome::Merged(changed) = &outcome {
+            crate::databases::show_changes(self.0, changed.clone());
+        }
+        Ok(outcome)
+    }
+
+    fn describe(&self, result: &Result<Outcome, SyncError>) -> (String, bool) {
+        pswm_core::sync::describe(&self.0.state::<Store>(), result)
+    }
+
+    fn show(&self, status: &Status) {
+        if let Some(tray) = self.0.tray_by_id("main") {
+            let tooltip = if status.remote && !status.text.is_empty() { format!("PswManager — {}", status.text) } else { "PswManager".into() };
+            let _ = tray.set_tooltip(Some(tooltip));
+        }
+        let _ = self.0.emit("sync-status", status);
+    }
+
+    fn remote_key_needed(&self, needed: bool) {
+        crate::need_key(self.0, |k| k.remote = needed);
+    }
+
+    fn run_in_background(&self) {
+        let app = self.0.clone();
+        std::thread::spawn(move || driver(&app).run(&App(&app)));
+    }
 }
 
-#[derive(Default)]
-struct Flags {
-    running: bool,
-    /// Asked again while running: run once more.
-    again: bool,
-    /// When edits go up.
-    upload_at: Option<Instant>,
-    last_run: Option<Instant>,
-    status: Status,
-}
-
-/// The app's sync state: one sync at a time.
-#[derive(Default)]
-pub struct Syncer(Mutex<Flags>);
-
-fn flags<R>(app: &AppHandle, f: impl FnOnce(&mut Flags) -> R) -> R {
-    f(&mut app.state::<Syncer>().0.lock().unwrap())
+fn driver(app: &AppHandle) -> tauri::State<'_, Driver> {
+    app.state::<Driver>()
 }
 
 /// Starts a sync in the background, or one more after the one running.
 pub fn request(app: &AppHandle) {
-    let synced = app.state::<Store>().read(|s| s.remote().is_some());
-    let started = flags(app, |f| {
-        f.upload_at = None;
-        if !synced {
-            return false;
-        }
-        if f.running {
-            f.again = true;
-            return false;
-        }
-        f.running = true;
-        true
-    });
-    if !started {
-        return;
-    }
-    let app = app.clone();
-    std::thread::spawn(move || while pass(&app, true).1 {});
-}
-
-/// One sync, its status shown. Returns its result and whether another was
-/// asked for meantime; with `go_on` the caller runs that one next (it keeps
-/// the sync marked running), otherwise the sync is over.
-fn pass(app: &AppHandle, go_on: bool) -> (Result<Outcome, SyncError>, bool) {
-    set_status(app, |s| s.busy = true);
-    let result = run_once(app);
-    let status = describe(app, &result);
-    let again = flags(app, |f| {
-        f.last_run = Some(Instant::now());
-        f.running = go_on && f.again;
-        std::mem::take(&mut f.again)
-    });
-    let busy = go_on && again;
-    set_status(app, |s| *s = Status { busy, ..status });
-    // After the last pass of a run: the remote file on a key this device does not know.
-    if !busy {
-        crate::need_key(app, |k| k.remote = matches!(result, Err(SyncError::OtherKey)));
-    }
-    (result, again)
+    driver(app).request(&App(app));
 }
 
 /// Syncs now, in the calling thread, for a change that needs the remote file
-/// in step first (a new key: after it, a remote file changed on another device
-/// no longer opens). Nothing to do for a local file; refused while a sync runs.
-/// A remote file on a key this device does not know is [OpenError::OtherKey].
+/// in step first; see [Driver::sync_first].
 pub fn sync_first(app: &AppHandle) -> Result<(), OpenError> {
-    if app.state::<Store>().read(|s| s.remote().is_none()) {
-        return Ok(());
-    }
-    if !flags(app, |f| !std::mem::replace(&mut f.running, true)) {
-        return Err(String::from("A sync is running; try again in a moment").into());
-    }
-    let (result, again) = pass(app, false);
-    if again {
-        request(app);
-    }
-    match result {
-        Ok(_) => Ok(()),
-        Err(SyncError::OtherKey) => Err(OpenError::other_key()),
-        Err(SyncError::Offline(message) | SyncError::SignIn(message) | SyncError::Failed(message)) => Err(message.into()),
-    }
-}
-
-fn run_once(app: &AppHandle) -> Result<Outcome, SyncError> {
-    let store = app.state::<Store>();
-    let Some(location) = store.read(|s| s.remote().map(|r| r.location.clone())) else {
-        return Ok(Outcome::UpToDate);
-    };
-    let outcome = sync(location.open().as_ref(), &store, &app.state::<Session>())?;
-    if let Outcome::Downloaded(changed) | Outcome::Merged(changed) = &outcome {
-        crate::databases::show_changes(app, changed.clone());
-    }
-    Ok(outcome)
-}
-
-fn describe(app: &AppHandle, result: &Result<Outcome, SyncError>) -> Status {
-    let (text, problem) = pswm_core::sync::describe(&app.state::<Store>(), result);
-    Status { text, problem, ..Status::default() } // `remote` is filled in when it is shown
-}
-
-fn set_status(app: &AppHandle, change: impl FnOnce(&mut Status)) {
-    let remote = app.state::<Store>().read(|s| s.remote().is_some());
-    let status = flags(app, |f| {
-        change(&mut f.status);
-        f.status.remote = remote;
-        f.status.clone()
-    });
-    if let Some(tray) = app.tray_by_id("main") {
-        let tooltip = if status.remote && !status.text.is_empty() { format!("PswManager — {}", status.text) } else { "PswManager".into() };
-        let _ = tray.set_tooltip(Some(tooltip));
-    }
-    let _ = app.emit("sync-status", status);
+    driver(app).sync_first(&App(app))
 }
 
 pub fn status(app: &AppHandle) -> Status {
-    let remote = app.state::<Store>().read(|s| s.remote().is_some());
-    Status { remote, ..flags(app, |f| f.status.clone()) }
+    driver(app).status(&App(app))
 }
 
 /// Forgets the last status (after choosing another database, or stopping sync).
 pub fn reset(app: &AppHandle) {
-    set_status(app, |s| *s = Status::default());
-    crate::need_key(app, |k| k.remote = false);
+    driver(app).reset(&App(app));
 }
 
 /// An entry was created, changed or deleted: it goes up shortly.
 pub fn upload_soon(app: &AppHandle) {
-    flags(app, |f| f.upload_at = Some(Instant::now() + UPLOAD_DELAY));
+    driver(app).upload_soon(&App(app));
 }
 
 /// Runs the delayed uploads and the regular check while unlocked.
 pub fn start_clock(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
-        let now = Instant::now();
-        let every = Settings::of(&app.state()).sync_every();
-        let (upload, check) = flags(&app, |f| {
-            let upload = f.upload_at.is_some_and(|at| now >= at);
-            let check = !f.running && every.is_some_and(|every| f.last_run.is_none_or(|last| now - last >= every));
-            (upload, check)
-        });
-        // The regular check runs only while unlocked: a locked app cannot merge.
-        if upload || (check && app.state::<Session>().is_unlocked()) {
-            request(&app);
-        }
+        driver(&app).tick(&App(&app));
     });
 }
 
@@ -194,6 +123,5 @@ pub fn quit_after_upload(app: &AppHandle) {
 }
 
 pub fn is_running(app: &AppHandle) -> bool {
-    flags(app, |f| f.running)
+    driver(app).is_running()
 }
-
