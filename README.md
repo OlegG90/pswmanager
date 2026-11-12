@@ -2,7 +2,7 @@
 
 A minimal tray password manager for Windows on top of a KeePass (KDBX 4) file. The same file opens in
 KeePassXC and Keepass2Android. How to use it, on Windows and Android: [docs/user-guide.md](docs/user-guide.md).
-See [docs/spec.md](docs/spec.md) for the specification.
+See [docs/spec.md](docs/spec.md) for the specification and [PRIVACY.md](PRIVACY.md) for the privacy policy.
 
 ## Download and first run
 
