@@ -17,9 +17,6 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Quitting waits this long at most for the last upload.
 const QUIT_WAIT: Duration = Duration::from_secs(10);
 
-/// The app's sync state: one sync at a time.
-pub type Syncer = Driver;
-
 /// The app, as the driver sees it.
 struct App<'a>(&'a AppHandle);
 

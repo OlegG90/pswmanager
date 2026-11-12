@@ -214,7 +214,7 @@ pub fn run() {
         .manage(AutoTypeTarget::default())
         .manage(AutoTypeNotice::default())
         .manage(questions::Questions::default())
-        .manage(sync::Syncer::default())
+        .manage(sync_driver::Driver::default())
         .invoke_handler(tauri::generate_handler![
             databases::status,
             databases::pick_database,
