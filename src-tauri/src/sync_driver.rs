@@ -187,8 +187,8 @@ impl Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     const MINUTE: Duration = Duration::from_secs(60);
 
@@ -197,37 +197,35 @@ mod tests {
     /// the test to run it ([Scripted::run]), as the app's thread would.
     struct Scripted {
         driver: Driver,
-        synced: AtomicBool,
-        unlocked: AtomicBool,
+        synced: Cell<bool>,
+        unlocked: Cell<bool>,
         check_every: Option<Duration>,
-        start: Instant,
-        /// Seconds since `start`.
-        elapsed: AtomicUsize,
+        now: Cell<Instant>,
         /// What the syncs answer, in turn; up to date once it runs out.
-        results: Mutex<VecDeque<Result<Outcome, SyncError>>>,
+        results: RefCell<VecDeque<Result<Outcome, SyncError>>>,
         /// How many times the next sync asks for another while it runs.
-        asks_while_syncing: AtomicUsize,
-        syncs: AtomicUsize,
-        shown: Mutex<Vec<Status>>,
-        key_needed: Mutex<Vec<bool>>,
-        started: AtomicUsize,
+        asks_while_syncing: Cell<usize>,
+        syncs: Cell<usize>,
+        shown: RefCell<Vec<Status>>,
+        key_needed: RefCell<Vec<bool>>,
+        /// The runs started in the background and not run yet.
+        started: Cell<usize>,
     }
 
     impl Scripted {
         fn new() -> Scripted {
             Scripted {
                 driver: Driver::default(),
-                synced: AtomicBool::new(true),
-                unlocked: AtomicBool::new(true),
+                synced: Cell::new(true),
+                unlocked: Cell::new(true),
                 check_every: None,
-                start: Instant::now(),
-                elapsed: AtomicUsize::new(0),
-                results: Mutex::default(),
-                asks_while_syncing: AtomicUsize::new(0),
-                syncs: AtomicUsize::new(0),
-                shown: Mutex::default(),
-                key_needed: Mutex::default(),
-                started: AtomicUsize::new(0),
+                now: Cell::new(Instant::now()),
+                results: RefCell::default(),
+                asks_while_syncing: Cell::new(0),
+                syncs: Cell::new(0),
+                shown: RefCell::default(),
+                key_needed: RefCell::default(),
+                started: Cell::new(0),
             }
         }
 
@@ -237,41 +235,32 @@ mod tests {
 
         fn answering(results: impl IntoIterator<Item = Result<Outcome, SyncError>>) -> Scripted {
             let host = Scripted::new();
-            host.results.lock().unwrap().extend(results);
+            host.results.borrow_mut().extend(results);
             host
         }
 
         fn after(&self, time: Duration) {
-            self.elapsed.fetch_add(time.as_secs() as usize, Ordering::SeqCst);
-        }
-
-        fn syncs(&self) -> usize {
-            self.syncs.load(Ordering::SeqCst)
-        }
-
-        /// The runs started in the background and not run yet.
-        fn started(&self) -> usize {
-            self.started.load(Ordering::SeqCst)
+            self.now.set(self.now.get() + time);
         }
 
         /// Runs the one run started in the background, as the app's thread does.
         fn run(&self) {
-            assert_eq!(self.started.swap(0, Ordering::SeqCst), 1, "one run was started");
+            assert_eq!(self.started.replace(0), 1, "one run was started");
             self.driver.run(self);
         }
 
         fn busy_shown(&self) -> Vec<bool> {
-            self.shown.lock().unwrap().iter().map(|s| s.busy).collect()
+            self.shown.borrow().iter().map(|s| s.busy).collect()
         }
     }
 
     impl Host for Scripted {
         fn synced(&self) -> bool {
-            self.synced.load(Ordering::SeqCst)
+            self.synced.get()
         }
 
         fn unlocked(&self) -> bool {
-            self.unlocked.load(Ordering::SeqCst)
+            self.unlocked.get()
         }
 
         fn check_every(&self) -> Option<Duration> {
@@ -279,15 +268,15 @@ mod tests {
         }
 
         fn now(&self) -> Instant {
-            self.start + Duration::from_secs(self.elapsed.load(Ordering::SeqCst) as u64)
+            self.now.get()
         }
 
         fn sync(&self) -> Result<Outcome, SyncError> {
-            self.syncs.fetch_add(1, Ordering::SeqCst);
-            for _ in 0..self.asks_while_syncing.swap(0, Ordering::SeqCst) {
+            self.syncs.set(self.syncs.get() + 1);
+            for _ in 0..self.asks_while_syncing.replace(0) {
                 self.driver.request(self);
             }
-            self.results.lock().unwrap().pop_front().unwrap_or(Ok(Outcome::UpToDate))
+            self.results.borrow_mut().pop_front().unwrap_or(Ok(Outcome::UpToDate))
         }
 
         fn describe(&self, result: &Result<Outcome, SyncError>) -> (String, bool) {
@@ -295,15 +284,15 @@ mod tests {
         }
 
         fn show(&self, status: &Status) {
-            self.shown.lock().unwrap().push(status.clone());
+            self.shown.borrow_mut().push(status.clone());
         }
 
         fn remote_key_needed(&self, needed: bool) {
-            self.key_needed.lock().unwrap().push(needed);
+            self.key_needed.borrow_mut().push(needed);
         }
 
         fn run_in_background(&self) {
-            self.started.fetch_add(1, Ordering::SeqCst);
+            self.started.set(self.started.get() + 1);
         }
     }
 
@@ -312,9 +301,9 @@ mod tests {
         let host = Scripted::new();
         host.driver.request(&host);
         assert!(host.driver.is_running());
-        assert_eq!(host.syncs(), 0, "not in the calling thread");
+        assert_eq!(host.syncs.get(), 0, "not in the calling thread");
         host.run();
-        assert_eq!(host.syncs(), 1);
+        assert_eq!(host.syncs.get(), 1);
         assert!(!host.driver.is_running());
         assert_eq!(host.busy_shown(), [true, false]);
     }
@@ -322,13 +311,13 @@ mod tests {
     #[test]
     fn a_local_database_is_never_synced() {
         let host = Scripted::checking_every(MINUTE);
-        host.synced.store(false, Ordering::SeqCst);
+        host.synced.set(false);
         host.driver.request(&host);
         host.driver.upload_soon(&host);
         host.after(MINUTE);
         host.driver.tick(&host);
         assert_eq!(host.driver.sync_first(&host), Ok(()));
-        assert_eq!((host.started(), host.syncs()), (0, 0));
+        assert_eq!((host.started.get(), host.syncs.get()), (0, 0));
         assert!(!host.driver.is_running());
         assert!(!host.driver.status(&host).remote);
     }
@@ -338,15 +327,15 @@ mod tests {
         let host = Scripted::new();
         host.driver.request(&host);
         // Asked twice while the first runs: one more sync, not two, in the same run.
-        host.asks_while_syncing.store(2, Ordering::SeqCst);
+        host.asks_while_syncing.set(2);
         host.run();
-        assert_eq!(host.syncs(), 2);
-        assert_eq!(host.started(), 0, "no second run beside the one running");
+        assert_eq!(host.syncs.get(), 2);
+        assert_eq!(host.started.get(), 0, "no second run beside the one running");
         assert!(!host.driver.is_running());
         // Busy from the first sync to the end of the second.
         assert_eq!(host.busy_shown(), [true, true, true, false]);
         // The key is the last sync's to say.
-        assert_eq!(*host.key_needed.lock().unwrap(), [false]);
+        assert_eq!(*host.key_needed.borrow(), [false]);
     }
 
     #[test]
@@ -355,10 +344,10 @@ mod tests {
         host.driver.request(&host);
         let refused = host.driver.sync_first(&host).unwrap_err();
         assert_eq!(refused.to_string(), "A sync is running; try again in a moment");
-        assert_eq!(host.syncs(), 0);
+        assert_eq!(host.syncs.get(), 0);
         // The run it was refused for goes on as it was.
         host.run();
-        assert_eq!(host.syncs(), 1);
+        assert_eq!(host.syncs.get(), 1);
         assert!(!host.driver.is_running());
     }
 
@@ -367,25 +356,25 @@ mod tests {
         let offline = || Err(SyncError::Offline("Offline".into()));
         let host = Scripted::answering([Ok(Outcome::Uploaded), offline(), Err(SyncError::OtherKey)]);
         assert_eq!(host.driver.sync_first(&host), Ok(()));
-        assert_eq!((host.syncs(), host.started()), (1, 0));
+        assert_eq!((host.syncs.get(), host.started.get()), (1, 0));
         assert!(!host.driver.is_running());
 
         assert_eq!(host.driver.sync_first(&host), Err(OpenError::Other("Offline".into())));
         assert!(host.driver.status(&host).problem);
 
         assert!(matches!(host.driver.sync_first(&host), Err(OpenError::OtherKey(_))));
-        assert_eq!(*host.key_needed.lock().unwrap(), [false, false, true]);
+        assert_eq!(*host.key_needed.borrow(), [false, false, true]);
         assert!(!host.driver.is_running());
     }
 
     #[test]
     fn a_request_while_syncing_first_runs_after_it() {
         let host = Scripted::new();
-        host.asks_while_syncing.store(1, Ordering::SeqCst);
+        host.asks_while_syncing.set(1);
         assert_eq!(host.driver.sync_first(&host), Ok(()));
-        assert_eq!(host.syncs(), 1, "not within the sync that had to come first");
+        assert_eq!(host.syncs.get(), 1, "not within the sync that had to come first");
         host.run();
-        assert_eq!(host.syncs(), 2);
+        assert_eq!(host.syncs.get(), 2);
         assert!(!host.driver.is_running());
     }
 
@@ -397,15 +386,15 @@ mod tests {
         host.driver.upload_soon(&host);
         host.after(Duration::from_secs(6));
         host.driver.tick(&host);
-        assert_eq!(host.started(), 0, "ten seconds after the last edit, not the first");
+        assert_eq!(host.started.get(), 0, "ten seconds after the last edit, not the first");
         host.after(Duration::from_secs(4));
         host.driver.tick(&host);
         host.run();
-        assert_eq!(host.syncs(), 1);
+        assert_eq!(host.syncs.get(), 1);
         // Sent: nothing more goes up until the next edit.
         host.after(MINUTE);
         host.driver.tick(&host);
-        assert_eq!(host.started(), 0);
+        assert_eq!(host.started.get(), 0);
     }
 
     #[test]
@@ -416,21 +405,21 @@ mod tests {
         host.run();
         host.after(MINUTE);
         host.driver.tick(&host);
-        assert_eq!((host.started(), host.syncs()), (0, 1));
+        assert_eq!((host.started.get(), host.syncs.get()), (0, 1));
     }
 
     #[test]
     fn the_regular_check_runs_only_while_unlocked() {
         let host = Scripted::checking_every(5 * MINUTE);
-        host.unlocked.store(false, Ordering::SeqCst);
+        host.unlocked.set(false);
         host.driver.tick(&host);
-        assert_eq!(host.started(), 0, "a locked app cannot merge");
+        assert_eq!(host.started.get(), 0, "a locked app cannot merge");
         // Edits made before the lock still go up.
         host.driver.upload_soon(&host);
         host.after(UPLOAD_DELAY);
         host.driver.tick(&host);
         host.run();
-        assert_eq!(host.syncs(), 1);
+        assert_eq!(host.syncs.get(), 1);
     }
 
     #[test]
@@ -442,14 +431,14 @@ mod tests {
         host.run();
         host.after(4 * MINUTE);
         host.driver.tick(&host);
-        assert_eq!(host.started(), 0);
+        assert_eq!(host.started.get(), 0);
         host.after(MINUTE);
         host.driver.tick(&host);
         // Not again while that one runs, however long it takes.
         host.after(10 * MINUTE);
         host.driver.tick(&host);
         host.run();
-        assert_eq!(host.syncs(), 2);
+        assert_eq!(host.syncs.get(), 2);
     }
 
     #[test]
@@ -457,7 +446,7 @@ mod tests {
         let host = Scripted::new();
         host.after(60 * MINUTE);
         host.driver.tick(&host);
-        assert_eq!(host.started(), 0);
+        assert_eq!(host.started.get(), 0);
     }
 
     #[test]
@@ -467,14 +456,14 @@ mod tests {
         host.run();
         let status = host.driver.status(&host);
         assert_eq!(status, Status { remote: true, busy: false, text: "Err(OtherKey)".into(), problem: true });
-        assert_eq!(host.shown.lock().unwrap().last(), Some(&status));
-        assert_eq!(*host.key_needed.lock().unwrap(), [true]);
+        assert_eq!(host.shown.borrow().last(), Some(&status));
+        assert_eq!(*host.key_needed.borrow(), [true]);
 
         host.driver.reset(&host);
         assert_eq!(host.driver.status(&host), Status { remote: true, ..Status::default() });
-        assert_eq!(*host.key_needed.lock().unwrap(), [true, false]);
+        assert_eq!(*host.key_needed.borrow(), [true, false]);
         // Sync stopped meanwhile: the status follows without a sync.
-        host.synced.store(false, Ordering::SeqCst);
+        host.synced.set(false);
         assert_eq!(host.driver.status(&host), Status::default());
     }
 }
