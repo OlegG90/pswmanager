@@ -22,6 +22,7 @@ mod native_messaging;
 mod questions;
 mod session_watch;
 mod sync;
+mod sync_driver;
 mod syncing;
 mod tray;
 mod window;
