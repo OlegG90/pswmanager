@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from '../../../../src/invoke'
 import type { Cloud, CloudFile, DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported, GauthProgress } from '../../../../src/api'
 
 export type { Cloud, CloudFile, Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported, GauthProgress }

@@ -5,6 +5,7 @@
 //! functions (`apps/android/src/provider.rs`) only carry both across the
 //! seam, so the decisions are made, and tested, here without a phone.
 
+use crate::dbfile::OpenError;
 use crate::session::Session;
 use crate::vault::{EntryChoice, LoginPlace, Vault, UNCONFIRMED};
 use crate::webauthn::{self, Caller};
@@ -377,11 +378,11 @@ impl Answer {
     /// Not opened with the key Kotlin gave (an unlock, or the check before an
     /// export) for `why`: `stale` when the key sealed for biometric unlock
     /// (`with_sealed_key`) no longer opens the database.
-    pub fn not_opened(why: String, with_sealed_key: bool) -> Answer {
-        if with_sealed_key && why == crate::dbfile::WRONG_KEY {
+    pub fn not_opened(why: OpenError, with_sealed_key: bool) -> Answer {
+        if with_sealed_key && why == OpenError::WrongKey {
             Answer::Failed { why: "The database's key has changed: unlock with the new master password".into(), stale: true }
         } else {
-            Answer::failed(why)
+            Answer::failed(why.to_string())
         }
     }
 
@@ -705,9 +706,9 @@ mod tests {
 
     #[test]
     fn only_a_sealed_key_that_no_longer_opens_the_database_is_stale() {
-        let stale = Answer::not_opened(crate::dbfile::WRONG_KEY.into(), true);
+        let stale = Answer::not_opened(OpenError::WrongKey, true);
         assert!(matches!(stale, Answer::Failed { stale: true, .. }));
-        assert_eq!(Answer::not_opened(crate::dbfile::WRONG_KEY.into(), false), Answer::failed(crate::dbfile::WRONG_KEY));
+        assert_eq!(Answer::not_opened(OpenError::WrongKey, false), Answer::failed(crate::dbfile::WRONG_KEY));
         assert_eq!(Answer::not_opened("Choose a database first".into(), true), Answer::failed("Choose a database first"));
     }
 }

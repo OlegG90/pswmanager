@@ -305,7 +305,7 @@ pub struct DatabaseSettings {
 
 impl Vault {
     /// Opens a KDBX file with a password, a key file, or both.
-    pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, String> {
+    pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, OpenError> {
         Self::open_with_key(path, key(password, key_file)?)
     }
 
@@ -313,18 +313,18 @@ impl Vault {
     /// copy here does not open with `key` and it is synced, the key is tried
     /// on the remote file, which another device may have moved to a new key
     /// while this one was locked (#203; [crate::sync::take_remote_with_key]).
-    pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+    pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, OpenError> {
         match Self::open_with_key(path, key.clone()) {
-            Err(e) if e == crate::dbfile::WRONG_KEY => match crate::sync::take_remote_with_key(store, path, &key)? {
+            Err(OpenError::WrongKey) => match crate::sync::take_remote_with_key(store, path, &key)? {
                 crate::sync::RemoteKey::Taken => Self::open_with_key(path, key),
-                crate::sync::RemoteKey::NotThere => Err(e),
+                crate::sync::RemoteKey::NotThere => Err(OpenError::WrongKey),
             },
             opened => opened,
         }
     }
 
     /// [Vault::open] with the key already made ([key_reading]).
-    pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+    pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, OpenError> {
         let (db, file) = DbFile::open(path, key)?;
         Ok(Vault { db, file: Some(file), unsaved: false })
     }
@@ -1916,8 +1916,8 @@ pub mod tests {
         sample().save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("pw")).unwrap();
         let vault = Vault::open(&path, Some("pw"), None).unwrap();
         assert_eq!(in_use(&vault).len(), 2);
-        assert_eq!(Vault::open(&path, Some("nope"), None).err().unwrap(), "Wrong password or key file");
-        assert_eq!(Vault::open(&path, None, None).err().unwrap(), "Enter the password or choose a key file");
+        assert_eq!(Vault::open(&path, Some("nope"), None).err().unwrap(), OpenError::WrongKey);
+        assert_eq!(Vault::open(&path, None, None).err().unwrap().to_string(), "Enter the password or choose a key file");
     }
 
     fn fixture_path(name: &str) -> std::path::PathBuf {
@@ -1943,7 +1943,7 @@ pub mod tests {
     #[test]
     fn refuses_a_file_it_cannot_read_safely() {
         let refused = Vault::open(&fixture_path("unordered.kdbx"), Some("test"), None);
-        assert_eq!(refused.err().unwrap(), crate::dbfile::UNORDERED);
+        assert_eq!(refused.err().unwrap().to_string(), crate::dbfile::UNORDERED);
     }
 
     #[test]
@@ -2655,7 +2655,7 @@ pub mod tests {
         assert!(vault.db.meta.master_key_changed.is_some());
         // The file's key is the new one from now on.
         assert!(vault.change_key((Some("test"), None), Some("x"), None).is_err());
-        assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), "Wrong password or key file");
+        assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), OpenError::WrongKey);
         let reopened = Vault::open(&path, Some("new one"), None).unwrap();
         assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
         // The previous file, with the old key, is the backup.

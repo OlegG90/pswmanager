@@ -5,6 +5,7 @@ import { fileImportAbout, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../.
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, similarCriteria, similarHint, similarSites, type Site, siteChoice } from '../../../../src/similar-parts'
 import { api, type Exported, type ExportFormat, type GauthProgress, type Imported, type ImportStep, type Listing, type Similar } from './api'
+import { isCancelled } from '../../../../src/invoke'
 import { icon, listScreen } from './list'
 import { backBar, confirmSheet, screen, screens, sheet, show, snack } from './page'
 import { browsePhone, onPhone } from './phone-files'
@@ -233,7 +234,7 @@ async function confirmExport(then: () => void) {
       await api.confirmExport(null)
       return then()
     } catch (e) {
-      if (String(e) === 'cancelled') return
+      if (isCancelled(e)) return
       // The fingerprint could not: the master password instead.
     }
   }

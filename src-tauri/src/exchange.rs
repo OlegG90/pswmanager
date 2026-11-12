@@ -1,10 +1,11 @@
 //! Entries brought in and taken out: imports from a file or from Google
 //! Authenticator, and exports to a file.
-use crate::databases::{hello_ready, CANCELLED};
+use crate::databases::hello_ready;
 use crate::entries::fetch_icons;
 use crate::{hello, pick, sync};
 use crate::read_qr;
 use pswm_core::{cxf, file_export, file_import, gauth, qr, vault};
+use pswm_core::error::CommandError;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::vault::Listing;
@@ -168,9 +169,10 @@ pub fn delete_imported_file(app: AppHandle) -> Result<(), String> {
 
 /// Checks the user again before an export: the master password (with the
 /// database's key file), or with none, Windows Hello. Every secret goes into
-/// the file in clear, so being unlocked is not enough.
+/// the file in clear, so being unlocked is not enough. Closing Windows Hello's
+/// prompt is [CommandError::cancelled]: the window shows nothing.
 #[tauri::command(async)]
-pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
+pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), CommandError> {
     let store = app.state::<Store>();
     let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;
     let password = match password.map(Zeroizing::new) {
@@ -180,9 +182,9 @@ pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), St
                 return Err("Enter the master password".into());
             }
             hello::unseal(&current.file).map_err(|failure| match failure {
-                hello::Failure::Cancelled => CANCELLED.to_string(),
+                hello::Failure::Cancelled => CommandError::cancelled(),
                 hello::Failure::NotSealed => "Enter the master password".into(),
-                hello::Failure::Other(message) => message,
+                hello::Failure::Other(message) => message.into(),
             })?
         }
     };
@@ -190,7 +192,7 @@ pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), St
     if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
         return Err("The master password is not right".into());
     }
-    app.state::<Session>().allow_export()
+    Ok(app.state::<Session>().allow_export()?)
 }
 
 /// Writes the entries in use to a new file the user names (#240, see
