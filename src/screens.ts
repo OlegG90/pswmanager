@@ -74,9 +74,10 @@ export function screenState() {
     get reportTool(): Tool | null {
       return screen.kind === 'report' ? screen.tool : null
     },
-    /** Neither the settings nor a report is shown. */
-    get plain() {
-      return screen.kind !== 'settings' && screen.kind !== 'report'
+    /** A page is shown in the records' place or over the window: a tool's
+     *  report, or the settings. */
+    get pageOpen() {
+      return screen.kind === 'settings' || screen.kind === 'report'
     },
     get keyNeededFor() {
       return keyNeededFor
@@ -91,9 +92,9 @@ export function screenState() {
       show({ kind: 'choose', back })
     },
     /** The database was unlocked: its records, under the settings when they
-     *  were open. A key is asked for anew. */
+     *  were open; what an unlocked window shows stays. A key is asked for anew. */
     unlock() {
-      show({ kind: 'records' })
+      if (!unlocked()) show({ kind: 'records' })
       keyAsked = false
     },
     /** The database locked, from any screen: the unlock screen, the settings

@@ -264,7 +264,7 @@ function fillSidebar() {
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (screens.plain && sameFilter(choice, records.filter)) b.setAttribute('aria-current', 'true')
+    if (!screens.pageOpen && sameFilter(choice, records.filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
@@ -738,7 +738,7 @@ function renderSeveral() {
  *  it is one of them: what fits them, as the buttons for several offer it. A
  *  right-click on another entry chooses it first. */
 function openEntryMenu(id: string, x: number, y: number) {
-  if (isEditing() || isAsking() || !screens.plain) return
+  if (isEditing() || isAsking() || screens.pageOpen) return
   const ids = records.menuTargets(id)
   if (ids.length === 1 && id !== records.selectedId) select(id)
   const chosen = records.chosen(ids)
@@ -1289,8 +1289,8 @@ function dropReport(tool: Tool) {
 /** Shows beside the sidebar what is open (the settings, a report, else the
  *  list and the entry), so the sidebar never leaves the screen, and marks it there. */
 function showContent() {
-  listPane.hidden = !screens.plain
-  detail.hidden = !screens.plain
+  listPane.hidden = screens.pageOpen
+  detail.hidden = screens.pageOpen
   reportView.hidden = !screens.reportTool
   if (screens.unlocked) settingsView.hidden = !screens.settingsOpen
   markSidebar()
@@ -1561,7 +1561,7 @@ listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 // A copy opens with a key this device does not know, or no longer does.
 listen<KeyNeeded>('key-needed', (e) => showKeyNeeded(e.payload))
 listen('window-shown', () => {
-  if (!screens.plain) return
+  if (screens.pageOpen) return
   if (screens.unlocked) searchInput.focus()
   else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else {

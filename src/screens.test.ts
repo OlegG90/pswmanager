@@ -20,7 +20,7 @@ describe('screenState', () => {
   it('starts locked, on the unlock screen', () => {
     const screens = screenState()
     expect(screens.screen).toEqual({ kind: 'unlock' })
-    expect([screens.unlocked, screens.settingsOpen, screens.reportTool, screens.plain]).toEqual([false, false, null, true])
+    expect([screens.unlocked, screens.settingsOpen, screens.reportTool, screens.pageOpen]).toEqual([false, false, null, false])
   })
 
   it('shows a report in the records\' place, one at a time', () => {
@@ -28,7 +28,7 @@ describe('screenState', () => {
     expect(screens.screen).toEqual({ kind: 'records' })
     screens.openReport('home')
     screens.openReport('health')
-    expect([screens.reportTool, screens.plain, screens.unlocked]).toEqual(['health', false, true])
+    expect([screens.reportTool, screens.pageOpen, screens.unlocked]).toEqual(['health', true, true])
     screens.closeReport()
     expect(screens.screen).toEqual({ kind: 'records' })
     // Closing with none open changes nothing.
@@ -46,7 +46,7 @@ describe('screenState', () => {
     const screens = unlocked()
     screens.openReport('similar')
     screens.openSettings()
-    expect([screens.settingsOpen, screens.reportTool, screens.unlocked, screens.plain]).toEqual([true, null, true, false])
+    expect([screens.settingsOpen, screens.reportTool, screens.unlocked, screens.pageOpen]).toEqual([true, null, true, true])
     // A report is not opened under the settings: they close first.
     screens.openReport('home')
     expect(screens.reportTool).toBeNull()
@@ -82,12 +82,22 @@ describe('screenState', () => {
   })
 
   it('keeps the settings open through an unlock, over the records from then on', () => {
-    const screens = screenState()
-    screens.openSettings()
+    for (const choosing of [false, true]) {
+      const screens = screenState()
+      if (choosing) screens.showChoose(true)
+      screens.openSettings()
+      screens.unlock()
+      expect([screens.settingsOpen, screens.unlocked]).toEqual([true, true])
+      screens.closeSettings()
+      expect(screens.screen).toEqual({ kind: 'records' })
+    }
+  })
+
+  it('leaves an unlocked window as it is when told again that it unlocked', () => {
+    const screens = unlocked()
+    screens.openReport('health')
     screens.unlock()
-    expect([screens.settingsOpen, screens.unlocked]).toEqual([true, true])
-    screens.closeSettings()
-    expect(screens.screen).toEqual({ kind: 'records' })
+    expect(screens.reportTool).toBe('health')
   })
 
   it('locks from any screen to the unlock screen', () => {
