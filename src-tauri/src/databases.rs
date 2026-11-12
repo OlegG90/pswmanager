@@ -383,7 +383,7 @@ pub fn clear_key_file(app: AppHandle) -> Result<Status, String> {
 pub fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
     let password = Zeroizing::new(password);
     let password = non_empty(&password);
-    let (listing, database) = open(&app, password).map_err(|e| e.to_string())?;
+    let (listing, database) = open(&app, password)?;
     let store = app.state::<Store>();
     let settings = Settings::of(&store);
     if settings.biometric_unlock() && !hello::ready(&database, settings.password_every()) && hello::available() {
@@ -431,7 +431,7 @@ pub fn unlock_with_hello(app: AppHandle) -> Result<Listing, CommandError> {
             hello::forget(&database);
             Err("The password Windows Hello kept no longer opens the database: unlock with the master password".into())
         }
-        Err(other) => Err(other.to_string().into()),
+        Err(other) => Err(other.into()),
     }
 }
 

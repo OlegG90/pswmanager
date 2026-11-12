@@ -4,6 +4,7 @@
 //! returns a [CommandError], which names that failure with a [Code]. Nothing
 //! compares an error's text to tell which failure it is.
 
+use crate::dbfile::OpenError;
 use serde::Serialize;
 
 /// A failure a caller acts on, as the window names it.
@@ -39,6 +40,12 @@ impl From<String> for CommandError {
 impl From<&str> for CommandError {
     fn from(message: &str) -> Self {
         message.to_string().into()
+    }
+}
+
+impl From<OpenError> for CommandError {
+    fn from(error: OpenError) -> Self {
+        error.to_string().into()
     }
 }
 

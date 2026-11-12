@@ -284,7 +284,7 @@ async fn unlock(app: AppHandle, password: String) -> Result<Listing, String> {
         let store = app.state::<Store>();
         let password = Some(password.as_str()).filter(|p| !p.is_empty());
         let key_file = key_file_content(&app, &store)?;
-        let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice)).map_err(|e| e.to_string())?;
+        let listing = open(&app, password, key_file.as_deref().map(Vec::as_slice))?;
         let biometric = app.state::<Biometric<Wry>>();
         if seal_wanted(&store, &biometric) {
             let secret = Secret { password: password.map(str::to_string), key_file: key_file.as_deref().map(|k| B64.encode(k)) };
@@ -452,7 +452,7 @@ async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, CommandError> 
                 let _ = biometric.forget();
                 Err("The database's key has changed: unlock with the new master password".into())
             }
-            Err(other) => Err(other.to_string().into()),
+            Err(other) => Err(other.into()),
         }
     })
     .await

@@ -87,6 +87,13 @@ impl From<&str> for LoginError {
     }
 }
 
+/// For a caller that only shows why.
+impl From<LoginError> for String {
+    fn from(error: LoginError) -> Self {
+        error.to_string()
+    }
+}
+
 /// How many entries [Vault::login_candidates] lists at most: enough to pick
 /// from, few enough for the phone to show at once.
 pub const CANDIDATES: usize = 50;
@@ -734,7 +741,7 @@ impl Vault {
     /// app gets it from now on; the file is saved (the old version goes to
     /// history). Nothing changes for an entry that keeps it already, or a site.
     pub fn confirm_app(&mut self, id: &str, place: &LoginPlace) -> Result<(), String> {
-        self.entry_for(id, place, true).map_err(|e| e.to_string())?;
+        self.entry_for(id, place, true)?;
         let base = self.edit_data(id).ok_or(NOT_FOUND)?;
         let mut data = base.clone();
         place.keep_certificate(&mut data);

@@ -176,6 +176,13 @@ impl From<&str> for OpenError {
     }
 }
 
+/// For a caller that only shows why.
+impl From<OpenError> for String {
+    fn from(error: OpenError) -> Self {
+        error.to_string()
+    }
+}
+
 impl From<crate::encryption::TooCostly> for OpenError {
     fn from(_: crate::encryption::TooCostly) -> Self {
         OpenError::TooCostly
