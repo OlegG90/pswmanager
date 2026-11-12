@@ -7,7 +7,7 @@
 
 use crate::dbfile::OpenError;
 use crate::session::Session;
-use crate::vault::{EntryChoice, LoginPlace, Vault, UNCONFIRMED};
+use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use crate::webauthn::{self, Caller};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -217,13 +217,13 @@ impl Autofill {
             let saved = match save {
                 Save::Login { id, asking, confirmed, title, username, password } => {
                     let place = asking.place()?;
-                    let saved = self.session.with_mut(|v| v.save_login(id, &place, confirmed, title, username, password));
+                    let saved = self.session.with_mut(|v| Ok(v.save_login(id, &place, confirmed, title, username, password)))?;
                     saved.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Link { id, asking, confirmed } => {
                     let place = asking.place()?;
-                    self.session.with_mut(|v| v.link_login(id, &place, confirmed)).map_err(|why| Answer::refused(why, &place))?;
+                    self.session.with_mut(|v| Ok(v.link_login(id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Passkey { id, request, asking } => {
@@ -368,10 +368,10 @@ impl Answer {
     /// Not done for `why`, refused for `place`: [Answer::Unconfirmed] with
     /// the app's certificate when the user has not confirmed the app for the
     /// entry yet.
-    pub fn refused(why: String, place: &LoginPlace) -> Answer {
-        match place {
-            LoginPlace::App { certificate, .. } if why == UNCONFIRMED => Answer::Unconfirmed(certificate.clone()),
-            _ => Answer::failed(why),
+    pub fn refused(why: LoginError, place: &LoginPlace) -> Answer {
+        match (why, place) {
+            (LoginError::Unconfirmed, LoginPlace::App { certificate, .. }) => Answer::Unconfirmed(certificate.clone()),
+            (why, _) => Answer::failed(why.to_string()),
         }
     }
 
@@ -486,10 +486,10 @@ mod tests {
     #[test]
     fn an_unconfirmed_app_is_asked_with_its_certificate() {
         let app = LoginPlace::App { package: "org.example.app".into(), certificate: "android:apk-key-hash:abc".into() };
-        assert_eq!(Answer::refused(UNCONFIRMED.into(), &app), Answer::Unconfirmed("android:apk-key-hash:abc".into()));
+        assert_eq!(Answer::refused(LoginError::Unconfirmed, &app), Answer::Unconfirmed("android:apk-key-hash:abc".into()));
         assert_eq!(Answer::refused("Not for this app".into(), &app), Answer::failed("Not for this app"));
         let site = LoginPlace::Site("mail.example".into());
-        assert_eq!(Answer::refused(UNCONFIRMED.into(), &site), Answer::failed(UNCONFIRMED), "a site has no app to confirm");
+        assert_eq!(Answer::refused(LoginError::Unconfirmed, &site), Answer::failed(crate::vault::UNCONFIRMED), "a site has no app to confirm");
     }
 
     /// A provider on a fresh session, and how many changes it saved.
