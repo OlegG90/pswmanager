@@ -1563,7 +1563,7 @@ listen<KeyNeeded>('key-needed', (e) => showKeyNeeded(e.payload))
 listen('window-shown', () => {
   if (screens.pageOpen) return
   if (screens.unlocked) searchInput.focus()
-  else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  else if (screens.screen.kind === 'choose') chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else {
     passwordInput.focus()
     // Shown from the tray or the hotkey: Windows Hello asks at once, as the
