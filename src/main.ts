@@ -28,6 +28,7 @@ import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import { isCancelled } from './invoke'
+import { screenState, type Tool } from './screens'
 import type { Choice } from './selection'
 import { count, vaultState, type ListChoice } from './vault'
 
@@ -51,17 +52,8 @@ const toast = $('toast')
 
 /** The records: the listing, the list's choice and the entry shown. */
 const records = vaultState()
-let unlocked = false
-/** The settings screen is over the vault or the unlock screen, whichever is current. */
-let settingsOpen = false
-/** A report (password health, similar entries) is in the vault, beside the sidebar. */
-let reportOpen = false
-/** The tools, each shown beside the sidebar. */
-type Tool = 'home' | 'health' | 'similar' | 'import' | 'gauth' | 'export'
-/** The tool whose report is shown, marked in the sidebar. */
-let reportTool: Tool | null = null
-/** Back from the choose-database screen to the unlock screen; null on the first run. */
-let chooseBack: (() => void) | null = null
+/** Which screen the window shows, and what an unlock and a key needed are at. */
+const screens = screenState()
 /** Site icons by host; one that arrives replaces the key in the images waiting for it. */
 const siteIcons = siteIconCache(api.icon, (host, icon) => {
   document.querySelectorAll<HTMLImageElement>('img[data-host]').forEach((img) => {
@@ -113,42 +105,35 @@ function showUnlock(status: Status) {
   vault.hidden = true
   if (!status.database) return showChoose(status)
   showStatus(status)
-  chooseBack = null
+  screens.showUnlock()
   chooseView.hidden = true
   chooseView.replaceChildren()
-  unlockForm.hidden = settingsOpen
-  if (!settingsOpen) passwordInput.focus()
+  unlockForm.hidden = screens.settingsOpen
+  if (!screens.settingsOpen) passwordInput.focus()
   void offerHello()
 }
 
-/** Windows Hello is offered for the current database (#235). */
-let helloReady = false
-/** Windows Hello's prompt is open: another one waits for it. */
-let helloOpen = false
-/** This window is unlocking: the `unlocked` it causes is not the chooser's. */
-let unlocking = false
-
 /** Unlocks with `open` and shows the vault. */
 async function unlockWith(open: () => Promise<Listing>) {
-  unlocking = true
+  screens.unlocking = true
   try {
     showVault(await open())
   } finally {
-    unlocking = false
+    screens.unlocking = false
   }
 }
 
 /** Shows Unlock with Windows Hello when it can unlock the current database. */
 async function offerHello() {
-  helloReady = false
-  helloReady = await api.helloReady().catch(() => false)
-  $('hello-button').hidden = !helloReady
+  screens.helloReady = false
+  screens.helloReady = await api.helloReady().catch(() => false)
+  $('hello-button').hidden = !screens.helloReady
 }
 
 /** Unlocks with Windows Hello; closing its prompt leaves the password field. */
 function unlockWithHello() {
-  if (helloOpen) return
-  helloOpen = true
+  if (screens.helloOpen) return
+  screens.helloOpen = true
   run(async () => {
     try {
       await unlockWith(api.unlockWithHello)
@@ -156,20 +141,23 @@ function unlockWithHello() {
       if (!isCancelled(e)) throw e
     }
   }).finally(() => {
-    helloOpen = false
-    if (!unlocked) {
+    screens.helloOpen = false
+    if (!screens.unlocked) {
       void offerHello()
       if (!unlockForm.hidden) passwordInput.focus()
     }
   })
 }
 
+/** Back from the choose-database screen to the unlock screen. */
+const backFromChoose = () => run(async () => showUnlock(await api.status()))
+
 function showChoose(status: Status) {
-  const back = () => run(async () => showUnlock(await api.status()))
-  chooseBack = status.database ? back : null
+  // No database to go back to on the first run.
+  screens.showChoose(!!status.database)
   unlockForm.hidden = true
-  chooseView.hidden = settingsOpen
-  renderChoose(chooseView, status, { chosen: showUnlock, back })
+  chooseView.hidden = screens.settingsOpen
+  renderChoose(chooseView, status, { chosen: showUnlock, back: backFromChoose })
 }
 
 async function run(action: () => Promise<void>) {
@@ -199,7 +187,7 @@ $('hello-button').addEventListener('click', unlockWithHello)
 unlockForm.addEventListener('submit', (e) => {
   e.preventDefault()
   // Enter with no password typed: Windows Hello, as on the phone.
-  if (!passwordInput.value && helloReady) return unlockWithHello()
+  if (!passwordInput.value && screens.helloReady) return unlockWithHello()
   const button = $<HTMLButtonElement>('unlock-button')
   button.disabled = true
   run(async () => {
@@ -216,10 +204,9 @@ unlockForm.addEventListener('submit', (e) => {
 
 function showVault(next: Listing) {
   records.open(next)
-  unlocked = true
+  screens.unlock()
   unlockForm.hidden = true
   vault.hidden = false
-  keyDialogShown = false
   api.keyNeeded().then(showKeyNeeded, () => {})
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
@@ -227,7 +214,7 @@ function showVault(next: Listing) {
   refresh()
   // Settings opened over the unlock screen move beside the sidebar, drawn
   // again for an unlocked database (its own tab, no Done).
-  if (settingsOpen) {
+  if (screens.settingsOpen) {
     showSettingsView()
     drawSettings().catch((e) => notify(String(e)))
   } else {
@@ -252,19 +239,19 @@ function lock() {
 
 /** Forgets everything shown and returns to the unlock screen. */
 async function showLocked() {
-  unlocked = false
+  const tool = screens.reportTool
+  screens.lock()
   // A question still open (a passkey or login to choose for a browser) shows
   // entries: it is answered Cancel, not left over the unlock screen.
   document.querySelectorAll('dialog[open]').forEach((d) => d.dispatchEvent(new Event('cancel')))
   closeMenus()
-  closeReport()
+  if (tool) dropReport(tool)
   closeEditor()
   stopTotp()
   records.close()
   list.replaceChildren()
   detail.replaceChildren()
   // Locking closes the settings: the unlock screen asks for the password (#262).
-  settingsOpen = false
   settingsView.hidden = true
   settingsView.replaceChildren()
   showUnlock(await api.status())
@@ -277,7 +264,7 @@ function fillSidebar() {
   const item = (choice: Filter, label: string, count: number, picture?: SharedIcon) => {
     const b = el('button', { type: 'button', className: 'side-item', title: label }, ...(picture ? [icon(picture)] : []), el('span', { className: 'name' }, label), el('span', { className: 'count' }, String(count)))
     if (choice.kind === 'tag') b.classList.add('tag')
-    if (!settingsOpen && !reportOpen && sameFilter(choice, records.filter)) b.setAttribute('aria-current', 'true')
+    if (!screens.pageOpen && sameFilter(choice, records.filter)) b.setAttribute('aria-current', 'true')
     b.addEventListener('click', afterLeavingEditor(() => showFilter(choice)))
     return el('li', {}, b)
   }
@@ -751,7 +738,7 @@ function renderSeveral() {
  *  it is one of them: what fits them, as the buttons for several offer it. A
  *  right-click on another entry chooses it first. */
 function openEntryMenu(id: string, x: number, y: number) {
-  if (isEditing() || isAsking() || settingsOpen || reportOpen) return
+  if (isEditing() || isAsking() || screens.pageOpen) return
   const ids = records.menuTargets(id)
   if (ids.length === 1 && id !== records.selectedId) select(id)
   const chosen = records.chosen(ids)
@@ -1110,30 +1097,24 @@ function showSyncStatus(status: SyncStatus) {
   button.title = status.remote ? 'Sync now' : 'Sync is not set up: Settings → Sync'
 }
 
-/** The copy that needs a key, as the app last said (`key-needed`); null when none does. */
-let keyNeededFor: string | null = null
-/** A key was asked for in a dialog since the unlock: that happens once, then the button stays. */
-let keyDialogShown = false
-
 /** The *Enter key…* button while a copy needs a key, and the dialog the first time. */
 function showKeyNeeded({ local, remote }: KeyNeeded) {
-  keyNeededFor = local ? 'the file on this PC' : remote ? 'the remote file' : null
-  $('key-button').hidden = !keyNeededFor
+  screens.keyNeeded(local ? 'the file on this PC' : remote ? 'the remote file' : null)
+  $('key-button').hidden = !screens.keyNeededFor
   askForOtherKey()
 }
 
 /** Asks for the key another device changed a copy to, in a dialog once per
  *  unlock unless `again` (the button). */
 async function askForOtherKey(again = false) {
-  if (!keyNeededFor || !unlocked || isAsking() || isEditing() || settingsOpen || (keyDialogShown && !again)) return
-  keyDialogShown = true
+  const copy = screens.askForKey(again, isAsking() || isEditing())
   // The app tells the window what the key given changed (`key-needed`).
-  if (await enterOtherKey(keyNeededFor)) notify('Read with the key given')
+  if (copy && (await enterOtherKey(copy))) notify('Read with the key given')
 }
 
 /** The file changed on disk and was read again: show the new state in place. */
 function showDiskChange({ listing: next, changed }: DiskChange) {
-  if (!unlocked) return
+  if (!screens.unlocked) return
   // Focus stays where the user left it.
   applyListing(next, 'Updated from another device', false, changed)
   changedElsewhere(changed)
@@ -1143,7 +1124,7 @@ function showDiskChange({ listing: next, changed }: DiskChange) {
  *  among All when the sidebar's choice or the search leaves it out. An open
  *  editor stays as it is. */
 function showSavedFromBrowser(id: string) {
-  if (!unlocked || isEditing()) return
+  if (!screens.unlocked || isEditing()) return
   closeSettings()
   closeReport()
   if (!records.find(id, searchInput.value)) {
@@ -1175,13 +1156,13 @@ function sideCommand(label: string, title: string, picture: SidebarIcon, action:
 /** Marks in the sidebar what is shown beside it: a group or tag, a tool's report or a settings tab. */
 function markSidebar() {
   // Google Authenticator's page is reached from Import's list (#354), which stays marked.
-  const tool = reportTool === 'gauth' ? 'import' : reportTool
-  const shown = settingsOpen ? `settings:${settingsTab()}` : reportOpen ? `tool:${tool}` : null
+  const tool = screens.reportTool === 'gauth' ? 'import' : screens.reportTool
+  const shown = screens.settingsOpen ? `settings:${settingsTab()}` : tool ? `tool:${tool}` : null
   for (const b of document.querySelectorAll<HTMLElement>('#home-item .side-item, #tools .side-item, #settings-tabs .side-item')) {
     if (shown && b.dataset.choice === shown) b.setAttribute('aria-current', 'true')
     else b.removeAttribute('aria-current')
   }
-  if (unlocked) fillSidebar()
+  if (screens.unlocked) fillSidebar()
 }
 
 /** Offered only while entries are in a group an older import made (#335). */
@@ -1209,25 +1190,24 @@ function fillTools() {
 /** Shows the report `draw` fills the report view with, over the vault. */
 async function openReport(tool: Tool, draw: () => Promise<void>) {
   // Chosen again while open, a tool starts over (an import, an export from its first step).
-  if (!unlocked || isEditing()) return
+  if (!screens.unlocked || isEditing()) return
   // Google Authenticator's codes read so far go with its page.
-  if (reportTool === 'gauth' && tool !== 'gauth') void api.gauthCancel()
+  if (screens.reportTool === 'gauth' && tool !== 'gauth') void api.gauthCancel()
   try {
     await draw()
   } catch (e) {
     return notify(String(e))
   }
-  if (!unlocked) return // locked while checking
+  if (!screens.unlocked) return // locked while checking
   closeSettings()
-  reportOpen = true
-  reportTool = tool
+  screens.openReport(tool)
   showContent()
   reportView.querySelector<HTMLElement>('button, input')?.focus()
 }
 
 /** Tools › Tidy up imported folders, after asking. */
 async function tidyImported() {
-  if (!unlocked || !await ask(tidyQuestion(records.listing.inImportGroups), 'Tidy up')) return
+  if (!screens.unlocked || !await ask(tidyQuestion(records.listing.inImportGroups), 'Tidy up')) return
   try {
     applyListing(await api.tidyImported(), 'Imported folders tidied up', false)
   } catch (e) {
@@ -1262,7 +1242,7 @@ const openHome = () =>
     })
   }).then(() => {
     // Home keeps the search first: typing shows the list.
-    if (reportTool === 'home') searchInput.focus()
+    if (screens.reportTool === 'home') searchInput.focus()
   })
 
 const openImport = () =>
@@ -1291,30 +1271,34 @@ const similarOptions: SimilarOptions = {
 const openSimilar = () => openReport('similar', async () => renderSimilar(reportView, similarOptions))
 
 function closeReport() {
-  if (!reportOpen) return
+  const tool = screens.reportTool
+  if (!tool) return
+  screens.closeReport()
+  dropReport(tool)
+  if (screens.unlocked && !screens.settingsOpen) searchInput.focus()
+}
+
+/** Takes the report of `tool`, closed or locked away, off the page. */
+function dropReport(tool: Tool) {
   // Google Authenticator's codes read so far go with the page.
-  if (reportTool === 'gauth') void api.gauthCancel()
-  reportOpen = false
-  reportTool = null
+  if (tool === 'gauth') void api.gauthCancel()
   reportView.replaceChildren()
   showContent()
-  if (unlocked && !settingsOpen) searchInput.focus()
 }
 
 /** Shows beside the sidebar what is open (the settings, a report, else the
  *  list and the entry), so the sidebar never leaves the screen, and marks it there. */
 function showContent() {
-  const records = !settingsOpen && !reportOpen
-  listPane.hidden = !records
-  detail.hidden = !records
-  reportView.hidden = !reportOpen
-  if (unlocked) settingsView.hidden = !settingsOpen
+  listPane.hidden = screens.pageOpen
+  detail.hidden = screens.pageOpen
+  reportView.hidden = !screens.reportTool
+  if (screens.unlocked) settingsView.hidden = !screens.settingsOpen
   markSidebar()
 }
 
 /** The settings beside the sidebar while unlocked, over the whole window while locked. */
 function showSettingsView() {
-  if (unlocked) {
+  if (screens.unlocked) {
     vault.append(settingsView)
     showContent()
   } else {
@@ -1355,10 +1339,10 @@ async function openSettings(tab?: SettingsTab) {
   } catch (e) {
     return notify(String(e))
   }
-  if (settingsOpen) return markSidebar() // another tab of the open settings
+  if (screens.settingsOpen) return markSidebar() // another tab of the open settings
   closeReport()
-  settingsOpen = true
-  if (!unlocked) {
+  screens.openSettings()
+  if (!screens.unlocked) {
     unlockForm.hidden = true
     chooseView.hidden = true
   }
@@ -1368,15 +1352,15 @@ async function openSettings(tab?: SettingsTab) {
 
 /** Back to the vault, or to the unlock screen when locked meanwhile. */
 function closeSettings() {
-  if (!settingsOpen) return
-  settingsOpen = false
+  if (!screens.settingsOpen) return
+  screens.closeSettings()
   settingsView.hidden = true
   settingsView.replaceChildren()
-  if (unlocked) {
+  if (screens.unlocked) {
     showContent()
     searchInput.focus()
     if (!records.current) select(records.selectedId)
-  } else if (chooseView.childElementCount) {
+  } else if (screens.screen.kind === 'choose') {
     chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   } else {
@@ -1490,50 +1474,44 @@ function perform(action: Action, e: KeyboardEvent) {
 
 document.addEventListener('keydown', (e) => {
   if (isAsking()) return // the question on screen has the keys
-  if (reportOpen) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      if (reportTool === 'home') hideWindow()
-      else void openHome()
-    } else if (e.ctrlKey && e.code === 'KeyL') {
-      e.preventDefault()
+  const key = screens.keyFor(e)
+  if (!key) return
+  if (key.prevent) e.preventDefault()
+  switch (key.does) {
+    case 'hide-window':
+      hideWindow()
+      break
+    case 'home':
+      void openHome()
+      break
+    case 'lock':
       lock()
-    } else if (reportTool === 'home') {
-      // On Home the keys that need no entry work as over the list.
+      break
+    case 'close-settings':
+      closeSettings()
+      if (screens.unlocked) void openHome()
+      break
+    case 'choose-back':
+      void backFromChoose()
+      break
+    case 'settings':
+      openSettings()
+      break
+    case 'home-shortcuts': {
       const action = actionFor(e, keyContext(e))
       if (action && HOME_ACTIONS.includes(action)) perform(action, e)
+      break
     }
-    return
-  }
-  if (settingsOpen) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeSettings()
-      if (unlocked) void openHome()
-    } else if (unlocked && e.ctrlKey && e.code === 'KeyL') {
-      e.preventDefault()
-      lock()
+    case 'records-shortcuts': {
+      if (isEditing()) {
+        // The form keeps its keys; only save, cancel and lock work on top.
+        if (!editorKey(e) && e.ctrlKey && e.code === 'KeyL') lock()
+        break
+      }
+      const action = actionFor(e, keyContext(e))
+      if (action) perform(action, e)
     }
-    return
   }
-  if (!unlocked) {
-    if (e.key === 'Escape') {
-      if (!chooseView.hidden && chooseBack) chooseBack()
-      else hideWindow()
-    }
-    if (e.ctrlKey && e.code === 'Comma') {
-      e.preventDefault()
-      openSettings()
-    }
-    return
-  }
-  if (isEditing()) {
-    // The form keeps its keys; only save, cancel and lock work on top.
-    if (!editorKey(e) && e.ctrlKey && e.code === 'KeyL') lock()
-    return
-  }
-  const action = actionFor(e, keyContext(e))
-  if (action) perform(action, e)
 })
 
 /** Where a key was pressed, for what it does. */
@@ -1556,7 +1534,7 @@ const HOME_ACTIONS: Action[] = ['new-entry', 'settings', 'shortcuts', 'type-to-s
 let lastTouch = 0
 function reportActivity() {
   const now = Date.now()
-  if (!unlocked || now - lastTouch < 5000) return
+  if (!screens.unlocked || now - lastTouch < 5000) return
   lastTouch = now
   api.touch().catch(() => {})
 }
@@ -1568,7 +1546,7 @@ for (const type of ['keydown', 'pointerdown', 'wheel']) {
 listen('locked', showLocked)
 // Unlocked in Auto-Type's chooser (#307).
 listen('unlocked', async () => {
-  if (!unlocked && !unlocking) showVault(await api.listing())
+  if (screens.followsUnlock()) showVault(await api.listing())
 })
 // The browser extension's requests that need the user (#273).
 listen<BrowserAssociate>('browser-associate', (e) => answerAssociate(e.payload).catch((err) => notify(String(err))))
@@ -1583,24 +1561,24 @@ listen<SyncStatus>('sync-status', (e) => showSyncStatus(e.payload))
 // A copy opens with a key this device does not know, or no longer does.
 listen<KeyNeeded>('key-needed', (e) => showKeyNeeded(e.payload))
 listen('window-shown', () => {
-  if (settingsOpen || reportOpen) return
-  if (unlocked) searchInput.focus()
-  else if (!chooseView.hidden) chooseView.querySelector<HTMLElement>('input:checked')?.focus()
+  if (screens.pageOpen) return
+  if (screens.unlocked) searchInput.focus()
+  else if (screens.screen.kind === 'choose') chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   else {
     passwordInput.focus()
     // Shown from the tray or the hotkey: Windows Hello asks at once, as the
     // phone does coming back from another app (not over a password being typed).
     if (!unlockForm.hidden && !passwordInput.value) {
-      void offerHello().then(() => helloReady && !passwordInput.value && unlockWithHello())
+      void offerHello().then(() => screens.helloReady && !passwordInput.value && unlockWithHello())
     }
   }
 })
 // A database named on the command line of a second launch was chosen.
 listen('status-changed', async () => {
-  if (!unlocked) showUnlock(await api.status())
+  if (!screens.unlocked) showUnlock(await api.status())
 })
 listen<string>('notice', (e) => {
-  if (unlocked) notify(e.payload, 10)
+  if (screens.unlocked) notify(e.payload, 10)
   else {
     unlockError.textContent = e.payload
     unlockError.hidden = false
@@ -1611,7 +1589,7 @@ listen('open-settings', () => {
 })
 // Changed from the tray while the screen is open.
 listen('settings-changed', () => {
-  if (settingsOpen) drawSettings().catch((e) => notify(String(e)))
+  if (screens.settingsOpen) drawSettings().catch((e) => notify(String(e)))
 })
 
 listen<string>('icon-ready', (e) => {
