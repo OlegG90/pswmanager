@@ -27,6 +27,7 @@ import { TIDY_HINT, TIDY_LABEL, tidyQuestion } from './file-import-parts'
 import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
+import { isCancelled } from './invoke'
 import type { Choice } from './selection'
 import { count, vaultState, type ListChoice } from './vault'
 
@@ -152,7 +153,7 @@ function unlockWithHello() {
     try {
       await unlockWith(api.unlockWithHello)
     } catch (e) {
-      if (String(e) !== 'cancelled') throw e
+      if (!isCancelled(e)) throw e
     }
   }).finally(() => {
     helloOpen = false

@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// Why a database does not open with the key given.
+/// What [OpenError::WrongKey] says.
 pub const WRONG_KEY: &str = "Wrong password or key file";
 
 /// Why a save did not happen.
@@ -128,8 +128,13 @@ impl KeyChange {
 /// Why a copy of the database did not open, with the message to show.
 #[derive(Debug, PartialEq)]
 pub enum OpenError {
+    /// The key given does not open it ([WRONG_KEY]).
+    WrongKey,
     /// None of the keys known opens it: another device changed the key.
     OtherKey(String),
+    /// Its header asks for too costly a key derivation
+    /// ([crate::encryption::TOO_COSTLY]): no key was tried.
+    TooCostly,
     /// Anything else: the file is missing, damaged, half-written.
     Other(String),
 }
@@ -144,21 +149,43 @@ impl OpenError {
     fn context(self, context: &str) -> Self {
         match self {
             OpenError::OtherKey(m) => OpenError::OtherKey(format!("{context}: {m}")),
-            OpenError::Other(m) => OpenError::Other(format!("{context}: {m}")),
+            other => OpenError::Other(format!("{context}: {other}")),
         }
     }
 }
 
 impl std::fmt::Display for OpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (OpenError::OtherKey(m) | OpenError::Other(m)) = self;
-        f.write_str(m)
+        f.write_str(match self {
+            OpenError::WrongKey => WRONG_KEY,
+            OpenError::TooCostly => crate::encryption::TOO_COSTLY,
+            OpenError::OtherKey(m) | OpenError::Other(m) => m,
+        })
     }
 }
 
 impl From<String> for OpenError {
     fn from(message: String) -> Self {
         OpenError::Other(message)
+    }
+}
+
+impl From<&str> for OpenError {
+    fn from(message: &str) -> Self {
+        OpenError::Other(message.into())
+    }
+}
+
+/// For a caller that only shows why.
+impl From<OpenError> for String {
+    fn from(error: OpenError) -> Self {
+        error.to_string()
+    }
+}
+
+impl From<crate::encryption::TooCostly> for OpenError {
+    fn from(_: crate::encryption::TooCostly) -> Self {
+        OpenError::TooCostly
     }
 }
 
@@ -191,7 +218,7 @@ pub fn replace_file(path: &Path, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 impl DbFile {
-    pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), String> {
+    pub fn open(path: &Path, key: DatabaseKey) -> Result<(Database, DbFile), OpenError> {
         let bytes = fs::read(path).map_err(|e| format!("Cannot open the database: {e}"))?;
         crate::encryption::check_header(&bytes)?;
         let db = Database::parse(&bytes, key.clone()).map_err(|e| open_error(&e))?;
@@ -565,7 +592,7 @@ impl Snapshot {
                     return Ok((db, key_change));
                 }
                 Err(DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey)) => self.failed.add(key, copy),
-                Err(e) => return Err(open_error(&e).into()),
+                Err(e) => return Err(open_error(&e)),
             }
         }
         Err(OpenError::other_key())
@@ -651,17 +678,17 @@ fn same_version(a: &EntryRef<'_>, b: &EntryRef<'_>) -> bool {
 pub const UNORDERED: &str = "This database stores its elements in an unusual order, which PswManager cannot read \
      safely. Open it in KeePassXC and save it once, or convert it again with the current sic2kdbx.";
 
-fn open_error(e: &DatabaseOpenError) -> String {
+fn open_error(e: &DatabaseOpenError) -> OpenError {
     match e {
-        DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => WRONG_KEY.into(),
+        DatabaseOpenError::Key(DatabaseKeyError::IncorrectKey) => OpenError::WrongKey,
         DatabaseOpenError::Key(DatabaseKeyError::EmptyKey) => "Enter the password or choose a key file".into(),
-        DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}"),
+        DatabaseOpenError::Io(e) => format!("Cannot read the database: {e}").into(),
         DatabaseOpenError::UnsupportedVersion => "This database version is not supported".into(),
         // keepass-rs reads a strict element order; a file with an entry's
         // fields or a group's children out of order (older sic2kdbx) fails here
         // rather than having its protected values decrypted in the wrong order.
         other if other.to_string().contains("duplicate field") => UNORDERED.into(),
-        other => format!("Cannot open the database: {other}"),
+        other => format!("Cannot open the database: {other}").into(),
     }
 }
 
@@ -906,11 +933,11 @@ pub mod tests {
         let (_, file) = saved(dir.path(), &Database::new());
         let costly = crate::encryption::tests::too_costly(&fs::read(dir.path().join("t.kdbx")).unwrap());
         let since = file.snapshot();
-        assert_eq!(since.parse(&costly).err(), Some(OpenError::Other(crate::encryption::TOO_COSTLY.into())));
+        assert_eq!(since.parse(&costly).err(), Some(OpenError::TooCostly));
         assert!(!since.failed.contains(&key(), &hash(&costly)), "no key was tried");
 
         fs::write(dir.path().join("t.kdbx"), &costly).unwrap();
-        assert_eq!(DbFile::open(&dir.path().join("t.kdbx"), key()).err().unwrap(), crate::encryption::TOO_COSTLY);
+        assert_eq!(DbFile::open(&dir.path().join("t.kdbx"), key()).err().unwrap(), OpenError::TooCostly);
     }
 
     #[test]
@@ -918,6 +945,6 @@ pub mod tests {
         let dir = tempfile::tempdir().unwrap();
         saved(dir.path(), &Database::new());
         let wrong = DbFile::open(&dir.path().join("t.kdbx"), DatabaseKey::new().with_password("nope"));
-        assert_eq!(wrong.err().unwrap(), "Wrong password or key file");
+        assert_eq!(wrong.err().unwrap(), OpenError::WrongKey);
     }
 }

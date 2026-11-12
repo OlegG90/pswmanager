@@ -7,7 +7,9 @@ use crate::clipboard::Clipboard;
 use crate::documents::{self, Documents};
 use crate::cloud;
 use pswm_core::activity::Activity;
+use pswm_core::dbfile::OpenError;
 use pswm_core::documents::DocumentStore;
+use pswm_core::error::CommandError;
 use pswm_core::opened;
 use pswm_core::otp;
 use pswm_core::remote::{Cloud, Location};
@@ -190,6 +192,11 @@ pub async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
 }
 
+/// [off_main] for a command with a failure its caller acts on ([CommandError]).
+async fn off_main_coded<T: Send + 'static>(work: impl FnOnce() -> Result<T, CommandError> + Send + 'static) -> Result<T, CommandError> {
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
+}
+
 pub fn status_of(store: &Store, session: &Session) -> Status {
     let database = store.read(|s| {
         s.current().map(|k| Database {
@@ -300,10 +307,11 @@ fn key_file_content(app: &AppHandle, store: &Store) -> Result<Option<Zeroizing<V
 
 /// Checks the user again before an export: the master password (with the
 /// database's key file), or with none, the fingerprint. Every secret goes into
-/// the file in clear, so being unlocked is not enough.
+/// the file in clear, so being unlocked is not enough. Choosing the master
+/// password at the prompt is [CommandError::cancelled]: the app shows nothing.
 #[tauri::command]
-async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), String> {
-    off_main(move || {
+async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), CommandError> {
+    off_main_coded(move || {
         let store = app.state::<Store>();
         let (password, key_file) = match password {
             Some(password) => (Some(Zeroizing::new(password)), key_file_content(&app, &store)?),
@@ -312,8 +320,8 @@ async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), 
                     return Err("Enter the master password".into());
                 }
                 let sealed = app.state::<Biometric<Wry>>().retrieve().map_err(|failure| match failure {
-                    Failure::Cancelled => CANCELLED.to_string(),
-                    Failure::Other(message) => message,
+                    Failure::Cancelled => CommandError::cancelled(),
+                    Failure::Other(message) => message.into(),
                     _ => "Enter the master password".into(),
                 })?;
                 let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "Enter the master password")?;
@@ -326,7 +334,7 @@ async fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), 
         if !app.state::<Session>().read(|v| v.uses_key(&key))?? {
             return Err("The master password is not right".into());
         }
-        app.state::<Session>().allow_export()
+        Ok(app.state::<Session>().allow_export()?)
     })
     .await
 }
@@ -380,7 +388,7 @@ fn seal_wanted(store: &Store, biometric: &Biometric<Wry>) -> bool {
 }
 
 /// Opens the database with this key and makes it the session's; the sync starts.
-fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Result<Listing, String> {
+fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Result<Listing, OpenError> {
     let (vault, listing) = open_vault(&app.state::<Store>(), password, key_file)?;
     crate::icons::fetch(app, &listing);
     app.state::<Session>().set(Some(vault));
@@ -392,7 +400,7 @@ fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Res
 
 /// Opens the database on this phone with this key (the app's unlock and the
 /// credential provider's), its name and description kept for the unlock screen.
-pub(crate) fn open_vault(store: &Store, password: Option<&str>, key_file: Option<&[u8]>) -> Result<(Vault, Listing), String> {
+pub(crate) fn open_vault(store: &Store, password: Option<&str>, key_file: Option<&[u8]>) -> Result<(Vault, Listing), OpenError> {
     sync::ensure_working_copy(store)?;
     let file = store.read(|s| s.current.clone()).ok_or("Choose a database first")?;
     let mut key_file = key_file;
@@ -418,36 +426,34 @@ async fn biometric_ready(app: AppHandle) -> Result<bool, String> {
     .await
 }
 
-/// The answer when the user chose the master password at the prompt.
-const CANCELLED: &str = "cancelled";
-
 /// Unlocks with the key sealed for biometric unlock. A key that no longer
 /// opens the database (changed on another device) is deleted: the master
-/// password is asked for, and the new key sealed.
+/// password is asked for, and the new key sealed. Choosing the master
+/// password at the prompt is [CommandError::cancelled]: the app shows nothing.
 #[tauri::command]
-async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, String> {
-    off_main(move || {
+async fn unlock_with_biometric(app: AppHandle) -> Result<Listing, CommandError> {
+    off_main_coded(move || {
         let store = app.state::<Store>();
         if !Settings::of(&store).biometric_unlock() || password_due(&store) {
             return Err("Unlock with the master password".into());
         }
         let biometric = app.state::<Biometric<Wry>>();
         let sealed = biometric.retrieve().map_err(|failure| match failure {
-            Failure::Cancelled => CANCELLED.to_string(),
+            Failure::Cancelled => CommandError::cancelled(),
             Failure::Invalidated => "A new fingerprint or face was added: unlock with the master password once to use it again".into(),
             Failure::NotStored => "Unlock with the master password".into(),
-            Failure::Other(message) => message,
+            Failure::Other(message) => message.into(),
         })?;
         let secret: Secret = serde_json::from_str(&sealed).map_err(|_| "The stored key cannot be read: unlock with the master password")?;
         let key_file = secret.key_file().map_err(|e| e.to_string())?;
-        open(&app, secret.password.as_deref(), key_file.as_deref().map(Vec::as_slice)).map_err(|e| {
-            if e == pswm_core::dbfile::WRONG_KEY {
+        match open(&app, secret.password.as_deref(), key_file.as_deref().map(Vec::as_slice)) {
+            Ok(listing) => Ok(listing),
+            Err(OpenError::WrongKey) => {
                 let _ = biometric.forget();
-                "The database's key has changed: unlock with the new master password".to_string()
-            } else {
-                e
+                Err("The database's key has changed: unlock with the new master password".into())
             }
-        })
+            Err(other) => Err(other.into()),
+        }
     })
     .await
 }

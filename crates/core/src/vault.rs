@@ -56,6 +56,44 @@ pub const APP_CERTIFICATE: &str = "PSWM_APP_CERT_";
 /// the app ([Vault::confirm_app]).
 pub const UNCONFIRMED: &str = "PswManager has not given this login to this app before";
 
+/// Why an entry's login was not given to, kept for or linked with the app or
+/// site asking.
+#[derive(Debug, PartialEq)]
+pub enum LoginError {
+    /// The entry is for the app's package, and the user has not confirmed the
+    /// app yet ([UNCONFIRMED]): the phone asks them.
+    Unconfirmed,
+    Other(String),
+}
+
+impl std::fmt::Display for LoginError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            LoginError::Unconfirmed => UNCONFIRMED,
+            LoginError::Other(message) => message,
+        })
+    }
+}
+
+impl From<String> for LoginError {
+    fn from(message: String) -> Self {
+        LoginError::Other(message)
+    }
+}
+
+impl From<&str> for LoginError {
+    fn from(message: &str) -> Self {
+        LoginError::Other(message.into())
+    }
+}
+
+/// For a caller that only shows why.
+impl From<LoginError> for String {
+    fn from(error: LoginError) -> Self {
+        error.to_string()
+    }
+}
+
 /// How many entries [Vault::login_candidates] lists at most: enough to pick
 /// from, few enough for the phone to show at once.
 pub const CANDIDATES: usize = 50;
@@ -305,7 +343,7 @@ pub struct DatabaseSettings {
 
 impl Vault {
     /// Opens a KDBX file with a password, a key file, or both.
-    pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, String> {
+    pub fn open(path: &Path, password: Option<&str>, key_file: Option<&Path>) -> Result<Vault, OpenError> {
         Self::open_with_key(path, key(password, key_file)?)
     }
 
@@ -313,18 +351,18 @@ impl Vault {
     /// copy here does not open with `key` and it is synced, the key is tried
     /// on the remote file, which another device may have moved to a new key
     /// while this one was locked (#203; [crate::sync::take_remote_with_key]).
-    pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+    pub fn open_current(store: &crate::store::Store, path: &Path, key: DatabaseKey) -> Result<Vault, OpenError> {
         match Self::open_with_key(path, key.clone()) {
-            Err(e) if e == crate::dbfile::WRONG_KEY => match crate::sync::take_remote_with_key(store, path, &key)? {
+            Err(OpenError::WrongKey) => match crate::sync::take_remote_with_key(store, path, &key)? {
                 crate::sync::RemoteKey::Taken => Self::open_with_key(path, key),
-                crate::sync::RemoteKey::NotThere => Err(e),
+                crate::sync::RemoteKey::NotThere => Err(OpenError::WrongKey),
             },
             opened => opened,
         }
     }
 
     /// [Vault::open] with the key already made ([key_reading]).
-    pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, String> {
+    pub fn open_with_key(path: &Path, key: DatabaseKey) -> Result<Vault, OpenError> {
         let (db, file) = DbFile::open(path, key)?;
         Ok(Vault { db, file: Some(file), unsaved: false })
     }
@@ -690,9 +728,9 @@ impl Vault {
     }
 
     /// Entry `id`'s user name and password, to hand to the app or site
-    /// asking: only when the entry is for it; [UNCONFIRMED] while it is for
-    /// the app's package and the user has not confirmed the app.
-    pub fn login(&self, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), String> {
+    /// asking: only when the entry is for it; [LoginError::Unconfirmed] while it
+    /// is for the app's package and the user has not confirmed the app.
+    pub fn login(&self, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
         let entry = self.entry_for(id, place, false)?;
         let text = |name: &str| Zeroizing::new(entry.get(name).unwrap_or_default().to_string());
         Ok((text(fields::USERNAME), text(fields::PASSWORD)))
@@ -713,14 +751,15 @@ impl Vault {
         self.save_entry(Some(id), Some(&base), &data, false, &[]).map(|_| ())
     }
 
-    /// Entry `id`, an entry in use for `place`; [UNCONFIRMED] for one for the
-    /// app's package that keeps no certificate, unless the user `confirmed` the app.
-    fn entry_for(&self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<EntryRef<'_>, String> {
+    /// Entry `id`, an entry in use for `place`; [LoginError::Unconfirmed] for
+    /// one for the app's package that keeps no certificate, unless the user
+    /// `confirmed` the app.
+    fn entry_for(&self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<EntryRef<'_>, LoginError> {
         let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
         match place.fit(&entry) {
             Fit::Yes => Ok(entry),
             Fit::Unconfirmed if confirmed => Ok(entry),
-            Fit::Unconfirmed => Err(UNCONFIRMED.into()),
+            Fit::Unconfirmed => Err(LoginError::Unconfirmed),
             Fit::No => Err("This login is not for the app asking".into()),
         }
     }
@@ -745,7 +784,7 @@ impl Vault {
     /// that keeps no certificate), or a new entry titled `title` for `place`.
     /// An app's entry keeps its certificate. The file is saved (the old
     /// version goes to history). Returns the entry's id.
-    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, String> {
+    pub fn save_login(&mut self, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError> {
         if password.is_empty() {
             return Err("There is no password to save".into());
         }
@@ -767,7 +806,7 @@ impl Vault {
         }
         data.password = password.to_string();
         place.keep_certificate(&mut data);
-        self.save_entry(id, base.as_ref(), &data, false, &[]).map(|(id, _)| id)
+        Ok(self.save_entry(id, base.as_ref(), &data, false, &[])?.0)
     }
 
     /// The entries in use whose title, user name or one of whose URLs holds
@@ -800,7 +839,7 @@ impl Vault {
     /// changes for an entry that is for the place already; an entry that keeps
     /// another certificate for the app's package is not linked. The file is
     /// saved (the old version goes to history).
-    pub fn link_login(&mut self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), String> {
+    pub fn link_login(&mut self, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError> {
         let entry = self.entry(id).filter(|e| kind(e) == Kind::Entry).ok_or(NOT_FOUND)?;
         let fit = place.fit(&entry);
         if fit == Fit::Yes {
@@ -811,7 +850,7 @@ impl Vault {
                 return Err("This entry is for another app of that name".into());
             }
             if !confirmed {
-                return Err(UNCONFIRMED.into());
+                return Err(LoginError::Unconfirmed);
             }
         }
         let base = self.edit_data(id).ok_or(NOT_FOUND)?;
@@ -827,7 +866,8 @@ impl Vault {
             }
         }
         place.keep_certificate(&mut data);
-        self.save_entry(Some(id), Some(&base), &data, false, &[]).map(|_| ())
+        self.save_entry(Some(id), Some(&base), &data, false, &[])?;
+        Ok(())
     }
 
     /// Signs in with the passkey of entry `id` (WebAuthn's request options,
@@ -1916,8 +1956,8 @@ pub mod tests {
         sample().save(&mut File::create(&path).unwrap(), DatabaseKey::new().with_password("pw")).unwrap();
         let vault = Vault::open(&path, Some("pw"), None).unwrap();
         assert_eq!(in_use(&vault).len(), 2);
-        assert_eq!(Vault::open(&path, Some("nope"), None).err().unwrap(), "Wrong password or key file");
-        assert_eq!(Vault::open(&path, None, None).err().unwrap(), "Enter the password or choose a key file");
+        assert_eq!(Vault::open(&path, Some("nope"), None).err().unwrap(), OpenError::WrongKey);
+        assert_eq!(Vault::open(&path, None, None).err().unwrap().to_string(), "Enter the password or choose a key file");
     }
 
     fn fixture_path(name: &str) -> std::path::PathBuf {
@@ -1943,7 +1983,7 @@ pub mod tests {
     #[test]
     fn refuses_a_file_it_cannot_read_safely() {
         let refused = Vault::open(&fixture_path("unordered.kdbx"), Some("test"), None);
-        assert_eq!(refused.err().unwrap(), crate::dbfile::UNORDERED);
+        assert_eq!(refused.err().unwrap().to_string(), crate::dbfile::UNORDERED);
     }
 
     #[test]
@@ -2213,7 +2253,7 @@ pub mod tests {
 
         // An app is linked only once the user confirmed it: the entry gets its
         // URL as a further one, and its certificate.
-        assert_eq!(vault.link_login(&id, &photos, false).unwrap_err(), UNCONFIRMED);
+        assert_eq!(vault.link_login(&id, &photos, false).unwrap_err(), LoginError::Unconfirmed);
         vault.link_login(&id, &photos, true).unwrap();
         let linked = vault.edit_data(&id).unwrap();
         assert_eq!(linked.url, "https://photos.home.example");
@@ -2257,8 +2297,8 @@ pub mod tests {
         // replaced until the user confirms the app.
         assert_eq!(vault.logins_for(&bank).len(), 1);
         assert_eq!(vault.logins_for(&impostor).len(), 1);
-        assert_eq!(vault.login(&id, &impostor).unwrap_err(), UNCONFIRMED);
-        assert_eq!(vault.save_login(Some(&id), &impostor, false, "", "", "pw-x").unwrap_err(), UNCONFIRMED);
+        assert_eq!(vault.login(&id, &impostor).unwrap_err(), LoginError::Unconfirmed);
+        assert_eq!(vault.save_login(Some(&id), &impostor, false, "", "", "pw-x").unwrap_err(), LoginError::Unconfirmed);
         assert_eq!(vault.field(&id, fields::PASSWORD).unwrap().as_str(), "pw-1");
 
         // Confirmed, the entry keeps the bank app's certificate: from then on
@@ -2655,7 +2695,7 @@ pub mod tests {
         assert!(vault.db.meta.master_key_changed.is_some());
         // The file's key is the new one from now on.
         assert!(vault.change_key((Some("test"), None), Some("x"), None).is_err());
-        assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), "Wrong password or key file");
+        assert_eq!(Vault::open(&path, Some("test"), None).err().unwrap(), OpenError::WrongKey);
         let reopened = Vault::open(&path, Some("new one"), None).unwrap();
         assert_eq!(in_use(&reopened).len(), in_use(&vault).len());
         // The previous file, with the old key, is the backup.

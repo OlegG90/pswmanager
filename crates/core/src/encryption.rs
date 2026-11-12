@@ -120,8 +120,12 @@ pub fn keep_ours(theirs: &mut Database, ours: &Database) -> bool {
     true
 }
 
-/// Why a database file is not opened: its header asks for a key derivation
-/// beyond the ceilings below ([check_header]).
+/// A database file's header asks for a key derivation beyond the ceilings
+/// below ([check_header]): the file is not opened, for [TOO_COSTLY].
+#[derive(Debug, PartialEq)]
+pub struct TooCostly;
+
+/// What [TooCostly] says.
 pub const TOO_COSTLY: &str = "This database's key derivation asks for more memory or time than PswManager allows (Argon2 \
      at most 4 GiB of memory), so it is not opened: lower it in KeePassXC if the file is yours, or the file was damaged or replaced";
 
@@ -158,7 +162,7 @@ const AES_KDBX4: [u8; 16] = [0x7c, 0x02, 0xbb, 0x82, 0x79, 0xa7, 0x4a, 0xc0, 0x9
 /// it. Reads the header as keepass-rs 0.15 does (KeePass 1, KDBX 3 and 4); a
 /// header it cannot read is left to keepass-rs, which refuses it before
 /// deriving anything.
-pub fn check_header(file: &[u8]) -> Result<(), String> {
+pub fn check_header(file: &[u8]) -> Result<(), TooCostly> {
     const KDBX: [u8; 4] = [0x03, 0xd9, 0xa2, 0x9a];
     if file.get(..4) != Some(&KDBX[..]) {
         return Ok(());
@@ -174,7 +178,7 @@ pub fn check_header(file: &[u8]) -> Result<(), String> {
         _ => false,
     };
     if too_costly {
-        return Err(TOO_COSTLY.into());
+        return Err(TooCostly);
     }
     Ok(())
 }
@@ -379,7 +383,7 @@ pub mod tests {
         let mut written = Vec::new();
         Database::new().save(&mut written, DatabaseKey::new().with_password("pw")).unwrap();
         assert_eq!(check_header(&written), Ok(()));
-        assert_eq!(check_header(&too_costly(&written)), Err(TOO_COSTLY.to_string()));
+        assert_eq!(check_header(&too_costly(&written)), Err(TooCostly));
     }
 
     #[test]
@@ -393,7 +397,7 @@ pub mod tests {
             ("AES-KDF for ever", aes(1 << 63)),
         ];
         for (what, file) in refused {
-            assert_eq!(check_header(&file), Err(TOO_COSTLY.to_string()), "{what}");
+            assert_eq!(check_header(&file), Err(TooCostly), "{what}");
         }
     }
 

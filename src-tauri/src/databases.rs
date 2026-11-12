@@ -6,6 +6,7 @@ use crate::{browser_host, chooser, clipboard, file_watch, hello, need_key, pick,
 use crate::entries::fetch_icons;
 use pswm_core::{dbfile, edit, encryption, gauth, opened, remote, store, vault};
 use pswm_core::dbfile::OpenError;
+use pswm_core::error::CommandError;
 use pswm_core::session::{KeyNeeded, Session};
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
@@ -315,7 +316,7 @@ pub fn enter_other_key(app: AppHandle, password: String, key_file: Option<String
         session.with_mut(|v| v.forget_key(&given))?;
         return Err(match e {
             OpenError::OtherKey(_) => "This master password or key file does not open it either".into(),
-            OpenError::Other(message) => message,
+            other => other.to_string(),
         });
     }
     need_key(&app, |k| k.local = false); // the remote file's is the sync's
@@ -408,36 +409,35 @@ pub fn hello_ready(store: State<Store>) -> bool {
         && hello::available()
 }
 
-/// The answer when the user closed Windows Hello's prompt.
-pub(crate) const CANCELLED: &str = "cancelled";
-
 /// Unlocks with the password sealed for Windows Hello. One that no longer
 /// opens the database (its key changed elsewhere) goes: the master password
-/// is asked for, and the new one sealed.
+/// is asked for, and the new one sealed. Closing Windows Hello's prompt is
+/// [CommandError::cancelled]: the window shows nothing.
 #[tauri::command(async)]
-pub fn unlock_with_hello(app: AppHandle) -> Result<Listing, String> {
+pub fn unlock_with_hello(app: AppHandle) -> Result<Listing, CommandError> {
     const MASTER: &str = "Unlock with the master password";
     if !hello_ready(app.state()) {
         return Err(MASTER.into());
     }
     let database = current_file(&app.state()).ok_or("Choose a database first")?;
     let password = window::without_topmost(&app, chooser::LABEL, || hello::unseal(&database)).map_err(|failure| match failure {
-        hello::Failure::Cancelled => CANCELLED.to_string(),
+        hello::Failure::Cancelled => CommandError::cancelled(),
         hello::Failure::NotSealed => MASTER.into(),
-        hello::Failure::Other(message) => message,
+        hello::Failure::Other(message) => message.into(),
     })?;
     match open(&app, password.as_deref().map(String::as_str)) {
-        Err(e) if e == dbfile::WRONG_KEY => {
+        Ok((listing, _)) => Ok(listing),
+        Err(OpenError::WrongKey) => {
             hello::forget(&database);
             Err("The password Windows Hello kept no longer opens the database: unlock with the master password".into())
         }
-        opened => opened.map(|(listing, _)| listing),
+        Err(other) => Err(other.into()),
     }
 }
 
 /// Opens the current database with this password and its key file, and makes
 /// it the session's; returns its listing and file.
-pub(crate) fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), String> {
+pub(crate) fn open(app: &AppHandle, password: Option<&str>) -> Result<(Listing, PathBuf), OpenError> {
     let (store, session) = (app.state::<Store>(), app.state::<Session>());
     sync::ensure_working_copy(&store)?;
     let current = store.read(|s| s.current().cloned()).ok_or("Choose a database first")?;

@@ -99,11 +99,11 @@ fn attempt(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Opti
                     since.note_unopened(&revision);
                     return Err(SyncError::OtherKey);
                 }
-                Err(OpenError::Other(message)) => {
-                    if message == TOO_COSTLY {
+                Err(refused) => {
+                    if refused == OpenError::TooCostly {
                         since.note_refused(&revision);
                     }
-                    return Err(failed(format!("The remote copy cannot be opened: {message}")));
+                    return Err(failed(format!("The remote copy cannot be opened: {refused}")));
                 }
             };
             outcome = match session.with_mut(|v| v.take_remote(&since, theirs, key_change, &bytes, changed_here)) {
@@ -943,7 +943,7 @@ mod tests {
         assert!(crate::dbfile::sibling(&working, crate::dbfile::BAK).exists(), "the copy it replaced is kept");
         assert!(!has_pending(&s.store), "in step with the remote file");
         // A wrong one stays wrong.
-        assert_eq!(Vault::open_current(&s.store, &working, DatabaseKey::new().with_password("other")).err().unwrap(), crate::dbfile::WRONG_KEY);
+        assert_eq!(Vault::open_current(&s.store, &working, DatabaseKey::new().with_password("other")).err().unwrap(), OpenError::WrongKey);
     }
 
     #[test]
@@ -954,7 +954,7 @@ mod tests {
         let new = || DatabaseKey::new().with_password("new");
         s.elsewhere_keyed(key(), new(), |_| {});
         let working = s.store.read(|st| st.current.clone()).unwrap();
-        let refused = Vault::open_current(&s.store, &working, new()).err().unwrap();
+        let refused = Vault::open_current(&s.store, &working, new()).err().unwrap().to_string();
         assert!(refused.contains("unlock with that first"), "{refused}");
         // The old key still opens this copy, with its change.
         assert!(Vault::open_current(&s.store, &working, key()).is_ok());

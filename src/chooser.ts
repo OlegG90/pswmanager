@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { api, type AutoTypeAsk, type Entry, type Status } from './api'
+import { isCancelled } from './invoke'
 import { typeChoice, typeTarget } from './auto-type'
 import { busyButton, button, el, errorLine } from './dom'
 
@@ -99,7 +100,7 @@ async function showUnlock(status: Status) {
       await open()
     } catch (e) {
       state = 'unlock'
-      if (String(e) !== 'cancelled') error.show(String(e))
+      if (!isCancelled(e)) error.show(String(e))
       return password.focus()
     }
     await refresh()

@@ -1,6 +1,7 @@
 import { busyButton, button, el, enterPresses, errorLine } from '../../../../src/dom'
 import { showHide } from '../../../../src/editor-parts'
 import { api, type Listing, type Status } from './api'
+import { isCancelled } from '../../../../src/invoke'
 import { chooseScreen } from './first-run'
 import { listScreen } from './list'
 import { app, confirmSheet, iconButton, screens, show } from './page'
@@ -40,7 +41,7 @@ export function unlockScreen() {
       app.syncLine = 'Syncing…'
       await unlockedWith(await api.unlockWithBiometric())
     } catch (e) {
-      if (String(e) !== 'cancelled') error.show(String(e))
+      if (!isCancelled(e)) error.show(String(e))
       password.focus()
     }
   }
