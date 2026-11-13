@@ -142,7 +142,7 @@ function unlockWithHello() {
     screens.helloOpen = false
     if (!screens.unlocked) {
       void offerHello()
-      if (!unlockForm.hidden) passwordInput.focus()
+      if (screens.screen.kind === 'unlock') passwordInput.focus()
     }
   })
 }
@@ -193,7 +193,7 @@ unlockForm.addEventListener('submit', (e) => {
     await unlockWith(() => api.unlock(password))
   }).finally(() => {
     button.disabled = false
-    if (!unlockForm.hidden) passwordInput.focus()
+    if (screens.screen.kind === 'unlock') passwordInput.focus()
   })
 })
 
@@ -210,7 +210,7 @@ function showVault(next: Listing) {
   refresh()
   // Settings opened over the unlock screen move beside the sidebar, drawn
   // again for an unlocked database (its own tab, no Done).
-  showContent()
+  markSidebar()
   if (screens.settingsOpen) {
     drawSettings().catch((e) => notify(String(e)))
   } else {
@@ -1558,7 +1558,7 @@ listen('window-shown', () => {
     passwordInput.focus()
     // Shown from the tray or the hotkey: Windows Hello asks at once, as the
     // phone does coming back from another app (not over a password being typed).
-    if (!unlockForm.hidden && !passwordInput.value) {
+    if (screens.screen.kind === 'unlock' && !passwordInput.value) {
       void offerHello().then(() => screens.helloReady && !passwordInput.value && unlockWithHello())
     }
   }

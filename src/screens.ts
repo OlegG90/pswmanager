@@ -32,13 +32,19 @@ export interface Panes {
   settings: 'beside' | 'whole' | null
 }
 
+/** What is shown once the settings close: `screen` itself without them. */
+const underOf = (screen: Screen) => (screen.kind === 'settings' ? screen.over : screen)
+
+/** Whether `screen` is an unlocked database's. */
+const isUnlocked = (screen: Screen) => underOf(screen).kind === 'records' || underOf(screen).kind === 'report'
+
 /** What `screen` shows: every pane is said, so the page is drawn from this alone. */
 export function panes(screen: Screen): Panes {
-  const under = screen.kind === 'settings' ? screen.over : screen
+  const under = underOf(screen)
   return {
     unlock: screen.kind === 'unlock',
     choose: screen.kind === 'choose',
-    vault: under.kind === 'records' || under.kind === 'report',
+    vault: isUnlocked(screen),
     records: screen.kind === 'records',
     report: screen.kind === 'report',
     settings: screen.kind !== 'settings' ? null : under.kind === 'records' ? 'beside' : 'whole',
@@ -74,13 +80,12 @@ export function screenState() {
   /** A key was asked for in a dialog since the unlock: that happens once, then the button stays. */
   let keyAsked = false
 
-  /** What is shown once the settings close. */
-  const under = () => (screen.kind === 'settings' ? screen.over : screen)
+  const under = () => underOf(screen)
   /** `shown` in place of what the settings are over, the settings staying over it. */
   const show = (shown: Locked | Records) => {
     screen = screen.kind === 'settings' ? { kind: 'settings', over: shown } : shown
   }
-  const unlocked = () => under().kind === 'records' || under().kind === 'report'
+  const unlocked = () => isUnlocked(screen)
 
   const state = {
     /** This window is unlocking: the `unlocked` it causes is not the chooser's. */
