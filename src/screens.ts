@@ -15,6 +15,36 @@ type Records = { kind: 'records' }
  */
 export type Screen = Locked | Records | { kind: 'report'; tool: Tool } | { kind: 'settings'; over: Locked | Records }
 
+/** What of the page a screen shows. */
+export interface Panes {
+  /** The unlock form. */
+  unlock: boolean
+  /** The choose-database screen. */
+  choose: boolean
+  /** The unlocked database's window: the toolbar and the sidebar. */
+  vault: boolean
+  /** The list and the entry, beside the sidebar. */
+  records: boolean
+  /** A tool's report, in their place. */
+  report: boolean
+  /** The settings: beside the sidebar while unlocked, over the whole window
+   *  while locked; null while closed. */
+  settings: 'beside' | 'whole' | null
+}
+
+/** What `screen` shows: every pane is said, so the page is drawn from this alone. */
+export function panes(screen: Screen): Panes {
+  const under = screen.kind === 'settings' ? screen.over : screen
+  return {
+    unlock: screen.kind === 'unlock',
+    choose: screen.kind === 'choose',
+    vault: under.kind === 'records' || under.kind === 'report',
+    records: screen.kind === 'records',
+    report: screen.kind === 'report',
+    settings: screen.kind !== 'settings' ? null : under.kind === 'records' ? 'beside' : 'whole',
+  }
+}
+
 /** What a key does on the screen shown, and whether the key ends there. */
 export interface ScreenKey {
   does:
