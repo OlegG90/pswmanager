@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screenState, type ScreenKey } from './screens'
+import { panes, screenState, type Panes, type ScreenKey } from './screens'
 
 const ESCAPE = { key: 'Escape', code: 'Escape', ctrlKey: false }
 const CTRL_L = { key: 'l', code: 'KeyL', ctrlKey: true }
@@ -213,5 +213,43 @@ describe('a copy that needs a key', () => {
     expect(screens.askForKey(false, false)).toBe('the file on this PC')
     screens.openReport('home')
     expect(screens.askForKey(true, false)).toBe('the file on this PC')
+  })
+})
+
+describe('what each screen shows', () => {
+  const NOTHING: Panes = { unlock: false, choose: false, vault: false, records: false, report: false, settings: null }
+
+  it('a locked window shows the unlock form or the choice of a database, never the vault', () => {
+    const screens = screenState()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, unlock: true })
+    screens.showChoose(true)
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, choose: true })
+  })
+
+  it('the settings cover the whole locked window', () => {
+    const screens = screenState()
+    screens.openSettings()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, settings: 'whole' })
+    screens.showChoose(false)
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, settings: 'whole' })
+  })
+
+  it('an unlocked window shows one thing beside the sidebar', () => {
+    const screens = unlocked()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, vault: true, records: true })
+    screens.openReport('health')
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, vault: true, report: true })
+    screens.openSettings()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, vault: true, settings: 'beside' })
+  })
+
+  it('unlocking leaves nothing of the locked window, whichever screen it was on', () => {
+    const screens = screenState()
+    screens.showChoose(true)
+    // Unlocked in Auto-Type's chooser while this window chose a database.
+    screens.unlock()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, vault: true, records: true })
+    screens.lock()
+    expect(panes(screens.screen)).toEqual({ ...NOTHING, unlock: true })
   })
 })

@@ -28,7 +28,7 @@ import { renderGauthImport } from './gauth-import'
 import { renderExport } from './file-export'
 import { enterOtherKey } from './other-key'
 import { isCancelled } from './invoke'
-import { screenState, type Tool } from './screens'
+import { panes, screenState, type Tool } from './screens'
 import type { Choice } from './selection'
 import { count, vaultState, type ListChoice } from './vault'
 
@@ -102,13 +102,11 @@ function showKeyFile(keyFile: string | null) {
 
 /** The unlock screen, or the choose-database screen while there is no database. */
 function showUnlock(status: Status) {
-  vault.hidden = true
   if (!status.database) return showChoose(status)
   showStatus(status)
   screens.showUnlock()
-  chooseView.hidden = true
   chooseView.replaceChildren()
-  unlockForm.hidden = screens.settingsOpen
+  render()
   if (!screens.settingsOpen) passwordInput.focus()
   void offerHello()
 }
@@ -144,7 +142,7 @@ function unlockWithHello() {
     screens.helloOpen = false
     if (!screens.unlocked) {
       void offerHello()
-      if (!unlockForm.hidden) passwordInput.focus()
+      if (screens.screen.kind === 'unlock') passwordInput.focus()
     }
   })
 }
@@ -155,8 +153,7 @@ const backFromChoose = () => run(async () => showUnlock(await api.status()))
 function showChoose(status: Status) {
   // No database to go back to on the first run.
   screens.showChoose(!!status.database)
-  unlockForm.hidden = true
-  chooseView.hidden = screens.settingsOpen
+  render()
   renderChoose(chooseView, status, { chosen: showUnlock, back: backFromChoose })
 }
 
@@ -196,7 +193,7 @@ unlockForm.addEventListener('submit', (e) => {
     await unlockWith(() => api.unlock(password))
   }).finally(() => {
     button.disabled = false
-    if (!unlockForm.hidden) passwordInput.focus()
+    if (screens.screen.kind === 'unlock') passwordInput.focus()
   })
 })
 
@@ -205,8 +202,7 @@ unlockForm.addEventListener('submit', (e) => {
 function showVault(next: Listing) {
   records.open(next)
   screens.unlock()
-  unlockForm.hidden = true
-  vault.hidden = false
+  render()
   api.keyNeeded().then(showKeyNeeded, () => {})
   api.syncStatus().then(showSyncStatus, () => {})
   searchInput.value = ''
@@ -214,11 +210,10 @@ function showVault(next: Listing) {
   refresh()
   // Settings opened over the unlock screen move beside the sidebar, drawn
   // again for an unlocked database (its own tab, no Done).
+  markSidebar()
   if (screens.settingsOpen) {
-    showSettingsView()
     drawSettings().catch((e) => notify(String(e)))
   } else {
-    showContent()
     searchInput.focus()
     void openHome()
   }
@@ -252,8 +247,8 @@ async function showLocked() {
   list.replaceChildren()
   detail.replaceChildren()
   // Locking closes the settings: the unlock screen asks for the password (#262).
-  settingsView.hidden = true
   settingsView.replaceChildren()
+  render()
   showUnlock(await api.status())
 }
 
@@ -1286,25 +1281,26 @@ function dropReport(tool: Tool) {
   showContent()
 }
 
-/** Shows beside the sidebar what is open (the settings, a report, else the
- *  list and the entry), so the sidebar never leaves the screen, and marks it there. */
-function showContent() {
-  listPane.hidden = screens.pageOpen
-  detail.hidden = screens.pageOpen
-  reportView.hidden = !screens.reportTool
-  if (screens.unlocked) settingsView.hidden = !screens.settingsOpen
-  markSidebar()
+/** Shows what the screen is made of, and hides the rest: the one place that
+ *  does (#406). The settings sit beside the sidebar while unlocked, so the
+ *  sidebar never leaves the screen, and over the whole window while locked. */
+function render() {
+  const shown = panes(screens.screen)
+  unlockForm.hidden = !shown.unlock
+  chooseView.hidden = !shown.choose
+  vault.hidden = !shown.vault
+  listPane.hidden = !shown.records
+  detail.hidden = !shown.records
+  reportView.hidden = !shown.report
+  settingsView.hidden = !shown.settings
+  const place = shown.settings === 'beside' ? vault : document.body
+  if (shown.settings && settingsView.parentElement !== place) place.append(settingsView)
 }
 
-/** The settings beside the sidebar while unlocked, over the whole window while locked. */
-function showSettingsView() {
-  if (screens.unlocked) {
-    vault.append(settingsView)
-    showContent()
-  } else {
-    document.body.append(settingsView)
-    settingsView.hidden = false
-  }
+/** Shows the screen, and marks in the sidebar what is beside it. */
+function showContent() {
+  render()
+  markSidebar()
 }
 
 function iconOf(id: string): HTMLElement {
@@ -1342,11 +1338,7 @@ async function openSettings(tab?: SettingsTab) {
   if (screens.settingsOpen) return markSidebar() // another tab of the open settings
   closeReport()
   screens.openSettings()
-  if (!screens.unlocked) {
-    unlockForm.hidden = true
-    chooseView.hidden = true
-  }
-  showSettingsView()
+  showContent()
   settingsView.querySelector<HTMLElement>('select, button, input')?.focus()
 }
 
@@ -1354,14 +1346,12 @@ async function openSettings(tab?: SettingsTab) {
 function closeSettings() {
   if (!screens.settingsOpen) return
   screens.closeSettings()
-  settingsView.hidden = true
   settingsView.replaceChildren()
+  showContent()
   if (screens.unlocked) {
-    showContent()
     searchInput.focus()
     if (!records.current) select(records.selectedId)
   } else if (screens.screen.kind === 'choose') {
-    chooseView.hidden = false
     chooseView.querySelector<HTMLElement>('input:checked')?.focus()
   } else {
     // Locked while the settings were open: the unlock screen, or the
@@ -1568,7 +1558,7 @@ listen('window-shown', () => {
     passwordInput.focus()
     // Shown from the tray or the hotkey: Windows Hello asks at once, as the
     // phone does coming back from another app (not over a password being typed).
-    if (!unlockForm.hidden && !passwordInput.value) {
+    if (screens.screen.kind === 'unlock' && !passwordInput.value) {
       void offerHello().then(() => screens.helloReady && !passwordInput.value && unlockWithHello())
     }
   }
