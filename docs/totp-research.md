@@ -52,7 +52,7 @@ algorithm there too when they fit (at most 8 digits, not Steam). Clearing the TO
 entry whose TOTP is not touched keeps its attributes exactly as they were.
 
 The 2FA filter, the copy action and the entry view take whether an entry has a TOTP, and its code, from the
-core (`vault.rs`), so they follow with no change of their own. The editor shows the TOTP it finds as a URI;
+core (`vault`), so they follow with no change of their own. The editor shows the TOTP it finds as a URI;
 the export (CSV, CXF) and the merge of similar entries take that same TOTP instead of `otp` alone.
 
 **Recommendation: do.** It is small, all in the core, and it fixes entries that other clients already show.
