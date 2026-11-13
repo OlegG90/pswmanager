@@ -1,6 +1,6 @@
-//! Changes to the entries: saving one from the editor, tags, the recycle
-//! bin, duplicating and merging, templates and imports. Each is made and
-//! saved through `Vault::change`.
+//! Changes to the entries: saving one from the editor (and what it starts
+//! from), tags, the recycle bin, duplicating and merging, templates and
+//! imports. Each change is made and saved through `Vault::change`.
 
 use super::*;
 

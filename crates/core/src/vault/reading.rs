@@ -1,6 +1,7 @@
 //! What the window reads of the open database: the listing, an entry's
-//! details and history, one field or file when asked for it, and the reports
-//! over all of them. No secret leaves but the one asked for.
+//! details and history, one field or file when asked for it, the reports
+//! over all of them, and an export. Secrets stay behind, but for the one
+//! field asked for and an export, which holds them all.
 
 use super::*;
 
