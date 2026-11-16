@@ -300,14 +300,25 @@ export async function renderSettings(
       button('Link…', 'Sync with a file already in a store', run(() => setUpSync('link', waiting))))
   }
 
-  /** The in-tree modules the tools and sheets offer, each with its on/off (#412). */
-  function modulesGroup(s: Settings, status: Status): HTMLElement {
+  /** The in-tree modules the tools and sheets offer, each with its on/off (#412).
+   *  Only the stores and the autofill categories are offered here: turning
+   *  those off has a point (local-only sync, or a card filler that misbehaves).
+   *  The import and export formats stay on, as hiding one only loses a feature. */
+  function modulesGroup(s: Settings, status: Status): HTMLElement[] {
     const kinds: [Module['kind'], string][] = [
-      ['importers', 'Import formats'],
-      ['exporters', 'Export formats'],
       ['stores', 'Stores'],
       ['fillers', 'Autofill categories'],
     ]
+    // What each module does, for its row; keyed by kind:id.
+    const about: Record<string, { label: string; about: string }> = {
+      'stores:folder': { label: 'Folder', about: 'A database file in a folder on this PC, a NAS or a LAN share.' },
+      'stores:dropbox': { label: 'Dropbox', about: 'A database file in your Dropbox account.' },
+      'stores:google': { label: 'Google Drive', about: 'A database file in your Google Drive.' },
+      'stores:onedrive': { label: 'OneDrive', about: 'A database file in your OneDrive.' },
+      'stores:document': { label: 'Document', about: 'A database file the platform reaches by a document reference (Android).' },
+      'fillers:login': { label: 'Logins', about: 'Fills in user names and passwords for the app or site asking.' },
+      'fillers:card': { label: 'Cards', about: 'Fills in card details; the offer shows the brand and last four only, never the full number or CVV.' },
+    }
     const change = (m: Module) => async (on: boolean) => {
       const disabled = new Set(s.disabledModules)
       const key = `${m.kind}:${m.id}`
@@ -322,12 +333,13 @@ export async function renderSettings(
       }
       draw(await api.settings(), status)
     }
-    const hint = (m: Module) => (m.extensions.length ? `Files: ${m.extensions.join(', ')}` : m.needsNetwork ? 'Needs the network' : '')
-    const sections = kinds.flatMap(([kind, title]) => {
+    return kinds.flatMap(([kind, title]) => {
       const list = modules.filter((m) => m.kind === kind)
-      return list.length ? [group(title, ...list.map((m) => row(m.label, hint(m), toggle(m.label, m.enabled, change(m)))))] : []
+      return list.length ? [group(title, ...list.map((m) => {
+        const text = about[`${m.kind}:${m.id}`]
+        return row(text?.label ?? m.label, text?.about ?? '', toggle(text?.label ?? m.label, m.enabled, change(m)))
+      }))] : []
     })
-    return group('Modules', ...sections)
   }
 
   function draw(s: Settings, status: Status) {
@@ -405,7 +417,7 @@ export async function renderSettings(
             select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
       ],
       backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
-      modules: () => [modulesGroup(s, status)],
+      modules: () => modulesGroup(s, status),
       about: () => [
         group('About',
           row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),

@@ -1087,8 +1087,10 @@ The traits live in `crates/core/src/modules.rs`; the handlers and their registri
 - **Phase 1** put the import and export tools behind the registry: the Windows tools and sheets render
   their sources and formats from it, the import picker filters from each importer's extensions, a module
   turned off in Settings is not offered, and a file whose importer is off is refused with that said.
-  The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off, in the Settings
-  screen's *Modules* section.
+  The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off. The
+  Settings screen's *Modules* section offers the stores and the autofill categories — where off has a
+  point (local-only sync, a card filler that misbehaves); the import and export formats stay on, as
+  hiding one only loses a feature.
 - **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
   describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
   The `CardFiller` pilot is Phase 3.
