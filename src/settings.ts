@@ -48,7 +48,7 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
+export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['modules', 'Modules'], ['about', 'About']] as const
 export type SettingsTab = (typeof SETTINGS_TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
 let shownTab: SettingsTab = 'general'
@@ -383,7 +383,6 @@ export async function renderSettings(
                 ? 'Another program holds the extension\'s connection: turn this off and on again'
                 : 'Fills in logins in Chrome, Edge and Firefox through the KeePassXC-Browser extension',
             toggle('KeePassXC-Browser extension', s.browserIntegration, set('browserIntegration')))),
-        modulesGroup(s, status),
       ],
       window: () => [
         group('Window and tray',
@@ -406,6 +405,7 @@ export async function renderSettings(
             select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
       ],
       backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
+      modules: () => [modulesGroup(s, status)],
       about: () => [
         group('About',
           row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),
