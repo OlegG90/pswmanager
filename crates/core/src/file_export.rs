@@ -35,6 +35,11 @@ impl Format {
     pub fn extension(self) -> &'static str {
         self.exporter().extension()
     }
+
+    /// The format's name for the picker's filter.
+    pub fn label(self) -> &'static str {
+        self.exporter().label()
+    }
 }
 
 /// A file's content, the name offered for it, and what it could not carry
@@ -72,9 +77,7 @@ pub(crate) fn export<'a>(format: Format, account: &str, entries: impl Iterator<I
 struct Csv;
 struct Cxf;
 
-/// The built-in exporters, one per [Format]. Phase 1 lists them; nothing
-/// else reads them in Phase 0.
-#[allow(dead_code)]
+/// The built-in exporters, one per [Format].
 pub(crate) fn exporters() -> &'static [&'static dyn modules::Exporter] {
     static EXPORTERS: &[&'static dyn modules::Exporter] = &[&Csv, &Cxf];
     EXPORTERS

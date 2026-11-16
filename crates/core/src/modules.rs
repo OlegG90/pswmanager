@@ -23,7 +23,9 @@ use crate::file_export::Export;
 use crate::remote::{CloudFile, Location, Remote, RemoteError};
 use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use keepass::db::EntryRef;
+use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use zeroize::Zeroizing;
 
 /// An import format (CSV, Bitwarden's JSON, CXF, Aegis): it decides whether a
@@ -32,13 +34,9 @@ use zeroize::Zeroizing;
 /// importer owns only `id/label/extensions/detect/parse` and its `skipped`
 /// reasons.
 pub(crate) trait Importer: Send + Sync {
-    /// Phase 1 lists these in the UI; nothing reads them in Phase 0.
-    #[allow(dead_code)]
     fn id(&self) -> &'static str;
-    #[allow(dead_code)]
     fn label(&self) -> &'static str;
     /// The file name endings this format is known by, a hint for the picker.
-    #[allow(dead_code)]
     fn extensions(&self) -> &'static [&'static str];
 
     /// Whether this is the importer for the file: for the CSV importer, `json`
@@ -58,10 +56,7 @@ pub(crate) trait Importer: Send + Sync {
 /// file), the file name and the warnings; an exporter owns
 /// `format/extension/export` and what its format leaves out.
 pub(crate) trait Exporter: Send + Sync {
-    /// Phase 1 lists these in the UI; nothing reads them in Phase 0.
-    #[allow(dead_code)]
     fn id(&self) -> &'static str;
-    #[allow(dead_code)]
     fn label(&self) -> &'static str;
     fn extension(&self) -> &'static str;
 
@@ -80,9 +75,7 @@ pub(crate) trait Exporter: Send + Sync {
 pub(crate) trait StorePlugin: Send + Sync {
     /// The store's id: `"folder" | "dropbox" | "google" | "onedrive" | "document"`.
     fn id(&self) -> &'static str;
-    /// Whether talking to the store needs the network (clouds do). Phase 2
-    /// reads this; nothing does in Phase 0.
-    #[allow(dead_code)]
+    /// Whether talking to the store needs the network (clouds do).
     fn needs_network(&self) -> bool;
 
     /// The databases the store holds; a folder or a document has none to list.
@@ -109,10 +102,10 @@ pub(crate) trait StorePlugin: Send + Sync {
 /// wiping — and hands each category only its own database work, after that
 /// check.
 pub(crate) trait CategoryFiller: Send + Sync {
-    /// The category's id: `"login"` now, `"card"` and more later. Phase 1
-    /// lists it; nothing reads it in Phase 0.
-    #[allow(dead_code)]
+    /// The category's id: `"login"` now, `"card"` and more later.
     fn id(&self) -> &'static str;
+    /// What the user sees: "Logins", "Cards".
+    fn label(&self) -> &'static str;
 
     /// The entries to offer for a login from `place`.
     fn offers(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice>;
@@ -131,8 +124,57 @@ pub(crate) trait CategoryFiller: Send + Sync {
     fn links(&self, vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError>;
 }
 
+/// One module as the frontend lists it (a Tools entry, a store, a filler).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Module {
+    /// The module's own id: `"csv"`, `"dropbox"`, `"login"`.
+    pub id: String,
+    /// `"importers" | "exporters" | "stores" | "fillers"`.
+    pub kind: &'static str,
+    /// What the user sees: "CSV", "Dropbox", "Logins".
+    pub label: String,
+    /// Off in the settings screen; the frontend leaves it out.
+    pub enabled: bool,
+    /// The file name endings an importer or exporter is known by; empty for
+    /// stores and fillers.
+    pub extensions: Vec<String>,
+    /// Whether talking to the store needs the network; `None` unless it is a
+    /// store.
+    pub needs_network: Option<bool>,
+}
+
+/// Every compiled-in module, for the frontend's tools and sheets; `disabled`
+/// holds the module keys (a kind and an id joined by `:`) the user turned off
+/// in the settings screen.
+pub fn list(disabled: &HashSet<String>) -> Vec<Module> {
+    let one = |kind: &'static str, id: &str, label: &str, extensions: &[&str], needs_network: Option<bool>| Module {
+        enabled: !disabled.contains(&format!("{kind}:{id}")),
+        id: id.to_string(),
+        kind,
+        label: label.to_string(),
+        extensions: extensions.iter().map(|e| e.to_string()).collect(),
+        needs_network,
+    };
+    let mut modules = Vec::new();
+    for importer in crate::file_import::importers() {
+        modules.push(one("importers", importer.id(), importer.label(), importer.extensions(), None));
+    }
+    for exporter in crate::file_export::exporters() {
+        modules.push(one("exporters", exporter.id(), exporter.label(), &[exporter.extension()], None));
+    }
+    for store in crate::remote::store_plugins() {
+        modules.push(one("stores", store.id(), store.name(), &[], Some(store.needs_network())));
+    }
+    for filler in crate::autofill::category_fillers() {
+        modules.push(one("fillers", filler.id(), filler.label(), &[], None));
+    }
+    modules
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::file_export::Format;
 
     #[test]
@@ -170,5 +212,21 @@ mod tests {
     fn category_fillers_start_with_logins() {
         let ids: Vec<&str> = crate::autofill::category_fillers().iter().map(|filler| filler.id()).collect();
         assert_eq!(ids, ["login"]);
+    }
+
+    #[test]
+    fn list_reflects_disabled_modules() {
+        let all = list(&HashSet::new());
+        for kind in ["importers", "exporters", "stores", "fillers"] {
+            assert!(all.iter().any(|m| m.kind == kind), "{kind} is listed");
+        }
+        assert!(all.iter().all(|m| m.enabled));
+        let mut disabled = HashSet::new();
+        disabled.insert("importers:aegis".to_string());
+        let filtered = list(&disabled);
+        let aegis = filtered.iter().find(|m| m.kind == "importers" && m.id == "aegis").unwrap();
+        assert!(!aegis.enabled);
+        let csv = filtered.iter().find(|m| m.kind == "importers" && m.id == "csv").unwrap();
+        assert!(csv.enabled);
     }
 }

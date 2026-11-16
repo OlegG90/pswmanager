@@ -119,6 +119,31 @@ pub(crate) fn importers() -> &'static [&'static dyn modules::Importer] {
     IMPORTERS
 }
 
+/// Which importer reads the file `name` (`content`), its id; `None` for a
+/// file the importers do not take (not text, or a JSON file none of the JSON
+/// importers reads — the parser refuses those itself). A JSON file is parsed
+/// once here and wiped.
+pub fn detect(name: &str, content: &[u8]) -> Option<&'static str> {
+    let Ok(text) = std::str::from_utf8(content) else { return None };
+    let text = text.trim_start_matches('\u{feff}');
+    if !text.trim_start().starts_with('{') {
+        return Some("csv");
+    }
+    let mut root: Value = serde_json::from_str(text).ok()?;
+    let id = importers().iter().find(|importer| importer.detect(name, text.as_bytes(), Some(&root))).map(|importer| importer.id());
+    cxf::wipe(&mut root);
+    id
+}
+
+/// The picker filter for importer `id`: its name and the file name endings.
+pub fn filter(id: &str) -> Result<(&'static str, &'static [&'static str]), String> {
+    importers()
+        .iter()
+        .find(|importer| importer.id() == id)
+        .map(|importer| (importer.label(), importer.extensions()))
+        .ok_or_else(|| format!("No importer named {id}"))
+}
+
 struct Aegis;
 struct Bitwarden;
 struct Cxf;
@@ -532,6 +557,16 @@ mod tests {
     fn a_csv_without_known_columns_is_refused() {
         assert!(parse("other.csv", b"a,b,c\n1,2,3\n").is_err());
         assert!(parse("binary.csv", &[0xff, 0xfe, 0x00]).is_err());
+    }
+
+    #[test]
+    fn detect_names_the_importer() {
+        assert_eq!(detect("x.csv", b"name,url,username,password\n"), Some("csv"));
+        assert_eq!(detect("bw.json", br#"{"items": []}"#), Some("bitwarden"));
+        assert_eq!(detect("cxf.json", br#"{"version": {"major": 1}, "accounts": []}"#), Some("cxf"));
+        let aegis = r#"{"version": 1, "header": {"slots": null}, "db": {"entries": []}}"#;
+        assert_eq!(detect("a.json", aegis.as_bytes()), Some("aegis"));
+        assert_eq!(detect("other.json", br#"{"foo": 1}"#), None);
     }
 
     #[test]

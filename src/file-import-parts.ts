@@ -1,9 +1,12 @@
-import type { ImportKind } from './api'
 import { el } from './dom'
 
 /** What both apps' *Import from a file* says alike (docs/spec.md, *Import
  *  from a file*): the phone lists it as it is, Windows lays the sources out
  *  as rows with a button each (#354); each asks and answers in its own way. */
+
+/** The picker-filter choices the phone's import offers, grouped (JSON is
+ *  Bitwarden or CXF); Windows lists one importer each (#412). */
+type ImportKind = 'csv' | 'json' | 'aegis'
 
 /** What an import brought, in a sentence (without the full stop). */
 export const importedMessage = (added: number, tag: string) =>
@@ -31,6 +34,14 @@ export const IMPORT_SOURCES: [ImportKind, string, string][] = [
   ['json', 'JSON', 'Bitwarden (passkeys too), or a Credential Exchange (CXF) file'],
   ['aegis', 'Aegis', 'the authenticator’s export, plain or encrypted (its password is asked for)'],
 ]
+
+/** What each importer reads, keyed by its module id (#412). */
+export const IMPORT_WHAT: Record<string, string> = {
+  csv: 'Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass (no passkeys)',
+  bitwarden: 'Bitwarden’s JSON export, passkeys too',
+  cxf: 'a Credential Exchange (CXF) file',
+  aegis: 'the authenticator’s export, plain or encrypted (its password is asked for)',
+}
 
 /** What follows the sources: where the entries go, and that the file is best deleted. */
 export const IMPORT_TAGGED = 'Its entries are added as new ones with a tag of their own.'

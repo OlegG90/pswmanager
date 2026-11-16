@@ -1,4 +1,4 @@
-import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
@@ -177,11 +177,12 @@ export async function renderSettings(
 ) {
   const waiting = el('p', { className: 'muted', hidden: true })
   // Locked: no database settings to show.
-  const [settings, status, version, saved, savedBackup, connected] = await Promise.all([
-    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup(), api.browserAssociations().catch(() => [])])
+  const [settings, status, version, saved, savedBackup, connected, fetchedModules] = await Promise.all([
+    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup(), api.browserAssociations().catch(() => []), api.modules()])
   let associations = connected
   let database = saved
   let backup = savedBackup
+  let modules = fetchedModules
   draw(settings, status)
 
   /** The current database's backup: kept in the app's list, so it works
@@ -299,6 +300,36 @@ export async function renderSettings(
       button('Link…', 'Sync with a file already in a store', run(() => setUpSync('link', waiting))))
   }
 
+  /** The in-tree modules the tools and sheets offer, each with its on/off (#412). */
+  function modulesGroup(s: Settings, status: Status): HTMLElement {
+    const kinds: [Module['kind'], string][] = [
+      ['importers', 'Import formats'],
+      ['exporters', 'Export formats'],
+      ['stores', 'Stores'],
+      ['fillers', 'Autofill categories'],
+    ]
+    const change = (m: Module) => async (on: boolean) => {
+      const disabled = new Set(s.disabledModules)
+      const key = `${m.kind}:${m.id}`
+      if (on) disabled.delete(key)
+      else disabled.add(key)
+      try {
+        await api.setSetting('disabledModules', [...disabled].sort())
+        modules = await api.modules()
+      } catch (e) {
+        onError(String(e))
+        modules = await api.modules().catch(() => modules)
+      }
+      draw(await api.settings(), status)
+    }
+    const hint = (m: Module) => (m.extensions.length ? `Files: ${m.extensions.join(', ')}` : m.needsNetwork ? 'Needs the network' : '')
+    const sections = kinds.flatMap(([kind, title]) => {
+      const list = modules.filter((m) => m.kind === kind)
+      return list.length ? [group(title, ...list.map((m) => row(m.label, hint(m), toggle(m.label, m.enabled, change(m)))))] : []
+    })
+    return group('Modules', ...sections)
+  }
+
   function draw(s: Settings, status: Status) {
     const set = (name: SettingName) => async (value: number | boolean | string) => {
       try {
@@ -352,6 +383,7 @@ export async function renderSettings(
                 ? 'Another program holds the extension\'s connection: turn this off and on again'
                 : 'Fills in logins in Chrome, Edge and Firefox through the KeePassXC-Browser extension',
             toggle('KeePassXC-Browser extension', s.browserIntegration, set('browserIntegration')))),
+        modulesGroup(s, status),
       ],
       window: () => [
         group('Window and tray',

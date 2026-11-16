@@ -385,6 +385,8 @@ export interface Settings {
   passwordEveryDays: number
   /** Windows Hello is set up on this PC (not a setting). */
   windowsHello: boolean
+  /** The module keys (a kind and an id joined by `:`) the user turned off (#412). */
+  disabledModules: string[]
 }
 
 /** What an import from a file brought in (#238). */
@@ -408,11 +410,24 @@ export interface GauthProgress {
   accounts: number
 }
 
-/** The kind of file the user said they import (#354): only the picker's filter, as a file is read by what it holds. */
-export type ImportKind = 'csv' | 'json' | 'aegis'
+/** An import format's module id (#412); the picker's filter is its extensions, as a file is read by what it holds. */
+export type ImporterId = 'csv' | 'bitwarden' | 'cxf' | 'aegis'
 
 /** An import's next step: done, or the file's password is needed (an encrypted Aegis export). */
 export type ImportStep = ({ step: 'done' } & FileImported) | { step: 'password'; file: string }
+
+/** One in-tree module, as the tools and sheets are rendered from (#412). */
+export interface Module {
+  /** The module's own id: `csv`, `dropbox`, `login`. */
+  id: string
+  kind: 'importers' | 'exporters' | 'stores' | 'fillers'
+  label: string
+  enabled: boolean
+  /** The file name endings an importer or exporter is known by; empty for stores and fillers. */
+  extensions: string[]
+  /** Whether talking to the store needs the network; null unless it is a store. */
+  needsNetwork: boolean | null
+}
 
 /** A file format an export writes (#240). */
 export type ExportFormat = 'csv' | 'cxf'
@@ -533,7 +548,7 @@ export const api = {
   clearKeyFile: () => invoke<Status>('clear_key_file'),
   unlock: (password: string) => invoke<Listing>('unlock', { password }),
   /** Picks a file another password manager exported, `kind` setting the picker's filter, and imports it; null when none was picked. */
-  importFile: (kind: ImportKind) => invoke<ImportStep | null>('import_file', { kind }),
+  importFile: (id: ImporterId) => invoke<ImportStep | null>('import_file', { id }),
   /** Imports the file waiting for its password; a wrong one leaves it waiting. */
   importFileWithPassword: (password: string) => invoke<ImportStep>('import_file_with_password', { password }),
   /** Lets go of the file waiting for its password. */
@@ -655,5 +670,7 @@ export const api = {
   forgetBrowserAssociation: (name: string) => invoke<BrowserAssociation[]>('forget_browser_association', { name }),
   settings: () => invoke<Settings>('settings'),
   /** Applies at once; resolves to every setting as it now is. */
-  setSetting: (name: SettingName, value: number | boolean | string) => invoke<Settings>('set_setting', { name, value }),
+  setSetting: (name: SettingName, value: number | boolean | string | string[]) => invoke<Settings>('set_setting', { name, value }),
+  /** The in-tree modules the tools and sheets are rendered from (#412). */
+  modules: () => invoke<Module[]>('modules'),
 }

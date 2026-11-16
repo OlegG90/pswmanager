@@ -5,6 +5,7 @@
 use crate::store::Store;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::time::Duration;
 
 const HOTKEY: &str = "Ctrl+Alt+P";
@@ -158,6 +159,11 @@ impl<'a> Settings<'a> {
             swipes: self.swipes(),
             allow_screenshots: self.allow_screenshots(),
             password_every_days: self.password_every().as_secs() / (24 * 60 * 60),
+            disabled_modules: {
+                let mut disabled: Vec<String> = self.disabled_modules().into_iter().collect();
+                disabled.sort();
+                disabled
+            },
         }
     }
 
@@ -170,6 +176,15 @@ impl<'a> Settings<'a> {
                 s.settings.insert(name.to_string(), value);
             })
             .map_err(|e| format!("Could not save the setting: {e}"))
+    }
+
+    /// The module keys (a kind and an id joined by `:`, as [crate::modules]
+    /// names them) the user turned off in the settings screen.
+    pub fn disabled_modules(&self) -> HashSet<String> {
+        self.get("disabledModules", |v| {
+            v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        })
+        .unwrap_or_default()
     }
 }
 
@@ -200,6 +215,8 @@ pub struct View {
     pub swipes: bool,
     pub allow_screenshots: bool,
     pub password_every_days: u64,
+    /// The module keys (a kind and an id joined by `:`) the user turned off.
+    pub disabled_modules: Vec<String>,
 }
 
 fn check(name: &str, value: &Value) -> Result<(), String> {
@@ -217,6 +234,8 @@ fn check(name: &str, value: &Value) -> Result<(), String> {
         "lockInBackground" => value.is_null() || value.as_u64().is_some_and(|s| LOCK_IN_BACKGROUND.contains(&s)),
         "theme" => value.as_str().is_some_and(|t| THEMES.contains(&t)),
         "listSort" => value.as_str().is_some_and(|t| LIST_SORTS.contains(&t)),
+        // The module keys ("importers:aegis", …) the user turned off.
+        "disabledModules" => value.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
         // Checked and registered by the caller before it is kept.
         "hotkey" => value.as_str().is_some_and(|k| !k.trim().is_empty()),
         // Empty turns it off.
@@ -317,6 +336,17 @@ mod tests {
         assert_eq!((view.lock_after_minutes, view.clear_clipboard), (0, 60));
         assert!(!view.download_icons);
         assert!(view.allow_screenshots);
+    }
+
+    #[test]
+    fn disabled_modules_reads_the_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        assert!(Settings::of(&store).disabled_modules().is_empty());
+        Settings::of(&store).set("disabledModules", serde_json::json!(["importers:aegis", "stores:dropbox"])).unwrap();
+        let disabled = Settings::of(&store).disabled_modules();
+        assert!(disabled.contains("importers:aegis"));
+        assert!(disabled.contains("stores:dropbox"));
     }
 
     #[test]

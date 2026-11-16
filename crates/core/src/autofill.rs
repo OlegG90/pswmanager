@@ -270,8 +270,6 @@ impl Autofill {
 const NO_SITE: &str = "The request names no site";
 
 /// The built-in autofill categories: logins now, cards as the pilot (#412).
-/// Phase 1 lists them; nothing else reads them in Phase 0.
-#[allow(dead_code)]
 pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFiller] {
     static FILLERS: &[&'static dyn modules::CategoryFiller] = &[&LoginFiller];
     FILLERS
@@ -286,6 +284,10 @@ struct LoginFiller;
 impl modules::CategoryFiller for LoginFiller {
     fn id(&self) -> &'static str {
         "login"
+    }
+
+    fn label(&self) -> &'static str {
+        "Logins"
     }
 
     fn offers(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
