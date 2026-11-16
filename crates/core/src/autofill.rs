@@ -6,6 +6,8 @@
 //! seam, so the decisions are made, and tested, here without a phone.
 
 use crate::dbfile::OpenError;
+use crate::modules;
+use crate::modules::CategoryFiller;
 use crate::session::Session;
 use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use crate::webauthn::{self, Caller};
@@ -156,16 +158,16 @@ impl Autofill {
         answered(|| match offer {
             Offer::Logins(asking) => {
                 let place = asking.place()?;
-                listed(self.session.read(|v| v.logins_for(&place))?)
+                listed(self.session.read(|v| LoginFiller.offers(v, &place))?)
             }
             Offer::Passkeys(request) => {
                 let scope = webauthn::sign_in_scope(request).ok_or(NO_SITE)?;
                 listed(self.session.read(|v| v.passkeys_for(&scope.rp_id, &scope.allowed))?)
             }
-            Offer::Search(query) => listed(self.session.read(|v| v.login_candidates(query))?),
+            Offer::Search(query) => listed(self.session.read(|v| LoginFiller.candidates(v, query))?),
             Offer::LoginChoices { asking, cloud } => {
                 let place = asking.place()?;
-                let entries = self.session.read(|v| v.entries_for_login(&place))?;
+                let entries = self.session.read(|v| LoginFiller.choices(v, &place))?;
                 Ok(Answer::Ok(json!({ "entries": entries, "cloud": cloud })))
             }
             Offer::PasskeyChoices { request, cloud } => {
@@ -198,7 +200,7 @@ impl Autofill {
                     self.session.with_mut(|v| v.confirm_app(id, &place))?;
                     (self.changed)();
                 }
-                let (username, password) = self.session.read(|v| v.login(id, &place))?.map_err(|why| Answer::refused(why, &place))?;
+                let (username, password) = self.session.read(|v| LoginFiller.fills(v, id, &place))?.map_err(|why| Answer::refused(why, &place))?;
                 // One string, wiped once Java has its own copy.
                 Ok(Answer::secret(&Login { username: &username, password: &password })?)
             }
@@ -217,13 +219,13 @@ impl Autofill {
             let saved = match save {
                 Save::Login { id, asking, confirmed, title, username, password } => {
                     let place = asking.place()?;
-                    let saved = self.session.with_mut(|v| Ok(v.save_login(id, &place, confirmed, title, username, password)))?;
+                    let saved = self.session.with_mut(|v| Ok(LoginFiller.saves(v, id, &place, confirmed, title, username, password)))?;
                     saved.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Link { id, asking, confirmed } => {
                     let place = asking.place()?;
-                    self.session.with_mut(|v| Ok(v.link_login(id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
+                    self.session.with_mut(|v| Ok(LoginFiller.links(v, id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Passkey { id, request, asking } => {
@@ -266,6 +268,50 @@ impl Autofill {
 }
 
 const NO_SITE: &str = "The request names no site";
+
+/// The built-in autofill categories: logins now, cards as the pilot (#412).
+/// Phase 1 lists them; nothing else reads them in Phase 0.
+#[allow(dead_code)]
+pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFiller] {
+    static FILLERS: &[&'static dyn modules::CategoryFiller] = &[&LoginFiller];
+    FILLERS
+}
+
+/// The login category: the current behaviour, unchanged, as the first
+/// [modules::CategoryFiller]. It owns what a login offers, fills, saves and
+/// links, per the place asking; the [Autofill] router owns the policy around
+/// it (who asks, locked answers, wiping, confirmations).
+struct LoginFiller;
+
+impl modules::CategoryFiller for LoginFiller {
+    fn id(&self) -> &'static str {
+        "login"
+    }
+
+    fn offers(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.logins_for(place)
+    }
+
+    fn choices(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.entries_for_login(place)
+    }
+
+    fn candidates(&self, vault: &Vault, query: &str) -> Vec<EntryChoice> {
+        vault.login_candidates(query)
+    }
+
+    fn fills(&self, vault: &Vault, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
+        vault.login(id, place)
+    }
+
+    fn saves(&self, vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError> {
+        vault.save_login(id, place, confirmed, title, username, password)
+    }
+
+    fn links(&self, vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError> {
+        vault.link_login(id, place, confirmed)
+    }
+}
 
 /// What `work` answers, done or not.
 fn answered(work: impl FnOnce() -> Result<Answer, Answer>) -> Answer {

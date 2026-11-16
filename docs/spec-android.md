@@ -552,6 +552,14 @@ background.
   has USB or wireless debugging on. There is no emulator on this PC (no ARM64 emulation); the app is tested
   on the reference phone.
 
+## Modules
+
+As in `spec.md` *Modules*: import and export formats, cloud stores, icon packs and autofill categories
+are in-tree optional modules behind registries in the shared core (Phase 0, #412), with no change in
+behaviour. The `CategoryFiller` seam is where the `CardFiller` pilot lands (Android autofill first, the
+Windows/browser parity a documented follow-up); passkeys and TOTP are never modules, and the autofill
+router's policy (who asks, locked behaviour, limits, confirmations) stays in the core.
+
 ## Testing
 
 - **Automated:** everything the core does is tested on the PC as now (`cargo test`), once it is in

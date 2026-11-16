@@ -24,6 +24,7 @@ pub mod generator;
 pub mod google;
 pub mod health;
 pub mod icons;
+pub mod modules;
 pub mod oauth;
 pub mod onedrive;
 pub mod opened;

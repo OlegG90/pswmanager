@@ -1056,6 +1056,34 @@ with code 2.
   GitHub Release. A manual run builds both as an artifact without publishing.
 - The exe is unsigned, so SmartScreen asks for confirmation on first run.
 
+## Modules
+
+PswManager's feature groups that can each be present or not — import and export formats, cloud stores,
+icon packs, autofill categories — follow one pattern: **in-tree optional modules** behind registries,
+compiled in, toggled in settings where it makes sense (#412). Nothing is loaded at runtime: no DLLs, no
+`.so`, no dex, no JS `eval`; the single portable `pswm.exe` and the single APK/AAB stay so.
+
+Three levels:
+
+- **L0 core (never modular):** the KDBX read/write, merge and the sync decision, crypto and key, TOTP,
+  passkeys/WebAuthn, the autofill router's policy (who asks, the privileged-browser allowlist, locked
+  behaviour, limits, "Trust this app?", linking), the site-icon fetching policy, lock/clipboard/screenshots.
+- **L1 built-in modules:** `Importer` (CSV, Bitwarden, CXF, Aegis), `Exporter` (CSV, CXF), `StorePlugin`
+  (a folder, Dropbox, Google Drive, OneDrive, a platform document) and `CategoryFiller` (logins now, cards
+  as the pilot). Each is listed through a registry; a missing or disabled module's UI entries disappear,
+  never a broken action.
+- **L2 data packs:** icon sets and template/field vocabularies, validated data only.
+
+The boundary is: the core owns the routing and the policy around a module; the module owns its own
+detection / format / stores / fields. Passkeys and TOTP are never modules (they are identity primitives
+with no off switch), site-icon fetching stays in the core (only static icon packs may be modular), and
+list sorting stays the closed built-in list.
+
+The traits live in `crates/core/src/modules.rs`; the handlers and their registries live in
+`file_import.rs`, `file_export.rs`, `remote.rs` and `autofill.rs`. Phase 0 introduces the registries and
+routes the existing code through them with no change in behaviour; the later phases put the UIs behind
+them and add the `CardFiller` pilot.
+
 ## SafeInCloud migration
 
 `sic2kdbx.py` stays a separate, one-off Python tool, in `tools/sic2kdbx` (see its README). It is not part of the app and not part of

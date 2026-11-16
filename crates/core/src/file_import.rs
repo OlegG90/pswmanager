@@ -11,6 +11,7 @@
 use crate::aegis;
 use crate::cxf::{self, list, text, Fields, Import, Passkey, MORE_URLS};
 use crate::edit::{EntryData, FAVORITE};
+use crate::modules;
 use base64::Engine;
 use chrono::{DateTime, NaiveDateTime};
 use serde_json::Value;
@@ -28,7 +29,30 @@ pub fn parse(name: &str, content: &[u8]) -> Result<Import, String> {
 pub fn parse_with_password(name: &str, content: &[u8], password: Option<&str>) -> Result<Import, String> {
     let text = std::str::from_utf8(content).map_err(|_| "The file is not text (UTF-8): export it again as CSV or JSON".to_string())?;
     let text = text.trim_start_matches('\u{feff}');
-    let mut import = if text.trim_start().starts_with('{') { json(text, password)? } else { csv(text)? };
+    // A JSON file is parsed once, then offered to each JSON importer; anything
+    // else is CSV. The importers run in order (Aegis, Bitwarden, CXF), so a
+    // file two of them could read goes to the first.
+    let root = if text.trim_start().starts_with('{') {
+        Some(serde_json::from_str(text).map_err(|e| format!("Not a JSON file PswManager knows: {e}"))?)
+    } else {
+        None
+    };
+    let head = text.as_bytes();
+    let import = importers()
+        .iter()
+        .find(|importer| importer.detect(name, head, root.as_ref()))
+        .map(|importer| importer.parse(name, root.as_ref(), text, password))
+        .unwrap_or_else(|| {
+            if root.is_some() {
+                Err("Not a JSON file PswManager knows (Bitwarden's export, Credential Exchange, or Aegis')".into())
+            } else {
+                Err("No importer knows this file".into())
+            }
+        });
+    if let Some(mut root) = root {
+        cxf::wipe(&mut root);
+    }
+    let mut import = import?;
     import.exporter = name.to_string();
     Ok(import)
 }
@@ -87,22 +111,94 @@ impl<T: Clone> WaitingFile<T> {
     }
 }
 
-/// A Bitwarden export, a CXF one, or Aegis'.
-fn json(text: &str, password: Option<&str>) -> Result<Import, String> {
-    let mut root: Value = serde_json::from_str(text).map_err(|e| format!("Not a JSON file PswManager knows: {e}"))?;
-    let import = if aegis::is_export(&root) {
-        aegis::read(&root, password)
-    } else if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
-        Err("An encrypted Bitwarden export: export it again as JSON, not the encrypted kind".into())
-    } else if root.get("items").is_some_and(Value::is_array) {
-        Ok(bitwarden(&root))
-    } else if root.get("accounts").is_some() {
-        cxf::read_header(&root)
-    } else {
-        Err("Not a JSON file PswManager knows (Bitwarden's export, Credential Exchange, or Aegis')".into())
-    };
-    cxf::wipe(&mut root);
-    import
+/// The built-in importers, in the order a file is offered to them: a JSON
+/// file goes to Aegis first, then Bitwarden, then CXF; anything that is not
+/// JSON is CSV (the last importer takes it).
+pub(crate) fn importers() -> &'static [&'static dyn modules::Importer] {
+    static IMPORTERS: &[&'static dyn modules::Importer] = &[&Aegis, &Bitwarden, &Cxf, &Csv];
+    IMPORTERS
+}
+
+struct Aegis;
+struct Bitwarden;
+struct Cxf;
+struct Csv;
+
+impl modules::Importer for Aegis {
+    fn id(&self) -> &'static str {
+        "aegis"
+    }
+    fn label(&self) -> &'static str {
+        "Aegis"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["json"]
+    }
+    fn detect(&self, _name: &str, _head: &[u8], json: Option<&Value>) -> bool {
+        json.is_some_and(aegis::is_export)
+    }
+    fn parse(&self, _name: &str, json: Option<&Value>, _text: &str, password: Option<&str>) -> Result<Import, String> {
+        aegis::read(json.expect("detect saw the file's JSON"), password)
+    }
+}
+
+impl modules::Importer for Bitwarden {
+    fn id(&self) -> &'static str {
+        "bitwarden"
+    }
+    fn label(&self) -> &'static str {
+        "Bitwarden"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["json"]
+    }
+    fn detect(&self, _name: &str, _head: &[u8], json: Option<&Value>) -> bool {
+        // An encrypted export is Bitwarden's too, so it is refused with a clear why.
+        json.is_some_and(|root| root.get("encrypted").and_then(Value::as_bool) == Some(true) || root.get("items").is_some_and(Value::is_array))
+    }
+    fn parse(&self, _name: &str, json: Option<&Value>, _text: &str, _password: Option<&str>) -> Result<Import, String> {
+        let root = json.expect("detect saw the file's JSON");
+        if root.get("encrypted").and_then(Value::as_bool) == Some(true) {
+            return Err("An encrypted Bitwarden export: export it again as JSON, not the encrypted kind".into());
+        }
+        Ok(bitwarden(root))
+    }
+}
+
+impl modules::Importer for Cxf {
+    fn id(&self) -> &'static str {
+        "cxf"
+    }
+    fn label(&self) -> &'static str {
+        "Credential Exchange"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["json"]
+    }
+    fn detect(&self, _name: &str, _head: &[u8], json: Option<&Value>) -> bool {
+        json.is_some_and(|root| root.get("accounts").is_some())
+    }
+    fn parse(&self, _name: &str, json: Option<&Value>, _text: &str, _password: Option<&str>) -> Result<Import, String> {
+        cxf::read_header(json.expect("detect saw the file's JSON"))
+    }
+}
+
+impl modules::Importer for Csv {
+    fn id(&self) -> &'static str {
+        "csv"
+    }
+    fn label(&self) -> &'static str {
+        "CSV"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["csv"]
+    }
+    fn detect(&self, _name: &str, _head: &[u8], json: Option<&Value>) -> bool {
+        json.is_none()
+    }
+    fn parse(&self, _name: &str, _json: Option<&Value>, text: &str, _password: Option<&str>) -> Result<Import, String> {
+        csv(text)
+    }
 }
 
 // ------------------------------------------------------------------ Bitwarden
