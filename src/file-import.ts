@@ -1,6 +1,6 @@
 import { api, type FileImported, type ImporterId, type Listing, type Module } from './api'
 import { busyButton, button, choiceList, el, enterPresses, errorLine } from './dom'
-import { IMPORT_TAGGED, IMPORT_WARNING, IMPORT_WHAT, importedMessage, skippedList } from './file-import-parts'
+import { IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
@@ -40,7 +40,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
       el('p', {}, 'Add the entries another password manager or authenticator exported:'),
       choiceList([
         ...importers.map((m): [HTMLButtonElement, string] =>
-          [busyButton(m.label, `Choose the ${m.label} file to import`, () => choose(m.id as ImporterId), options.fail), IMPORT_WHAT[m.id] ?? '']),
+          [busyButton(m.label, `Choose the ${m.label} file to import`, () => choose(m.id as ImporterId), options.fail), m.hint]),
         [button('Google Authenticator', 'Read the QR codes of its export', options.authenticator), 'its Export accounts QR codes, read from a snip or a picture'],
       ]),
       el('p', {}, IMPORT_TAGGED),

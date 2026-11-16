@@ -4,7 +4,6 @@
 //! and the one picked answer is wiped once it is handed over.
 
 use crate::modules;
-use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use keepass::db::EntryRef;
 use zeroize::Zeroizing;
 
@@ -103,41 +102,8 @@ impl modules::CategoryFiller for CardFiller {
         "Cards"
     }
 
-    fn qualifies(&self, entry: EntryRef<'_>) -> bool {
-        qualifies(&entry)
-    }
-
-    fn card_offer(&self, entry: EntryRef<'_>) -> Option<Offer> {
-        offer(&entry)
-    }
-
-    fn card_fill(&self, entry: EntryRef<'_>) -> Option<Fill> {
-        fill(&entry)
-    }
-
-    // Cards fill no login: these are never called for the card category.
-    fn offers(&self, _vault: &Vault, _place: &LoginPlace) -> Vec<EntryChoice> {
-        Vec::new()
-    }
-
-    fn choices(&self, _vault: &Vault, _place: &LoginPlace) -> Vec<EntryChoice> {
-        Vec::new()
-    }
-
-    fn candidates(&self, _vault: &Vault, _query: &str) -> Vec<EntryChoice> {
-        Vec::new()
-    }
-
-    fn fills(&self, _vault: &Vault, _id: &str, _place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
-        Err("Cards fill no login".into())
-    }
-
-    fn saves(&self, _vault: &mut Vault, _id: Option<&str>, _place: &LoginPlace, _confirmed: bool, _title: &str, _username: &str, _password: &str) -> Result<String, LoginError> {
-        Err("Cards save no login".into())
-    }
-
-    fn links(&self, _vault: &mut Vault, _id: &str, _place: &LoginPlace, _confirmed: bool) -> Result<(), LoginError> {
-        Err("Cards link no login".into())
+    fn hint(&self) -> &'static str {
+        "Fills in card details; the offer shows the brand and last four only, never the full number or CVV."
     }
 }
 

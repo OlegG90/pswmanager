@@ -21,12 +21,10 @@
 use crate::cxf::Import;
 use crate::file_export::Export;
 use crate::remote::{CloudFile, Location, Remote, RemoteError};
-use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use keepass::db::EntryRef;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
-use zeroize::Zeroizing;
 
 /// An import format (CSV, Bitwarden's JSON, CXF, Aegis): it decides whether a
 /// file is its format, and reads it into a [crate::cxf::Import]. The core owns
@@ -45,6 +43,9 @@ pub(crate) trait Importer: Send + Sync {
     /// parsed (already, to be wiped by the caller) and its keys decide.
     fn detect(&self, name: &str, head: &[u8], json: Option<&Value>) -> bool;
 
+    /// What the importer reads, for its row in the tools: one line, no secrets.
+    fn hint(&self) -> &'static str;
+
     /// Reads the file as this format: `json` for a JSON importer (the file
     /// parsed, wiped by the caller), `text` for the CSV importer (the file's
     /// text), `password` for an encrypted export that needs one.
@@ -59,6 +60,8 @@ pub(crate) trait Exporter: Send + Sync {
     fn id(&self) -> &'static str;
     fn label(&self) -> &'static str;
     fn extension(&self) -> &'static str;
+    /// What the format carries, for its row in the tools: one line, no secrets.
+    fn hint(&self) -> &'static str;
 
     /// The entries as this format, every secret in clear at full size, wiped
     /// when dropped. `account` is the database's name (CXF names the account
@@ -75,6 +78,11 @@ pub(crate) trait Exporter: Send + Sync {
 pub(crate) trait StorePlugin: Send + Sync {
     /// The store's id: `"folder" | "dropbox" | "google" | "onedrive" | "document"`.
     fn id(&self) -> &'static str;
+    /// What the user sees: "Folder", "Dropbox".
+    fn title(&self) -> &'static str;
+    /// What the store holds, for its row in the settings and the sync setup:
+    /// one line, no secrets.
+    fn hint(&self) -> &'static str;
     /// Whether talking to the store needs the network (clouds do).
     fn needs_network(&self) -> bool;
 
@@ -95,54 +103,20 @@ pub(crate) trait StorePlugin: Send + Sync {
     fn name(&self) -> &'static str;
 }
 
-/// An autofill category (logins now, cards as the pilot): it owns what a
-/// category offers, fills, saves and links, per the entry and the place
-/// asking. The core's router owns the [crate::autofill] policy — the `Asker`
-/// check on every offer and answer, locked answers, limits, confirmations and
-/// wiping — and hands each category only its own database work, after that
-/// check.
+/// An autofill category (logins now, cards as the pilot): what the settings
+/// and the sync sheets list. The category's own behaviour lives beside it:
+/// the login decisions on [crate::autofill::LoginFiller], the card ones in
+/// [crate::card]. The core's router owns the [crate::autofill] policy — the `Asker`
+/// check on every offer and answer, locked answers, limits, confirmations
+/// and wiping — and reads which fillers are turned off: a filler turned off
+/// in the settings offers nothing and refuses, through the router.
 pub(crate) trait CategoryFiller: Send + Sync {
     /// The category's id: `"login"` now, `"card"` and more later.
     fn id(&self) -> &'static str;
     /// What the user sees: "Logins", "Cards".
     fn label(&self) -> &'static str;
-
-    /// The entries to offer for a login from `place`.
-    fn offers(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice>;
-    /// The entries a login from `place` can update (save-back choices).
-    fn choices(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice>;
-    /// The entries in use matching `query`, to pick one to link.
-    fn candidates(&self, vault: &Vault, query: &str) -> Vec<EntryChoice>;
-    /// Entry `id`'s login for `place`.
-    fn fills(&self, vault: &Vault, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError>;
-    /// Keeps a login: into entry `id` (which must be for `place`), or a new
-    /// entry; answered with the entry's id. (Eight arguments: it mirrors
-    /// [Vault::save_login], plus the vault it works on.)
-    #[allow(clippy::too_many_arguments)]
-    fn saves(&self, vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError>;
-    /// Links entry `id` to `place`.
-    fn links(&self, vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError>;
-
-    /// Whether the entry is one this category fills (the card category: it
-    /// keeps a card number). Phase 3: the Android autofill wiring calls this
-    /// through the router; nothing reads it in the core yet.
-    #[allow(dead_code)]
-    fn qualifies(&self, _entry: EntryRef<'_>) -> bool {
-        false
-    }
-
-    /// The entry's redacted offer (the card category: brand and last four),
-    /// when it qualifies; `None` otherwise.
-    #[allow(dead_code)]
-    fn card_offer(&self, _entry: EntryRef<'_>) -> Option<crate::card::Offer> {
-        None
-    }
-
-    /// The entry's fields for a form (the card category), when it qualifies.
-    #[allow(dead_code)]
-    fn card_fill(&self, _entry: EntryRef<'_>) -> Option<crate::card::Fill> {
-        None
-    }
+    /// What the category fills, for its row in the settings: one line, no secrets.
+    fn hint(&self) -> &'static str;
 }
 
 /// One module as the frontend lists it (a Tools entry, a store, a filler).
@@ -155,6 +129,9 @@ pub struct Module {
     pub kind: &'static str,
     /// What the user sees: "CSV", "Dropbox", "Logins".
     pub label: String,
+    /// What the module does, for its row in the tools and the settings: one
+    /// line, no secrets. The single source: the frontend keeps no copy of it.
+    pub hint: String,
     /// Off in the settings screen; the frontend leaves it out.
     pub enabled: bool,
     /// The file name endings an importer or exporter is known by; empty for
@@ -169,26 +146,27 @@ pub struct Module {
 /// holds the module keys (a kind and an id joined by `:`) the user turned off
 /// in the settings screen.
 pub fn list(disabled: &HashSet<String>) -> Vec<Module> {
-    let one = |kind: &'static str, id: &str, label: &str, extensions: &[&str], needs_network: Option<bool>| Module {
+    let one = |kind: &'static str, id: &str, label: &str, hint: &str, extensions: &[&str], needs_network: Option<bool>| Module {
         enabled: !disabled.contains(&format!("{kind}:{id}")),
         id: id.to_string(),
         kind,
         label: label.to_string(),
+        hint: hint.to_string(),
         extensions: extensions.iter().map(|e| e.to_string()).collect(),
         needs_network,
     };
     let mut modules = Vec::new();
     for importer in crate::file_import::importers() {
-        modules.push(one("importers", importer.id(), importer.label(), importer.extensions(), None));
+        modules.push(one("importers", importer.id(), importer.label(), importer.hint(), importer.extensions(), None));
     }
     for exporter in crate::file_export::exporters() {
-        modules.push(one("exporters", exporter.id(), exporter.label(), &[exporter.extension()], None));
+        modules.push(one("exporters", exporter.id(), exporter.label(), exporter.hint(), &[exporter.extension()], None));
     }
     for store in crate::remote::store_plugins() {
-        modules.push(one("stores", store.id(), store.name(), &[], Some(store.needs_network())));
+        modules.push(one("stores", store.id(), store.title(), store.hint(), &[], Some(store.needs_network())));
     }
     for filler in crate::autofill::category_fillers() {
-        modules.push(one("fillers", filler.id(), filler.label(), &[], None));
+        modules.push(one("fillers", filler.id(), filler.label(), filler.hint(), &[], None));
     }
     modules
 }
@@ -225,6 +203,8 @@ mod tests {
         assert_eq!(ids, ["folder", "dropbox", "google", "onedrive", "document"]);
         for plugin in crate::remote::store_plugins() {
             assert!(!plugin.name().is_empty());
+            assert!(!plugin.title().is_empty());
+            assert!(!plugin.hint().is_empty());
             let _ = plugin.needs_network();
         }
     }
@@ -233,6 +213,10 @@ mod tests {
     fn category_fillers_start_with_logins_then_cards() {
         let ids: Vec<&str> = crate::autofill::category_fillers().iter().map(|filler| filler.id()).collect();
         assert_eq!(ids, ["login", "card"]);
+        for filler in crate::autofill::category_fillers() {
+            assert!(!filler.label().is_empty());
+            assert!(!filler.hint().is_empty());
+        }
     }
 
     #[test]
@@ -242,6 +226,7 @@ mod tests {
             assert!(all.iter().any(|m| m.kind == kind), "{kind} is listed");
         }
         assert!(all.iter().all(|m| m.enabled));
+        assert!(all.iter().all(|m| !m.label.is_empty() && !m.hint.is_empty()), "every module lists a label and a hint");
         let mut disabled = HashSet::new();
         disabled.insert("importers:aegis".to_string());
         let filtered = list(&disabled);

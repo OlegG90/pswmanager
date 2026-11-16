@@ -35,14 +35,6 @@ export const IMPORT_SOURCES: [ImportKind, string, string][] = [
   ['aegis', 'Aegis', 'the authenticator’s export, plain or encrypted (its password is asked for)'],
 ]
 
-/** What each importer reads, keyed by its module id (#412). */
-export const IMPORT_WHAT: Record<string, string> = {
-  csv: 'Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass (no passkeys)',
-  bitwarden: 'Bitwarden’s JSON export, passkeys too',
-  cxf: 'a Credential Exchange (CXF) file',
-  aegis: 'the authenticator’s export, plain or encrypted (its password is asked for)',
-}
-
 /** What follows the sources: where the entries go, and that the file is best deleted. */
 export const IMPORT_TAGGED = 'Its entries are added as new ones with a tag of their own.'
 export const IMPORT_WARNING = 'Delete the file after the import: it holds every password in clear text.'

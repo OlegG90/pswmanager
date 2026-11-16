@@ -9,6 +9,7 @@ use crate::documents::Picked;
 use pswm_core::oauth::Pending;
 use pswm_core::remote::{Cloud, CloudFile, RemoteError};
 use pswm_core::session::Session;
+use pswm_core::settings::Settings;
 use pswm_core::store::Store;
 use pswm_core::sync::{self, LinkChoice};
 use pswm_core::vault::Vault;
@@ -39,9 +40,22 @@ struct SignedIn {
     error: Option<String>,
 }
 
+/// A store turned off in Settings › Modules is absent: nothing new links to
+/// it (#412). The core refuses the link itself; this is only so no sign-in
+/// starts and no remote file is made first.
+fn cloud_off(store: &Store, cloud: Cloud) -> Option<String> {
+    if !Settings::of(store).disabled_modules().contains(&format!("stores:{}", cloud.id())) {
+        return None;
+    }
+    Some(format!("{} is turned off in Settings › Modules: turn it back on to sync there", cloud.provider().name))
+}
+
 /// Sends the browser (the default one) to `cloud`'s sign-in; the answer comes to [on_open_url].
 #[tauri::command]
 pub fn sign_in(app: AppHandle, cloud: Cloud) -> Result<(), String> {
+    if let Some(off) = cloud_off(&app.state::<Store>(), cloud) {
+        return Err(off);
+    }
     let pending = cloud.provider().start(&redirect(cloud))?;
     app.opener().open_url(&pending.url, None::<&str>).map_err(|e| e.to_string())?;
     *app.state::<SignIn>().0.lock().unwrap() = Some((cloud, pending));
@@ -128,6 +142,9 @@ pub async fn sync_with_cloud(app: AppHandle, cloud: Cloud, file: Option<CloudFil
                     sync::link(&store, &working, cloud.location(file), Some(LinkChoice::Merge), Some(&key))?;
                 }
                 None => {
+                    if let Some(off) = cloud_off(&store, cloud) {
+                        return Err(off);
+                    }
                     let bytes = std::fs::read(&working).map_err(|e| format!("Cannot read the database: {e}"))?;
                     let name = pswm_core::remote::file_name(&working);
                     let (location, revision) = cloud.create(&name, &bytes).map_err(|e| match e {

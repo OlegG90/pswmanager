@@ -156,6 +156,9 @@ impl modules::Importer for Aegis {
     fn label(&self) -> &'static str {
         "Aegis"
     }
+    fn hint(&self) -> &'static str {
+        "the authenticator's export, plain or encrypted (its password is asked for)"
+    }
     fn extensions(&self) -> &'static [&'static str] {
         &["json"]
     }
@@ -173,6 +176,9 @@ impl modules::Importer for Bitwarden {
     }
     fn label(&self) -> &'static str {
         "Bitwarden"
+    }
+    fn hint(&self) -> &'static str {
+        "Bitwarden's JSON export, passkeys too"
     }
     fn extensions(&self) -> &'static [&'static str] {
         &["json"]
@@ -197,6 +203,9 @@ impl modules::Importer for Cxf {
     fn label(&self) -> &'static str {
         "Credential Exchange"
     }
+    fn hint(&self) -> &'static str {
+        "a Credential Exchange (CXF) file"
+    }
     fn extensions(&self) -> &'static [&'static str] {
         &["json"]
     }
@@ -214,6 +223,9 @@ impl modules::Importer for Csv {
     }
     fn label(&self) -> &'static str {
         "CSV"
+    }
+    fn hint(&self) -> &'static str {
+        "Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass (no passkeys)"
     }
     fn extensions(&self) -> &'static [&'static str] {
         &["csv"]

@@ -74,8 +74,9 @@ pub struct CloudFile {
 }
 
 impl Cloud {
-    /// This store's id, as a [modules::StorePlugin] names it.
-    fn id(self) -> &'static str {
+    /// This store's id, as a [modules::StorePlugin] names it and the settings
+    /// name a disabled store (`stores:dropbox`, …).
+    pub fn id(self) -> &'static str {
         match self {
             Cloud::Dropbox => DROPBOX,
             Cloud::Google => GOOGLE,
@@ -184,6 +185,12 @@ impl modules::StorePlugin for FolderPlugin {
     fn id(&self) -> &'static str {
         FOLDER
     }
+    fn title(&self) -> &'static str {
+        "Folder"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in a folder on this PC, a NAS or a LAN share."
+    }
     fn needs_network(&self) -> bool {
         false
     }
@@ -212,6 +219,12 @@ impl modules::StorePlugin for FolderPlugin {
 impl modules::StorePlugin for DropboxPlugin {
     fn id(&self) -> &'static str {
         DROPBOX
+    }
+    fn title(&self) -> &'static str {
+        "Dropbox"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your Dropbox account."
     }
     fn needs_network(&self) -> bool {
         true
@@ -244,6 +257,12 @@ impl modules::StorePlugin for GooglePlugin {
     fn id(&self) -> &'static str {
         GOOGLE
     }
+    fn title(&self) -> &'static str {
+        "Google Drive"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your Google Drive."
+    }
     fn needs_network(&self) -> bool {
         true
     }
@@ -274,6 +293,12 @@ impl modules::StorePlugin for OneDrivePlugin {
     fn id(&self) -> &'static str {
         ONEDRIVE
     }
+    fn title(&self) -> &'static str {
+        "OneDrive"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your OneDrive."
+    }
     fn needs_network(&self) -> bool {
         true
     }
@@ -303,6 +328,12 @@ impl modules::StorePlugin for OneDrivePlugin {
 impl modules::StorePlugin for DocumentPlugin {
     fn id(&self) -> &'static str {
         DOCUMENT
+    }
+    fn title(&self) -> &'static str {
+        "Document"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file the platform reaches by a document reference (Android)."
     }
     fn needs_network(&self) -> bool {
         false

@@ -186,9 +186,13 @@ pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), Co
 
 /// Writes the entries in use to a new file the user names (#240, see
 /// [file_export]), once [confirm_export] allowed it. `None` when no file was
-/// chosen. Never over a file that is there.
+/// chosen. Never over a file that is there; a format turned off in Settings
+/// is refused with that said.
 #[tauri::command(async)]
 pub fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<file_export::Exported>, String> {
+    if settings::Settings::of(&app.state()).disabled_modules().contains(&format!("exporters:{}", format.id())) {
+        return Err(format!("The {} format is turned off in Settings", format.label()));
+    }
     let session = app.state::<Session>();
     let export = session.export(format)?;
     let (filter, extension) = (format.label(), format.extension());

@@ -39,12 +39,27 @@ pub(crate) struct CloudFiles {
     upload: Option<String>,
 }
 
+/// A store turned off in Settings › Modules is absent: nothing new links to
+/// it (#412). The sync setup already hides it; a direct call is refused here,
+/// before the browser opens or a file is made. The core refuses the link and
+/// pauses an active sync itself (see `pswm_core::sync`); this is only so no
+/// sign-in starts and no remote file is made first.
+fn cloud_off(store: &Store, cloud: remote::Cloud) -> Option<String> {
+    if !crate::settings::Settings::of(store).disabled_modules().contains(&format!("stores:{}", cloud.id())) {
+        return None;
+    }
+    Some(format!("{} is turned off in Settings › Modules: turn it back on to sync there", cloud.provider().name))
+}
+
 /// Signs in to a cloud store in the browser, then lists the databases there
 /// and the local one that could be uploaded instead.
 #[tauri::command(async)]
 pub fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, String> {
     // Also from the settings of an unlocked database (Upload, Link); opening
     // one from the store checks the switch itself.
+    if let Some(off) = cloud_off(&app.state::<Store>(), cloud) {
+        return Err(off);
+    }
     if sync::is_running(&app) {
         return Err("A sync is running; try again in a moment".into());
     }
@@ -83,6 +98,9 @@ pub fn sync_with_cloud(
         }
         // The current local database, uploaded (unlocked or not): it syncs with the new remote file.
         None => {
+            if let Some(off) = cloud_off(&store, cloud) {
+                return Err(off);
+            }
             if sync::is_running(&app) {
                 return Err("A sync is running; try again in a moment".into());
             }
@@ -193,6 +211,9 @@ pub fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::Li
 #[tauri::command(async)]
 pub fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
     let store = app.state::<Store>();
+    if crate::settings::Settings::of(&store).disabled_modules().contains("stores:folder") {
+        return Err("Folder is turned off in Settings › Modules: turn it back on to sync there".into());
+    }
     let file = unsynced_database(&store)?;
     let Some(target) = pick_new_place(&window, &remote::file_name(&file))? else { return choose(app, |_| {}) };
     let bytes = std::fs::read(&file).map_err(|e| format!("Cannot read {}: {e}", file.display()))?;

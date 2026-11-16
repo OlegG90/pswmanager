@@ -422,6 +422,8 @@ export interface Module {
   id: string
   kind: 'importers' | 'exporters' | 'stores' | 'fillers'
   label: string
+  /** What the module does, the single source: the frontend keeps no copy of it. */
+  hint: string
   enabled: boolean
   /** The file name endings an importer or exporter is known by; empty for stores and fillers. */
   extensions: string[]

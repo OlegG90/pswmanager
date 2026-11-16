@@ -1,7 +1,7 @@
 import { api, type ExportFormat, type Module } from './api'
 import { isCancelled } from './invoke'
 import { busyButton, button, choiceList, el, enterPresses } from './dom'
-import { EXPORT_INTRO, EXPORT_WARNING, EXPORT_WHAT, exportedReport } from './file-export-parts'
+import { EXPORT_INTRO, EXPORT_WARNING, exportedReport } from './file-export-parts'
 
 /**
  * Tools › Export to a file (#240), beside the sidebar: the format, the user
@@ -36,7 +36,7 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
     showIn('choose',
       el('p', {}, EXPORT_INTRO),
       choiceList(exporters.map((m): [HTMLButtonElement, string] =>
-        [busyButton(m.label, `Export as ${m.label}`, () => chosen(m.id as ExportFormat), fail), EXPORT_WHAT[m.id] ?? ''])),
+        [busyButton(m.label, `Export as ${m.label}`, () => chosen(m.id as ExportFormat), fail), m.hint])),
       el('p', { className: 'muted' }, EXPORT_WARNING))
   }
 

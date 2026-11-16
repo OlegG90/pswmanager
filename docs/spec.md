@@ -1070,8 +1070,9 @@ Three levels:
   behaviour, limits, "Trust this app?", linking), the site-icon fetching policy, lock/clipboard/screenshots.
 - **L1 built-in modules:** `Importer` (CSV, Bitwarden, CXF, Aegis), `Exporter` (CSV, CXF), `StorePlugin`
   (a folder, Dropbox, Google Drive, OneDrive, a platform document) and `CategoryFiller` (logins now, cards
-  as the pilot). Each is listed through a registry; a missing or disabled module's UI entries disappear,
-  never a broken action.
+  as the pilot). Each is listed through a registry as a `Module` carrying its label and hint — the single
+  source the tools and sheets render from, with no copy in the frontend. A missing or disabled module's UI
+  entries disappear, never a broken action.
 - **L2 data packs:** icon sets and template/field vocabularies, validated data only.
 
 The boundary is: the core owns the routing and the policy around a module; the module owns its own
@@ -1080,7 +1081,9 @@ with no off switch), site-icon fetching stays in the core (only static icon pack
 list sorting stays the closed built-in list.
 
 The traits live in `crates/core/src/modules.rs`; the handlers and their registries live in
-`file_import.rs`, `file_export.rs`, `remote.rs`, `autofill.rs` and `card.rs`.
+`file_import.rs`, `file_export.rs`, `remote.rs`, `autofill.rs` and `card.rs`. A `CategoryFiller` is only
+the category's id, label and hint: the behaviour lives beside it (the login decisions on `LoginFiller`,
+the card ones in `card.rs`), and the autofill router reads which fillers are turned off.
 
 - **Phase 0** introduced the registries and routed the existing code through them with no change in
   behaviour.
@@ -1089,8 +1092,12 @@ The traits live in `crates/core/src/modules.rs`; the handlers and their registri
   turned off in Settings is not offered, and a file whose importer is off is refused with that said.
   The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off. The
   Settings screen's *Modules* section offers the stores and the autofill categories — where off has a
-  point (local-only sync, a card filler that misbehaves); the import and export formats stay on, as
-  hiding one only loses a feature.
+  point (a store turned off pauses its syncs, local-only; a card filler that misbehaves); the import and
+  export formats stay on, as hiding one only loses a feature. Disabled means absent, the same on both
+  apps: a hidden tool is not offered; a file whose importer or exporter is off is refused with that said;
+  nothing new links to a store that is off, and a database synced there pauses until the store is turned
+  back on or syncing stops; a filler that is off offers nothing and refuses, read again at each unlock
+  on the device that autofills (Windows lists the fillers for parity, its router never runs there).
 - **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
   describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
   The `CardFiller` pilot is Phase 3.

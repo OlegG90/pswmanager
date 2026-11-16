@@ -32,6 +32,11 @@ impl Format {
         }
     }
 
+    /// The exporter's id, as the settings name a disabled module.
+    pub fn id(self) -> &'static str {
+        self.exporter().id()
+    }
+
     pub fn extension(self) -> &'static str {
         self.exporter().extension()
     }
@@ -90,6 +95,9 @@ impl modules::Exporter for Csv {
     fn label(&self) -> &'static str {
         "CSV"
     }
+    fn hint(&self) -> &'static str {
+        "logins only, which browsers, Google Password Manager, Bitwarden and 1Password read; no passkeys"
+    }
     fn extension(&self) -> &'static str {
         "csv"
     }
@@ -104,6 +112,9 @@ impl modules::Exporter for Cxf {
     }
     fn label(&self) -> &'static str {
         "Credential Exchange"
+    }
+    fn hint(&self) -> &'static str {
+        "everything, passkeys too, in the new Credential Exchange format; few managers read it yet"
     }
     fn extension(&self) -> &'static str {
         "json"

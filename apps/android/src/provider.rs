@@ -176,6 +176,9 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
         if let Some(app) = APP.get() {
             crate::icons::fetch(app, &listing);
         }
+        // A filler turned off in Settings › Modules offers nothing and
+        // refuses, through the router; read again at each unlock (#412).
+        autofill().set_disabled(Settings::of(store).disabled_modules());
         autofill().unlocked(vault, Settings::of(store).lock_in_background());
     })?;
     if let Some(app) = APP.get() {

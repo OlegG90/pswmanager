@@ -302,23 +302,15 @@ export async function renderSettings(
 
   /** The in-tree modules the tools and sheets offer, each with its on/off (#412).
    *  Only the stores and the autofill categories are offered here: turning
-   *  those off has a point (local-only sync, or a card filler that misbehaves).
-   *  The import and export formats stay on, as hiding one only loses a feature. */
+   *  those off has a point (a store turned off pauses its syncs, local-only,
+   *  or a card filler that misbehaves). The import and export formats stay on,
+   *  as hiding one only loses a feature. Labels and hints come from the core
+   *  (`Module`); the frontend keeps no copy of them. */
   function modulesGroup(s: Settings, status: Status): HTMLElement[] {
     const kinds: [Module['kind'], string][] = [
       ['stores', 'Stores'],
       ['fillers', 'Autofill categories'],
     ]
-    // What each module does, for its row; keyed by kind:id.
-    const about: Record<string, { label: string; about: string }> = {
-      'stores:folder': { label: 'Folder', about: 'A database file in a folder on this PC, a NAS or a LAN share.' },
-      'stores:dropbox': { label: 'Dropbox', about: 'A database file in your Dropbox account.' },
-      'stores:google': { label: 'Google Drive', about: 'A database file in your Google Drive.' },
-      'stores:onedrive': { label: 'OneDrive', about: 'A database file in your OneDrive.' },
-      'stores:document': { label: 'Document', about: 'A database file the platform reaches by a document reference (Android).' },
-      'fillers:login': { label: 'Logins', about: 'Fills in user names and passwords for the app or site asking.' },
-      'fillers:card': { label: 'Cards', about: 'Fills in card details; the offer shows the brand and last four only, never the full number or CVV.' },
-    }
     const change = (m: Module) => async (on: boolean) => {
       const disabled = new Set(s.disabledModules)
       const key = `${m.kind}:${m.id}`
@@ -335,10 +327,8 @@ export async function renderSettings(
     }
     return kinds.flatMap(([kind, title]) => {
       const list = modules.filter((m) => m.kind === kind)
-      return list.length ? [group(title, ...list.map((m) => {
-        const text = about[`${m.kind}:${m.id}`]
-        return row(text?.label ?? m.label, text?.about ?? '', toggle(text?.label ?? m.label, m.enabled, change(m)))
-      }))] : []
+      return list.length ? [group(title, ...list.map((m) =>
+        row(m.label, m.hint, toggle(m.label, m.enabled, change(m)))))] : []
     })
   }
 

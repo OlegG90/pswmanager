@@ -7,15 +7,15 @@
 
 use crate::dbfile::OpenError;
 use crate::modules;
-use crate::modules::CategoryFiller;
 use crate::session::Session;
 use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
 use crate::webauthn::{self, Caller};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -31,6 +31,9 @@ pub struct Autofill {
     changed: Box<dyn Fn() + Send + Sync>,
     /// Shared with the wait for a lock after an unlock here.
     relock: Arc<Relock>,
+    /// The module keys (`fillers:login`, …) turned off in Settings › Modules:
+    /// their offers are empty and their answers refused (#412).
+    disabled: Mutex<HashSet<String>>,
 }
 
 /// When a database unlocked here locks again.
@@ -149,25 +152,44 @@ impl Autofill {
     /// saved here, `lock` when a database unlocked here is due to lock again.
     pub fn new(session: Session, changed: impl Fn() + Send + Sync + 'static, lock: impl Fn() + Send + Sync + 'static) -> Autofill {
         let relock = Relock { unlocks: AtomicU64::new(0), app_in_front: AtomicBool::new(false), lock: Box::new(lock) };
-        Autofill { session, changed: Box::new(changed), relock: Arc::new(relock) }
+        Autofill { session, changed: Box::new(changed), relock: Arc::new(relock), disabled: Mutex::new(HashSet::new()) }
+    }
+
+    /// The device's disabled modules (Settings › Modules): a filler turned
+    /// off offers nothing through the router and refuses answers and saves.
+    /// Empty by default, which is the current behaviour.
+    pub fn set_disabled(&self, disabled: HashSet<String>) {
+        *self.disabled.lock().unwrap() = disabled;
+    }
+
+    /// Whether the filler `id` is turned off.
+    fn filler_off(&self, id: &str) -> bool {
+        self.disabled.lock().unwrap().contains(&format!("fillers:{id}"))
     }
 
     /// What the database offers for a request; `failed` and why while locked
     /// or for a request without a site.
     pub fn offer(&self, offer: Offer) -> Answer {
+        // A filler turned off offers nothing: the offer is empty, never a
+        // broken answer (#412). Passkeys are never modules.
+        let logins_off = self.filler_off("login");
         answered(|| match offer {
             Offer::Logins(asking) => {
                 let place = asking.place()?;
-                listed(self.session.read(|v| LoginFiller.offers(v, &place))?)
+                let choices = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::offers(v, &place))? };
+                listed(choices)
             }
             Offer::Passkeys(request) => {
                 let scope = webauthn::sign_in_scope(request).ok_or(NO_SITE)?;
                 listed(self.session.read(|v| v.passkeys_for(&scope.rp_id, &scope.allowed))?)
             }
-            Offer::Search(query) => listed(self.session.read(|v| LoginFiller.candidates(v, query))?),
+            Offer::Search(query) => {
+                let choices = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::candidates(v, query))? };
+                listed(choices)
+            }
             Offer::LoginChoices { asking, cloud } => {
                 let place = asking.place()?;
-                let entries = self.session.read(|v| LoginFiller.choices(v, &place))?;
+                let entries = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::choices(v, &place))? };
                 Ok(Answer::Ok(json!({ "entries": entries, "cloud": cloud })))
             }
             Offer::PasskeyChoices { request, cloud } => {
@@ -196,11 +218,14 @@ impl Autofill {
         answered(|| match give {
             Give::Login { asking, confirmed } => {
                 let place = asking.place()?;
+                if self.filler_off("login") {
+                    return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                }
                 if confirmed {
                     self.session.with_mut(|v| v.confirm_app(id, &place))?;
                     (self.changed)();
                 }
-                let (username, password) = self.session.read(|v| LoginFiller.fills(v, id, &place))?.map_err(|why| Answer::refused(why, &place))?;
+                let (username, password) = self.session.read(|v| LoginFiller::fills(v, id, &place))?.map_err(|why| Answer::refused(why, &place))?;
                 // One string, wiped once Java has its own copy.
                 Ok(Answer::secret(&Login { username: &username, password: &password })?)
             }
@@ -219,13 +244,19 @@ impl Autofill {
             let saved = match save {
                 Save::Login { id, asking, confirmed, title, username, password } => {
                     let place = asking.place()?;
-                    let saved = self.session.with_mut(|v| Ok(LoginFiller.saves(v, id, &place, confirmed, title, username, password)))?;
+                    if self.filler_off("login") {
+                        return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                    }
+                    let saved = self.session.with_mut(|v| Ok(LoginFiller::saves(v, id, &place, confirmed, title, username, password)))?;
                     saved.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Link { id, asking, confirmed } => {
                     let place = asking.place()?;
-                    self.session.with_mut(|v| Ok(LoginFiller.links(v, id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
+                    if self.filler_off("login") {
+                        return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                    }
+                    self.session.with_mut(|v| Ok(LoginFiller::links(v, id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Passkey { id, request, asking } => {
@@ -268,6 +299,9 @@ impl Autofill {
 }
 
 const NO_SITE: &str = "The request names no site";
+/// Why a login offer, answer or save is refused when the login filler is
+/// turned off in Settings › Modules (#412).
+const LOGINS_OFF: &str = "Logins are turned off in Settings › Modules";
 
 /// The built-in autofill categories: logins now, cards as the pilot (#412).
 pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFiller] {
@@ -278,8 +312,36 @@ pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFill
 /// The login category: the current behaviour, unchanged, as the first
 /// [modules::CategoryFiller]. It owns what a login offers, fills, saves and
 /// links, per the place asking; the [Autofill] router owns the policy around
-/// it (who asks, locked answers, wiping, confirmations).
+/// it (who asks, locked answers, wiping, confirmations, and whether the
+/// filler is turned off).
 struct LoginFiller;
+
+impl LoginFiller {
+    fn offers(vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.logins_for(place)
+    }
+
+    fn choices(vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.entries_for_login(place)
+    }
+
+    fn candidates(vault: &Vault, query: &str) -> Vec<EntryChoice> {
+        vault.login_candidates(query)
+    }
+
+    fn fills(vault: &Vault, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
+        vault.login(id, place)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn saves(vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError> {
+        vault.save_login(id, place, confirmed, title, username, password)
+    }
+
+    fn links(vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError> {
+        vault.link_login(id, place, confirmed)
+    }
+}
 
 impl modules::CategoryFiller for LoginFiller {
     fn id(&self) -> &'static str {
@@ -290,28 +352,8 @@ impl modules::CategoryFiller for LoginFiller {
         "Logins"
     }
 
-    fn offers(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
-        vault.logins_for(place)
-    }
-
-    fn choices(&self, vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
-        vault.entries_for_login(place)
-    }
-
-    fn candidates(&self, vault: &Vault, query: &str) -> Vec<EntryChoice> {
-        vault.login_candidates(query)
-    }
-
-    fn fills(&self, vault: &Vault, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
-        vault.login(id, place)
-    }
-
-    fn saves(&self, vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError> {
-        vault.save_login(id, place, confirmed, title, username, password)
-    }
-
-    fn links(&self, vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError> {
-        vault.link_login(id, place, confirmed)
+    fn hint(&self) -> &'static str {
+        "Fills in user names and passwords for the app or site asking."
     }
 }
 
@@ -631,6 +673,33 @@ mod tests {
         assert_eq!(autofill.save(save), Answer::Ok(Value::Null));
         assert_eq!(given(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }))["password"], "pw-2");
         assert_eq!(changes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_filler_turned_off_offers_nothing_and_refuses() {
+        let dir = tempfile::tempdir().unwrap();
+        let (autofill, _) = provider();
+        autofill.unlocked(database(dir.path()), None);
+        let mail = app("com.example.mail", b"mail's certificate");
+        let save = || Save::Login { id: None, asking: &mail, confirmed: false, title: "Mail", username: "alice", password: "pw-1" };
+        assert_eq!(autofill.save(save()), Answer::Ok(Value::Null));
+        assert_eq!(ids(autofill.offer(Offer::Logins(&mail))).len(), 1);
+
+        let offered = ids(autofill.offer(Offer::Logins(&mail)));
+        assert_eq!(offered.len(), 1);
+
+        autofill.set_disabled(HashSet::from(["fillers:login".to_string()]));
+        assert!(ids(autofill.offer(Offer::Logins(&mail))).is_empty());
+        assert!(ids(autofill.offer(Offer::Search("mail"))).is_empty());
+        let choices = given(autofill.offer(Offer::LoginChoices { asking: &mail, cloud: false }));
+        assert!(choices["entries"].as_array().unwrap().is_empty());
+        let refused = Answer::failed(LOGINS_OFF);
+        assert_eq!(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }), refused);
+        assert_eq!(autofill.save(save()), refused);
+        // Turned back on, the login is offered and given again.
+        autofill.set_disabled(HashSet::new());
+        assert_eq!(ids(autofill.offer(Offer::Logins(&mail))), offered);
+        assert_eq!(given(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }))["username"], "alice");
     }
 
     #[test]

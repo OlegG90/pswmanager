@@ -10,12 +10,6 @@ export const EXPORT_FORMATS: [ExportFormat, string, string][] = [
   ['cxf', 'CXF JSON', 'everything, passkeys too, in the new Credential Exchange format; few managers read it yet'],
 ]
 
-/** What each exporter carries, keyed by its module id (#412). */
-export const EXPORT_WHAT: Record<string, string> = {
-  csv: 'logins only, which browsers, Google Password Manager, Bitwarden and 1Password read; no passkeys',
-  cxf: 'everything, passkeys too, in the new Credential Exchange format; few managers read it yet',
-}
-
 /** What comes before the formats, and after them. */
 export const EXPORT_INTRO = 'Write the entries in use to a file another password manager imports:'
 export const EXPORT_WARNING = 'The file holds every password in clear text: keep it safe, and delete it once it is imported.'

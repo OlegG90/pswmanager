@@ -17,9 +17,11 @@ core (`crates/core`), and the store's network code lives in the core beside the 
    `create` do. Sign-in goes through [crate::oauth] with a [Provider] describing the service.
 
 2. **The [StorePlugin].** In `remote.rs`, the existing plugins (`FolderPlugin`, `DropboxPlugin`,
-   `GooglePlugin`, `OneDrivePlugin`, `DocumentPlugin`) each implement `StorePlugin`: `id`,
-   `needs_network`, `list`, `create`, `open`, `provider`, `describe`, `name`. A new store adds one
-   plugin and registers it in `store_plugins()`, in the order the sync setup should offer it.
+   `GooglePlugin`, `OneDrivePlugin`, `DocumentPlugin`) each implement `StorePlugin`: `id`, `title`,
+   `hint`, `needs_network`, `list`, `create`, `open`, `provider`, `describe`, `name`. A new store adds one
+   plugin and registers it in `store_plugins()`, in the order the sync setup should offer it. The
+   `title` and `hint` are what the settings and the sync setup show — the single source, kept in the
+   core, with no copy in the frontend.
 
 3. **Where a synced file lives.** [Location] is the serialized form the state file keeps. A new store
    needs a `Location` variant (and its serde shape) plus a `kind()` id matching the plugin's `id()`;
