@@ -1080,9 +1080,18 @@ with no off switch), site-icon fetching stays in the core (only static icon pack
 list sorting stays the closed built-in list.
 
 The traits live in `crates/core/src/modules.rs`; the handlers and their registries live in
-`file_import.rs`, `file_export.rs`, `remote.rs` and `autofill.rs`. Phase 0 introduces the registries and
-routes the existing code through them with no change in behaviour; the later phases put the UIs behind
-them and add the `CardFiller` pilot.
+`file_import.rs`, `file_export.rs`, `remote.rs`, `autofill.rs` and `card.rs`.
+
+- **Phase 0** introduced the registries and routed the existing code through them with no change in
+  behaviour.
+- **Phase 1** put the import and export tools behind the registry: the Windows tools and sheets render
+  their sources and formats from it, the import picker filters from each importer's extensions, a module
+  turned off in Settings is not offered, and a file whose importer is off is refused with that said.
+  The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off, in the Settings
+  screen's *Modules* section.
+- **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
+  describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
+  The `CardFiller` pilot is Phase 3.
 
 ## SafeInCloud migration
 

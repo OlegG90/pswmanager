@@ -10,6 +10,7 @@ pub mod autofill;
 pub mod autotype;
 pub mod backup;
 pub mod browser;
+pub mod card;
 pub mod cxf;
 pub mod dbfile;
 pub mod documents;

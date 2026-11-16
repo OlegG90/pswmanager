@@ -2,12 +2,12 @@ import { api, type Cloud, type SyncTarget } from './api'
 import { button } from './dom'
 import { choose } from './modal'
 
-const STORES: { label: string; cloud: Cloud | null }[] = [
-  { label: 'A folder (a NAS or LAN share)', cloud: null },
-  { label: 'Dropbox', cloud: 'dropbox' },
-  { label: 'Google Drive', cloud: 'google' },
-  { label: 'OneDrive', cloud: 'onedrive' },
-]
+const STORE_LABELS: Record<string, string> = {
+  folder: 'A folder (a NAS or LAN share)',
+  dropbox: 'Dropbox',
+  google: 'Google Drive',
+  onedrive: 'OneDrive',
+}
 const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google Drive', onedrive: 'OneDrive' }
 
 /**
@@ -17,9 +17,14 @@ const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google
  * to true when sync was set up, false when the user gave up on the way.
  */
 export async function setUpSync(mode: 'upload' | 'link', waiting: HTMLElement): Promise<boolean> {
-  const where = await choose(mode === 'upload' ? 'Upload this database to…' : 'Link this database to a file in…', STORES.map((s) => s.label))
+  // The stores the sync setup offers, from the registry: a store turned off in
+  // Settings is not offered (#412).
+  const stores = (await api.modules())
+    .filter((m) => m.kind === 'stores' && m.enabled && Object.hasOwn(STORE_LABELS, m.id))
+    .map((m) => ({ label: STORE_LABELS[m.id], cloud: (m.id === 'folder' ? null : m.id as Cloud) }))
+  const where = await choose(mode === 'upload' ? 'Upload this database to…' : 'Link this database to a file in…', stores.map((s) => s.label))
   if (where === null) return false
-  const cloud = STORES[where].cloud
+  const cloud = stores[where].cloud
   if (!cloud) {
     if (mode === 'upload') return !!(await api.uploadToFolder()).syncedWith
     const path = await api.pickRemoteFile()

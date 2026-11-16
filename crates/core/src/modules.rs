@@ -122,6 +122,27 @@ pub(crate) trait CategoryFiller: Send + Sync {
     fn saves(&self, vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError>;
     /// Links entry `id` to `place`.
     fn links(&self, vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError>;
+
+    /// Whether the entry is one this category fills (the card category: it
+    /// keeps a card number). Phase 3: the Android autofill wiring calls this
+    /// through the router; nothing reads it in the core yet.
+    #[allow(dead_code)]
+    fn qualifies(&self, _entry: EntryRef<'_>) -> bool {
+        false
+    }
+
+    /// The entry's redacted offer (the card category: brand and last four),
+    /// when it qualifies; `None` otherwise.
+    #[allow(dead_code)]
+    fn card_offer(&self, _entry: EntryRef<'_>) -> Option<crate::card::Offer> {
+        None
+    }
+
+    /// The entry's fields for a form (the card category), when it qualifies.
+    #[allow(dead_code)]
+    fn card_fill(&self, _entry: EntryRef<'_>) -> Option<crate::card::Fill> {
+        None
+    }
 }
 
 /// One module as the frontend lists it (a Tools entry, a store, a filler).
@@ -209,9 +230,9 @@ mod tests {
     }
 
     #[test]
-    fn category_fillers_start_with_logins() {
+    fn category_fillers_start_with_logins_then_cards() {
         let ids: Vec<&str> = crate::autofill::category_fillers().iter().map(|filler| filler.id()).collect();
-        assert_eq!(ids, ["login"]);
+        assert_eq!(ids, ["login", "card"]);
     }
 
     #[test]

@@ -271,7 +271,7 @@ const NO_SITE: &str = "The request names no site";
 
 /// The built-in autofill categories: logins now, cards as the pilot (#412).
 pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFiller] {
-    static FILLERS: &[&'static dyn modules::CategoryFiller] = &[&LoginFiller];
+    static FILLERS: &[&'static dyn modules::CategoryFiller] = &[&LoginFiller, &crate::card::CardFiller];
     FILLERS
 }
 

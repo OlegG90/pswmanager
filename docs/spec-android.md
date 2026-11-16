@@ -555,10 +555,15 @@ background.
 ## Modules
 
 As in `spec.md` *Modules*: import and export formats, cloud stores, icon packs and autofill categories
-are in-tree optional modules behind registries in the shared core (Phase 0, #412), with no change in
-behaviour. The `CategoryFiller` seam is where the `CardFiller` pilot lands (Android autofill first, the
-Windows/browser parity a documented follow-up); passkeys and TOTP are never modules, and the autofill
-router's policy (who asks, locked behaviour, limits, confirmations) stays in the core.
+are in-tree optional modules behind registries in the shared core (#412). Phases 0–2 landed: the
+registries route the existing code, the tools and the sync setup render from them, and a per-device
+`disabledModules` setting turns a module off. The `CardFiller` pilot (Phase 3) is the `card`
+autofill category: the core owns what makes an entry a card, its brand and the redacted offer (brand and
+last four, never the full number or CVV), and the fields a form takes; the Kotlin autofill service
+detects card fields and asks, and the card answer is given from memory only, wiped once handed over.
+Windows/browser parity is a documented follow-up (the KeePassXC-Browser protocol has no card filling,
+and Auto-Type has no card semantics). Passkeys and TOTP are never modules, and the autofill router's
+policy (who asks, locked behaviour, limits, confirmations) stays in the core.
 
 ## Testing
 
