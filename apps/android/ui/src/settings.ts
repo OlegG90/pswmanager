@@ -381,15 +381,15 @@ function autofillRow(): HTMLElement {
  *  the phone adds the autofill categories. `changed` reads the modules again. */
 function modulesTab(modules: Module[], changed: () => void): Node[] {
   const turn = (m: Module) => (on: boolean) => void save('disabledModules', turned(app.settings?.disabledModules ?? [], m, on)).then(changed)
-  return moduleGroups(modules, true).flatMap(({ title, about, modules }) => [
-    el('h2', {}, title), el('p', { className: 'muted' }, about), ...modules.map((m) => moduleSwitch(m, turn(m))),
+  return moduleGroups(modules, true).flatMap((group) => [
+    el('h2', {}, group.title), el('p', { className: 'muted' }, group.about), ...group.modules.map((m) => moduleSwitch(m, turn(m))),
   ])
 }
 
-/** One module's switch, `turned` with its new state. */
-function moduleSwitch(m: Module, turned: (on: boolean) => void) {
+/** One module's switch, `changed` with its new state. */
+function moduleSwitch(m: Module, changed: (on: boolean) => void) {
   const box = el('input', { type: 'checkbox', checked: m.enabled, disabled: !switchable(m) })
-  box.addEventListener('change', () => turned(box.checked))
+  box.addEventListener('change', () => changed(box.checked))
   return el('label', { className: 'setting' }, el('span', {}, m.label, el('small', {}, moduleHint(m))), box)
 }
 

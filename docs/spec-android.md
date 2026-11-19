@@ -576,9 +576,10 @@ background.
 
 As in `spec.md` *Modules*: import and export formats, cloud stores, icon packs and autofill categories
 are in-tree optional modules behind registries in the shared core (#412). The registries route the
-existing code; the Tools sheets (*Import from a file*, *Export to a file*), the first run and the Sync
-tab render from them (a `Module` carrying its label and hint — the single source, no copy in the
-frontend); and a per-device `disabledModules` setting, switched in *Settings → Modules* (the cloud
+existing code; the Tools sheets (*Import from a file*, *Export to a file*) and *Settings → Modules* render
+from them (a `Module` carrying its label and hint — the single source, no copy in the frontend), and
+the first run and the Sync tab leave out a store turned off (their longer texts, naming the app's folder
+in each store, are the phone's own); and a per-device `disabledModules` setting, switched in *Settings → Modules* (the cloud
 stores and the autofill categories), turns a module off. A folder and a document cannot be turned off,
 nor a store the database syncs with (the core refuses the setting). Disabled means absent: a store that is off is not offered
 in the first run or the Sync tab, and the backend refuses it before any sign-in; a file whose importer

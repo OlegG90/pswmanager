@@ -31,10 +31,13 @@ core (`crates/core`), and the store's network code lives in the core beside the 
    the existing variants show the pattern. The state file is read by every released copy, so a variant
    is added, never renamed or reshaped, and old variants keep reading.
 
-4. **The UI.** The sync setup lists the stores from the registry (`modules::list`, kind `stores`), and
-   the store's picker label and hint live in `src/sync-setup.ts` (`STORE_LABELS`) keyed by the store's
-   id. The sync settings, the first-run sheet and the Android drawer/sheets render from the same
-   registry, so a store turned off in Settings disappears everywhere.
+4. **The UI.** Windows' sync setup and choose screen list the stores from the registry
+   (`modules::list`, kind `stores`): the label and hint are the plugin's; `src/sync-setup.ts`
+   (`STORE_CLOUDS`) only maps a store's id to the command that signs in to it. Android's first run and
+   Sync tab keep their own table (`STORES` in `apps/android/ui/src/sync.ts`: the name and the app's
+   folder in the store, for the phone's longer texts) and leave out a store turned off. Settings ›
+   Modules lists the cloud stores from the registry on both apps (`src/modules-settings.ts`). A new
+   cloud store is added to `STORE_CLOUDS` and `STORES` too.
 
 5. **Docs and specs.** `docs/spec.md` (Windows and what both share) and `docs/spec-android.md` describe
    the store's behaviour, its sign-in and its error states (`Offline`, `SignIn`, `Changed`), and the

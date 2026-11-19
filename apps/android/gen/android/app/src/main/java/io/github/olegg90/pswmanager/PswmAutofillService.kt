@@ -54,8 +54,15 @@ class PswmAutofillService : AutofillService() {
     }
   }
 
-  /** What the fields are offered: *Unlock PswManager* while locked, else the entries for who asks. */
-  private fun respond(fields: AutofillFields): FillResponse? {
+  /**
+   * What the fields are offered: *Unlock PswManager* while locked, else the
+   * entries for who asks. A card's fields count only while cards are on
+   * (Settings › Modules): a payment form offers nothing, not even an
+   * unlock, when they are off.
+   */
+  private fun respond(read: AutofillFields): FillResponse? {
+    val fields = if (read.card != null && !ProviderBridge.cardsOn(ProviderBridge.state(this))) read.withoutCard() else read
+    if (fields.ids.isEmpty()) return null
     val caller = Caller.forAutofill(this, fields) ?: return null
     if (ProviderBridge.isUnlocked()) return offers(this, fields, caller)
     val unlock = Intent(this, AutofillUnlockActivity::class.java).putFields(fields, caller, "unlock")

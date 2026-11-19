@@ -252,11 +252,15 @@ pub fn check_exporter(store: &Store, format: Format) -> Result<(), String> {
 /// opens and no remote file is made for nothing.
 pub fn check_cloud(store: &Store, cloud: Cloud) -> Result<(), String> {
     if is_off(store, "stores", cloud.id()) {
-        return Err(format!("{} is turned off in Settings › Modules: turn it back on to sync there", cloud.provider().name));
+        return Err(store_turned_off(cloud.provider().name));
     }
     Ok(())
 }
 
+/// Why a store turned off is refused, `store` naming it as a sentence starts.
+pub(crate) fn store_turned_off(store: &str) -> String {
+    format!("{store} is turned off in Settings › Modules: turn it back on to sync there")
+}
 
 #[cfg(test)]
 mod tests {

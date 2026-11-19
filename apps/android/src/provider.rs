@@ -155,6 +155,18 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_screensh
     native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, |store| Settings::of(store).allow_screenshots()) == Ok(true)))
 }
 
+/// Whether cards are filled (Settings › Modules, #412): read without the
+/// database, so a locked phone offers *Unlock PswManager* on a card form only
+/// when it would then offer cards.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cardsOn<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+) -> jboolean {
+    native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, |store| !pswm_core::modules::is_off(store, "fillers", "card")) == Ok(true)))
+}
+
 /// Unlocks with the master password (`sealed` null), or with the key sealed
 /// for biometric unlock (`sealed`, after the fingerprint): `ok` when
 /// unlocked, else why not, for the user; `stale` when the sealed key no

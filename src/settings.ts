@@ -315,8 +315,8 @@ export async function renderSettings(
       }
       draw(await api.settings(), status)
     }
-    return moduleGroups(modules, false).map(({ title, about, modules }) => group(title, el('p', { className: 'muted' }, about),
-      ...modules.map((m) => row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), !switchable(m))))))
+    return moduleGroups(modules, false).map((g) => group(g.title, el('p', { className: 'muted' }, g.about),
+      ...g.modules.map((m) => row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), !switchable(m))))))
   }
 
   function draw(s: Settings, status: Status) {

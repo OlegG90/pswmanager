@@ -33,6 +33,9 @@ class AutofillFields(
   /** Every field an offer may fill (the login's, then the card's): what unlocking covers. */
   val ids: List<AutofillId> get() = loginIds + card?.ids.orEmpty()
 
+  /** The same fields without the card's: cards are turned off. */
+  fun withoutCard(): AutofillFields = AutofillFields(packageName, webDomain, webScheme, username, password, usernameText, passwordText)
+
   private enum class Kind { USERNAME, PASSWORD, TEXT, OTHER }
 
   private enum class CardKind { NUMBER, CODE, EXPIRY, MONTH, YEAR, NAME }
@@ -57,13 +60,9 @@ class AutofillFields(
       }
 
     private fun read(structure: AssistStructure): AutofillFields? {
-      var username: Field? = null
-      var password: Field? = null
-      // On a form that changes the password (current, new, again), the one
-      // to save is the new one: the field that says so, else the last.
-      var newPassword: Field? = null
-      var lastPassword: Field? = null
-      var lastText: Field? = null
+      // The text fields in order, each with what it is for a login, read once
+      // the card's fields are known.
+      val texts = mutableListOf<Text>()
       // A card's fields, the first of each kind; only with a number field are they a card.
       val card = mutableMapOf<CardKind, Field>()
       // A field is on the page of its nearest node with a web domain: an
@@ -83,25 +82,12 @@ class AutofillFields(
         }
         if (id != null && type == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
           val field = Field(id, here, node.autofillValue?.takeIf { it.isText }?.textValue?.toString())
-          // A card's field is never taken for a login's (a code is often a password field).
-          val cardKind = cardKind(node, emptyList())
-          if (cardKind != null) card.putIfAbsent(cardKind, field)
-          else when (kind(node)) {
-            Kind.PASSWORD -> {
-              if (password == null) password = field
-              if (newPassword == null && isNewPassword(node)) newPassword = field
-              lastPassword = field
-            }
-            Kind.USERNAME -> if (username == null) username = field
-            Kind.TEXT -> if (password == null) lastText = field
-            Kind.OTHER -> {}
-          }
+          cardKind(node, emptyList())?.let { card.putIfAbsent(it, field) }
+          texts += Text(field, kind(node), isNewPassword(node))
         }
         for (i in 0 until node.childCount) visit(node.getChildAt(i), here)
       }
       for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i)?.rootViewNode, null)
-      val pass = password
-      val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       // The card's fields on the number's page (a payment form may be a frame of its own).
       val number = card[CardKind.NUMBER]
       val onCard = { kind: CardKind -> card[kind]?.takeIf { it.page == number?.page } }
@@ -109,6 +95,31 @@ class AutofillFields(
       val cardFields = number?.let {
         CardFields(it.id, onCard(CardKind.CODE)?.id, expiry(CardKind.EXPIRY), expiry(CardKind.MONTH), expiry(CardKind.YEAR), onCard(CardKind.NAME)?.id)
       }
+      // A card's field is not a login's (a code is often a password field);
+      // without a card number on the screen, a field that only sounds like a
+      // card's ("Card number or user name") stays a login's.
+      val cardIds = cardFields?.ids.orEmpty().toSet()
+      var username: Field? = null
+      var password: Field? = null
+      // On a form that changes the password (current, new, again), the one
+      // to save is the new one: the field that says so, else the last.
+      var newPassword: Field? = null
+      var lastPassword: Field? = null
+      var lastText: Field? = null
+      for ((field, kind, isNew) in texts.filter { it.field.id !in cardIds }) {
+        when (kind) {
+          Kind.PASSWORD -> {
+            if (password == null) password = field
+            if (newPassword == null && isNew) newPassword = field
+            lastPassword = field
+          }
+          Kind.USERNAME -> if (username == null) username = field
+          Kind.TEXT -> if (password == null) lastText = field
+          Kind.OTHER -> {}
+        }
+      }
+      val pass = password
+      val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       val page = (pass ?: user ?: number ?: return null).page
       val saved = (newPassword ?: lastPassword)?.takeIf { it.page == page } ?: pass
       return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text, cardFields)
@@ -157,6 +168,9 @@ class AutofillFields(
 
     /** The page a field is on: its web domain and scheme. */
     private data class Page(val domain: String, val scheme: String?)
+
+    /** A text field read, with what it is for a login and whether it takes a new password. */
+    private data class Text(val field: Field, val kind: Kind, val isNew: Boolean)
 
     /** A field read: on which page, its text, and for an expiry's field its autofill type and a list's options. */
     private class Field(val id: AutofillId, val page: Page?, val text: String?, val type: Int = View.AUTOFILL_TYPE_TEXT, val options: List<String> = emptyList())

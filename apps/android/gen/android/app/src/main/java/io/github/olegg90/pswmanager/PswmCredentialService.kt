@@ -40,6 +40,9 @@ object ProviderBridge {
   /** The settings allow screenshots of the app's screens (off by default). */
   external fun screenshotsAllowed(state: String): Boolean
 
+  /** Cards are filled: not turned off in Settings › Modules (#412). Read without the database. */
+  external fun cardsOn(state: String): Boolean
+
   /** The setting allows the fingerprint and the master password is not due. */
   external fun fingerprintAllowed(state: String): Boolean
 

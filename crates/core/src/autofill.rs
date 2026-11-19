@@ -759,8 +759,6 @@ mod tests {
         let mail = app("com.example.mail", b"mail's certificate");
         let save = || Save::Login { id: None, asking: &mail, confirmed: false, title: "Mail", username: "alice", password: "pw-1" };
         assert_eq!(autofill.save(save()), Answer::Ok(Value::Null));
-        assert_eq!(ids(autofill.offer(Offer::Logins(&mail))).len(), 1);
-
         let offered = ids(autofill.offer(Offer::Logins(&mail)));
         assert_eq!(offered.len(), 1);
 

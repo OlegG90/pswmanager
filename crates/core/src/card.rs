@@ -65,11 +65,12 @@ pub fn qualifies(entry: &EntryRef<'_>) -> bool {
 
 /// The card's brand, from its number's first digits.
 pub fn brand(number: &str) -> &'static str {
-    let two = number.chars().filter(|c| c.is_ascii_digit()).take(2).collect::<String>().parse::<u32>().ok();
-    match (number.chars().find(|c| c.is_ascii_digit()), two) {
-        (Some('4'), _) => "Visa",
-        (Some('3'), Some(34 | 37)) => "Amex",
-        (_, Some(51..=55)) => "Mastercard",
+    let digits = digits(number);
+    let first = |n: usize| digits.get(..n).and_then(|d| d.parse::<u32>().ok());
+    match (first(1), first(2), first(4)) {
+        (Some(4), _, _) => "Visa",
+        (_, Some(34 | 37), _) => "Amex",
+        (_, Some(51..=55), _) | (_, _, Some(2221..=2720)) => "Mastercard",
         _ => "Card",
     }
 }
@@ -110,9 +111,9 @@ pub struct Offer {
 
 /// A card's fields for a form, from memory, wiped on drop.
 pub struct Fill {
-    pub name: String,
+    pub name: Zeroizing<String>,
     pub number: Zeroizing<String>,
-    pub expiry: String,
+    pub expiry: Zeroizing<String>,
     pub code: Zeroizing<String>,
 }
 
@@ -134,9 +135,9 @@ pub fn fill(entry: &EntryRef<'_>) -> Option<Fill> {
         .or_else(|| (entry.times.expires == Some(true)).then(|| entry.times.expiry.format("%m/%y").to_string()))
         .unwrap_or_default();
     Some(Fill {
-        name: field(entry, NAME).unwrap_or("").to_string(),
+        name: Zeroizing::new(field(entry, NAME).unwrap_or("").to_string()),
         number: Zeroizing::new(number.to_string()),
-        expiry,
+        expiry: Zeroizing::new(expiry),
         code: Zeroizing::new(field(entry, CODE).unwrap_or("").to_string()),
     })
 }
@@ -212,17 +213,17 @@ mod tests {
     fn the_expiry_is_found_under_other_apps_names_or_by_its_value() {
         // SafeInCloud's card, as sic2kdbx keeps its field names.
         let named = with(&[("Number", "4111111111111111"), ("Owner", "Erin Example"), ("Expires", "07/31"), ("CVV", "123")], None);
-        assert_eq!(fill(&named).unwrap().expiry, "07/31");
+        assert_eq!(fill(&named).unwrap().expiry.as_str(), "07/31");
         let unnamed = with(&[("Number", "4111111111111111"), ("Bank", "Example Bank"), ("Some date", "1/2031"), ("CVV", "123")], None);
-        assert_eq!(fill(&unnamed).unwrap().expiry, "1/2031");
+        assert_eq!(fill(&unnamed).unwrap().expiry.as_str(), "1/2031");
         // A field named so wins over a value that only looks like one; the entry's date comes last.
         let both = with(&[("Number", "4111111111111111"), ("Valid thru", "12/30"), ("Note", "3/29")], Some("2032-01-01 00:00"));
-        assert_eq!(fill(&both).unwrap().expiry, "12/30");
+        assert_eq!(fill(&both).unwrap().expiry.as_str(), "12/30");
         let dated = with(&[("Number", "4111111111111111"), ("Note", "not a date")], Some("2032-01-01 00:00"));
-        assert_eq!(fill(&dated).unwrap().expiry, "01/32");
+        assert_eq!(fill(&dated).unwrap().expiry.as_str(), "01/32");
         // The starter template's Expiry left blank, the entry's own date set.
         let template = with(&[("Cardholder", "Erin Example"), ("Card number", "4111111111111111"), ("Expiry", ""), ("CVV", "123"), ("PIN", "")], Some("2030-12-31 00:00"));
-        assert_eq!(fill(&template).unwrap().expiry, "12/30");
+        assert_eq!(fill(&template).unwrap().expiry.as_str(), "12/30");
         for value in ["12/30", "1/2030", "07-31", " 12.30 "] {
             assert!(looks_like_expiry(value), "{value}");
         }
@@ -255,6 +256,7 @@ mod tests {
         assert_eq!(brand("4111111111111111"), "Visa");
         assert_eq!(brand("5555555555554444"), "Mastercard");
         assert_eq!(brand("378282246310005"), "Amex");
+        assert_eq!(brand("2223 0031 2200 3222"), "Mastercard");
         assert_eq!(summary("4111111111111111"), "Visa •• 1111");
         assert_eq!(summary("5555 5555 5555 4444"), "Mastercard •• 4444");
         assert!(!summary("4111111111111111").contains("4111111111111111"), "the full number never appears");

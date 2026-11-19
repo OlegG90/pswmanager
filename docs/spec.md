@@ -1071,7 +1071,8 @@ Three levels:
 - **L1 built-in modules:** `Importer` (CSV, Bitwarden, CXF, Aegis), `Exporter` (CSV, CXF), `StorePlugin`
   (a folder, Dropbox, Google Drive, OneDrive, a platform document) and `CategoryFiller` (logins now, cards
   as the pilot). Each is listed through a registry as a `Module` carrying its label and hint — the single
-  source the tools and sheets render from, with no copy in the frontend. A missing or disabled module's UI
+  source the tools and *Settings → Modules* render from, with no copy in the frontend (Android's first
+  run and Sync tab keep their longer texts for a store, naming the app's folder there). A missing or disabled module's UI
   entries disappear, never a broken action.
 - **L2 data packs:** icon sets and template/field vocabularies, validated data only.
 

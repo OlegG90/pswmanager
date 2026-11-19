@@ -68,14 +68,13 @@ fn store_off(store: &Store, location: &Location) -> Option<String> {
     if !crate::modules::is_off(store, "stores", location.kind()) {
         return None;
     }
-    Some(format!("{} is turned off in Settings › Modules: turn it back on to sync there", capitalized(location.name())))
+    Some(crate::modules::store_turned_off(&capitalized(location.name())))
 }
 
 /// `name` ("the folder", "Dropbox") as a sentence starts with it.
 fn capitalized(name: &str) -> String {
-    let mut name = name.to_string();
-    name[..1].make_ascii_uppercase();
-    name
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 /// Syncs the working copy with `remote`. Uploads need nothing unlocked; a
