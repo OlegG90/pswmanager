@@ -6,7 +6,6 @@ use crate::dbfile::{hash_hex, same_file, sibling, OpenError, BAK, REMOTE_BAK};
 use crate::encryption::{check_header, TOO_COSTLY};
 use crate::remote::{Location, Remote, RemoteError};
 use crate::session::Session;
-use crate::settings::Settings;
 use crate::store::{self, Store};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,7 +65,7 @@ fn failed(message: impl ToString) -> SyncError {
 /// absent (#412). A database already synced there pauses, local-only, until
 /// the store is turned back on or syncing stops.
 fn store_off(store: &Store, location: &Location) -> Option<String> {
-    if !Settings::of(store).disabled_modules().contains(&format!("stores:{}", location.kind())) {
+    if !crate::modules::is_off(store, "stores", location.kind()) {
         return None;
     }
     Some(format!("{} is turned off in Settings › Modules: turn it back on to sync there", capitalized(location.name())))
@@ -443,6 +442,7 @@ pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::Settings;
 
     #[test]
     fn only_offline_or_a_failure_is_worth_trying_again() {
@@ -992,23 +992,28 @@ mod tests {
     #[test]
     fn a_store_turned_off_pauses_the_sync_and_refuses_new_links() {
         let s = setup();
-        let folder = Location::Folder { path: s.remote.path.clone() };
         s.edit_here("Mail", "changed here");
-        Settings::of(&s.store).set("disabledModules", serde_json::json!(["stores:folder"])).unwrap();
+        // As a setting kept from before a store in use could not be turned
+        // off: the database here syncs with Dropbox (the test's remote file is
+        // still the folder's), and Dropbox is off.
+        let dropbox = Location::Dropbox { path: "/base.kdbx".into() };
+        let keep = |off: serde_json::Value| s.store.update(|state| { state.settings.insert("disabledModules".into(), off); }).unwrap();
+        s.store.update(|state| state.databases.iter_mut().for_each(|d| if let Some(r) = d.remote.as_mut() { r.location = dropbox.clone() })).unwrap();
+        keep(serde_json::json!(["stores:dropbox"]));
         // The change waits here: the sync pauses, local-only, without failing,
         // and the status says so rather than "Synced".
         assert_eq!(s.sync(), Ok(Outcome::Paused));
         assert!(settled(&Ok(Outcome::Paused)), "a background upload does not retry it");
         assert!(has_pending(&s.store));
         let (text, problem) = describe(&s.store, &Ok(Outcome::Paused));
-        assert!(problem && text.starts_with("The folder is turned off") && text.contains("changes wait here"), "{text}");
+        assert!(problem && text.starts_with("Dropbox is turned off") && text.contains("changes wait here"), "{text}");
         assert_ne!(s.remote_password("Mail"), "changed here");
         // Nothing new links to it either: the picker already hides it, and
         // the core refuses a direct call with where to turn it back on.
         for refused in [
-            start(&s.store, folder.clone(), s.store.dir().join("other.kdbx")),
-            attach(&s.store, &PathBuf::from("base.kdbx"), folder.clone(), "r".into(), b"bytes"),
-            link(&s.store, &PathBuf::from("base.kdbx"), folder.clone(), None, None).map(|_| ()),
+            start(&s.store, dropbox.clone(), s.store.dir().join("other.kdbx")),
+            attach(&s.store, &PathBuf::from("base.kdbx"), dropbox.clone(), "r".into(), b"bytes"),
+            link(&s.store, &PathBuf::from("base.kdbx"), dropbox.clone(), None, None).map(|_| ()),
         ] {
             let why = refused.err().unwrap();
             assert!(why.contains("turned off in Settings"), "{why}");

@@ -171,6 +171,10 @@ impl<'a> Settings<'a> {
     /// screen offers, with a value of the right kind within its limits.
     pub fn set(&self, name: &str, value: Value) -> Result<(), String> {
         check(name, &value)?;
+        // A store a database syncs with, or one that cannot be, is not turned off (#412).
+        if name == "disabledModules" {
+            crate::modules::check_turning_off(self.0, &value)?;
+        }
         self.0
             .update(|s| {
                 s.settings.insert(name.to_string(), value);

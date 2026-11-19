@@ -1,6 +1,6 @@
 import { api, type FileImported, type ImporterId, type Listing, type Module } from './api'
 import { busyButton, button, choiceList, el, enterPresses, errorLine } from './dom'
-import { IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
+import { IMPORT_INTRO, IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
@@ -37,7 +37,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
       return
     }
     page.replaceChildren(header(), el('section', { className: 'choose' },
-      el('p', {}, 'Add the entries another password manager or authenticator exported:'),
+      el('p', {}, IMPORT_INTRO),
       choiceList([
         ...importers.map((m): [HTMLButtonElement, string] =>
           [busyButton(m.label, `Choose the ${m.label} file to import`, () => choose(m.id as ImporterId), options.fail), m.hint]),

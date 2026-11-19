@@ -12,6 +12,7 @@ import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
+import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
@@ -173,7 +174,8 @@ class PswmAutofillService : AutofillService() {
     /**
      * The card's fields filled with its values (`{name, number, expiry, code}`),
      * as Android gets them back: the number as digits, the expiry as one field
-     * takes it (`MM/YY`) or as its month and year.
+     * takes it (`MM/YY`, or a date) or as its month and year, as text or as
+     * the option of a list that names them.
      */
     fun cardFilled(context: Context, card: CardFields, values: JSONObject): Intent {
       val view = presentation(context, "PswManager")
@@ -185,10 +187,20 @@ class PswmAutofillService : AutofillService() {
       set(card.number, CardValues.digits(values.getString("number")))
       set(card.code, values.optString("code"))
       set(card.name, values.optString("name"))
-      set(card.expiry, CardValues.short(expiry))
+      // A list takes its option's index; a date its time; text the value itself.
+      fun setExpiry(field: CardField?, text: String, index: (List<String>) -> Int?) {
+        if (field == null) return
+        when (field.type) {
+          View.AUTOFILL_TYPE_LIST -> index(field.options)?.let { dataset.setValue(field.id, AutofillValue.forList(it), view) }
+          View.AUTOFILL_TYPE_DATE -> CardValues.dateMillis(expiry)?.let { dataset.setValue(field.id, AutofillValue.forDate(it), view) }
+          View.AUTOFILL_TYPE_TEXT -> set(field.id, text)
+          else -> {}
+        }
+      }
+      setExpiry(card.expiry, CardValues.short(expiry)) { null }
       CardValues.monthYear(expiry)?.let { (month, year) ->
-        set(card.month, month)
-        set(card.year, year)
+        setExpiry(card.month, month) { CardValues.monthIndex(it, month) }
+        setExpiry(card.year, year) { CardValues.yearIndex(it, year) }
       }
       return Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build())
     }
@@ -236,6 +248,18 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_CARD_MONTH = "cardMonth"
     private const val EXTRA_CARD_YEAR = "cardYear"
     private const val EXTRA_CARD_NAME = "cardName"
+    /** Suffixes of an expiry field's extras: its autofill type and a list's options. */
+    private const val TYPE = ".type"
+    private const val OPTIONS = ".options"
+
+    /** An expiry field into the intent, under `name`. */
+    private fun Intent.putCardField(name: String, field: CardField?): Intent =
+      putExtra(name, field?.id).putExtra(name + TYPE, field?.type ?: View.AUTOFILL_TYPE_NONE).putExtra(name + OPTIONS, field?.options?.toTypedArray())
+
+    /** An expiry field from the intent, as [putCardField] put it. */
+    @Suppress("DEPRECATION")
+    private fun Intent.cardField(name: String): CardField? =
+      getParcelableExtra<AutofillId>(name)?.let { CardField(it, getIntExtra(name + TYPE, View.AUTOFILL_TYPE_TEXT), getStringArrayExtra(name + OPTIONS).orEmpty().toList()) }
 
     /** Which login typed in [AutofillSaveActivity] saves ([TypedLogins.take]). */
     internal const val EXTRA_TYPED = "typed"
@@ -263,9 +287,9 @@ class PswmAutofillService : AutofillService() {
       .putExtra(EXTRA_CERTIFICATE, caller.certificate)
       .putExtra(EXTRA_CARD_NUMBER, fields.card?.number)
       .putExtra(EXTRA_CARD_CODE, fields.card?.code)
-      .putExtra(EXTRA_CARD_EXPIRY, fields.card?.expiry)
-      .putExtra(EXTRA_CARD_MONTH, fields.card?.month)
-      .putExtra(EXTRA_CARD_YEAR, fields.card?.year)
+      .putCardField(EXTRA_CARD_EXPIRY, fields.card?.expiry)
+      .putCardField(EXTRA_CARD_MONTH, fields.card?.month)
+      .putCardField(EXTRA_CARD_YEAR, fields.card?.year)
       .putExtra(EXTRA_CARD_NAME, fields.card?.name)
 
     /** The fields and who asks, as [putFields] put them into the intent. */
@@ -273,7 +297,9 @@ class PswmAutofillService : AutofillService() {
     fun fieldsOf(intent: Intent): Pair<AutofillFields, Caller>? {
       val packageName = intent.getStringExtra(EXTRA_PACKAGE) ?: return null
       val id = { name: String -> intent.getParcelableExtra<AutofillId>(name) }
-      val card = id(EXTRA_CARD_NUMBER)?.let { CardFields(it, id(EXTRA_CARD_CODE), id(EXTRA_CARD_EXPIRY), id(EXTRA_CARD_MONTH), id(EXTRA_CARD_YEAR), id(EXTRA_CARD_NAME)) }
+      val card = id(EXTRA_CARD_NUMBER)?.let {
+        CardFields(it, id(EXTRA_CARD_CODE), intent.cardField(EXTRA_CARD_EXPIRY), intent.cardField(EXTRA_CARD_MONTH), intent.cardField(EXTRA_CARD_YEAR), id(EXTRA_CARD_NAME))
+      }
       val fields = AutofillFields(
         packageName,
         intent.getStringExtra(EXTRA_DOMAIN),

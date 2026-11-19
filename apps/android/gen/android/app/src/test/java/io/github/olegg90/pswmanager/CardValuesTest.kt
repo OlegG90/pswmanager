@@ -25,4 +25,32 @@ class CardValuesTest {
     assertEquals("01/30", CardValues.short("1/30"))
     assertEquals("as kept", CardValues.short("as kept"))
   }
+
+  @Test
+  fun aDateFieldTakesTheFirstOfTheMonth() {
+    assertEquals(1_922_313_600_000L, CardValues.dateMillis("12/30"))
+    assertNull(CardValues.dateMillis("soon"))
+  }
+
+  @Test
+  fun listsOfMonthsAndYearsAreToldApartByTheirOptions() {
+    val months = listOf("MM") + (1..12).map { it.toString().padStart(2, '0') }
+    val years = listOf("YYYY") + (2025..2038).map { it.toString() }
+    assertEquals(CardValues.ListOf.MONTH, CardValues.listKind(months))
+    assertEquals(CardValues.ListOf.YEAR, CardValues.listKind(years))
+    assertNull(CardValues.listKind(listOf("Visa", "Mastercard")))
+    assertEquals(CardValues.ListOf.MONTH, CardValues.listKind(listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")))
+  }
+
+  @Test
+  fun theOptionIsPickedByNumberOrName() {
+    val months = listOf("MM") + (1..12).map { it.toString().padStart(2, '0') }
+    assertEquals(12, CardValues.monthIndex(months, "12"))
+    assertEquals(1, CardValues.monthIndex(listOf("Month", "1 - January", "2 - February"), "01"))
+    assertEquals(2, CardValues.monthIndex(listOf("--", "Jan", "Feb"), "02"))
+    val years = listOf("YYYY") + (2025..2038).map { it.toString() }
+    assertEquals(6, CardValues.yearIndex(years, "2030"))
+    assertEquals(2, CardValues.yearIndex(listOf("YY", "29", "30"), "2030"))
+    assertNull(CardValues.yearIndex(years, "2050"))
+  }
 }

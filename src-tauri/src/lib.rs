@@ -125,7 +125,7 @@ fn hide_window(app: AppHandle) {
 /// turned each off in the settings (#412).
 #[tauri::command]
 fn modules(app: AppHandle) -> Vec<pswm_core::modules::Module> {
-    pswm_core::modules::list(&Settings::of(&app.state()).disabled_modules())
+    pswm_core::modules::list(&app.state())
 }
 
 /// Where PswManager's source lives (the workspace's `repository`): opened from

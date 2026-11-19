@@ -1,4 +1,4 @@
-import type { Exported, Module } from './api'
+import type { Exported } from './api'
 import { el } from './dom'
 
 /** What both apps' *Export to a file* says alike (docs/spec.md, *Export to a
@@ -7,16 +7,6 @@ import { el } from './dom'
 /** What comes before the formats, and after them. */
 export const EXPORT_INTRO = 'Write the entries in use to a file another password manager imports:'
 export const EXPORT_WARNING = 'The file holds every password in clear text: keep it safe, and delete it once it is imported.'
-
-/** Before the format is chosen: the exporters turned on, from the core's
- *  registry (#412), each with what it carries. */
-export function fileExportAbout(exporters: Module[]): Node[] {
-  return [
-    el('p', {}, EXPORT_INTRO),
-    el('ul', { className: 'formats' }, ...exporters.map((m) => el('li', {}, el('b', {}, m.label), ` — ${m.hint}`))),
-    el('p', { className: 'muted' }, EXPORT_WARNING),
-  ]
-}
 
 /** After the file was written: where, how many, and what it lacks. */
 export function exportedReport({ file, entries, leftOut }: Exported): Node[] {

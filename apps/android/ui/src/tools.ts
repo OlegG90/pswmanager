@@ -1,7 +1,7 @@
 import { busyButton, button, el, enterPresses, errorLine } from '../../../../src/dom'
 import { describeEntries, titleOf } from '../../../../src/entry-text'
-import { exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
-import { fileImportAbout, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
+import { EXPORT_INTRO, EXPORT_WARNING, exportedReport } from '../../../../src/file-export-parts'
+import { IMPORT_INTRO, IMPORT_TAGGED, IMPORT_WARNING, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, similarCriteria, similarHint, similarSites, type Site, siteChoice } from '../../../../src/similar-parts'
 import type { Module } from '../../../../src/api'
@@ -19,9 +19,8 @@ export function toolsSheet(listing: Listing) {
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
-    button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), void fileImportSheet()), 'item'),
-    button('Import from Google Authenticator…', 'The accounts of its export, read from its QR codes', () => (close(), gauthSheet()), 'item'),
-    button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), void fileExportSheet()), 'item'),
+    button('Import from a file…', 'What another password manager or authenticator exported', () => (close(), void fileImportSheet()), 'item'),
+    button('Export to a file…', 'A file another password manager imports', () => (close(), void fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
     // Only while entries are in a group an older import made (#335).
     ...(listing.inImportGroups
@@ -199,7 +198,10 @@ function showImported(imported: Imported | null) {
   importedSheet(imported)
 }
 
-const isExportName = (name: string) => /\.(csv|json)$/i.test(name)
+/** A source or a format in a sheet, as Windows lists them (#353, #412): its
+ *  name, and below it what it reads or carries. */
+const choiceItem = (label: string, hint: string, action: () => void) =>
+  el('button', { type: 'button', className: 'item choice', onclick: action }, label, el('small', {}, hint.charAt(0).toUpperCase() + hint.slice(1)))
 
 /** The modules of `kind` turned on, from the core's registry (#412); null,
  *  with why said, when it cannot be read. */
@@ -212,19 +214,26 @@ async function modulesOn(kind: Module['kind']): Promise<Module[] | null> {
   }
 }
 
-/** Import from a file (#238): what it takes (the importers turned on, #412),
- *  then the phone's folders (All files access, #207) or Android's file picker. */
+/** Import from a file (#238), as on Windows (#353): the sources as a list,
+ *  each its button with what it reads — the importers turned on (#412), and
+ *  Google Authenticator's QR codes — then the phone's folders (All files
+ *  access, #207, its files of that kind first) or Android's file picker. A
+ *  file is read by what it holds, whichever source was chosen. */
 async function fileImportSheet() {
   const importers = await modulesOn('importers')
   if (!importers) return
   sheet((close) => [
     el('b', {}, 'Import from a file'),
-    ...fileImportAbout(importers),
-    button('Choose the file', 'Choose the file to import', () => {
+    el('p', {}, IMPORT_INTRO),
+    ...importers.map((m) => choiceItem(m.label, m.hint, () => {
       close()
-      onPhone<ImportStep>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
+      const first = (name: string) => m.extensions.some((extension) => name.toLowerCase().endsWith(`.${extension}`))
+      onPhone<ImportStep>(`The ${m.label} file to import`, (done, picker) => browsePhone({ first, pick: api.importFileAt, done, picker }), api.importFromFile)
         .then(afterFileImport, (e) => snack(String(e)))
-    }, 'primary'),
+    })),
+    choiceItem('Google Authenticator', 'its Export accounts QR codes, read with the camera or from a screenshot', () => (close(), gauthSheet())),
+    el('p', {}, IMPORT_TAGGED),
+    el('p', { className: 'muted' }, IMPORT_WARNING),
     button('Cancel', 'Cancel', close, 'link'),
   ])
 }
@@ -238,8 +247,9 @@ async function fileExportSheet() {
   if (!exporters) return
   sheet((close) => [
     el('b', {}, 'Export to a file'),
-    ...fileExportAbout(exporters),
-    ...exporters.map((m) => button(m.label, `Export as ${m.label}`, () => (close(), void confirmExport(() => void exportAs(m.id as ExportFormat))), 'item')),
+    el('p', {}, EXPORT_INTRO),
+    ...exporters.map((m) => choiceItem(m.label, m.hint, () => (close(), void confirmExport(() => void exportAs(m.id as ExportFormat))))),
+    el('p', { className: 'muted' }, EXPORT_WARNING),
     button('Cancel', 'Cancel', close, 'link'),
   ])
 }

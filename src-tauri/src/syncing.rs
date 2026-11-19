@@ -196,7 +196,6 @@ pub fn link_database(app: AppHandle, target: SyncTarget, choice: Option<sync::Li
 #[tauri::command(async)]
 pub fn upload_to_folder(app: AppHandle, window: Window) -> Result<Status, String> {
     let store = app.state::<Store>();
-    modules::check_folder(&store)?;
     let file = unsynced_database(&store)?;
     let Some(target) = pick_new_place(&window, &remote::file_name(&file))? else { return choose(app, |_| {}) };
     let bytes = std::fs::read(&file).map_err(|e| format!("Cannot read {}: {e}", file.display()))?;

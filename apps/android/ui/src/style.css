@@ -341,6 +341,20 @@ main.list-screen {
   padding: 12px 4px;
 }
 
+/* A source or a format in the import and export sheets: its name, and what
+   it reads or carries below it, as Windows lists them (#353, #412). */
+.sheet button.item.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-weight: 600;
+}
+
+.sheet button.item.choice small {
+  font-weight: normal;
+}
+
 .masked {
   letter-spacing: 0.1em;
 }

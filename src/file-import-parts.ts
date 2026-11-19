@@ -1,4 +1,3 @@
-import type { Module } from './api'
 import { el } from './dom'
 
 /** What both apps' *Import from a file* says alike (docs/spec.md, *Import
@@ -25,18 +24,9 @@ export function skippedList(skipped: { title: string; why: string }[]): Node[] {
     : []
 }
 
+/** What comes before the sources, in both apps (#353). */
+export const IMPORT_INTRO = 'Add the entries another password manager or authenticator exported:'
+
 /** What follows the sources: where the entries go, and that the file is best deleted. */
 export const IMPORT_TAGGED = 'Its entries are added as new ones with a tag of their own.'
 export const IMPORT_WARNING = 'Delete the file after the import: it holds every password in clear text.'
-
-/** Before the file is picked: the formats (the importers turned on, from the
- *  core's registry, #412), where the entries go, and that the file is best
- *  deleted. */
-export function fileImportAbout(importers: Module[]): Node[] {
-  return [
-    el('p', {}, 'Choose a file another password manager exported:'),
-    el('ul', { className: 'formats' }, ...importers.map((m) => el('li', {}, el('b', {}, m.label), ` — ${m.hint}`))),
-    el('p', {}, IMPORT_TAGGED),
-    el('p', { className: 'muted' }, IMPORT_WARNING),
-  ]
-}

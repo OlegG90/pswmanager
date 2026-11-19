@@ -1,8 +1,10 @@
 # Adding a store
 
 A *store* is where a synced database lives besides this device: a LAN folder or a NAS, Dropbox,
-Google Drive, OneDrive, or a platform document (Android). Each store is an in-tree optional module —
-a [StorePlugin] behind a registry, compiled in, toggled in the settings screen. Nothing is loaded at
+Google Drive, OneDrive, or a platform document (Android). Each store is an in-tree module — a
+[StorePlugin] behind a registry, compiled in. A cloud store can be turned off in the settings screen
+(`optional`, the default), except while a database syncs with it; a folder and a platform document
+cannot (`optional` false): they are how the app reaches a file at all, with no connection of their own. Nothing is loaded at
 runtime: adding a store is a code change that goes through the normal branch + PR workflow, with the
 same tests and the same security review as any other change.
 
@@ -18,7 +20,8 @@ core (`crates/core`), and the store's network code lives in the core beside the 
 
 2. **The [StorePlugin].** In `remote.rs`, the existing plugins (`FolderPlugin`, `DropboxPlugin`,
    `GooglePlugin`, `OneDrivePlugin`, `DocumentPlugin`) each implement `StorePlugin`: `id`, `title`,
-   `hint`, `needs_network`, `list`, `create`, `open`, `provider`, `describe`, `name`. A new store adds one
+   `hint`, `needs_network`, `list`, `create`, `open`, `provider`, `describe`, `name`, and
+   `optional` where it cannot be turned off. A new store adds one
    plugin and registers it in `store_plugins()`, in the order the sync setup should offer it. The
    `title` and `hint` are what the settings and the sync setup show — the single source, kept in the
    core, with no copy in the frontend.

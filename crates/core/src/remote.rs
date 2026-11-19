@@ -194,6 +194,9 @@ impl modules::StorePlugin for FolderPlugin {
     fn needs_network(&self) -> bool {
         false
     }
+    fn optional(&self) -> bool {
+        false
+    }
     fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
         Err(RemoteError::Failed("A folder has no list of databases".into()))
     }
@@ -336,6 +339,9 @@ impl modules::StorePlugin for DocumentPlugin {
         "A database file the platform reaches by a document reference (Android)."
     }
     fn needs_network(&self) -> bool {
+        false
+    }
+    fn optional(&self) -> bool {
         false
     }
     fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {

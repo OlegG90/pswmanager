@@ -1,4 +1,4 @@
-import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, moduleHint, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
@@ -18,8 +18,8 @@ const PASSWORD_EVERY: Choice[] = [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 
 const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
 
 /** A switch: a button that is on or off. */
-function toggle(label: string, on: boolean, change: (on: boolean) => void): HTMLButtonElement {
-  const toggle = el('button', { type: 'button', className: 'switch', role: 'switch', ariaLabel: label, onclick: () => change(!on) },
+function toggle(label: string, on: boolean, change: (on: boolean) => void, disabled = false): HTMLButtonElement {
+  const toggle = el('button', { type: 'button', className: 'switch', role: 'switch', ariaLabel: label, disabled, onclick: () => change(!on) },
     el('span', { className: 'knob' }))
   toggle.setAttribute('aria-checked', String(on))
   return toggle
@@ -327,9 +327,10 @@ export async function renderSettings(
       draw(await api.settings(), status)
     }
     return kinds.flatMap(([kind, title]) => {
-      const list = modules.filter((m) => m.kind === kind)
+      // A folder cannot be turned off; a store a database syncs with stays on.
+      const list = modules.filter((m) => m.kind === kind && m.optional)
       return list.length ? [group(title, ...list.map((m) =>
-        row(m.label, m.hint, toggle(m.label, m.enabled, change(m)))))] : []
+        row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), m.inUse && m.enabled))))] : []
     })
   }
 

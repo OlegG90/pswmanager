@@ -622,7 +622,7 @@ fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_j
 /// with whether each is turned off on this phone (#412).
 #[tauri::command]
 fn modules(store: State<Store>) -> Vec<pswm_core::modules::Module> {
-    pswm_core::modules::list(&Settings::of(&store).disabled_modules())
+    pswm_core::modules::list(&store)
 }
 
 /// Whether the phone can autofill, and whether PswManager is its autofill service (#236).

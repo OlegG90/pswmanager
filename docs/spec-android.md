@@ -172,14 +172,17 @@ As in the mockups `2a`–`5a`.
   does not count) and the tags (as `#work`) with their counts; the app's version at the bottom, under a rule (*Settings* and *Lock* are the
   toolbar's).
 - **Tools** (#183; the toolbar's wrench, beside ⚙): a sheet with the commands that work on the whole
-  database: *Import from another app…*, *Import from a file…*, *Import from Google Authenticator…* (#281, a
-  sheet that reads the export's codes with the camera or from screenshots, then imports: `docs/spec.md`,
-  *Import from Google Authenticator*; closing it lets the codes go), *Export to a file…* (#240, as on Windows:
-  `docs/spec.md`, *Export to a file*), *Find similar entries* and, while entries are in a group an older
+  database: *Import from another app…*, *Import from a file…*, *Export to a file…* (#240, as on Windows:
+  `docs/spec.md`, *Export to a file*: the formats as a list, each its button with what it carries, from
+  the core's registry, #412), *Find similar entries* and, while entries are in a group an older
   import made, *Tidy up imported folders* (#335, `docs/spec.md`, *Import from a file*).
-- **Import from a file** (#238): a sheet says what it takes, then the file is chosen as a key file is
-  (#207: the phone's folders with All files access, `.csv` and `.json` first;
-  otherwise Android's file picker), read and added as on Windows (`docs/spec.md`, *Import from a file*).
+- **Import from a file** (#238), laid out as on Windows (#353, #412): the sources as a list, each its button
+  with what it reads — the importers from the core's registry (CSV, Bitwarden, Credential Exchange, Aegis)
+  and **Google Authenticator** (#281, a sheet that reads the export's codes with the camera or from
+  screenshots, then imports: `docs/spec.md`, *Import from Google Authenticator*; closing it lets the codes
+  go). A file source has the file chosen as a key file is (#207: the phone's folders with All files access,
+  that source's files first; otherwise Android's file picker), read by what it holds, and added as on
+  Windows (`docs/spec.md`, *Import from a file*).
   An encrypted Aegis export (#282) asks for its password on a sheet first (a wrong one can be typed
   again; closing the sheet lets the file go).
   The sheet after it says how many entries came in and what did not; for a file chosen in the phone's
@@ -288,7 +291,7 @@ shows that more are hidden that way, and a tap on it scrolls there.
 | Appearance | theme; download site icons; swipes on the list (#194) |
 | Database | kept in the database file, as on Windows (`spec.md` *Database settings*, #193): first the **master password and key file** (below), then name, description, default user name, history limits (lowering one says how many versions go first), and the **encryption** (cipher and key derivation, with a **Test** that times an unlock on this phone and a warning when it is heavy for a phone). Each change is saved and synced like an edit. The **master password and key file** too, as on Windows: the current master password first, then a new one (typed twice, with the strength, the eye on the first field and the rules for a new master password, #224) and / or a key file chosen in a folder, or a **new key file** the app makes in a folder (as Windows' *New…*), or none. Android's pickers refuse some folders for every app (one named *Data*, say), so a key file is reached through a folder: Android's folder picker (the app then lists its files), or, with **All files access** turned on for PswManager (asked for only here, never needed otherwise; not in the Google Play build, see *Files and folders on the phone*), the app's own view of the phone's folders; the key file stays where it is and only it is read; after a confirmation that other devices will need the new key, a synced database syncs first and goes up at once after. The phone unlocks with the new key file from then on, and the key sealed for fingerprint unlock goes (sealed again at the next unlock with the password). When **another device** changed the key, the sync finds it and the **new key** screen opens by itself, as Windows' dialog does (*Not now* keeps working with the phone's copy, whose changes wait; the toolbar's key and the sync sheet's **Enter the new key…** offer it again): the remote file is synced with the key given (refused when it does not open it either), and the phone takes it from then on, as on Windows (a copy that says it changed back to a key the phone was moved off is asked for the same way, never followed by itself) |
 | Sync | where it syncs and the visible copy's folder; how often to check for changes; with a cloud store linked, **Sync now** and **Stop syncing** (e.g. when the store cannot be reached or the account has a problem), the one way out as on Windows (#225): the visible copy becomes the database's file, synced like a local file, so changes it lacks go there and nothing is lost; without a copy the database stays in the app only. The remote file is left alone and the store's account stays signed in. A database that syncs with no cloud store (stopped, or a local file) has **Sync with Dropbox…**, **Sync with OneDrive…** and **Sync with Google Drive…**: a file in the app's folder is merged with it (changes on both sides kept), or it is uploaded there as a new file; a copy stopping made the database's file is its visible copy again. Another database is *Use another database…* on the unlock screen (it signs the store's account out) |
-| Modules | the **stores** and the **autofill categories** (logins, cards), each with its switch, its label and hint from the core's registry (#412); see *Modules*. The import and export formats are not offered: turning one off only loses a feature |
+| Modules | the **cloud stores** and the **autofill categories** (logins, cards), each with its switch, its label and hint from the core's registry (#412); see *Modules*. A folder and a document are how the app reaches a file at all and cannot be turned off; a store the database syncs with stays on (its switch disabled, with why) until it stops syncing there. The import and export formats are not offered: turning one off only loses a feature |
 | About | version; database format (KDBX 4.1); a link to the GitHub repository, opened in the browser |
 
 The phone's own settings belong to this phone; they are not synced with the PC (the Database tab's are the file's). Their names, defaults and limits are the
@@ -467,8 +470,10 @@ row, as the phone shows autofill).
   in use, each by its title, brand and last four (*Travel card · Visa •• 1111*), at most 10, to whoever
   asks (an app or a page, as above; a card is not for one of them). Picking one asks for the fingerprint
   or the phone's screen lock **every time**, even unlocked, since the number and the code are not for one
-  app or site; then the number (as digits), the code, the cardholder's name and the expiry (`MM/YY`, or
-  its month and a four-digit year) fill the form. What makes an entry a card, and the names its fields
+  app or site; then the number (as digits), the code, the cardholder's name and the expiry fill the form:
+  one text field gets `MM/YY`, a date field the month's first day, and a month and a year as text (`12`,
+  `2030`) or as the option of a list that names them (`12`, `December`, `2030`, `30`) — a page's lists are
+  told apart by their options when nothing else says what they are. What makes an entry a card, and the names its fields
   may have (Keepass2Android's among them), is the core's (*Modules*). Locked, a card's fields offer
   *Unlock PswManager* too. With cards turned off in *Settings → Modules* nothing is offered for them;
   logins are untouched either way. A card is not saved from a form.
@@ -573,8 +578,9 @@ As in `spec.md` *Modules*: import and export formats, cloud stores, icon packs a
 are in-tree optional modules behind registries in the shared core (#412). The registries route the
 existing code; the Tools sheets (*Import from a file*, *Export to a file*), the first run and the Sync
 tab render from them (a `Module` carrying its label and hint — the single source, no copy in the
-frontend); and a per-device `disabledModules` setting, switched in *Settings → Modules* (the stores and
-the autofill categories), turns a module off. Disabled means absent: a store that is off is not offered
+frontend); and a per-device `disabledModules` setting, switched in *Settings → Modules* (the cloud
+stores and the autofill categories), turns a module off. A folder and a document cannot be turned off,
+nor a store the database syncs with (the core refuses the setting). Disabled means absent: a store that is off is not offered
 in the first run or the Sync tab, and the backend refuses it before any sign-in; a file whose importer
 is off, or an export to a format that is off, is refused with that said; nothing new links to a store that is off, and a
 database synced there pauses, local-only, until the store is turned back on or syncing stops, its

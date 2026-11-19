@@ -429,7 +429,15 @@ export interface Module {
   extensions: string[]
   /** Whether talking to the store needs the network; null unless it is a store. */
   needsNetwork: boolean | null
+  /** Whether it can be turned off: a folder and a platform document cannot. */
+  optional: boolean
+  /** A store a database here syncs with: it stays on till that database stops syncing there. */
+  inUse: boolean
 }
+
+/** What a module's row says: its hint, and why a store in use cannot be turned off. */
+export const moduleHint = (m: Module) =>
+  m.inUse && m.enabled ? `${m.hint} A database here syncs with it: stop syncing there to turn it off.` : m.hint
 
 /** A file format an export writes (#240). */
 export type ExportFormat = 'csv' | 'cxf'

@@ -1,4 +1,4 @@
-import type { DatabaseSetting, DatabaseSettings, Encryption, Module } from '../../../../src/api'
+import { type DatabaseSetting, type DatabaseSettings, type Encryption, type Module, moduleHint } from '../../../../src/api'
 import { type Choice, describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue } from '../../../../src/database-settings'
 import { busyButton, button, el, errorLine } from '../../../../src/dom'
 import { input, showHide, strengthMeter } from '../../../../src/editor-parts'
@@ -392,7 +392,8 @@ function modulesTab(modules: Module[], changed: () => void): Node[] {
     void save('disabledModules', [...off].sort()).then(changed)
   }
   const group = (kind: Module['kind'], title: string, about: string): Node[] => {
-    const list = modules.filter((m) => m.kind === kind)
+    // A folder or a document cannot be turned off; a store a database syncs with stays on.
+    const list = modules.filter((m) => m.kind === kind && m.optional)
     if (!list.length) return []
     return [el('h2', {}, title), el('p', { className: 'muted' }, about), ...list.map((m) => moduleSwitch(m, turn(m)))]
   }
@@ -402,11 +403,11 @@ function modulesTab(modules: Module[], changed: () => void): Node[] {
   ]
 }
 
-/** One module's switch, `turned` with its new state. */
+/** One module's switch, `turned` with its new state; a store in use cannot be turned off. */
 function moduleSwitch(m: Module, turned: (on: boolean) => void) {
-  const box = el('input', { type: 'checkbox', checked: m.enabled })
+  const box = el('input', { type: 'checkbox', checked: m.enabled, disabled: m.inUse && m.enabled })
   box.addEventListener('change', () => turned(box.checked))
-  return el('label', { className: 'setting' }, el('span', {}, m.label, el('small', {}, m.hint)), box)
+  return el('label', { className: 'setting' }, el('span', {}, m.label, el('small', {}, moduleHint(m))), box)
 }
 
 /** A tab of the phone's own settings (the Database and Modules tabs are [databaseTab] and [modulesTab]). */

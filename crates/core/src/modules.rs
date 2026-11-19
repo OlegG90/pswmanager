@@ -88,6 +88,12 @@ pub(crate) trait StorePlugin: Send + Sync {
     fn hint(&self) -> &'static str;
     /// Whether talking to the store needs the network (clouds do).
     fn needs_network(&self) -> bool;
+    /// Whether the store can be turned off. A cloud can; a folder and a
+    /// platform document are how the app reaches a file at all (there is no
+    /// connection of their own to turn off), so they cannot.
+    fn optional(&self) -> bool {
+        true
+    }
 
     /// The databases the store holds; a folder or a document has none to list.
     fn list(&self) -> Result<Vec<CloudFile>, RemoteError>;
@@ -143,14 +149,23 @@ pub struct Module {
     /// Whether talking to the store needs the network; `None` unless it is a
     /// store.
     pub needs_network: Option<bool>,
+    /// Whether it can be turned off: a folder and a platform document cannot.
+    pub optional: bool,
+    /// A store a database here syncs with: it cannot be turned off till that
+    /// database stops syncing there.
+    pub in_use: bool,
 }
 
-/// Every compiled-in module, for the frontend's tools and sheets; `disabled`
-/// holds the module keys (a kind and an id joined by `:`) the user turned off
-/// in the settings screen.
-pub fn list(disabled: &HashSet<String>) -> Vec<Module> {
+/// Every compiled-in module, for the frontend's tools and sheets, with
+/// whether each is turned off on this device (the module keys, a kind and an
+/// id joined by `:`, the user turned off in the settings screen) and, for a
+/// store, whether it can be turned off and whether a database syncs with it.
+pub fn list(store: &Store) -> Vec<Module> {
+    let in_use = stores_in_use(store);
     let one = |kind: &'static str, id: &str, label: &str, hint: &str, extensions: &[&str], needs_network: Option<bool>| Module {
-        enabled: !disabled.contains(&format!("{kind}:{id}")),
+        enabled: !is_off(store, kind, id),
+        optional: kind != "stores" || store_optional(id),
+        in_use: kind == "stores" && in_use.contains(id),
         id: id.to_string(),
         kind,
         label: label.to_string(),
@@ -174,9 +189,39 @@ pub fn list(disabled: &HashSet<String>) -> Vec<Module> {
     modules
 }
 
-/// Whether the module `kind:id` is turned off on this device.
-fn off(store: &Store, kind: &str, id: &str) -> bool {
-    Settings::of(store).disabled_modules().contains(&format!("{kind}:{id}"))
+/// Whether the module `kind:id` is turned off on this device; never a store
+/// that cannot be (a folder, a platform document), whatever the setting says.
+pub fn is_off(store: &Store, kind: &str, id: &str) -> bool {
+    (kind != "stores" || store_optional(id)) && Settings::of(store).disabled_modules().contains(&format!("{kind}:{id}"))
+}
+
+/// Whether the store `id` can be turned off ([StorePlugin::optional]).
+fn store_optional(id: &str) -> bool {
+    crate::remote::store_plugins().iter().find(|plugin| plugin.id() == id).is_none_or(|plugin| plugin.optional())
+}
+
+/// The stores the databases here sync with, by id.
+fn stores_in_use(store: &Store) -> HashSet<&'static str> {
+    store.read(|s| s.databases.iter().filter_map(|d| d.remote.as_ref()).map(|r| r.location.kind()).collect())
+}
+
+/// Refuses a new `disabledModules` value (`turned_off`) that turns off a
+/// store a database here syncs with (stop syncing there first), or one that
+/// cannot be turned off. Keys turned off already stay as they are.
+pub(crate) fn check_turning_off(store: &Store, turned_off: &Value) -> Result<(), String> {
+    let before = Settings::of(store).disabled_modules();
+    let in_use = stores_in_use(store);
+    let new = turned_off.as_array().into_iter().flatten().filter_map(Value::as_str).filter(|key| !before.contains(*key));
+    for id in new.filter_map(|key| key.strip_prefix("stores:")) {
+        let title = crate::remote::store_plugins().iter().find(|plugin| plugin.id() == id).map_or(id, |plugin| plugin.title());
+        if !store_optional(id) {
+            return Err(format!("{title} cannot be turned off"));
+        }
+        if in_use.contains(id) {
+            return Err(format!("A database here syncs with {title}: stop syncing it there first"));
+        }
+    }
+    Ok(())
 }
 
 /// Refuses the file `name` (`content`) when the importer it needs is turned
@@ -185,7 +230,7 @@ fn off(store: &Store, kind: &str, id: &str) -> bool {
 /// its password.
 pub fn check_importer(store: &Store, name: &str, content: &[u8]) -> Result<(), String> {
     match crate::file_import::detect(name, content) {
-        Some(id) if off(store, "importers", id) => {
+        Some(id) if is_off(store, "importers", id) => {
             let label = crate::file_import::filter(id).map_or(id, |(label, _)| label);
             Err(format!("This file is a {label} export, but that importer is turned off in Settings › Modules"))
         }
@@ -195,7 +240,7 @@ pub fn check_importer(store: &Store, name: &str, content: &[u8]) -> Result<(), S
 
 /// Refuses an export to `format` when its exporter is turned off on this device.
 pub fn check_exporter(store: &Store, format: Format) -> Result<(), String> {
-    if off(store, "exporters", format.id()) {
+    if is_off(store, "exporters", format.id()) {
         return Err(format!("The {} format is turned off in Settings › Modules", format.label()));
     }
     Ok(())
@@ -206,20 +251,12 @@ pub fn check_exporter(store: &Store, format: Format) -> Result<(), String> {
 /// refuses the link itself ([crate::sync]); asking first means no browser
 /// opens and no remote file is made for nothing.
 pub fn check_cloud(store: &Store, cloud: Cloud) -> Result<(), String> {
-    if off(store, "stores", cloud.id()) {
+    if is_off(store, "stores", cloud.id()) {
         return Err(format!("{} is turned off in Settings › Modules: turn it back on to sync there", cloud.provider().name));
     }
     Ok(())
 }
 
-/// Refuses to sync a database to a new place in a folder when the folder
-/// store is turned off on this device.
-pub fn check_folder(store: &Store) -> Result<(), String> {
-    if off(store, "stores", "folder") {
-        return Err("Folder is turned off in Settings › Modules: turn it back on to sync there".into());
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
@@ -233,9 +270,8 @@ mod tests {
         assert!(check_importer(&store, "bw.json", bitwarden).is_ok());
         assert!(check_exporter(&store, Format::Cxf).is_ok());
         assert!(check_cloud(&store, Cloud::Dropbox).is_ok());
-        assert!(check_folder(&store).is_ok());
-        Settings::of(&store).set("disabledModules", serde_json::json!(["importers:bitwarden", "exporters:cxf", "stores:dropbox", "stores:folder"])).unwrap();
-        for refused in [check_importer(&store, "bw.json", bitwarden), check_exporter(&store, Format::Cxf), check_cloud(&store, Cloud::Dropbox), check_folder(&store)] {
+        Settings::of(&store).set("disabledModules", serde_json::json!(["importers:bitwarden", "exporters:cxf", "stores:dropbox"])).unwrap();
+        for refused in [check_importer(&store, "bw.json", bitwarden), check_exporter(&store, Format::Cxf), check_cloud(&store, Cloud::Dropbox)] {
             assert!(refused.unwrap_err().contains("turned off in Settings › Modules"));
         }
         // Another format, or a file no importer takes, is not this check's to refuse.
@@ -289,18 +325,47 @@ mod tests {
 
     #[test]
     fn list_reflects_disabled_modules() {
-        let all = list(&HashSet::new());
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let all = list(&store);
         for kind in ["importers", "exporters", "stores", "fillers"] {
             assert!(all.iter().any(|m| m.kind == kind), "{kind} is listed");
         }
         assert!(all.iter().all(|m| m.enabled));
         assert!(all.iter().all(|m| !m.label.is_empty() && !m.hint.is_empty()), "every module lists a label and a hint");
-        let mut disabled = HashSet::new();
-        disabled.insert("importers:aegis".to_string());
-        let filtered = list(&disabled);
+        Settings::of(&store).set("disabledModules", serde_json::json!(["importers:aegis"])).unwrap();
+        let filtered = list(&store);
         let aegis = filtered.iter().find(|m| m.kind == "importers" && m.id == "aegis").unwrap();
         assert!(!aegis.enabled);
         let csv = filtered.iter().find(|m| m.kind == "importers" && m.id == "csv").unwrap();
         assert!(csv.enabled);
+    }
+
+    #[test]
+    fn a_folder_a_document_and_a_store_in_use_cannot_be_turned_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let stores = |store: &Store| list(store).into_iter().filter(|m| m.kind == "stores").map(|m| (m.id, m.optional, m.in_use)).collect::<Vec<_>>();
+        assert_eq!(stores(&store), [
+            ("folder".into(), false, false), ("dropbox".into(), true, false), ("google".into(), true, false), ("onedrive".into(), true, false), ("document".into(), false, false),
+        ]);
+        let refused = Settings::of(&store).set("disabledModules", serde_json::json!(["stores:folder"])).unwrap_err();
+        assert_eq!(refused, "Folder cannot be turned off");
+        // A database here syncs with Dropbox: Dropbox stays on till it stops syncing there.
+        store.update(|s| s.databases.push(crate::store::Known {
+            file: dir.path().join("base.kdbx"),
+            key_file: None,
+            remote: Some(crate::store::Remote { location: Location::Dropbox { path: "/base.kdbx".into() }, revision: None, synced: None }),
+            name: None,
+            description: None,
+            backup: None,
+        })).unwrap();
+        assert!(stores(&store).contains(&("dropbox".into(), true, true)));
+        let refused = Settings::of(&store).set("disabledModules", serde_json::json!(["stores:dropbox"])).unwrap_err();
+        assert_eq!(refused, "A database here syncs with Dropbox: stop syncing it there first");
+        assert!(Settings::of(&store).set("disabledModules", serde_json::json!(["stores:google"])).is_ok());
+        // A folder turned off by an older setting is on all the same.
+        store.update(|s| { s.settings.insert("disabledModules".into(), serde_json::json!(["stores:folder"])); }).unwrap();
+        assert!(!is_off(&store, "stores", "folder"));
     }
 }

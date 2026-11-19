@@ -1915,11 +1915,6 @@ ul.skipped {
   font-size: 12px;
 }
 
-ul.formats {
-  margin: 0 0 12px;
-  padding-left: 20px;
-}
-
 dialog.modal .buttons {
   display: flex;
   gap: 8px;
