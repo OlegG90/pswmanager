@@ -564,7 +564,12 @@ status saying the store is turned off and that changes wait here (never "Synced"
 fillers' toggles again at each unlock, whether the database is unlocked in the app or from the autofill
 service. The `CardFiller` pilot (Phase 3) is the `card`
 autofill category: the core owns what makes an entry a card, its brand and the redacted offer (brand and
-last four, never the full number or CVV), and the fields a form takes; the Kotlin autofill service
+last four, never the full number or CVV), and the fields a form takes. A card is read whichever app made
+it: the importers' names (`Card number`, `Card code`, …), the starter template's (`Card number`, `CVV`,
+`Cardholder`, `Expiry`), Keepass2Android's template in the language its UI had (`Number`/`Номер`/`Nummer`,
+`CVV`/`Sicherheitscode`, `Card holder`/`Власник картки`, the expiry as the entry's own expiry date) and
+the autofill hints K2A saves under (`cc-number`, `cc-csc`); names match without regard to case, and a
+generic `Number` counts only when it passes Luhn; the Kotlin autofill service
 detects card fields and asks, and the card answer is given from memory only, wiped once handed over.
 Rendering the Android drawer and sheets from the registry is a documented follow-up (they still list
 their static labels; the core already refuses what they cannot offer). Windows/browser parity is a
