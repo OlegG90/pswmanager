@@ -592,8 +592,11 @@ last four, never the full number or CVV), and the fields a form takes. A card is
 it: the importers' names (`Card number`, `Card code`, …), the starter template's (`Card number`, `CVV`,
 `Cardholder`, `Expiry`), Keepass2Android's template in the language its UI had (`Number`/`Номер`/`Nummer`,
 `CVV`/`Sicherheitscode`, `Card holder`/`Власник картки`, the expiry as the entry's own expiry date) and
-the autofill hints K2A saves under (`cc-number`, `cc-csc`); names match without regard to case, and a
-generic `Number` counts only when it passes Luhn. The Kotlin autofill service detects card fields and
+the autofill hints K2A saves under (`cc-number`, `cc-csc`); names match without regard to case, a blank
+field (a template's left empty) counts as none, and a generic `Number` counts only when it passes Luhn.
+The expiry is the field named so (`Expiry`, `Expires`, `Valid thru`, `Дійсна до`…), else the one field
+whose value reads as a month and a year (`12/30`, `1/2030`: SafeInCloud's cards keep their own names),
+else the entry's own expiry date. The Kotlin autofill service detects card fields and
 asks (*Autofill → Cards*); the router offers the cards redacted and gives one card's fields only on a
 request of its own, after Kotlin verified the user, from memory, the number and code wiped once handed
 over. Windows/browser parity is a documented follow-up (the KeePassXC-Browser protocol has no card

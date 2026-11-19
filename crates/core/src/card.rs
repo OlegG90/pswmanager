@@ -23,16 +23,31 @@ pub const NAME: &[&str] = &[
     "Card cardholder name", "Cardholder", "Card holder", "Cardholder name", "Karteninhaber", "Власник картки", "Владелец карты", "Inhaber", "cc-name",
 ];
 /// The expiry as text: the importers' `Card expiry`, the starter template's
-/// `Expiry`, the hint `cc-exp`. K2A keeps none: its template uses the entry's
-/// own expiry date, which [fill] reads when no field names one.
-pub const EXPIRY: &[&str] = &["Card expiry", "Expiry", "Expiry date", "Expiration date", "Ablaufdatum", "Термін дії", "Срок действия", "cc-exp"];
+/// `Expiry`, the hint `cc-exp`, and the names other apps (SafeInCloud's
+/// cards, kept as they were by `sic2kdbx`) give it. With none of them, [fill]
+/// takes a field whose value looks like one ([looks_like_expiry]), then the
+/// entry's own expiry date, where K2A's template keeps it.
+pub const EXPIRY: &[&str] = &[
+    "Card expiry", "Expiry", "Expiry date", "Expiration date", "Expiration", "Expires", "Exp", "Valid thru", "Valid through", "Valid until",
+    "Ablaufdatum", "Gültig bis", "Термін дії", "Строк дії", "Дійсна до", "Діє до", "Срок действия", "Действует до", "cc-exp",
+];
+
+/// Whether `value` reads as a card's expiry: a month and a year, `12/30`,
+/// `1/2030`, `12-30` or `12.30`, and nothing else.
+pub fn looks_like_expiry(value: &str) -> bool {
+    static EXPIRY_VALUE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^\s*(0?[1-9]|1[0-2])\s*[/.\-]\s*(\d{2}|\d{4})\s*$").unwrap());
+    EXPIRY_VALUE.is_match(value)
+}
 
 /// The value of the first of `names` the entry keeps, matched without regard
-/// to case or surrounding spaces, as another app may have written it.
+/// to case or surrounding spaces, as another app may have written it. An
+/// empty field (a template's left blank) counts as none, so the next name,
+/// or another source, is tried.
 fn field<'e>(entry: &'e EntryRef<'_>, names: &[&str]) -> Option<&'e str> {
     names.iter().find_map(|wanted| {
         let wanted = wanted.to_lowercase();
-        entry.fields.iter().find(|(name, _)| name.trim().to_lowercase() == wanted).map(|(_, value)| value.get().as_str())
+        entry.fields.iter().find(|(name, value)| name.trim().to_lowercase() == wanted && !value.get().trim().is_empty()).map(|(_, value)| value.get().as_str())
     })
 }
 
@@ -111,7 +126,10 @@ pub fn offer(entry: &EntryRef<'_>) -> Option<Offer> {
 /// template keeps it) gives it, as `MM/YY`.
 pub fn fill(entry: &EntryRef<'_>) -> Option<Fill> {
     let number = number(entry)?;
+    // By its name, else the one field whose value reads as an expiry, else the
+    // entry's own expiry date.
     let expiry = field(entry, EXPIRY)
+        .or_else(|| entry.fields.iter().map(|(_, value)| value.get().as_str()).find(|value| looks_like_expiry(value)))
         .map(str::to_string)
         .or_else(|| (entry.times.expires == Some(true)).then(|| entry.times.expiry.format("%m/%y").to_string()))
         .unwrap_or_default();
@@ -188,6 +206,29 @@ mod tests {
         // As K2A saves a card from a form, under the autofill hints; any case.
         let saved = with(&[("cc-number", "4111111111111111"), ("CC-CSC", "123")], None);
         assert_eq!(fill(&saved).unwrap().code.as_str(), "123");
+    }
+
+    #[test]
+    fn the_expiry_is_found_under_other_apps_names_or_by_its_value() {
+        // SafeInCloud's card, as sic2kdbx keeps its field names.
+        let named = with(&[("Number", "4111111111111111"), ("Owner", "Erin Example"), ("Expires", "07/31"), ("CVV", "123")], None);
+        assert_eq!(fill(&named).unwrap().expiry, "07/31");
+        let unnamed = with(&[("Number", "4111111111111111"), ("Bank", "Example Bank"), ("Some date", "1/2031"), ("CVV", "123")], None);
+        assert_eq!(fill(&unnamed).unwrap().expiry, "1/2031");
+        // A field named so wins over a value that only looks like one; the entry's date comes last.
+        let both = with(&[("Number", "4111111111111111"), ("Valid thru", "12/30"), ("Note", "3/29")], Some("2032-01-01 00:00"));
+        assert_eq!(fill(&both).unwrap().expiry, "12/30");
+        let dated = with(&[("Number", "4111111111111111"), ("Note", "not a date")], Some("2032-01-01 00:00"));
+        assert_eq!(fill(&dated).unwrap().expiry, "01/32");
+        // The starter template's Expiry left blank, the entry's own date set.
+        let template = with(&[("Cardholder", "Erin Example"), ("Card number", "4111111111111111"), ("Expiry", ""), ("CVV", "123"), ("PIN", "")], Some("2030-12-31 00:00"));
+        assert_eq!(fill(&template).unwrap().expiry, "12/30");
+        for value in ["12/30", "1/2030", "07-31", " 12.30 "] {
+            assert!(looks_like_expiry(value), "{value}");
+        }
+        for value in ["13/30", "4111111111111111", "12/3", "123", "12/30 and more"] {
+            assert!(!looks_like_expiry(value), "{value}");
+        }
     }
 
     #[test]
