@@ -1,4 +1,5 @@
-import { type DatabaseSetting, type DatabaseSettings, type Encryption, type Module, moduleHint } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Module } from '../../../../src/api'
+import { moduleGroups, moduleHint, switchable, turned } from '../../../../src/modules-settings'
 import { type Choice, describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue } from '../../../../src/database-settings'
 import { busyButton, button, el, errorLine } from '../../../../src/dom'
 import { input, showHide, strengthMeter } from '../../../../src/editor-parts'
@@ -376,36 +377,18 @@ function autofillRow(): HTMLElement {
   return el('div', {}, said, choose)
 }
 
-/**
- * Settings › Modules (#412): the stores and the autofill categories, each with
- * its switch; labels and hints come from the core's registry. The import and
- * export formats are not offered: turning one off only loses a feature. A
- * store turned off pauses its syncs, local-only; an autofill category turned
- * off offers nothing in other apps. `changed` reads the modules again.
- */
+/** Settings › Modules (#412), as both apps behave (`modules-settings.ts`):
+ *  the phone adds the autofill categories. `changed` reads the modules again. */
 function modulesTab(modules: Module[], changed: () => void): Node[] {
-  const turn = (m: Module) => (on: boolean) => {
-    const off = new Set(app.settings?.disabledModules ?? [])
-    const key = `${m.kind}:${m.id}`
-    if (on) off.delete(key)
-    else off.add(key)
-    void save('disabledModules', [...off].sort()).then(changed)
-  }
-  const group = (kind: Module['kind'], title: string, about: string): Node[] => {
-    // A folder or a document cannot be turned off; a store a database syncs with stays on.
-    const list = modules.filter((m) => m.kind === kind && m.optional)
-    if (!list.length) return []
-    return [el('h2', {}, title), el('p', { className: 'muted' }, about), ...list.map((m) => moduleSwitch(m, turn(m)))]
-  }
-  return [
-    ...group('stores', 'Stores', 'A store turned off is not offered; a database synced there keeps its changes on this phone until the store is turned back on.'),
-    ...group('fillers', 'Autofill categories', 'What PswManager fills in other apps and browsers. A card is filled only after the fingerprint or the screen lock.'),
-  ]
+  const turn = (m: Module) => (on: boolean) => void save('disabledModules', turned(app.settings?.disabledModules ?? [], m, on)).then(changed)
+  return moduleGroups(modules, true).flatMap(({ title, about, modules }) => [
+    el('h2', {}, title), el('p', { className: 'muted' }, about), ...modules.map((m) => moduleSwitch(m, turn(m))),
+  ])
 }
 
-/** One module's switch, `turned` with its new state; a store in use cannot be turned off. */
+/** One module's switch, `turned` with its new state. */
 function moduleSwitch(m: Module, turned: (on: boolean) => void) {
-  const box = el('input', { type: 'checkbox', checked: m.enabled, disabled: m.inUse && m.enabled })
+  const box = el('input', { type: 'checkbox', checked: m.enabled, disabled: !switchable(m) })
   box.addEventListener('change', () => turned(box.checked))
   return el('label', { className: 'setting' }, el('span', {}, m.label, el('small', {}, moduleHint(m))), box)
 }

@@ -149,6 +149,8 @@ class PswmAutofillService : AutofillService() {
      */
     private fun cardOffers(context: Context, fields: AutofillFields, card: CardFields, caller: Caller, response: FillResponse.Builder): Boolean {
       val found = JSONArray(ProviderBridge.cards(caller.origin, caller.packageName, caller.certificate) ?: "[]")
+      // Which of a card's fields the form has, and of what kind: never a value.
+      android.util.Log.d("PswmAutofill", "Card form: ${card.describe()}; ${found.length()} cards")
       for (i in 0 until minOf(found.length(), MAX_OFFERS)) {
         val choice = found.getJSONObject(i)
         val id = choice.getString("id")
@@ -198,10 +200,13 @@ class PswmAutofillService : AutofillService() {
         }
       }
       setExpiry(card.expiry, CardValues.short(expiry)) { null }
-      CardValues.monthYear(expiry)?.let { (month, year) ->
+      val parts = CardValues.monthYear(expiry)
+      parts?.let { (month, year) ->
         setExpiry(card.month, month) { CardValues.monthIndex(it, month) }
         setExpiry(card.year, year) { CardValues.yearIndex(it, year) }
       }
+      // Whether the expiry could be read and where it went: never a value.
+      android.util.Log.d("PswmAutofill", "Card fill: ${card.describe()}; expiry ${if (expiry.isEmpty()) "none" else if (parts == null) "unreadable" else "read"}")
       return Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build())
     }
 

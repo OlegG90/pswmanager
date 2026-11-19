@@ -1,4 +1,4 @@
-import { api, moduleHint, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
@@ -7,6 +7,7 @@ import { ask } from './modal'
 import { changeMasterKey } from './change-key'
 import { changeEncryption, describeEncryption } from './change-encryption'
 import { HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from './database-settings'
+import { moduleGroups, moduleHint, switchable, turned } from './modules-settings'
 import { setUpSync } from './sync-setup'
 
 const minutes = (never: string): Choice[] =>
@@ -300,25 +301,13 @@ export async function renderSettings(
       button('Link…', 'Sync with a file already in a store', run(() => setUpSync('link', waiting))))
   }
 
-  /** The in-tree modules the tools and sheets offer, each with its on/off (#412).
-   *  Only the stores are offered here: turning one off has a point (its syncs
-   *  pause, local-only). The import and export formats stay on, as hiding one
-   *  only loses a feature. The autofill categories are not offered either: the
-   *  autofill router runs on Android only, so on this PC a switch for them
-   *  would change nothing while Auto-Type and the browser extension go on
-   *  filling. Labels and hints come from the core (`Module`); the frontend
-   *  keeps no copy of them. */
+  /** Settings › Modules (#412), as both apps behave (`modules-settings.ts`):
+   *  labels and hints come from the core (`Module`); the frontend keeps no
+   *  copy of them. */
   function modulesGroup(s: Settings, status: Status): HTMLElement[] {
-    const kinds: [Module['kind'], string][] = [
-      ['stores', 'Stores'],
-    ]
     const change = (m: Module) => async (on: boolean) => {
-      const disabled = new Set(s.disabledModules)
-      const key = `${m.kind}:${m.id}`
-      if (on) disabled.delete(key)
-      else disabled.add(key)
       try {
-        await api.setSetting('disabledModules', [...disabled].sort())
+        await api.setSetting('disabledModules', turned(s.disabledModules, m, on))
         modules = await api.modules()
       } catch (e) {
         onError(String(e))
@@ -326,12 +315,8 @@ export async function renderSettings(
       }
       draw(await api.settings(), status)
     }
-    return kinds.flatMap(([kind, title]) => {
-      // A folder cannot be turned off; a store a database syncs with stays on.
-      const list = modules.filter((m) => m.kind === kind && m.optional)
-      return list.length ? [group(title, ...list.map((m) =>
-        row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), m.inUse && m.enabled))))] : []
-    })
+    return moduleGroups(modules, false).map(({ title, about, modules }) => group(title, el('p', { className: 'muted' }, about),
+      ...modules.map((m) => row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), !switchable(m))))))
   }
 
   function draw(s: Settings, status: Status) {

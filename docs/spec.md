@@ -1091,7 +1091,9 @@ the card ones in `card.rs`), and the autofill router reads which fillers are tur
   their sources and formats from it, the import picker filters from each importer's extensions, a module
   turned off in Settings is not offered, and a file whose importer is off is refused with that said.
   The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off. The
-  Settings screen's *Modules* section offers the cloud stores only — where off has a point; the import
+  Settings screen's *Modules* section behaves the same on both apps (`src/modules-settings.ts`: the
+  groups, the rows' text, when a switch cannot be used, the setting it saves); Windows offers the cloud
+  stores only — where off has a point; the import
   and export formats stay on, as hiding one only loses a feature. A folder (and Android's platform
   document) cannot be turned off: it is how the app reaches a file at all, with no connection of its own
   (`StorePlugin::optional`), and a setting that says otherwise is ignored. A store a database in the list

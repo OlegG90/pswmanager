@@ -74,8 +74,10 @@ class AutofillFields(
         val id = node.autofillId
         val type = node.autofillType
         // The expiry is often lists (a page's month and year) or a date: read
-        // for a card only. Everything else is text.
-        if (id != null && node.visibility == View.VISIBLE && (type == View.AUTOFILL_TYPE_LIST || type == View.AUTOFILL_TYPE_DATE)) {
+        // for a card only. Everything else is text. A page's list counts
+        // whatever type the browser gives it.
+        val select = node.htmlInfo?.tag.equals("select", ignoreCase = true)
+        if (id != null && node.visibility == View.VISIBLE && (type == View.AUTOFILL_TYPE_LIST || type == View.AUTOFILL_TYPE_DATE || select)) {
           val options = node.autofillOptions.orEmpty().map { it.toString() }
           cardKind(node, options)?.takeIf { it in EXPIRY_KINDS }?.let { card.putIfAbsent(it, Field(id, here, null, type, options)) }
         }
@@ -124,12 +126,12 @@ class AutofillFields(
 
     /** Words in a field's id, name or hint that say which card value it takes, the most specific first. */
     private val CARD_WORDS = listOf(
-      CardKind.MONTH to listOf("exp-month", "expmonth", "exp_month", "expirymonth", "expiry-month", "expiry_month", "ccmonth", "cc-month", "cc_month"),
-      CardKind.YEAR to listOf("exp-year", "expyear", "exp_year", "expiryyear", "expiry-year", "expiry_year", "ccyear", "cc-year", "cc_year"),
+      CardKind.MONTH to listOf("exp-month", "expmonth", "exp_month", "expirymonth", "expiry-month", "expiry_month", "expiresmonth", "expires-month", "expires_month", "ccmonth", "cc-month", "cc_month"),
+      CardKind.YEAR to listOf("exp-year", "expyear", "exp_year", "expiryyear", "expiry-year", "expiry_year", "expiresyear", "expires-year", "expires_year", "ccyear", "cc-year", "cc_year"),
       CardKind.NUMBER to listOf("cardnumber", "card-number", "card_number", "ccnumber", "cc-number", "cc_number", "номер картки", "номер карты"),
       CardKind.CODE to listOf("cvv", "cvc", "csc", "securitycode", "security-code", "security_code"),
       CardKind.EXPIRY to listOf("expiry", "expiration", "exp-date", "expdate", "exp_date", "mm/yy", "термін дії"),
-      CardKind.NAME to listOf("cardholder", "card-holder", "card_holder", "nameoncard", "name-on-card", "cc-name", "власник картки"),
+      CardKind.NAME to listOf("cardholder", "card-holder", "card_holder", "nameoncard", "name-on-card", "cc-name", "cardname", "card-name", "card_name", "власник картки"),
     )
 
     /** The card values a list or a date field is read for: the expiry's. */

@@ -435,10 +435,6 @@ export interface Module {
   inUse: boolean
 }
 
-/** What a module's row says: its hint, and why a store in use cannot be turned off. */
-export const moduleHint = (m: Module) =>
-  m.inUse && m.enabled ? `${m.hint} A database here syncs with it: stop syncing there to turn it off.` : m.hint
-
 /** A file format an export writes (#240). */
 export type ExportFormat = 'csv' | 'cxf'
 

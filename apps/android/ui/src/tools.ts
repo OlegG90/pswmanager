@@ -199,9 +199,10 @@ function showImported(imported: Imported | null) {
 }
 
 /** A source or a format in a sheet, as Windows lists them (#353, #412): its
- *  name, and below it what it reads or carries. */
+ *  button, styled as the sheets' main buttons, and below it what it reads or
+ *  carries. */
 const choiceItem = (label: string, hint: string, action: () => void) =>
-  el('button', { type: 'button', className: 'item choice', onclick: action }, label, el('small', {}, hint.charAt(0).toUpperCase() + hint.slice(1)))
+  el('div', { className: 'choice' }, button(label, label, action, 'primary'), el('small', {}, hint.charAt(0).toUpperCase() + hint.slice(1)))
 
 /** The modules of `kind` turned on, from the core's registry (#412); null,
  *  with why said, when it cannot be read. */
