@@ -120,6 +120,14 @@ fn hide_window(app: AppHandle) {
     window::hide(&app);
 }
 
+/// The in-tree modules (import/export formats, stores, autofill categories)
+/// the window's tools and sheets are rendered from, with whether the user has
+/// turned each off in the settings (#412).
+#[tauri::command]
+fn modules(app: AppHandle) -> Vec<pswm_core::modules::Module> {
+    pswm_core::modules::list(&app.state())
+}
+
 /// Where PswManager's source lives (the workspace's `repository`): opened from
 /// Settings → About. Fixed at build time, so the window never asks to open an
 /// address of its own.
@@ -304,6 +312,7 @@ pub fn run() {
             entries::password_strength,
             app_settings::settings,
             app_settings::set_setting,
+            modules,
             entries::password_health,
             entries::similar_entries,
             entries::merge_entries,

@@ -4,7 +4,7 @@
 
 use crate::dbfile::{hash_hex, same_file, sibling, OpenError, BAK, REMOTE_BAK};
 use crate::encryption::{check_header, TOO_COSTLY};
-use crate::remote::{Remote, RemoteError};
+use crate::remote::{Location, Remote, RemoteError};
 use crate::session::Session;
 use crate::store::{self, Store};
 use std::fs;
@@ -23,6 +23,9 @@ pub enum Outcome {
     Merged(Vec<String>),
     /// The remote file changed, and merging needs the key: at the next unlock.
     WaitingForUnlock,
+    /// The store is turned off in Settings › Modules (#412): nothing was
+    /// checked or sent, and changes made here wait until it is back on.
+    Paused,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,9 +60,33 @@ fn failed(message: impl ToString) -> SyncError {
     SyncError::Failed(message.to_string())
 }
 
+/// Why nothing new links to the store `location` lives in, and no sync runs
+/// through it: the store is turned off in Settings › Modules, so it is
+/// absent (#412). A database already synced there pauses, local-only, until
+/// the store is turned back on or syncing stops.
+fn store_off(store: &Store, location: &Location) -> Option<String> {
+    if !crate::modules::is_off(store, "stores", location.kind()) {
+        return None;
+    }
+    Some(crate::modules::store_turned_off(&capitalized(location.name())))
+}
+
+/// `name` ("the folder", "Dropbox") as a sentence starts with it.
+fn capitalized(name: &str) -> String {
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
 /// Syncs the working copy with `remote`. Uploads need nothing unlocked; a
-/// changed remote file is read with the unlocked database's key.
+/// changed remote file is read with the unlocked database's key. A store
+/// turned off in Settings › Modules is absent: the sync pauses, local-only,
+/// and says so ([Outcome::Paused]) rather than look up to date.
 pub fn sync(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Outcome, SyncError> {
+    if let Some((_, state)) = synced(store) {
+        if store_off(store, &state.location).is_some() {
+            return Ok(Outcome::Paused);
+        }
+    }
     for _ in 0..ATTEMPTS {
         if let Some(outcome) = attempt(remote, store, session)? {
             return Ok(outcome);
@@ -193,6 +220,9 @@ pub fn is_pending(known: &store::Known) -> bool {
 /// it is downloaded to `local`, a file the user chose, which it then syncs
 /// with. A file already at `local` is kept as `<name>.bak`.
 pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -> Result<(), String> {
+    if let Some(off) = store_off(store, &location) {
+        return Err(off);
+    }
     if store.read(|s| s.lists(&local, None)) {
         return Err(format!("{} is already in the list: choose another place", local.display()));
     }
@@ -214,6 +244,9 @@ pub fn start(store: &Store, location: crate::remote::Location, local: PathBuf) -
 /// remote file just made from `uploaded` (the file's bytes) at `revision`:
 /// nothing is downloaded, and a change to the file since counts as pending.
 pub fn attach(store: &Store, file: &Path, location: crate::remote::Location, revision: String, uploaded: &[u8]) -> Result<(), String> {
+    if let Some(off) = store_off(store, &location) {
+        return Err(off);
+    }
     let remote = store::Remote { location, revision: Some(revision), synced: Some(hash_hex(uploaded)) };
     store
         .update(|s| {
@@ -249,6 +282,9 @@ pub fn link(
     choice: Option<LinkChoice>,
     key: Option<&crate::dbfile::Snapshot>,
 ) -> Result<bool, String> {
+    if let Some(off) = store_off(store, &location) {
+        return Err(off);
+    }
     let local = working_hash(file).map_err(|_| format!("Cannot read {}", file.display()))?;
     let (bytes, revision) = location.open().download().map_err(|e| e.message())?;
     // With the database unlocked, the remote file must open with its key:
@@ -388,6 +424,11 @@ pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, 
         }
         Ok(Outcome::Merged(_)) => (format!("Merged with {name} at {time}"), false),
         Ok(Outcome::WaitingForUnlock) => (format!("Changes in {name} are merged at the next unlock"), false),
+        // Never "Synced": nothing went to the store, and the user should see it.
+        Ok(Outcome::Paused) => {
+            let waiting = if has_pending(store) { "changes wait here until it is turned back on" } else { "syncing is paused until it is turned back on" };
+            (format!("{} is turned off in Settings › Modules: {waiting}", capitalized(name)), true)
+        }
         Ok(_) => (format!("Synced at {time}"), false),
         Err(SyncError::Offline(message)) if has_pending(store) => (format!("Offline — changes waiting ({message})"), true),
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
@@ -400,6 +441,7 @@ pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::Settings;
 
     #[test]
     fn only_offline_or_a_failure_is_worth_trying_again() {
@@ -944,6 +986,41 @@ mod tests {
         assert!(!has_pending(&s.store), "in step with the remote file");
         // A wrong one stays wrong.
         assert_eq!(Vault::open_current(&s.store, &working, DatabaseKey::new().with_password("other")).err().unwrap(), OpenError::WrongKey);
+    }
+
+    #[test]
+    fn a_store_turned_off_pauses_the_sync_and_refuses_new_links() {
+        let s = setup();
+        s.edit_here("Mail", "changed here");
+        // As a setting kept from before a store in use could not be turned
+        // off: the database here syncs with Dropbox (the test's remote file is
+        // still the folder's), and Dropbox is off.
+        let dropbox = Location::Dropbox { path: "/base.kdbx".into() };
+        let keep = |off: serde_json::Value| s.store.update(|state| { state.settings.insert("disabledModules".into(), off); }).unwrap();
+        s.store.update(|state| state.databases.iter_mut().for_each(|d| if let Some(r) = d.remote.as_mut() { r.location = dropbox.clone() })).unwrap();
+        keep(serde_json::json!(["stores:dropbox"]));
+        // The change waits here: the sync pauses, local-only, without failing,
+        // and the status says so rather than "Synced".
+        assert_eq!(s.sync(), Ok(Outcome::Paused));
+        assert!(settled(&Ok(Outcome::Paused)), "a background upload does not retry it");
+        assert!(has_pending(&s.store));
+        let (text, problem) = describe(&s.store, &Ok(Outcome::Paused));
+        assert!(problem && text.starts_with("Dropbox is turned off") && text.contains("changes wait here"), "{text}");
+        assert_ne!(s.remote_password("Mail"), "changed here");
+        // Nothing new links to it either: the picker already hides it, and
+        // the core refuses a direct call with where to turn it back on.
+        for refused in [
+            start(&s.store, dropbox.clone(), s.store.dir().join("other.kdbx")),
+            attach(&s.store, &PathBuf::from("base.kdbx"), dropbox.clone(), "r".into(), b"bytes"),
+            link(&s.store, &PathBuf::from("base.kdbx"), dropbox.clone(), None, None).map(|_| ()),
+        ] {
+            let why = refused.err().unwrap();
+            assert!(why.contains("turned off in Settings"), "{why}");
+        }
+        // Turned back on, the waiting change goes up.
+        Settings::of(&s.store).set("disabledModules", serde_json::json!([])).unwrap();
+        assert_eq!(s.sync(), Ok(Outcome::Uploaded));
+        assert_eq!(s.remote_password("Mail"), "changed here");
     }
 
     #[test]

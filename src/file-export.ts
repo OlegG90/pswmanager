@@ -1,7 +1,7 @@
-import { api, type ExportFormat } from './api'
+import { api, modulesOn, type ExportFormat, type Module } from './api'
 import { isCancelled } from './invoke'
 import { busyButton, button, choiceList, el, enterPresses } from './dom'
-import { EXPORT_FORMATS, EXPORT_INTRO, EXPORT_WARNING, exportedReport } from './file-export-parts'
+import { EXPORT_INTRO, EXPORT_WARNING, exportedReport } from './file-export-parts'
 
 /**
  * Tools › Export to a file (#240), beside the sidebar: the format, the user
@@ -22,12 +22,23 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
   const show = (...body: Node[]) => showIn('tool', ...body)
   const actions = (...buttons: HTMLElement[]) => el('div', { className: 'tool-actions' }, ...buttons)
 
-  // The formats as a list, each its button with what it carries (#353).
-  const start = (): void =>
+  // The formats as a list, each its button with what it carries (#353, #412).
+  // Rendered from the exporter registry; a format turned off in Settings is
+  // not offered.
+  const start = async (): Promise<void> => {
+    let exporters: Module[]
+    try {
+      exporters = await modulesOn('exporters')
+    } catch (e) {
+      fail(String(e))
+      return
+    }
     showIn('choose',
       el('p', {}, EXPORT_INTRO),
-      choiceList(EXPORT_FORMATS.map(([format, name, what]) => [busyButton(name, `Export as ${name}`, () => chosen(format), fail), what])),
+      choiceList(exporters.map((m): [HTMLButtonElement, string] =>
+        [busyButton(m.label, `Export as ${m.label}`, () => chosen(m.id as ExportFormat), fail), m.hint])),
       el('p', { className: 'muted' }, EXPORT_WARNING))
+  }
 
   // Windows Hello first; when it cannot, the master password.
   const chosen = async (format: ExportFormat): Promise<void> => {
@@ -69,5 +80,5 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
     show(...exportedReport(exported), actions(button('Export again', 'Choose a format again', start)))
   }
 
-  start()
+  void start()
 }

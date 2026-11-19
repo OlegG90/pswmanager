@@ -18,6 +18,7 @@ use pswm_core::autofill::{self, Answer, Asking, Autofill, Give, Offer, Save};
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
+use pswm_core::vault::TypedCard;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use tauri::Manager;
@@ -53,8 +54,17 @@ pub fn app_in_front(shown: bool) {
 }
 
 /// The app unlocked, or came to the front: a lock waiting here no longer counts.
-pub fn unlocked_in_app() {
+/// The fillers turned off in Settings › Modules are read again too, as an
+/// unlock in the app never passes through [unlock] here (#412).
+pub fn unlocked_in_app(store: &Store) {
+    read_modules(store);
     autofill().unlocked_in_app();
+}
+
+/// Reads which fillers are turned off in Settings › Modules (#412): at each
+/// unlock, and as soon as the setting changes.
+pub fn read_modules(store: &Store) {
+    autofill().set_disabled(Settings::of(store).disabled_modules());
 }
 
 /// A Java string argument; `None` when null.
@@ -146,6 +156,18 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_screensh
     native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, |store| Settings::of(store).allow_screenshots()) == Ok(true)))
 }
 
+/// Whether cards are filled (Settings › Modules, #412): read without the
+/// database, so a locked phone offers *Unlock PswManager* on a card form only
+/// when it would then offer cards.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cardsOn<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+) -> jboolean {
+    native(&mut env, JNI_FALSE, |env| yes(|| with_store(env, &state, |store| !pswm_core::modules::is_off(store, "fillers", "card")) == Ok(true)))
+}
+
 /// Unlocks with the master password (`sealed` null), or with the key sealed
 /// for biometric unlock (`sealed`, after the fingerprint): `ok` when
 /// unlocked, else why not, for the user; `stale` when the sealed key no
@@ -176,6 +198,9 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
         if let Some(app) = APP.get() {
             crate::icons::fetch(app, &listing);
         }
+        // A filler turned off in Settings › Modules offers nothing and
+        // refuses, through the router; read again at each unlock (#412).
+        read_modules(store);
         autofill().unlocked(vault, Settings::of(store).lock_in_background());
     })?;
     if let Some(app) = APP.get() {
@@ -393,6 +418,96 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
             let id = optional_text(env, &id)?.ok_or("No login chosen")?;
             let asking = asking(env, &origin, None, &package, &certificate)?;
             Ok(autofill().answer(&id, Give::Login { asking: &asking, confirmed: confirmed == JNI_TRUE }))
+        })
+    })
+}
+
+/// The cards for a form's card fields, as JSON (`[{id, title, summary}]`:
+/// the brand and last four only, #412); null while locked.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cards<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        listed(env, |env| {
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            Ok(autofill().offer(Offer::Cards(&asking)))
+        })
+    })
+}
+
+/// Card `id`'s fields (`{name, number, expiry, code}`, [Give::Card]), once
+/// Kotlin had the user verified for this fill; `failed` and why while locked,
+/// when the entry is gone or is no card, or cards are turned off.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_card<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not give the card", |env| {
+            let id = optional_text(env, &id)?.ok_or("No card chosen")?;
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            Ok(autofill().answer(&id, Give::Card { asking: &asking }))
+        })
+    })
+}
+
+/// Where a card typed into a form can go (`{entries: [{id, title, summary,
+/// same}], cloud}`, [Offer::CardChoices]): the card with the same `number`
+/// first; `failed` and why while locked or with cards turned off.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cardChoices<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    number: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not read the request", |env| {
+            let number = Zeroizing::new(optional_text(env, &number)?.unwrap_or_default());
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            let cloud = syncs_with_cloud(env, &state)?;
+            Ok(autofill().offer(Offer::CardChoices { asking: &asking, number: &number, cloud }))
+        })
+    })
+}
+
+/// Keeps a card typed into a form into card `id` (a new entry when null,
+/// [Save::Card]): `ok` with `{id, title}`, the entry it went to.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveCard<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    name: JString<'local>,
+    number: JString<'local>,
+    expiry: JString<'local>,
+    code: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not save the card", |env| {
+            let id = optional_text(env, &id)?;
+            let text = |env: &mut Env, value: &JString| optional_text(env, value).map(|v| Zeroizing::new(v.unwrap_or_default()));
+            let (name, number, expiry, code) = (text(env, &name)?, text(env, &number)?, text(env, &expiry)?, text(env, &code)?);
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            let card = TypedCard { name: &name, number: &number, expiry: &expiry, code: &code };
+            Ok(autofill().save(Save::Card { id: id.as_deref(), asking: &asking, card }))
         })
     })
 }

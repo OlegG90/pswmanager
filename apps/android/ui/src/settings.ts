@@ -1,4 +1,5 @@
-import type { DatabaseSetting, DatabaseSettings, Encryption } from '../../../../src/api'
+import type { DatabaseSetting, DatabaseSettings, Encryption, Module } from '../../../../src/api'
+import { moduleGroups, moduleHint, switchable, turned } from '../../../../src/modules-settings'
 import { type Choice, describeEncryption, encryptionForm, HEAVY_QUESTION, HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue } from '../../../../src/database-settings'
 import { busyButton, button, el, errorLine } from '../../../../src/dom'
 import { input, showHide, strengthMeter } from '../../../../src/editor-parts'
@@ -9,7 +10,7 @@ import { svgIcon } from './icons'
 import { app, applySettings, confirmSheet, backBar, iconButton, overlay, screen, screens, sheet, show, snack } from './page'
 import { keyFileChooser } from './phone-files'
 import { slide, type Sliding, swipes } from './slides'
-import { CLOUDS, filesIn, STORES } from './sync'
+import { clouds, filesIn, STORES } from './sync'
 
 // The settings screen and its tabs, with the screens they open (the key, the
 // encryption).
@@ -55,7 +56,7 @@ function settingsLeaving(parts: SettingsParts, back: () => void): Sliding {
   return { follow: sliding.back, release: (away) => sliding.release(!away, stay) }
 }
 
-type Tab = 'general' | 'appearance' | 'database' | 'sync' | 'about'
+type Tab = 'general' | 'appearance' | 'database' | 'sync' | 'modules' | 'about'
 let settingsTab: Tab = 'general'
 
 /** A choice among values, saved as soon as it changes. */
@@ -117,7 +118,7 @@ function syncWithStore(): Node[] {
       button('Upload as a new file', `Put this database into ${name}`, () => (close(), void link(cloud, null)), 'item'),
     ])
   }
-  return [el('h2', {}, 'Store'), ...CLOUDS.map((cloud) => button(`Sync with ${STORES[cloud].name}…`, `Sync this database with ${STORES[cloud].name}`, () => void choose(cloud), 'wide'))]
+  return [el('h2', {}, 'Store'), ...clouds().map((cloud) => button(`Sync with ${STORES[cloud].name}…`, `Sync this database with ${STORES[cloud].name}`, () => void choose(cloud), 'wide'))]
 }
 
 /** Stop syncing, for a database synced with a cloud store: the one way out, as
@@ -279,18 +280,26 @@ interface SettingsParts {
 }
 
 function settingsParts(s: Settings, back: () => void): SettingsParts {
-  const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['database', 'Database'], ['sync', 'Sync'], ['about', 'About']]
+  const tabs: [Tab, string][] = [['general', 'General'], ['appearance', 'Appearance'], ['database', 'Database'], ['sync', 'Sync'], ['modules', 'Modules'], ['about', 'About']]
   /** The database's settings, read when its tab is shown (null: not yet, or not readable). */
   let kept: DatabaseSettings | null = null
+  /** The modules, read when their tab is shown and again after a switch (null: not yet). */
+  let modules: Module[] | null = null
   const body = el('div', { className: 'settings' })
   const databaseNodes = () => {
     if (kept) return databaseTab(kept, (d) => (kept = d), fill)
     void api.databaseSettings().then((d) => ((kept = d), settingsTab === 'database' && fill()), (e) => snack(String(e)))
     return [el('p', { className: 'muted' }, 'Reading the database settings…')]
   }
+  const readModules = () => void api.modules().then((m) => ((modules = m), settingsTab === 'modules' && fill()), (e) => snack(String(e)))
+  const modulesNodes = () => {
+    if (modules) return modulesTab(modules, readModules)
+    readModules()
+    return [el('p', { className: 'muted' }, 'Reading the modules…')]
+  }
   const fill = () => {
     bar.querySelectorAll('button').forEach((b, i) => b.classList.toggle('chosen', tabs[i][0] === settingsTab))
-    body.replaceChildren(...(settingsTab === 'database' ? databaseNodes() : tab(settingsTab, app.settings ?? s)))
+    body.replaceChildren(...(settingsTab === 'database' ? databaseNodes() : settingsTab === 'modules' ? modulesNodes() : tab(settingsTab, app.settings ?? s)))
   }
   const bar = el('nav', { className: 'tabs' }, ...tabs.map(([key, label]) => button(label, label, () => ((settingsTab = key), fill()), 'tab')))
   const goBack = () => {
@@ -368,8 +377,24 @@ function autofillRow(): HTMLElement {
   return el('div', {}, said, choose)
 }
 
-/** A tab of the phone's own settings (the Database tab is [databaseTab]). */
-function tab(which: Exclude<Tab, 'database'>, s: Settings): Node[] {
+/** Settings › Modules (#412), as both apps behave (`modules-settings.ts`):
+ *  the phone adds the autofill categories. `changed` reads the modules again. */
+function modulesTab(modules: Module[], changed: () => void): Node[] {
+  const turn = (m: Module) => (on: boolean) => void save('disabledModules', turned(app.settings?.disabledModules ?? [], m, on)).then(changed)
+  return moduleGroups(modules, true).flatMap((group) => [
+    el('h2', {}, group.title), el('p', { className: 'muted' }, group.about), ...group.modules.map((m) => moduleSwitch(m, turn(m))),
+  ])
+}
+
+/** One module's switch, `changed` with its new state. */
+function moduleSwitch(m: Module, changed: (on: boolean) => void) {
+  const box = el('input', { type: 'checkbox', checked: m.enabled, disabled: !switchable(m) })
+  box.addEventListener('change', () => changed(box.checked))
+  return el('label', { className: 'setting' }, el('span', {}, m.label, el('small', {}, moduleHint(m))), box)
+}
+
+/** A tab of the phone's own settings (the Database and Modules tabs are [databaseTab] and [modulesTab]). */
+function tab(which: Exclude<Tab, 'database' | 'modules'>, s: Settings): Node[] {
   switch (which) {
     case 'general':
       return [

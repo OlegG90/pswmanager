@@ -1056,6 +1056,66 @@ with code 2.
   GitHub Release. A manual run builds both as an artifact without publishing.
 - The exe is unsigned, so SmartScreen asks for confirmation on first run.
 
+## Modules
+
+PswManager's feature groups that can each be present or not — import and export formats, cloud stores,
+icon packs, autofill categories — follow one pattern: **in-tree optional modules** behind registries,
+compiled in, toggled in settings where it makes sense (#412). Nothing is loaded at runtime: no DLLs, no
+`.so`, no dex, no JS `eval`; the single portable `pswm.exe` and the single APK/AAB stay so.
+
+Three levels:
+
+- **L0 core (never modular):** the KDBX read/write, merge and the sync decision, crypto and key, TOTP,
+  passkeys/WebAuthn, the autofill router's policy (who asks, the privileged-browser allowlist, locked
+  behaviour, limits, "Trust this app?", linking), the site-icon fetching policy, lock/clipboard/screenshots.
+- **L1 built-in modules:** `Importer` (CSV, Bitwarden, CXF, Aegis), `Exporter` (CSV, CXF), `StorePlugin`
+  (a folder, Dropbox, Google Drive, OneDrive, a platform document) and `CategoryFiller` (logins now, cards
+  as the pilot). Each is listed through a registry as a `Module` carrying its label and hint — the single
+  source the tools and *Settings → Modules* render from, with no copy in the frontend (Android's first
+  run and Sync tab keep their longer texts for a store, naming the app's folder there). A missing or disabled module's UI
+  entries disappear, never a broken action.
+- **L2 data packs:** icon sets and template/field vocabularies, validated data only.
+
+The boundary is: the core owns the routing and the policy around a module; the module owns its own
+detection / format / stores / fields. Passkeys and TOTP are never modules (they are identity primitives
+with no off switch), site-icon fetching stays in the core (only static icon packs may be modular), and
+list sorting stays the closed built-in list.
+
+The traits live in `crates/core/src/modules.rs`; the handlers and their registries live in
+`file_import.rs`, `file_export.rs`, `remote.rs`, `autofill.rs` and `card.rs`. A `CategoryFiller` is only
+the category's id, label and hint: the behaviour lives beside it (the login decisions on `LoginFiller`,
+the card ones in `card.rs`), and the autofill router reads which fillers are turned off.
+
+- **Phase 0** introduced the registries and routed the existing code through them with no change in
+  behaviour.
+- **Phase 1** put the import and export tools behind the registry: the Windows tools and sheets render
+  their sources and formats from it, the import picker filters from each importer's extensions, a module
+  turned off in Settings is not offered, and a file whose importer is off is refused with that said.
+  The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off. The
+  Settings screen's *Modules* section behaves the same on both apps (`src/modules-settings.ts`: the
+  groups, the rows' text, when a switch cannot be used, the setting it saves); Windows offers the cloud
+  stores only — where off has a point; the import
+  and export formats stay on, as hiding one only loses a feature. A folder (and Android's platform
+  document) cannot be turned off: it is how the app reaches a file at all, with no connection of its own
+  (`StorePlugin::optional`), and a setting that says otherwise is ignored. A store a database in the list
+  syncs with cannot be turned off either: its switch is disabled, saying why, and the core refuses the
+  setting until the database stops syncing there. The autofill categories are not offered on Windows: the autofill router runs on Android only,
+  so a switch here would change nothing while Auto-Type and the browser extension go on filling.
+  Disabled means absent, the same on both apps: a hidden tool is not offered; a file whose importer or
+  exporter is off is refused with that said; nothing new links to a store that is off, and a database
+  synced there (only with a setting kept from before a store in use could not be turned off) pauses
+  until the store is turned back on or syncing stops — its status line says the store is turned off and
+  that changes wait here, never "Synced"; a filler that is off offers nothing
+  and refuses, read again at each unlock on the device that autofills.
+- **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
+  describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
+  Windows' choose screen leaves out a store that is off, too. Both apps refuse a module that is off
+  through the same core checks (`modules::check_importer`, `check_exporter`, `check_cloud`).
+- **Phase 3** is the `CardFiller` pilot on Android's autofill (`spec-android.md` *Autofill → Cards* and
+  *Saving a card*): the core offers the cards redacted (brand and last four), gives one card's fields only
+  after the phone verified the user, and keeps a card typed into a form as a new card or into one in use. Windows has no card filling: the KeePassXC-Browser protocol has none, and
+  Auto-Type has no card semantics.
+
 ## SafeInCloud migration
 
 `sic2kdbx.py` stays a separate, one-off Python tool, in `tools/sic2kdbx` (see its README). It is not part of the app and not part of

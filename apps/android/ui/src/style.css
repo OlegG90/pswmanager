@@ -341,6 +341,13 @@ main.list-screen {
   padding: 12px 4px;
 }
 
+/* A source or a format in the import and export sheets: its button, as the
+   sheets' main ones, and what it reads or carries below it (#353, #412). */
+.sheet .choice small {
+  display: block;
+  margin-top: 4px;
+}
+
 .masked {
   letter-spacing: 0.1em;
 }

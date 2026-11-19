@@ -19,7 +19,12 @@ export const STORES: Record<Cloud, { name: string; folder: string }> = {
   google: { name: 'Google Drive', folder: 'PswManager, at the top of the Drive' },
 }
 /** The stores in the order they are offered. */
-export const CLOUDS = Object.keys(STORES) as Cloud[]
+const CLOUDS = Object.keys(STORES) as Cloud[]
+
+/** The stores offered: those not turned off in Settings › Modules (#412).
+ *  Before the settings were read, all of them; the backend refuses one that
+ *  is off before any sign-in starts. */
+export const clouds = (): Cloud[] => CLOUDS.filter((cloud) => !app.settings?.disabledModules.includes(`stores:${cloud}`))
 
 /** Signs in to `cloud` in the browser, then waits for it to come back. A
  *  sign-in started again gives up on the one before. */

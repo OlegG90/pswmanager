@@ -6,6 +6,7 @@
 //! wiped when dropped, written only where the user chooses, and never logged.
 
 use crate::edit::{passkey, STANDARD};
+use crate::modules;
 use crate::otp;
 use keepass::db::{fields, EntryRef};
 use serde::{Deserialize, Serialize};
@@ -23,11 +24,26 @@ pub enum Format {
 }
 
 impl Format {
-    pub fn extension(self) -> &'static str {
+    /// The exporter that writes this format.
+    pub(crate) fn exporter(self) -> &'static dyn modules::Exporter {
         match self {
-            Format::Csv => "csv",
-            Format::Cxf => "json",
+            Format::Csv => &Csv,
+            Format::Cxf => &Cxf,
         }
+    }
+
+    /// The exporter's id, as the settings name a disabled module.
+    pub fn id(self) -> &'static str {
+        self.exporter().id()
+    }
+
+    pub fn extension(self) -> &'static str {
+        self.exporter().extension()
+    }
+
+    /// The format's name for the picker's filter.
+    pub fn label(self) -> &'static str {
+        self.exporter().label()
     }
 }
 
@@ -54,6 +70,63 @@ impl Export {
     /// Written to `file` (as the user sees it).
     pub fn written(self, file: String) -> Exported {
         Exported { file, entries: self.entries, left_out: self.left_out }
+    }
+}
+
+/// The entries as the file `format` names, through the exporter registry.
+/// Every secret is in it, in clear: the caller wipes `content` when done.
+pub(crate) fn export<'a>(format: Format, account: &str, entries: impl Iterator<Item = EntryRef<'a>>) -> Export {
+    format.exporter().export(account, entries.collect())
+}
+
+struct Csv;
+struct Cxf;
+
+/// The built-in exporters, one per [Format].
+pub(crate) fn exporters() -> &'static [&'static dyn modules::Exporter] {
+    static EXPORTERS: &[&'static dyn modules::Exporter] = &[&Csv, &Cxf];
+    EXPORTERS
+}
+
+impl modules::Exporter for Csv {
+    fn id(&self) -> &'static str {
+        "csv"
+    }
+    fn label(&self) -> &'static str {
+        "CSV"
+    }
+    fn hint(&self) -> &'static str {
+        "logins only, which browsers, Google Password Manager, Bitwarden and 1Password read; no passkeys"
+    }
+    fn extension(&self) -> &'static str {
+        "csv"
+    }
+    fn export<'a>(&self, _account: &str, entries: Vec<EntryRef<'a>>) -> Export {
+        csv(entries.into_iter())
+    }
+}
+
+impl modules::Exporter for Cxf {
+    fn id(&self) -> &'static str {
+        "cxf"
+    }
+    fn label(&self) -> &'static str {
+        "Credential Exchange"
+    }
+    fn hint(&self) -> &'static str {
+        "everything, passkeys too, in the new Credential Exchange format; few managers read it yet"
+    }
+    fn extension(&self) -> &'static str {
+        "json"
+    }
+    fn export<'a>(&self, account: &str, entries: Vec<EntryRef<'a>>) -> Export {
+        // At full size, wiped when dropped; the account defaults to the name
+        // [crate::vault::Vault::export] gives a database that has none.
+        let with_files = entries.iter().filter(|e| e.attachments().next().is_some()).count();
+        let count = entries.len();
+        let account = if account.trim().is_empty() { "PswManager" } else { account };
+        let content = crate::cxf::export(entries.into_iter(), account, chrono::Utc::now().timestamp());
+        Export { name: String::new(), content, entries: count, left_out: cxf_left_out(with_files) }
     }
 }
 

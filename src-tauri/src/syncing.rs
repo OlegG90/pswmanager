@@ -2,7 +2,7 @@
 //! sync now. The syncs themselves run in `sync`.
 use crate::databases::{can_switch, choose, cloud_in_use, cloud_of, forget_if_unused, save_as, Status};
 use crate::{hello, pick, sync};
-use pswm_core::{dbfile, oauth, remote};
+use pswm_core::{dbfile, modules, oauth, remote};
 use pswm_core::session::Session;
 use pswm_core::store::Store;
 use pswm_core::vault::Vault;
@@ -44,7 +44,9 @@ pub(crate) struct CloudFiles {
 #[tauri::command(async)]
 pub fn sign_in_to_cloud(app: AppHandle, cloud: remote::Cloud) -> Result<CloudFiles, String> {
     // Also from the settings of an unlocked database (Upload, Link); opening
-    // one from the store checks the switch itself.
+    // one from the store checks the switch itself. A store turned off in
+    // Settings › Modules is refused before the browser opens (#412).
+    modules::check_cloud(&app.state::<Store>(), cloud)?;
     if sync::is_running(&app) {
         return Err("A sync is running; try again in a moment".into());
     }
@@ -83,6 +85,7 @@ pub fn sync_with_cloud(
         }
         // The current local database, uploaded (unlocked or not): it syncs with the new remote file.
         None => {
+            modules::check_cloud(&store, cloud)?;
             if sync::is_running(&app) {
                 return Err("A sync is running; try again in a moment".into());
             }

@@ -40,6 +40,9 @@ object ProviderBridge {
   /** The settings allow screenshots of the app's screens (off by default). */
   external fun screenshotsAllowed(state: String): Boolean
 
+  /** Cards are filled: not turned off in Settings › Modules (#412). Read without the database. */
+  external fun cardsOn(state: String): Boolean
+
   /** The setting allows the fingerprint and the master password is not due. */
   external fun fingerprintAllowed(state: String): Boolean
 
@@ -87,6 +90,27 @@ object ProviderBridge {
    * (`confirmed`: the entry keeps it); failed while locked, when gone or not for who asks.
    */
   external fun login(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String?
+
+  /**
+   * The cards, for a form's card fields (#412), as JSON (`[{id, title, summary}]`: the brand and
+   * last four only); null while locked.
+   */
+  external fun cards(origin: String?, packageName: String, certificate: ByteArray?): String?
+
+  /**
+   * Card `id`'s fields, once the user was verified for this fill: an [Answer], ok with
+   * `{name, number, expiry, code}`; failed while locked, when gone, no card, or cards are off.
+   */
+  external fun card(id: String, origin: String?, packageName: String, certificate: ByteArray?): String?
+
+  /**
+   * Where a card typed into a form can go (#412): an [Answer], ok with `{entries: [{id, title,
+   * summary, same}], cloud}`, the card with the same `number` first.
+   */
+  external fun cardChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?, number: String): String?
+
+  /** Keeps a typed card into card `id` (a new one when null): an [Answer], ok with `{id, title}`. */
+  external fun saveCard(id: String?, origin: String?, packageName: String, certificate: ByteArray?, name: String, number: String, expiry: String, code: String): String?
 
   /** The entries a login offered can update: an [Answer], ok with `{entries, cloud}`. */
   external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String?

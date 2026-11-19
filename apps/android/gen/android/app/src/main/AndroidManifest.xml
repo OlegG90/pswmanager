@@ -136,11 +136,23 @@
             android:excludeFromRecents="true"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".AutofillCardSaveActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".AutofillLoginActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.pswm_android.Translucent" />
+        <activity
+            android:name=".AutofillCardActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".ScanActivity"
             android:exported="false"

@@ -12,8 +12,10 @@ use pswm_core::documents::DocumentStore;
 use pswm_core::file_export::{self, Format};
 use pswm_core::file_import;
 use pswm_core::gauth;
+use pswm_core::modules;
 use pswm_core::qr;
 use pswm_core::session::Session;
+use pswm_core::store::Store;
 use pswm_core::vault::Listing;
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -162,6 +164,8 @@ pub async fn import_from_file(app: AppHandle) -> Result<Option<ImportStep>, Stri
 
 /// Imports what a file read holds, or keeps it waiting for its password.
 fn import_read(app: &AppHandle, name: String, content: Zeroizing<Vec<u8>>, path: Option<PathBuf>) -> Result<ImportStep, String> {
+    // A file whose importer is turned off in Settings › Modules (#412).
+    modules::check_importer(&app.state::<Store>(), &name, &content)?;
     if file_import::needs_password(&content) {
         app.state::<WaitingFile>().hold(name.clone(), content, path);
         return Ok(ImportStep::Password { file: name });
@@ -266,6 +270,7 @@ pub async fn delete_imported_file(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<file_export::Exported>, String> {
     off_main(move || {
+        modules::check_exporter(&app.state::<Store>(), format)?;
         let session = app.state::<Session>();
         let export = session.export(format)?;
         let documents = app.state::<Documents<Wry>>();
@@ -283,6 +288,7 @@ pub async fn export_to(app: AppHandle, format: Format) -> Result<Option<file_exp
 #[tauri::command]
 pub async fn export_at(app: AppHandle, format: Format, folder: String, name: String) -> Result<file_export::Exported, String> {
     off_main(move || {
+        modules::check_exporter(&app.state::<Store>(), format)?;
         let session = app.state::<Session>();
         let export = session.export(format)?;
         let (path, name) = crate::phone_files::in_browsed(&folder, &name)?;

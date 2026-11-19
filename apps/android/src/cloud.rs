@@ -6,6 +6,7 @@
 
 use crate::app::{adopt, off_main, Status};
 use crate::documents::Picked;
+use pswm_core::modules;
 use pswm_core::oauth::Pending;
 use pswm_core::remote::{Cloud, CloudFile, RemoteError};
 use pswm_core::session::Session;
@@ -42,6 +43,8 @@ struct SignedIn {
 /// Sends the browser (the default one) to `cloud`'s sign-in; the answer comes to [on_open_url].
 #[tauri::command]
 pub fn sign_in(app: AppHandle, cloud: Cloud) -> Result<(), String> {
+    // A store turned off in Settings › Modules: no browser opens (#412).
+    modules::check_cloud(&app.state::<Store>(), cloud)?;
     let pending = cloud.provider().start(&redirect(cloud))?;
     app.opener().open_url(&pending.url, None::<&str>).map_err(|e| e.to_string())?;
     *app.state::<SignIn>().0.lock().unwrap() = Some((cloud, pending));
@@ -128,6 +131,7 @@ pub async fn sync_with_cloud(app: AppHandle, cloud: Cloud, file: Option<CloudFil
                     sync::link(&store, &working, cloud.location(file), Some(LinkChoice::Merge), Some(&key))?;
                 }
                 None => {
+                    modules::check_cloud(&store, cloud)?;
                     let bytes = std::fs::read(&working).map_err(|e| format!("Cannot read the database: {e}"))?;
                     let name = pswm_core::remote::file_name(&working);
                     let (location, revision) = cloud.create(&name, &bytes).map_err(|e| match e {

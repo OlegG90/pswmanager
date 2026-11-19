@@ -6,14 +6,16 @@
 //! seam, so the decisions are made, and tested, here without a phone.
 
 use crate::dbfile::OpenError;
+use crate::modules;
 use crate::session::Session;
-use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
+use crate::vault::{EntryChoice, LoginError, LoginPlace, TypedCard, Vault};
 use crate::webauthn::{self, Caller};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -29,6 +31,9 @@ pub struct Autofill {
     changed: Box<dyn Fn() + Send + Sync>,
     /// Shared with the wait for a lock after an unlock here.
     relock: Arc<Relock>,
+    /// The module keys (`fillers:login`, …) turned off in Settings › Modules:
+    /// their offers are empty and their answers refused (#412).
+    disabled: Mutex<HashSet<String>>,
 }
 
 /// When a database unlocked here locks again.
@@ -92,6 +97,14 @@ pub enum Offer<'a> {
     /// entries, cloud}`; `excluded` when the database has one of the passkeys
     /// the site names (`excludeCredentials`: no second one then).
     PasskeyChoices { request: &'a str, cloud: bool },
+    /// The cards for a form's card fields (`[{id, title, summary}]`): the
+    /// brand and last four only, never the full number or the code (#412).
+    /// A card is not for one app or site; who asks must still be someone.
+    Cards(&'a Asking),
+    /// Where a card typed into a form can go (`{entries: [{id, title, summary,
+    /// same}], cloud}`): the cards in use, the one with the same `number`
+    /// first (`same`); never a number or a code.
+    CardChoices { asking: &'a Asking, number: &'a str, cloud: bool },
 }
 
 /// What is handed to who asks, from the entry the user picked.
@@ -103,6 +116,9 @@ pub enum Give<'a> {
     /// The answer to a sign-in request (WebAuthn's `AuthenticationResponseJSON`,
     /// as text), signed with the entry's passkey after the user was verified.
     Passkey { request: &'a str, asking: &'a Asking },
+    /// The card's fields (`{name, number, expiry, code}`), after Kotlin had
+    /// the user verified (the fingerprint or the screen lock) for this fill.
+    Card { asking: &'a Asking },
 }
 
 /// What is kept in the database, and goes up with the next sync.
@@ -116,6 +132,9 @@ pub enum Save<'a> {
     /// kept in entry `id` (or a new entry for the site); answered with
     /// WebAuthn's `RegistrationResponseJSON`, as text.
     Passkey { id: Option<&'a str>, request: &'a str, asking: &'a Asking },
+    /// A card typed into a form, kept into card `id` (or a new entry):
+    /// answered with `{id, title}`, the entry it went to.
+    Card { id: Option<&'a str>, asking: &'a Asking, card: TypedCard<'a> },
 }
 
 /// A lock waiting to happen after an unlock here: due after `after`, if
@@ -147,25 +166,57 @@ impl Autofill {
     /// saved here, `lock` when a database unlocked here is due to lock again.
     pub fn new(session: Session, changed: impl Fn() + Send + Sync + 'static, lock: impl Fn() + Send + Sync + 'static) -> Autofill {
         let relock = Relock { unlocks: AtomicU64::new(0), app_in_front: AtomicBool::new(false), lock: Box::new(lock) };
-        Autofill { session, changed: Box::new(changed), relock: Arc::new(relock) }
+        Autofill { session, changed: Box::new(changed), relock: Arc::new(relock), disabled: Mutex::new(HashSet::new()) }
+    }
+
+    /// The device's disabled modules (Settings › Modules): a filler turned
+    /// off offers nothing through the router and refuses answers and saves.
+    /// Empty by default, which is the current behaviour.
+    pub fn set_disabled(&self, disabled: HashSet<String>) {
+        *self.disabled.lock().unwrap() = disabled;
+    }
+
+    /// Whether the filler `id` is turned off.
+    fn filler_off(&self, id: &str) -> bool {
+        self.disabled.lock().unwrap().contains(&format!("fillers:{id}"))
     }
 
     /// What the database offers for a request; `failed` and why while locked
     /// or for a request without a site.
     pub fn offer(&self, offer: Offer) -> Answer {
+        // A filler turned off offers nothing: the offer is empty, never a
+        // broken answer (#412). Passkeys are never modules.
+        let logins_off = self.filler_off("login");
         answered(|| match offer {
             Offer::Logins(asking) => {
                 let place = asking.place()?;
-                listed(self.session.read(|v| v.logins_for(&place))?)
+                let choices = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::offers(v, &place))? };
+                listed(choices)
             }
             Offer::Passkeys(request) => {
                 let scope = webauthn::sign_in_scope(request).ok_or(NO_SITE)?;
                 listed(self.session.read(|v| v.passkeys_for(&scope.rp_id, &scope.allowed))?)
             }
-            Offer::Search(query) => listed(self.session.read(|v| v.login_candidates(query))?),
+            Offer::Search(query) => {
+                let choices = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::candidates(v, query))? };
+                listed(choices)
+            }
             Offer::LoginChoices { asking, cloud } => {
                 let place = asking.place()?;
-                let entries = self.session.read(|v| v.entries_for_login(&place))?;
+                let entries = if logins_off { Vec::new() } else { self.session.read(|v| LoginFiller::choices(v, &place))? };
+                Ok(Answer::Ok(json!({ "entries": entries, "cloud": cloud })))
+            }
+            Offer::Cards(asking) => {
+                asking.place()?;
+                let cards = if self.filler_off("card") { Vec::new() } else { self.session.read(|v| v.cards())? };
+                serde_json::to_value(cards).map(Answer::Ok).map_err(|e| Answer::failed(e.to_string()))
+            }
+            Offer::CardChoices { asking, number, cloud } => {
+                asking.place()?;
+                if self.filler_off("card") {
+                    return Err(Answer::failed(CARDS_OFF));
+                }
+                let entries = self.session.read(|v| v.cards_for_save(number))?;
                 Ok(Answer::Ok(json!({ "entries": entries, "cloud": cloud })))
             }
             Offer::PasskeyChoices { request, cloud } => {
@@ -191,16 +242,35 @@ impl Autofill {
             username: &'a str,
             password: &'a str,
         }
+        #[derive(Serialize)]
+        struct Card<'a> {
+            name: &'a str,
+            number: &'a str,
+            expiry: &'a str,
+            code: &'a str,
+        }
         answered(|| match give {
             Give::Login { asking, confirmed } => {
                 let place = asking.place()?;
+                if self.filler_off("login") {
+                    return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                }
                 if confirmed {
                     self.session.with_mut(|v| v.confirm_app(id, &place))?;
                     (self.changed)();
                 }
-                let (username, password) = self.session.read(|v| v.login(id, &place))?.map_err(|why| Answer::refused(why, &place))?;
+                let (username, password) = self.session.read(|v| LoginFiller::fills(v, id, &place))?.map_err(|why| Answer::refused(why, &place))?;
                 // One string, wiped once Java has its own copy.
                 Ok(Answer::secret(&Login { username: &username, password: &password })?)
+            }
+            Give::Card { asking } => {
+                asking.place()?;
+                if self.filler_off("card") {
+                    return Err(Answer::failed(CARDS_OFF));
+                }
+                let card = self.session.read(|v| v.card(id))?.map_err(Answer::failed)?;
+                // One string, wiped once Java has its own copy; `card` is wiped on drop.
+                Ok(Answer::secret(&Card { name: &card.name, number: &card.number, expiry: &card.expiry, code: &card.code })?)
             }
             Give::Passkey { request, asking } => {
                 let caller = asking.caller()?;
@@ -217,14 +287,28 @@ impl Autofill {
             let saved = match save {
                 Save::Login { id, asking, confirmed, title, username, password } => {
                     let place = asking.place()?;
-                    let saved = self.session.with_mut(|v| Ok(v.save_login(id, &place, confirmed, title, username, password)))?;
+                    if self.filler_off("login") {
+                        return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                    }
+                    let saved = self.session.with_mut(|v| Ok(LoginFiller::saves(v, id, &place, confirmed, title, username, password)))?;
                     saved.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
                 }
                 Save::Link { id, asking, confirmed } => {
                     let place = asking.place()?;
-                    self.session.with_mut(|v| Ok(v.link_login(id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
+                    if self.filler_off("login") {
+                        return Err(Answer::refused(LOGINS_OFF.into(), &place));
+                    }
+                    self.session.with_mut(|v| Ok(LoginFiller::links(v, id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
+                }
+                Save::Card { id, asking, card } => {
+                    asking.place()?;
+                    if self.filler_off("card") {
+                        return Err(Answer::failed(CARDS_OFF));
+                    }
+                    let (id, title) = self.session.with_mut(|v| Ok(v.save_card(id, &card)))?.map_err(Answer::failed)?;
+                    Answer::Ok(json!({ "id": id, "title": title }))
                 }
                 Save::Passkey { id, request, asking } => {
                     let caller = asking.caller()?;
@@ -266,6 +350,65 @@ impl Autofill {
 }
 
 const NO_SITE: &str = "The request names no site";
+/// Why a login offer, answer or save is refused when the login filler is
+/// turned off in Settings › Modules (#412).
+const LOGINS_OFF: &str = "Logins are turned off in Settings › Modules";
+/// Why a card is not given when the card filler is turned off (#412).
+const CARDS_OFF: &str = "Cards are turned off in Settings › Modules";
+
+/// The built-in autofill categories: logins now, cards as the pilot (#412).
+pub(crate) fn category_fillers() -> &'static [&'static dyn modules::CategoryFiller] {
+    static FILLERS: &[&'static dyn modules::CategoryFiller] = &[&LoginFiller, &crate::card::CardFiller];
+    FILLERS
+}
+
+/// The login category: the current behaviour, unchanged, as the first
+/// [modules::CategoryFiller]. It owns what a login offers, fills, saves and
+/// links, per the place asking; the [Autofill] router owns the policy around
+/// it (who asks, locked answers, wiping, confirmations, and whether the
+/// filler is turned off).
+struct LoginFiller;
+
+impl LoginFiller {
+    fn offers(vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.logins_for(place)
+    }
+
+    fn choices(vault: &Vault, place: &LoginPlace) -> Vec<EntryChoice> {
+        vault.entries_for_login(place)
+    }
+
+    fn candidates(vault: &Vault, query: &str) -> Vec<EntryChoice> {
+        vault.login_candidates(query)
+    }
+
+    fn fills(vault: &Vault, id: &str, place: &LoginPlace) -> Result<(Zeroizing<String>, Zeroizing<String>), LoginError> {
+        vault.login(id, place)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn saves(vault: &mut Vault, id: Option<&str>, place: &LoginPlace, confirmed: bool, title: &str, username: &str, password: &str) -> Result<String, LoginError> {
+        vault.save_login(id, place, confirmed, title, username, password)
+    }
+
+    fn links(vault: &mut Vault, id: &str, place: &LoginPlace, confirmed: bool) -> Result<(), LoginError> {
+        vault.link_login(id, place, confirmed)
+    }
+}
+
+impl modules::CategoryFiller for LoginFiller {
+    fn id(&self) -> &'static str {
+        "login"
+    }
+
+    fn label(&self) -> &'static str {
+        "Logins"
+    }
+
+    fn hint(&self) -> &'static str {
+        "Fills in user names and passwords for the app or site asking."
+    }
+}
 
 /// What `work` answers, done or not.
 fn answered(work: impl FnOnce() -> Result<Answer, Answer>) -> Answer {
@@ -583,6 +726,125 @@ mod tests {
         assert_eq!(autofill.save(save), Answer::Ok(Value::Null));
         assert_eq!(given(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }))["password"], "pw-2");
         assert_eq!(changes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn cards_are_offered_redacted_and_given_to_whoever_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = database(dir.path());
+        // As Keepass2Android's template keeps a card: `Number`, `CVV`, the entry's expiry.
+        let mut data = crate::edit::EntryData::default();
+        data.title = "Travel card".into();
+        data.expires = Some("2030-12-31T12:00:00Z".into());
+        for (name, value) in [("Number", "4111 1111 1111 1111"), ("CVV", "123"), ("Card holder", "Erin Example")] {
+            data.fields.push(crate::edit::FieldData { name: name.into(), value: value.into(), protected: name == "CVV" });
+        }
+        let (card, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        let (autofill, _) = provider();
+        let shop = app("com.example.shop", b"the shop's certificate");
+        assert_eq!(autofill.offer(Offer::Cards(&shop)), Answer::failed(LOCKED));
+        assert_eq!(autofill.answer(&card, Give::Card { asking: &shop }), Answer::failed(LOCKED));
+        autofill.unlocked(vault, None);
+
+        let offered = given(autofill.offer(Offer::Cards(&shop)));
+        let offered = offered.as_array().unwrap();
+        let ours = offered.iter().find(|c| c["id"] == card.as_str()).expect("the card is offered");
+        assert_eq!((ours["title"].as_str(), ours["summary"].as_str()), (Some("Travel card"), Some("Visa •• 1111")));
+        let listed = serde_json::to_string(offered).unwrap();
+        assert!(!listed.contains("4111 1111 1111 1111") && !listed.contains("123\""), "never the number or the code");
+
+        let given = given(autofill.answer(&card, Give::Card { asking: &browser("https://shop.example") }));
+        assert_eq!(given, json!({ "name": "Erin Example", "number": "4111 1111 1111 1111", "expiry": "12/30", "code": "123" }));
+        // Who asks must be someone; a login is no card.
+        assert!(matches!(autofill.answer(&card, Give::Card { asking: &Asking::default() }), Answer::Failed { .. }));
+        let mail = app("com.example.mail", b"mail's certificate");
+        autofill.save(Save::Login { id: None, asking: &mail, confirmed: false, title: "Mail", username: "alice", password: "pw-1" });
+        let login = ids(autofill.offer(Offer::Logins(&mail)))[0].clone();
+        assert_eq!(autofill.answer(&login, Give::Card { asking: &shop }), Answer::failed("This entry is not a card"));
+
+        // Turned off: no card offered or given, logins untouched.
+        autofill.set_disabled(HashSet::from(["fillers:card".to_string()]));
+        assert!(given_list(autofill.offer(Offer::Cards(&shop))).is_empty());
+        assert_eq!(autofill.answer(&card, Give::Card { asking: &shop }), Answer::failed(CARDS_OFF));
+        assert_eq!(ids(autofill.offer(Offer::Logins(&mail))), [login]);
+    }
+
+    #[test]
+    fn a_card_typed_into_a_form_is_kept_new_or_into_the_same_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let (autofill, changes) = provider();
+        let shop = app("com.example.shop", b"the shop's certificate");
+        let typed = |number: &'static str, expiry: &'static str| TypedCard { name: "Erin Example", number, expiry, code: "123" };
+        let save = |id: Option<&str>, card: TypedCard| autofill.save(Save::Card { id, asking: &shop, card });
+        assert_eq!(save(None, typed("4111 1111 1111 1111", "12/30")), Answer::failed(LOCKED));
+        autofill.unlocked(database(dir.path()), None);
+        assert_eq!(save(None, typed("4111 1111 1111 1112", "12/30")), Answer::failed("This is not a card number"));
+
+        // New: titled by brand and last four, the starter template's names, offered then.
+        let kept = given(save(None, typed("4111 1111 1111 1111", "12/2030")));
+        assert_eq!(kept["title"], "Visa •• 1111");
+        let id = kept["id"].as_str().unwrap().to_string();
+        assert_eq!(changes.load(Ordering::SeqCst), 1, "it goes up");
+        let card = given(autofill.answer(&id, Give::Card { asking: &shop }));
+        assert_eq!(card, json!({ "name": "Erin Example", "number": "4111 1111 1111 1111", "expiry": "12/30", "code": "123" }));
+
+        // The same number again: that card comes first, and an update keeps one entry.
+        let choices = given(autofill.offer(Offer::CardChoices { asking: &shop, number: "4111111111111111", cloud: false }));
+        assert_eq!((choices["entries"][0]["id"].as_str(), choices["entries"][0]["same"].as_bool()), (Some(id.as_str()), Some(true)));
+        assert!(!choices.to_string().contains("4111111111111111"), "never the number");
+        given(save(Some(&id), TypedCard { name: "", number: "4111111111111111", expiry: "01/31", code: "456" }));
+        let card = given(autofill.answer(&id, Give::Card { asking: &shop }));
+        assert_eq!((card["name"].as_str(), card["expiry"].as_str(), card["code"].as_str()), (Some("Erin Example"), Some("01/31"), Some("456")), "a value the form lacked stays");
+
+        // Turned off: no choices, nothing kept.
+        autofill.set_disabled(HashSet::from(["fillers:card".to_string()]));
+        assert_eq!(save(None, typed("5555555555554444", "")), Answer::failed(CARDS_OFF));
+    }
+
+    #[test]
+    fn a_keepass2android_card_keeps_its_expiry_as_the_entrys_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = database(dir.path());
+        let mut data = crate::edit::EntryData::default();
+        data.title = "Travel card".into();
+        data.expires = Some("2030-12-31T12:00:00Z".into());
+        data.fields.push(crate::edit::FieldData { name: "Number".into(), value: "5555555555554444".into(), protected: false });
+        let (id, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        vault.save_card(Some(&id), &TypedCard { name: "", number: "5555555555554444", expiry: "02/2032", code: "" }).unwrap();
+        let kept = vault.edit_data(&id).unwrap();
+        assert!(kept.expires.as_deref().unwrap().starts_with("2032-02-29"), "the month's last day: {:?}", kept.expires);
+        assert!(kept.fields.iter().all(|f| f.name != "Expiry"), "no field of its own");
+        assert_eq!(kept.fields.iter().filter(|f| f.name == "Number").count(), 1);
+    }
+
+    /// The list an offer answers.
+    fn given_list(answer: Answer) -> Vec<Value> {
+        given(answer).as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn a_filler_turned_off_offers_nothing_and_refuses() {
+        let dir = tempfile::tempdir().unwrap();
+        let (autofill, _) = provider();
+        autofill.unlocked(database(dir.path()), None);
+        let mail = app("com.example.mail", b"mail's certificate");
+        let save = || Save::Login { id: None, asking: &mail, confirmed: false, title: "Mail", username: "alice", password: "pw-1" };
+        assert_eq!(autofill.save(save()), Answer::Ok(Value::Null));
+        let offered = ids(autofill.offer(Offer::Logins(&mail)));
+        assert_eq!(offered.len(), 1);
+
+        autofill.set_disabled(HashSet::from(["fillers:login".to_string()]));
+        assert!(ids(autofill.offer(Offer::Logins(&mail))).is_empty());
+        assert!(ids(autofill.offer(Offer::Search("mail"))).is_empty());
+        let choices = given(autofill.offer(Offer::LoginChoices { asking: &mail, cloud: false }));
+        assert!(choices["entries"].as_array().unwrap().is_empty());
+        let refused = Answer::failed(LOGINS_OFF);
+        assert_eq!(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }), refused);
+        assert_eq!(autofill.save(save()), refused);
+        // Turned back on, the login is offered and given again.
+        autofill.set_disabled(HashSet::new());
+        assert_eq!(ids(autofill.offer(Offer::Logins(&mail))), offered);
+        assert_eq!(given(autofill.answer(&offered[0], Give::Login { asking: &mail, confirmed: false }))["username"], "alice");
     }
 
     #[test]

@@ -23,16 +23,8 @@ impl Vault {
     /// [crate::file_export]), named after the database. Every secret is in
     /// it, in clear.
     pub fn export_file(&self, format: crate::file_export::Format) -> crate::file_export::Export {
-        use crate::file_export::{self, Export, Format};
-        let mut export = match format {
-            Format::Csv => file_export::csv(self.visible_entries()),
-            Format::Cxf => {
-                let with_files = self.visible_entries().filter(|e| e.attachments().next().is_some()).count();
-                let entries = self.visible_entries().count();
-                Export { name: String::new(), content: self.export(), entries, left_out: file_export::cxf_left_out(with_files) }
-            }
-        };
-        export.name = file_export::file_name(&self.database_name(), format);
+        let mut export = crate::file_export::export(format, &self.database_name(), self.visible_entries());
+        export.name = crate::file_export::file_name(&self.database_name(), format);
         export
     }
 

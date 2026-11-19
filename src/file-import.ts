@@ -1,6 +1,6 @@
-import { api, type FileImported, type ImportKind, type Listing } from './api'
+import { api, modulesOn, type FileImported, type ImporterId, type Listing, type Module } from './api'
 import { busyButton, button, choiceList, el, enterPresses, errorLine } from './dom'
-import { IMPORT_SOURCES, IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
+import { IMPORT_INTRO, IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
 
 export interface ImportOptions {
@@ -23,15 +23,24 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
   container.replaceChildren(page)
   const header = () => el('header', {}, el('h1', {}, 'Import from a file'))
 
-  // The sources as a list, each its button with what it reads (#354). A
-  // button only sets the picker's filter, as a file is read by what it holds;
-  // Google Authenticator's export, QR codes rather than a file, has its own page.
-  const start = () => {
+  // The sources as a list, each its button with what it reads (#354, #412).
+  // Rendered from the importer registry: a button only sets the picker's
+  // filter, as a file is read by what it holds; an importer turned off in
+  // Settings is not offered. Google Authenticator's export, QR codes rather
+  // than a file, has its own page.
+  const start = async () => {
+    let importers: Module[]
+    try {
+      importers = await modulesOn('importers')
+    } catch (e) {
+      options.fail(String(e))
+      return
+    }
     page.replaceChildren(header(), el('section', { className: 'choose' },
-      el('p', {}, 'Add the entries another password manager or authenticator exported:'),
+      el('p', {}, IMPORT_INTRO),
       choiceList([
-        ...IMPORT_SOURCES.map(([kind, name, what]): [HTMLButtonElement, string] =>
-          [busyButton(name, `Choose the ${name} file to import`, () => choose(kind), options.fail), what]),
+        ...importers.map((m): [HTMLButtonElement, string] =>
+          [busyButton(m.label, `Choose the ${m.label} file to import`, () => choose(m.id as ImporterId), options.fail), m.hint]),
         [button('Google Authenticator', 'Read the QR codes of its export', options.authenticator), 'its Export accounts QR codes, read from a snip or a picture'],
       ]),
       el('p', {}, IMPORT_TAGGED),
@@ -39,8 +48,8 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
     page.querySelector('button')?.focus()
   }
 
-  const choose = async (kind: ImportKind) => {
-    const step = await api.importFile(kind)
+  const choose = async (id: ImporterId) => {
+    const step = await api.importFile(id)
     if (!step) return
     if (step.step === 'done') done(step)
     else askPassword(step.file)
@@ -93,5 +102,5 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
     actions.querySelector('button')?.focus()
   }
 
-  start()
+  void start()
 }

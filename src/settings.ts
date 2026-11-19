@@ -1,4 +1,4 @@
-import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type SettingName, type Settings, type Status, type Theme } from './api'
+import { api, type BackupInfo, type DatabaseSetting, type DatabaseSettings, type Module, type SettingName, type Settings, type Status, type Theme } from './api'
 import { getVersion } from '@tauri-apps/api/app'
 import { busyButton, button, el } from './dom'
 import { formatDateTime, formatSize } from './entry-text'
@@ -7,6 +7,7 @@ import { ask } from './modal'
 import { changeMasterKey } from './change-key'
 import { changeEncryption, describeEncryption } from './change-encryption'
 import { HISTORY_ITEMS, HISTORY_SIZE, versions, versionsGoing, withValue, type Choice } from './database-settings'
+import { moduleGroups, moduleHint, switchable, turned } from './modules-settings'
 import { setUpSync } from './sync-setup'
 
 const minutes = (never: string): Choice[] =>
@@ -18,8 +19,8 @@ const PASSWORD_EVERY: Choice[] = [1, 3, 7, 14, 30, 60, 90].map((d) => [d, d === 
 const THEMES: Choice<Theme>[] = [['system', 'As Windows'], ['light', 'Light'], ['dark', 'Dark']]
 
 /** A switch: a button that is on or off. */
-function toggle(label: string, on: boolean, change: (on: boolean) => void): HTMLButtonElement {
-  const toggle = el('button', { type: 'button', className: 'switch', role: 'switch', ariaLabel: label, onclick: () => change(!on) },
+function toggle(label: string, on: boolean, change: (on: boolean) => void, disabled = false): HTMLButtonElement {
+  const toggle = el('button', { type: 'button', className: 'switch', role: 'switch', ariaLabel: label, disabled, onclick: () => change(!on) },
     el('span', { className: 'knob' }))
   toggle.setAttribute('aria-checked', String(on))
   return toggle
@@ -48,7 +49,7 @@ function row(label: string, hint: string, control: HTMLElement): HTMLDivElement 
 
 const group = (title: string, ...rows: HTMLElement[]) => el('section', {}, el('h3', {}, title), ...rows)
 
-export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['about', 'About']] as const
+export const SETTINGS_TABS = [['general', 'General'], ['window', 'Window'], ['database', 'Database'], ['sync', 'Sync'], ['backup', 'Backup'], ['modules', 'Modules'], ['about', 'About']] as const
 export type SettingsTab = (typeof SETTINGS_TABS)[number][0]
 /** The tab shown: kept while the app runs, through redraws after a change. */
 let shownTab: SettingsTab = 'general'
@@ -177,11 +178,12 @@ export async function renderSettings(
 ) {
   const waiting = el('p', { className: 'muted', hidden: true })
   // Locked: no database settings to show.
-  const [settings, status, version, saved, savedBackup, connected] = await Promise.all([
-    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup(), api.browserAssociations().catch(() => [])])
+  const [settings, status, version, saved, savedBackup, connected, fetchedModules] = await Promise.all([
+    api.settings(), api.status(), getVersion(), api.databaseSettings().catch(() => null), api.backup(), api.browserAssociations().catch(() => []), api.modules()])
   let associations = connected
   let database = saved
   let backup = savedBackup
+  let modules = fetchedModules
   draw(settings, status)
 
   /** The current database's backup: kept in the app's list, so it works
@@ -299,6 +301,25 @@ export async function renderSettings(
       button('Link…', 'Sync with a file already in a store', run(() => setUpSync('link', waiting))))
   }
 
+  /** Settings › Modules (#412), as both apps behave (`modules-settings.ts`):
+   *  labels and hints come from the core (`Module`); the frontend keeps no
+   *  copy of them. */
+  function modulesGroup(s: Settings, status: Status): HTMLElement[] {
+    const change = (m: Module) => async (on: boolean) => {
+      // Drawn with the settings the change answers (as they were, if refused).
+      let fresh = s
+      try {
+        fresh = await api.setSetting('disabledModules', turned(s.disabledModules, m, on))
+      } catch (e) {
+        onError(String(e))
+      }
+      modules = await api.modules().catch(() => modules)
+      draw(fresh, status)
+    }
+    return moduleGroups(modules, false).map((g) => group(g.title, el('p', { className: 'muted' }, g.about),
+      ...g.modules.map((m) => row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), !switchable(m))))))
+  }
+
   function draw(s: Settings, status: Status) {
     const set = (name: SettingName) => async (value: number | boolean | string) => {
       try {
@@ -374,6 +395,7 @@ export async function renderSettings(
             select('Check for remote changes', s.syncEveryMinutes, SYNC_EVERY, 'min', set('syncEveryMinutes')))),
       ],
       backup: () => (backup ? [backupGroup(backup, () => draw(s, status))] : []),
+      modules: () => modulesGroup(s, status),
       about: () => [
         group('About',
           row('Version', 'This copy of PswManager', el('span', { className: 'value' }, version)),

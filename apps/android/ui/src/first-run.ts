@@ -4,7 +4,7 @@ import { masterPasswordProblem, masterRulesTip } from '../../../../src/master-pa
 import { api, type Cloud, type CloudFile, type Picked, type Status } from './api'
 import { app, backBar, iconButton, screen, show, snack } from './page'
 import { browsePhone, onPhone, phoneFolder } from './phone-files'
-import { CLOUDS, filesIn, signIn, STORES } from './sync'
+import { clouds, filesIn, signIn, STORES } from './sync'
 import { unlockScreen } from './unlock'
 
 // First run: choosing the database (a cloud store, a local file) or creating one.
@@ -24,7 +24,7 @@ export function chooseScreen() {
     el('p', { className: 'muted' }, 'First run'),
     el('h1', {}, 'Choose your database'),
     el('p', {}, 'PswManager opens one KeePass (KDBX 4) file. The same file opens in PswManager on Windows and in KeePassXC.'),
-    ...CLOUDS.map((cloud) => el('button', { type: 'button', className: 'card', onclick: () => void cloudScreen(cloud) }, `Sync with ${STORES[cloud].name}`,
+    ...clouds().map((cloud) => el('button', { type: 'button', className: 'card', onclick: () => void cloudScreen(cloud) }, `Sync with ${STORES[cloud].name}`,
       el('small', {}, `Sign in once. The file lives in ${STORES[cloud].folder}; a working copy stays on this phone.`))),
     local,
     el('button', { type: 'button', className: 'card', onclick: () => newDatabaseScreen() }, 'Create a new database',
@@ -82,7 +82,7 @@ function newDatabaseScreen() {
     strength.element,
     masterRulesTip(password),
     el('h2', {}, 'Where it lives'),
-    ...CLOUDS.map(inCloud),
+    ...clouds().map(inCloud),
     onPhone,
     el('p', { className: 'muted' }, 'A file of the same name already there is never replaced. A key file can be added later in PswManager for Windows.'),
     error.line,

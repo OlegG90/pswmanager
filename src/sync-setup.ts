@@ -1,13 +1,16 @@
-import { api, type Cloud, type SyncTarget } from './api'
+import { api, modulesOn, type Cloud, type SyncTarget } from './api'
 import { button } from './dom'
 import { choose } from './modal'
 
-const STORES: { label: string; cloud: Cloud | null }[] = [
-  { label: 'A folder (a NAS or LAN share)', cloud: null },
-  { label: 'Dropbox', cloud: 'dropbox' },
-  { label: 'Google Drive', cloud: 'google' },
-  { label: 'OneDrive', cloud: 'onedrive' },
-]
+// Which stores the sync setup on this PC offers, and what each is for the
+// commands: labels and hints come from the core (`Module`), so the frontend
+// keeps no copy of them (#412). `document` is Android's, not offered here.
+const STORE_CLOUDS: Record<string, Cloud | null> = {
+  folder: null,
+  dropbox: 'dropbox',
+  google: 'google',
+  onedrive: 'onedrive',
+}
 const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google Drive', onedrive: 'OneDrive' }
 
 /**
@@ -17,9 +20,14 @@ const CLOUD_NAMES: Record<Cloud, string> = { dropbox: 'Dropbox', google: 'Google
  * to true when sync was set up, false when the user gave up on the way.
  */
 export async function setUpSync(mode: 'upload' | 'link', waiting: HTMLElement): Promise<boolean> {
-  const where = await choose(mode === 'upload' ? 'Upload this database to…' : 'Link this database to a file in…', STORES.map((s) => s.label))
+  // The stores the sync setup offers, from the registry: a store turned off in
+  // Settings is not offered (#412).
+  const stores = (await modulesOn('stores'))
+    .filter((m) => Object.hasOwn(STORE_CLOUDS, m.id))
+    .map((m) => ({ label: m.label, cloud: STORE_CLOUDS[m.id] }))
+  const where = await choose(mode === 'upload' ? 'Upload this database to…' : 'Link this database to a file in…', stores.map((s) => s.label))
   if (where === null) return false
-  const cloud = STORES[where].cloud
+  const cloud = stores[where].cloud
   if (!cloud) {
     if (mode === 'upload') return !!(await api.uploadToFolder()).syncedWith
     const path = await api.pickRemoteFile()

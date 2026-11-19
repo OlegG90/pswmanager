@@ -90,6 +90,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             save_attachment,
             settings,
             set_setting,
+            modules,
             screen_off,
             clear_key_file,
             crate::icons::icon,
@@ -392,7 +393,7 @@ fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Res
     let (vault, listing) = open_vault(&app.state::<Store>(), password, key_file)?;
     crate::icons::fetch(app, &listing);
     app.state::<Session>().set(Some(vault));
-    crate::provider::unlocked_in_app();
+    crate::provider::unlocked_in_app(&app.state::<Store>());
     app.state::<Activity>().touch();
     crate::syncing::start(app.clone());
     Ok(listing)
@@ -536,9 +537,9 @@ fn lock_later(app: AppHandle, unlocked: bool) {
 }
 
 #[tauri::command]
-fn stay_unlocked(later: State<LockLater>, activity: State<Activity>, in_front: State<InFront>) {
+fn stay_unlocked(later: State<LockLater>, activity: State<Activity>, in_front: State<InFront>, store: State<Store>) {
     crate::provider::app_in_front(true);
-    crate::provider::unlocked_in_app();
+    crate::provider::unlocked_in_app(&store);
     later.0.next();
     // Coming back counts as use: the idle time starts again.
     activity.touch();
@@ -610,7 +611,18 @@ fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_j
     if name == "allowScreenshots" {
         app.state::<crate::system::System<Wry>>().apply_screenshots()?;
     }
+    if name == "disabledModules" {
+        crate::provider::read_modules(&store);
+    }
     Ok(settings(store))
+}
+
+/// The in-tree modules (import and export formats, stores, autofill
+/// categories) the tools, sheets and Settings › Modules are rendered from,
+/// with whether each is turned off on this phone (#412).
+#[tauri::command]
+fn modules(store: State<Store>) -> Vec<pswm_core::modules::Module> {
+    pswm_core::modules::list(&store)
 }
 
 /// Whether the phone can autofill, and whether PswManager is its autofill service (#236).

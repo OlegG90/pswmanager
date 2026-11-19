@@ -3,27 +3,33 @@ package io.github.olegg90.pswmanager
 import java.util.UUID
 
 /**
- * The login typed in, held in memory for [AutofillSaveActivity] rather than
- * in its intent: the system keeps an activity's extras and gives them back to
- * a process started again, so the password would outlive it there. Only the
- * latest, under a token of its own.
+ * What was typed in to save (a login, a card), held in memory for the save
+ * screen rather than in its intent: the system keeps an activity's extras and
+ * gives them back to a process started again, so the secret would outlive it
+ * there. Only the latest, under a token of its own.
  */
-class TypedLogins(private val newToken: () -> String = { UUID.randomUUID().toString() }) {
-  private var typed: Triple<String, String, String>? = null
+open class Typed<T : Any>(private val newToken: () -> String = { UUID.randomUUID().toString() }) {
+  private var typed: Pair<String, T>? = null
 
-  /** Keeps a user name and password in place of any kept before; the token takes them. */
+  /** Keeps `value` in place of any kept before; the token takes it. */
   @Synchronized
-  fun keep(username: String, password: String): String {
+  fun keep(value: T): String {
     val token = newToken()
-    typed = Triple(token, username, password)
+    typed = token to value
     return token
   }
 
-  /** The user name and password kept under `token`, taken: none once taken, or after the process started again. */
+  /** What was kept under `token`, taken: none once taken, or after the process started again. */
   @Synchronized
-  fun take(token: String): Pair<String, String>? {
-    val (_, username, password) = typed?.takeIf { it.first == token } ?: return null
+  fun take(token: String): T? {
+    val (_, value) = typed?.takeIf { it.first == token } ?: return null
     typed = null
-    return username to password
+    return value
   }
+}
+
+/** The login typed in, for [AutofillSaveActivity]: its user name and password. */
+class TypedLogins(newToken: () -> String = { UUID.randomUUID().toString() }) : Typed<Pair<String, String>>(newToken) {
+  /** Keeps a user name and password in place of any kept before; the token takes them. */
+  fun keep(username: String, password: String): String = keep(username to password)
 }

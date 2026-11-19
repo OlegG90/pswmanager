@@ -2,6 +2,7 @@
 //! writes whole files in, each version marked by a revision.
 
 use crate::dbfile::{hash_hex, hex, replace_file, sibling};
+use crate::modules;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::ErrorKind;
@@ -73,24 +74,23 @@ pub struct CloudFile {
 }
 
 impl Cloud {
-    pub fn provider(self) -> &'static crate::oauth::Provider {
+    /// This store's id, as a [modules::StorePlugin] names it and the settings
+    /// name a disabled store (`stores:dropbox`, …).
+    pub fn id(self) -> &'static str {
         match self {
-            Cloud::Dropbox => &crate::dropbox::DROPBOX,
-            Cloud::Google => &crate::google::GOOGLE,
-            Cloud::OneDrive => &crate::onedrive::ONEDRIVE,
+            Cloud::Dropbox => DROPBOX,
+            Cloud::Google => GOOGLE,
+            Cloud::OneDrive => ONEDRIVE,
         }
+    }
+
+    pub fn provider(self) -> &'static crate::oauth::Provider {
+        plugin(self.id()).provider().expect("a cloud has an OAuth provider")
     }
 
     /// The databases the app can reach there.
     pub fn list(self) -> Result<Vec<CloudFile>, RemoteError> {
-        Ok(match self {
-            Cloud::Dropbox => crate::dropbox::list_databases()?
-                .into_iter()
-                .map(|path| CloudFile { name: path.trim_start_matches('/').to_string(), id: path })
-                .collect(),
-            Cloud::Google => crate::google::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect(),
-            Cloud::OneDrive => crate::onedrive::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect(),
-        })
+        plugin(self.id()).list()
     }
 
     pub fn location(self, file: CloudFile) -> Location {
@@ -104,21 +104,7 @@ impl Cloud {
     /// Uploads a new file there and returns where it is and its revision;
     /// one of that name already there is never replaced ([RemoteError::Changed]).
     pub fn create(self, name: &str, bytes: &[u8]) -> Result<(Location, String), RemoteError> {
-        match self {
-            Cloud::Dropbox => {
-                let path = format!("/{name}");
-                let revision = crate::dropbox::Dropbox { path: path.clone() }.upload(bytes, None)?;
-                Ok((Location::Dropbox { path }, revision))
-            }
-            Cloud::Google => {
-                let (id, revision) = crate::google::create(name, bytes)?;
-                Ok((Location::GoogleDrive { id, name: name.to_string() }, revision))
-            }
-            Cloud::OneDrive => {
-                let (id, revision) = crate::onedrive::create(name, bytes)?;
-                Ok((Location::OneDrive { id, name: name.to_string() }, revision))
-            }
-        }
+        plugin(self.id()).create(name, bytes)
     }
 }
 
@@ -134,13 +120,7 @@ impl Location {
     }
 
     pub fn open(&self) -> Box<dyn Remote> {
-        match self {
-            Location::Folder { path } => Box::new(Folder { path: path.clone() }),
-            Location::Dropbox { path } => Box::new(crate::dropbox::Dropbox { path: path.clone() }),
-            Location::GoogleDrive { id, .. } => Box::new(crate::google::GoogleDrive { id: id.clone() }),
-            Location::OneDrive { id, .. } => Box::new(crate::onedrive::OneDrive { id: id.clone() }),
-            Location::Document { uri, .. } => Box::new(crate::documents::DocumentFile { uri: uri.clone() }),
-        }
+        plugin(self.kind()).open(self)
     }
 
     /// The remote file's name, which the working copy takes.
@@ -167,24 +147,222 @@ impl Location {
 
     /// For the window: where the database is synced to.
     pub fn describe(&self) -> String {
-        match self {
-            Location::Folder { path } => path.display().to_string(),
-            Location::Dropbox { path } => format!("Dropbox: {path}"),
-            Location::GoogleDrive { name, .. } => format!("Google Drive: {}/{name}", crate::google::FOLDER),
-            Location::OneDrive { name, .. } => format!("OneDrive: {}/{name}", crate::onedrive::FOLDER),
-            Location::Document { name, .. } => name.clone(),
-        }
+        plugin(self.kind()).describe(self)
     }
 
     /// For status lines: "the folder", "Dropbox".
     pub fn name(&self) -> &'static str {
-        match self {
-            Location::Folder { .. } => "the folder",
-            Location::Dropbox { .. } => "Dropbox",
-            Location::GoogleDrive { .. } => "Google Drive",
-            Location::OneDrive { .. } => "OneDrive",
-            Location::Document { .. } => "the file",
-        }
+        plugin(self.kind()).name()
+    }
+}
+
+/// The store ids, as [Location::kind] and a [modules::StorePlugin]'s id name them.
+const FOLDER: &str = "folder";
+const DROPBOX: &str = "dropbox";
+const GOOGLE: &str = "google";
+const ONEDRIVE: &str = "onedrive";
+const DOCUMENT: &str = "document";
+
+/// The built-in store plugins, one per [Location] kind.
+pub(crate) fn store_plugins() -> &'static [&'static dyn modules::StorePlugin] {
+    static PLUGINS: &[&'static dyn modules::StorePlugin] = &[&FolderPlugin, &DropboxPlugin, &GooglePlugin, &OneDrivePlugin, &DocumentPlugin];
+    PLUGINS
+}
+
+/// The plugin for `id`, which is a [Location] kind or a [Cloud] id; every id
+/// has one, as [store_plugins] lists them.
+fn plugin(id: &str) -> &'static dyn modules::StorePlugin {
+    store_plugins().iter().find(|plugin| plugin.id() == id).copied().expect("a plugin for every store kind")
+}
+
+struct FolderPlugin;
+struct DropboxPlugin;
+struct GooglePlugin;
+struct OneDrivePlugin;
+struct DocumentPlugin;
+
+impl modules::StorePlugin for FolderPlugin {
+    fn id(&self) -> &'static str {
+        FOLDER
+    }
+    fn title(&self) -> &'static str {
+        "Folder"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in a folder on this PC, a NAS or a LAN share."
+    }
+    fn needs_network(&self) -> bool {
+        false
+    }
+    fn optional(&self) -> bool {
+        false
+    }
+    fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
+        Err(RemoteError::Failed("A folder has no list of databases".into()))
+    }
+    fn create(&self, _name: &str, _bytes: &[u8]) -> Result<(Location, String), RemoteError> {
+        Err(RemoteError::Failed("A file in a folder is not created here".into()))
+    }
+    fn open(&self, location: &Location) -> Box<dyn Remote> {
+        let Location::Folder { path } = location else { unreachable!("the folder plugin opens a folder") };
+        Box::new(Folder { path: path.clone() })
+    }
+    fn provider(&self) -> Option<&'static crate::oauth::Provider> {
+        None
+    }
+    fn describe(&self, location: &Location) -> String {
+        let Location::Folder { path } = location else { unreachable!("the folder plugin describes a folder") };
+        path.display().to_string()
+    }
+    fn name(&self) -> &'static str {
+        "the folder"
+    }
+}
+
+impl modules::StorePlugin for DropboxPlugin {
+    fn id(&self) -> &'static str {
+        DROPBOX
+    }
+    fn title(&self) -> &'static str {
+        "Dropbox"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your Dropbox account."
+    }
+    fn needs_network(&self) -> bool {
+        true
+    }
+    fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
+        Ok(crate::dropbox::list_databases()?.into_iter().map(|path| CloudFile { name: path.trim_start_matches('/').to_string(), id: path }).collect())
+    }
+    fn create(&self, name: &str, bytes: &[u8]) -> Result<(Location, String), RemoteError> {
+        let path = format!("/{name}");
+        let revision = crate::dropbox::Dropbox { path: path.clone() }.upload(bytes, None)?;
+        Ok((Location::Dropbox { path }, revision))
+    }
+    fn open(&self, location: &Location) -> Box<dyn Remote> {
+        let Location::Dropbox { path } = location else { unreachable!("the Dropbox plugin opens a Dropbox file") };
+        Box::new(crate::dropbox::Dropbox { path: path.clone() })
+    }
+    fn provider(&self) -> Option<&'static crate::oauth::Provider> {
+        Some(&crate::dropbox::DROPBOX)
+    }
+    fn describe(&self, location: &Location) -> String {
+        let Location::Dropbox { path } = location else { unreachable!("the Dropbox plugin describes a Dropbox file") };
+        format!("Dropbox: {path}")
+    }
+    fn name(&self) -> &'static str {
+        "Dropbox"
+    }
+}
+
+impl modules::StorePlugin for GooglePlugin {
+    fn id(&self) -> &'static str {
+        GOOGLE
+    }
+    fn title(&self) -> &'static str {
+        "Google Drive"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your Google Drive."
+    }
+    fn needs_network(&self) -> bool {
+        true
+    }
+    fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
+        Ok(crate::google::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect())
+    }
+    fn create(&self, name: &str, bytes: &[u8]) -> Result<(Location, String), RemoteError> {
+        let (id, revision) = crate::google::create(name, bytes)?;
+        Ok((Location::GoogleDrive { id, name: name.to_string() }, revision))
+    }
+    fn open(&self, location: &Location) -> Box<dyn Remote> {
+        let Location::GoogleDrive { id, .. } = location else { unreachable!("the Google Drive plugin opens a Drive file") };
+        Box::new(crate::google::GoogleDrive { id: id.clone() })
+    }
+    fn provider(&self) -> Option<&'static crate::oauth::Provider> {
+        Some(&crate::google::GOOGLE)
+    }
+    fn describe(&self, location: &Location) -> String {
+        let Location::GoogleDrive { name, .. } = location else { unreachable!("the Google Drive plugin describes a Drive file") };
+        format!("Google Drive: {}/{name}", crate::google::FOLDER)
+    }
+    fn name(&self) -> &'static str {
+        "Google Drive"
+    }
+}
+
+impl modules::StorePlugin for OneDrivePlugin {
+    fn id(&self) -> &'static str {
+        ONEDRIVE
+    }
+    fn title(&self) -> &'static str {
+        "OneDrive"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file in your OneDrive."
+    }
+    fn needs_network(&self) -> bool {
+        true
+    }
+    fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
+        Ok(crate::onedrive::list_databases()?.into_iter().map(|(id, name)| CloudFile { id, name }).collect())
+    }
+    fn create(&self, name: &str, bytes: &[u8]) -> Result<(Location, String), RemoteError> {
+        let (id, revision) = crate::onedrive::create(name, bytes)?;
+        Ok((Location::OneDrive { id, name: name.to_string() }, revision))
+    }
+    fn open(&self, location: &Location) -> Box<dyn Remote> {
+        let Location::OneDrive { id, .. } = location else { unreachable!("the OneDrive plugin opens a OneDrive file") };
+        Box::new(crate::onedrive::OneDrive { id: id.clone() })
+    }
+    fn provider(&self) -> Option<&'static crate::oauth::Provider> {
+        Some(&crate::onedrive::ONEDRIVE)
+    }
+    fn describe(&self, location: &Location) -> String {
+        let Location::OneDrive { name, .. } = location else { unreachable!("the OneDrive plugin describes a OneDrive file") };
+        format!("OneDrive: {}/{name}", crate::onedrive::FOLDER)
+    }
+    fn name(&self) -> &'static str {
+        "OneDrive"
+    }
+}
+
+impl modules::StorePlugin for DocumentPlugin {
+    fn id(&self) -> &'static str {
+        DOCUMENT
+    }
+    fn title(&self) -> &'static str {
+        "Document"
+    }
+    fn hint(&self) -> &'static str {
+        "A database file the platform reaches by a document reference (Android)."
+    }
+    fn needs_network(&self) -> bool {
+        false
+    }
+    fn optional(&self) -> bool {
+        false
+    }
+    fn list(&self) -> Result<Vec<CloudFile>, RemoteError> {
+        Err(RemoteError::Failed("A document has no list of databases".into()))
+    }
+    fn create(&self, _name: &str, _bytes: &[u8]) -> Result<(Location, String), RemoteError> {
+        Err(RemoteError::Failed("A document is not created here".into()))
+    }
+    fn open(&self, location: &Location) -> Box<dyn Remote> {
+        let Location::Document { uri, .. } = location else { unreachable!("the document plugin opens a document") };
+        Box::new(crate::documents::DocumentFile { uri: uri.clone() })
+    }
+    fn provider(&self) -> Option<&'static crate::oauth::Provider> {
+        None
+    }
+    fn describe(&self, location: &Location) -> String {
+        let Location::Document { name, .. } = location else { unreachable!("the document plugin describes a document") };
+        name.clone()
+    }
+    fn name(&self) -> &'static str {
+        "the file"
     }
 }
 
@@ -264,5 +442,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let folder = Folder { path: dir.path().join("gone").join("base.kdbx") };
         assert!(matches!(folder.revision(), Err(RemoteError::Offline(_))));
+    }
+
+    #[test]
+    fn every_location_kind_has_its_plugin() {
+        let locations = [
+            Location::Folder { path: PathBuf::from("a.kdbx") },
+            Location::Dropbox { path: "/a.kdbx".into() },
+            Location::GoogleDrive { id: "1".into(), name: "a.kdbx".into() },
+            Location::OneDrive { id: "1".into(), name: "a.kdbx".into() },
+            Location::Document { uri: "content://a".into(), name: "a.kdbx".into() },
+        ];
+        for location in locations {
+            assert!(store_plugins().iter().any(|plugin| plugin.id() == location.kind()), "{} has a plugin", location.kind());
+            assert!(!location.name().is_empty());
+            assert!(!location.describe().is_empty());
+            let _ = location.open();
+        }
     }
 }
