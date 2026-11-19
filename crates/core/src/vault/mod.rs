@@ -19,6 +19,7 @@ use zeroize::Zeroizing;
 
 // Each feature of the open database has a file: its methods of `Vault`, the
 // types only it uses, and its tests.
+mod cards;
 mod editing;
 mod extension;
 mod logins;
@@ -26,6 +27,7 @@ mod passkeys;
 mod reading;
 mod typing;
 
+pub use cards::CardChoice;
 pub use logins::{LoginError, LoginPlace, APP_CERTIFICATE, CANDIDATES, UNCONFIRMED};
 
 /// An entry offered to a site or app: for its passkey, or its login.

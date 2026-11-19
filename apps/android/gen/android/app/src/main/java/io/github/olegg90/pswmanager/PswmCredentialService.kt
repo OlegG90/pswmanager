@@ -88,6 +88,18 @@ object ProviderBridge {
    */
   external fun login(id: String, origin: String?, packageName: String, certificate: ByteArray?, confirmed: Boolean): String?
 
+  /**
+   * The cards, for a form's card fields (#412), as JSON (`[{id, title, summary}]`: the brand and
+   * last four only); null while locked.
+   */
+  external fun cards(origin: String?, packageName: String, certificate: ByteArray?): String?
+
+  /**
+   * Card `id`'s fields, once the user was verified for this fill: an [Answer], ok with
+   * `{name, number, expiry, code}`; failed while locked, when gone, no card, or cards are off.
+   */
+  external fun card(id: String, origin: String?, packageName: String, certificate: ByteArray?): String?
+
   /** The entries a login offered can update: an [Answer], ok with `{entries, cloud}`. */
   external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String?
 

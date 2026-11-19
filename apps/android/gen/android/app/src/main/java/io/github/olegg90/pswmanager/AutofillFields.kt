@@ -13,6 +13,7 @@ import android.view.autofill.AutofillId
  * field may be missing: a sign-in in two steps asks for the user name first.
  * Read from a screen, the fields also hold their text: what the user typed
  * in, when Android asks to save (it puts the latest values into the screen).
+ * A form for a card has its [card] fields too (#412), offered the cards.
  */
 class AutofillFields(
   val packageName: String,
@@ -23,11 +24,18 @@ class AutofillFields(
   val usernameText: String? = null,
   /** The password to save: on a form that changes it, the new one. */
   val passwordText: String? = null,
+  /** A card's fields, when the screen has a card number field. */
+  val card: CardFields? = null,
 ) {
-  /** The fields to fill, the user name first. */
-  val ids: List<AutofillId> get() = listOfNotNull(username, password)
+  /** The login fields to fill, the user name first. */
+  val loginIds: List<AutofillId> get() = listOfNotNull(username, password)
+
+  /** Every field an offer may fill (the login's, then the card's): what unlocking covers. */
+  val ids: List<AutofillId> get() = loginIds + card?.ids.orEmpty()
 
   private enum class Kind { USERNAME, PASSWORD, TEXT, OTHER }
+
+  private enum class CardKind { NUMBER, CODE, EXPIRY, MONTH, YEAR, NAME }
 
   companion object {
     /**
@@ -56,6 +64,8 @@ class AutofillFields(
       var newPassword: Field? = null
       var lastPassword: Field? = null
       var lastText: Field? = null
+      // A card's fields, the first of each kind; only with a number field are they a card.
+      val card = mutableMapOf<CardKind, Field>()
       // A field is on the page of its nearest node with a web domain: an
       // iframe from another site is a page of its own.
       fun visit(node: ViewNode?, page: Page?) {
@@ -64,7 +74,10 @@ class AutofillFields(
         val id = node.autofillId
         if (id != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
           val field = Field(id, here, node.autofillValue?.takeIf { it.isText }?.textValue?.toString())
-          when (kind(node)) {
+          // A card's field is never taken for a login's (a code is often a password field).
+          val cardKind = cardKind(node)
+          if (cardKind != null) card.putIfAbsent(cardKind, field)
+          else when (kind(node)) {
             Kind.PASSWORD -> {
               if (password == null) password = field
               if (newPassword == null && isNewPassword(node)) newPassword = field
@@ -80,9 +93,42 @@ class AutofillFields(
       for (i in 0 until structure.windowNodeCount) visit(structure.getWindowNodeAt(i)?.rootViewNode, null)
       val pass = password
       val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
-      val page = (pass ?: user ?: return null).page
+      // The card's fields on the number's page (a payment form may be a frame of its own).
+      val number = card[CardKind.NUMBER]
+      val onCard = { kind: CardKind -> card[kind]?.takeIf { it.page == number?.page }?.id }
+      val cardFields = number?.let { CardFields(it.id, onCard(CardKind.CODE), onCard(CardKind.EXPIRY), onCard(CardKind.MONTH), onCard(CardKind.YEAR), onCard(CardKind.NAME)) }
+      val page = (pass ?: user ?: number ?: return null).page
       val saved = (newPassword ?: lastPassword)?.takeIf { it.page == page } ?: pass
-      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text)
+      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text, cardFields)
+    }
+
+    /** The card hints Android and `autocomplete` give, lower case, by what they ask for. */
+    private val CARD_HINTS = mapOf(
+      CardKind.NUMBER to setOf(View.AUTOFILL_HINT_CREDIT_CARD_NUMBER, "cc-number"),
+      CardKind.CODE to setOf(View.AUTOFILL_HINT_CREDIT_CARD_SECURITY_CODE, "cc-csc"),
+      CardKind.EXPIRY to setOf(View.AUTOFILL_HINT_CREDIT_CARD_EXPIRATION_DATE, "cc-exp"),
+      CardKind.MONTH to setOf(View.AUTOFILL_HINT_CREDIT_CARD_EXPIRATION_MONTH, "cc-exp-month"),
+      CardKind.YEAR to setOf(View.AUTOFILL_HINT_CREDIT_CARD_EXPIRATION_YEAR, "cc-exp-year"),
+      CardKind.NAME to setOf("cc-name", "creditcardholdername"),
+    ).mapValues { (_, hints) -> hints.map { it.lowercase() }.toSet() }
+
+    /** Words in a field's id, name or hint that say which card value it takes, the most specific first. */
+    private val CARD_WORDS = listOf(
+      CardKind.MONTH to listOf("exp-month", "expmonth", "exp_month", "expirymonth", "expiry-month", "expiry_month"),
+      CardKind.YEAR to listOf("exp-year", "expyear", "exp_year", "expiryyear", "expiry-year", "expiry_year"),
+      CardKind.NUMBER to listOf("cardnumber", "card-number", "card_number", "ccnumber", "cc-number", "cc_number", "номер картки", "номер карты"),
+      CardKind.CODE to listOf("cvv", "cvc", "csc", "securitycode", "security-code", "security_code"),
+      CardKind.EXPIRY to listOf("expiry", "expiration", "exp-date", "expdate", "exp_date", "mm/yy", "термін дії"),
+      CardKind.NAME to listOf("cardholder", "card-holder", "card_holder", "nameoncard", "name-on-card", "cc-name", "власник картки"),
+    )
+
+    /** What card value a field takes, by its hints or `autocomplete`, else words in its id, name or hint; null for none. */
+    private fun cardKind(node: ViewNode): CardKind? {
+      val attributes = node.htmlInfo?.attributes.orEmpty().filter { it.first != null }.associate { it.first.lowercase() to it.second.orEmpty().lowercase() }
+      val hints = node.autofillHints?.mapNotNull { it?.lowercase() }.orEmpty() + listOfNotNull(attributes["autocomplete"])
+      CARD_HINTS.entries.firstOrNull { (_, known) -> hints.any { it in known } }?.let { return it.key }
+      val words = listOfNotNull(node.idEntry, node.hint, attributes["name"], attributes["id"]).joinToString(" ").lowercase()
+      return CARD_WORDS.firstOrNull { (_, list) -> list.any { it in words } }?.first
     }
 
     /** The page a field is on: its web domain and scheme. */

@@ -1102,7 +1102,13 @@ the card ones in `card.rs`), and the autofill router reads which fillers are tur
   and refuses, read again at each unlock on the device that autofills.
 - **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
   describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
-  The `CardFiller` pilot is Phase 3.
+  Windows' choose screen leaves out a store that is off, too. Both apps refuse a module that is off
+  through the same core checks (`modules::check_importer`, `check_exporter`, `check_cloud`,
+  `check_folder`).
+- **Phase 3** is the `CardFiller` pilot on Android's autofill (`spec-android.md` *Autofill → Cards*):
+  the core offers the cards redacted (brand and last four) and gives one card's fields only after the
+  phone verified the user. Windows has no card filling: the KeePassXC-Browser protocol has none, and
+  Auto-Type has no card semantics.
 
 ## SafeInCloud migration
 

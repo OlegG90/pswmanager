@@ -32,7 +32,9 @@ import kotlin.concurrent.thread
  * Any other entry can be picked and linked to the app or site, as in
  * Keepass2Android ([AutofillPickActivity], #270). A password typed in is
  * offered to save (#270): Android asks *Save to PswManager?*, and
- * [AutofillSaveActivity] saves it, unlocking first.
+ * [AutofillSaveActivity] saves it, unlocking first. A card's fields offer the
+ * cards (#412), each by its title, brand and last four; its values go once
+ * the user is verified ([AutofillCardActivity]).
  */
 class PswmAutofillService : AutofillService() {
   override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -92,15 +94,33 @@ class PswmAutofillService : AutofillService() {
 
   companion object {
     /**
-     * The entries for who asks, each a dataset that fills the fields once it
-     * is picked and [AutofillLoginActivity] has its values, at most
-     * [MAX_OFFERS]; last, choosing another entry ([AutofillPickActivity]),
-     * which finds the rest too; and the save info for a login typed in.
+     * What the fields are offered once unlocked: the logins for the login
+     * fields ([loginOffers]), the cards for a card's ([cardOffers]); Android
+     * shows each offer under the fields it fills. Null when there is none.
      */
-    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse {
-      val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
+    fun offers(context: Context, fields: AutofillFields, caller: Caller): FillResponse? {
       val response = FillResponse.Builder()
-      saveInfo(fields)?.let { response.setSaveInfo(it) }
+      var offered = false
+      if (fields.loginIds.isNotEmpty()) {
+        loginOffers(context, fields, caller, response)
+        offered = true
+      }
+      fields.card?.let { offered = cardOffers(context, fields, it, caller, response) || offered }
+      saveInfo(fields)?.let {
+        response.setSaveInfo(it)
+        offered = true
+      }
+      return if (offered) response.build() else null
+    }
+
+    /**
+     * The entries for who asks, each a dataset that fills the login fields once
+     * it is picked and [AutofillLoginActivity] has its values, at most
+     * [MAX_OFFERS]; last, choosing another entry ([AutofillPickActivity]),
+     * which finds the rest too.
+     */
+    private fun loginOffers(context: Context, fields: AutofillFields, caller: Caller, response: FillResponse.Builder) {
+      val found = JSONArray(ProviderBridge.logins(caller.origin, caller.packageName, caller.certificate) ?: "[]")
       // Capped: every offer goes to Android in one binder call, whose size is limited.
       for (i in 0 until minOf(found.length(), MAX_OFFERS)) {
         val login = found.getJSONObject(i)
@@ -109,7 +129,7 @@ class PswmAutofillService : AutofillService() {
           .putExtra(ProviderBridge.EXTRA_ENTRY, id)
           .putExtra(ProviderBridge.EXTRA_TITLE, login.optString("title"))
           .putFields(fields, caller, "login/$id")
-        response.addDataset(offer(context, fields, entryLabel(login).ifEmpty { "PswManager entry" }, pick, 2))
+        response.addDataset(offer(context, fields.loginIds, entryLabel(login).ifEmpty { "PswManager entry" }, pick, 2))
       }
       val choose = Intent(context, AutofillPickActivity::class.java).putFields(fields, caller, "pick")
       val label = when {
@@ -117,16 +137,60 @@ class PswmAutofillService : AutofillService() {
         found.length() > MAX_OFFERS -> "More entries in PswManager…"
         else -> "Another entry in PswManager…"
       }
-      response.addDataset(offer(context, fields, label, choose, 4))
-      return response.build()
+      response.addDataset(offer(context, fields.loginIds, label, choose, 4))
     }
 
-    /** An offer under the fields, with no values yet: they come once `intent`'s activity has them. */
-    private fun offer(context: Context, fields: AutofillFields, label: String, intent: Intent, code: Int): Dataset {
+    /**
+     * The cards (none while turned off in Settings › Modules), each a dataset
+     * that fills the card's fields once it is picked and [AutofillCardActivity]
+     * verified the user, at most [MAX_OFFERS]: shown by title, brand and last
+     * four only. False when there is no card.
+     */
+    private fun cardOffers(context: Context, fields: AutofillFields, card: CardFields, caller: Caller, response: FillResponse.Builder): Boolean {
+      val found = JSONArray(ProviderBridge.cards(caller.origin, caller.packageName, caller.certificate) ?: "[]")
+      for (i in 0 until minOf(found.length(), MAX_OFFERS)) {
+        val choice = found.getJSONObject(i)
+        val id = choice.getString("id")
+        val title = choice.optString("title")
+        val pick = Intent(context, AutofillCardActivity::class.java)
+          .putExtra(ProviderBridge.EXTRA_ENTRY, id)
+          .putExtra(ProviderBridge.EXTRA_TITLE, title)
+          .putFields(fields, caller, "card/$id")
+        val label = listOf(title, choice.optString("summary")).filter { it.isNotEmpty() }.joinToString(" · ")
+        response.addDataset(offer(context, card.ids, label.ifEmpty { "PswManager card" }, pick, 5))
+      }
+      return found.length() > 0
+    }
+
+    /** An offer under the fields `ids`, with no values yet: they come once `intent`'s activity has them. */
+    private fun offer(context: Context, ids: List<AutofillId>, label: String, intent: Intent, code: Int): Dataset {
       val view = presentation(context, label)
       val dataset = Dataset.Builder(view)
-      for (field in fields.ids) dataset.setValue(field, null, view)
+      for (field in ids) dataset.setValue(field, null, view)
       return dataset.setAuthentication(pendingIntent(context, intent, code).intentSender).build()
+    }
+
+    /**
+     * The card's fields filled with its values (`{name, number, expiry, code}`),
+     * as Android gets them back: the number as digits, the expiry as one field
+     * takes it (`MM/YY`) or as its month and year.
+     */
+    fun cardFilled(context: Context, card: CardFields, values: JSONObject): Intent {
+      val view = presentation(context, "PswManager")
+      val dataset = Dataset.Builder(view)
+      val set: (AutofillId?, String) -> Unit = { id, value ->
+        if (id != null && value.isNotEmpty()) dataset.setValue(id, AutofillValue.forText(value), view)
+      }
+      val expiry = values.optString("expiry")
+      set(card.number, CardValues.digits(values.getString("number")))
+      set(card.code, values.optString("code"))
+      set(card.name, values.optString("name"))
+      set(card.expiry, CardValues.short(expiry))
+      CardValues.monthYear(expiry)?.let { (month, year) ->
+        set(card.month, month)
+        set(card.year, year)
+      }
+      return Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, dataset.build())
     }
 
     /** The fields filled with an entry's login (`{username, password}`), as Android gets it back. */
@@ -166,6 +230,12 @@ class PswmAutofillService : AutofillService() {
     private const val EXTRA_PASSWORD = "password"
     private const val EXTRA_ORIGIN = "origin"
     private const val EXTRA_CERTIFICATE = "certificate"
+    private const val EXTRA_CARD_NUMBER = "cardNumber"
+    private const val EXTRA_CARD_CODE = "cardCode"
+    private const val EXTRA_CARD_EXPIRY = "cardExpiry"
+    private const val EXTRA_CARD_MONTH = "cardMonth"
+    private const val EXTRA_CARD_YEAR = "cardYear"
+    private const val EXTRA_CARD_NAME = "cardName"
 
     /** Which login typed in [AutofillSaveActivity] saves ([TypedLogins.take]). */
     internal const val EXTRA_TYPED = "typed"
@@ -183,7 +253,7 @@ class PswmAutofillService : AutofillService() {
      * still on screen in a browser would fill from them.
      */
     private fun Intent.putFields(fields: AutofillFields, caller: Caller, what: String): Intent =
-      setIdentifier("$what|${fields.packageName}|${caller.origin}|${fields.username}|${fields.password}")
+      setIdentifier("$what|${fields.packageName}|${caller.origin}|${fields.username}|${fields.password}|${fields.card?.number}")
       .putExtra(EXTRA_PACKAGE, fields.packageName)
       .putExtra(EXTRA_DOMAIN, fields.webDomain)
       .putExtra(EXTRA_SCHEME, fields.webScheme)
@@ -191,17 +261,26 @@ class PswmAutofillService : AutofillService() {
       .putExtra(EXTRA_PASSWORD, fields.password)
       .putExtra(EXTRA_ORIGIN, caller.origin)
       .putExtra(EXTRA_CERTIFICATE, caller.certificate)
+      .putExtra(EXTRA_CARD_NUMBER, fields.card?.number)
+      .putExtra(EXTRA_CARD_CODE, fields.card?.code)
+      .putExtra(EXTRA_CARD_EXPIRY, fields.card?.expiry)
+      .putExtra(EXTRA_CARD_MONTH, fields.card?.month)
+      .putExtra(EXTRA_CARD_YEAR, fields.card?.year)
+      .putExtra(EXTRA_CARD_NAME, fields.card?.name)
 
     /** The fields and who asks, as [putFields] put them into the intent. */
     @Suppress("DEPRECATION")
     fun fieldsOf(intent: Intent): Pair<AutofillFields, Caller>? {
       val packageName = intent.getStringExtra(EXTRA_PACKAGE) ?: return null
+      val id = { name: String -> intent.getParcelableExtra<AutofillId>(name) }
+      val card = id(EXTRA_CARD_NUMBER)?.let { CardFields(it, id(EXTRA_CARD_CODE), id(EXTRA_CARD_EXPIRY), id(EXTRA_CARD_MONTH), id(EXTRA_CARD_YEAR), id(EXTRA_CARD_NAME)) }
       val fields = AutofillFields(
         packageName,
         intent.getStringExtra(EXTRA_DOMAIN),
         intent.getStringExtra(EXTRA_SCHEME),
-        intent.getParcelableExtra<AutofillId>(EXTRA_USERNAME),
-        intent.getParcelableExtra<AutofillId>(EXTRA_PASSWORD),
+        id(EXTRA_USERNAME),
+        id(EXTRA_PASSWORD),
+        card = card,
       )
       return fields to Caller(intent.getStringExtra(EXTRA_ORIGIN), packageName, intent.getByteArrayExtra(EXTRA_CERTIFICATE))
     }

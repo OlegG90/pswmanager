@@ -409,6 +409,45 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_login<'l
     })
 }
 
+/// The cards for a form's card fields, as JSON (`[{id, title, summary}]`:
+/// the brand and last four only, #412); null while locked.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cards<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        listed(env, |env| {
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            Ok(autofill().offer(Offer::Cards(&asking)))
+        })
+    })
+}
+
+/// Card `id`'s fields (`{name, number, expiry, code}`, [Give::Card]), once
+/// Kotlin had the user verified for this fill; `failed` and why while locked,
+/// when the entry is gone or is no card, or cards are turned off.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_card<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not give the card", |env| {
+            let id = optional_text(env, &id)?.ok_or("No card chosen")?;
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            Ok(autofill().answer(&id, Give::Card { asking: &asking }))
+        })
+    })
+}
+
 /// The entries a login an app offers to save can update
 /// (`{entries: [{id, title, username}], cloud}`), or `failed` and why.
 #[no_mangle]
