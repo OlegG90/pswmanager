@@ -152,7 +152,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@style/Theme.pswm_android.Translucent" />
+            android:screenOrientation="portrait" />
         <activity
             android:name=".ScanActivity"
             android:exported="false"

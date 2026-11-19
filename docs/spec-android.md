@@ -470,7 +470,8 @@ row, as the phone shows autofill).
   in use, each by its title, brand and last four (*Travel card · Visa •• 1111*), at most 10, to whoever
   asks (an app or a page, as above; a card is not for one of them). Picking one asks for the fingerprint
   or the phone's screen lock **every time**, even unlocked, since the number and the code are not for one
-  app or site; then the number (as digits), the code, the cardholder's name and the expiry fill the form:
+  app or site — or, when the database locked again since the offer was made (in the background, say),
+  unlocks it first (the fingerprint when allowed, else the master password), which is the check then; then the number (as digits), the code, the cardholder's name and the expiry fill the form:
   one text field gets `MM/YY`, a date field the month's first day, and a month and a year as text (`12`,
   `2030`) or as the option of a list that names them (`12`, `December`, `2030`, `30`) — a page's lists are
   told apart by their options when nothing else says what they are. What makes an entry a card, and the names its fields

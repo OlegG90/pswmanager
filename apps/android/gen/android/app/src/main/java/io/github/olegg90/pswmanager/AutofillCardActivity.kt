@@ -1,8 +1,6 @@
 package io.github.olegg90.pswmanager
 
-import android.os.Bundle
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import kotlin.concurrent.thread
 
 /**
@@ -10,16 +8,26 @@ import kotlin.concurrent.thread
  * every time (the fingerprint or the phone's screen lock), since a card's
  * number and code are not for one app or site; then its fields go to the
  * form. The offer showed only the brand and last four; the full values
- * leave the database here, once verified.
+ * leave the database here, once verified. An offer stays under the fields
+ * after the database locked again (in the background, say): it is unlocked
+ * first then, and the unlock is the check.
  */
-class AutofillCardActivity : AppCompatActivity() {
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    Screenshots.apply(this)
-    if (savedInstanceState != null) return cancel()
+class AutofillCardActivity : UnlockScreen() {
+  override val purpose = "To fill in a card another app asks for."
+
+  /** The database was unlocked here, just now: the user is verified already. */
+  private var unlockedHere = false
+
+  override fun succeeded(answer: Answer.Ok) {
+    unlockedHere = true
+    super.succeeded(answer)
+  }
+
+  override fun done() {
     val id = intent.getStringExtra(ProviderBridge.EXTRA_ENTRY) ?: return cancel()
     val (fields, caller) = PswmAutofillService.fieldsOf(intent) ?: return cancel()
     val card = fields.card ?: return cancel()
+    if (unlockedHere) return give(id, card, caller)
     val title = intent.getStringExtra(ProviderBridge.EXTRA_TITLE).orEmpty().ifEmpty { "A card" }
     val to = caller.origin ?: appLabel(caller.packageName)
     verifyUser(this, "Fill in a card", "$title, for $to", { give(id, card, caller) }, ::cancel) { why ->
