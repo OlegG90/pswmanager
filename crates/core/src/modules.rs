@@ -162,8 +162,9 @@ pub struct Module {
 /// store, whether it can be turned off and whether a database syncs with it.
 pub fn list(store: &Store) -> Vec<Module> {
     let in_use = stores_in_use(store);
+    let disabled = Settings::of(store).disabled_modules();
     let one = |kind: &'static str, id: &str, label: &str, hint: &str, extensions: &[&str], needs_network: Option<bool>| Module {
-        enabled: !is_off(store, kind, id),
+        enabled: !off_in(&disabled, kind, id),
         optional: kind != "stores" || store_optional(id),
         in_use: kind == "stores" && in_use.contains(id),
         id: id.to_string(),
@@ -192,7 +193,12 @@ pub fn list(store: &Store) -> Vec<Module> {
 /// Whether the module `kind:id` is turned off on this device; never a store
 /// that cannot be (a folder, a platform document), whatever the setting says.
 pub fn is_off(store: &Store, kind: &str, id: &str) -> bool {
-    (kind != "stores" || store_optional(id)) && Settings::of(store).disabled_modules().contains(&format!("{kind}:{id}"))
+    off_in(&Settings::of(store).disabled_modules(), kind, id)
+}
+
+/// [is_off], with the keys turned off read already.
+fn off_in(disabled: &HashSet<String>, kind: &str, id: &str) -> bool {
+    (kind != "stores" || store_optional(id)) && disabled.contains(&format!("{kind}:{id}"))
 }
 
 /// Whether the store `id` can be turned off ([StorePlugin::optional]).

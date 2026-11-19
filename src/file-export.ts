@@ -1,4 +1,4 @@
-import { api, type ExportFormat, type Module } from './api'
+import { api, modulesOn, type ExportFormat, type Module } from './api'
 import { isCancelled } from './invoke'
 import { busyButton, button, choiceList, el, enterPresses } from './dom'
 import { EXPORT_INTRO, EXPORT_WARNING, exportedReport } from './file-export-parts'
@@ -28,7 +28,7 @@ export function renderExport(container: HTMLElement, helloReady: boolean, fail: 
   const start = async (): Promise<void> => {
     let exporters: Module[]
     try {
-      exporters = (await api.modules()).filter((m) => m.kind === 'exporters' && m.enabled)
+      exporters = await modulesOn('exporters')
     } catch (e) {
       fail(String(e))
       return

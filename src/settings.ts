@@ -306,14 +306,15 @@ export async function renderSettings(
    *  copy of them. */
   function modulesGroup(s: Settings, status: Status): HTMLElement[] {
     const change = (m: Module) => async (on: boolean) => {
+      // Drawn with the settings the change answers (as they were, if refused).
+      let fresh = s
       try {
-        await api.setSetting('disabledModules', turned(s.disabledModules, m, on))
-        modules = await api.modules()
+        fresh = await api.setSetting('disabledModules', turned(s.disabledModules, m, on))
       } catch (e) {
         onError(String(e))
-        modules = await api.modules().catch(() => modules)
       }
-      draw(await api.settings(), status)
+      modules = await api.modules().catch(() => modules)
+      draw(fresh, status)
     }
     return moduleGroups(modules, false).map((g) => group(g.title, el('p', { className: 'muted' }, g.about),
       ...g.modules.map((m) => row(m.label, moduleHint(m), toggle(m.label, m.enabled, change(m), !switchable(m))))))

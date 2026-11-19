@@ -435,6 +435,10 @@ export interface Module {
   inUse: boolean
 }
 
+/** The modules of `kind` turned on, from the core's registry (#412): what the tools and sheets offer. */
+export const modulesOn = async (kind: Module['kind']): Promise<Module[]> =>
+  (await api.modules()).filter((m) => m.kind === kind && m.enabled)
+
 /** A file format an export writes (#240). */
 export type ExportFormat = 'csv' | 'cxf'
 

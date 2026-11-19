@@ -40,27 +40,37 @@ pub fn looks_like_expiry(value: &str) -> bool {
     EXPIRY_VALUE.is_match(value)
 }
 
-/// The value of the first of `names` the entry keeps, matched without regard
-/// to case or surrounding spaces, as another app may have written it. An
-/// empty field (a template's left blank) counts as none, so the next name,
-/// or another source, is tried.
-fn field<'e>(entry: &'e EntryRef<'_>, names: &[&str]) -> Option<&'e str> {
-    names.iter().find_map(|wanted| {
-        let wanted = wanted.to_lowercase();
-        entry.fields.iter().find(|(name, value)| name.trim().to_lowercase() == wanted && !value.get().trim().is_empty()).map(|(_, value)| value.get().as_str())
-    })
-}
+/// An entry's fields with a value, by name lowered and trimmed, as another
+/// app may have written it: read once per entry, as every entry is looked at
+/// at each autofill request that has a card's fields. An empty field (a
+/// template's left blank) is left out, so the next name, or another source,
+/// is tried.
+struct Fields<'e>(Vec<(String, &'e str)>);
 
-/// The card number the entry keeps: the first of [NUMBER] whose value
-/// passes Luhn and is long enough, so a generic `Number` of another kind
-/// (an ID card's) is not taken for one.
-fn number<'e>(entry: &'e EntryRef<'_>) -> Option<&'e str> {
-    NUMBER.iter().filter_map(|name| field(entry, &[name])).find(|number| luhn(number) && digits(number).len() >= 12)
+impl<'e> Fields<'e> {
+    fn of(entry: &'e EntryRef<'_>) -> Fields<'e> {
+        Fields(entry.fields.iter().map(|(name, value)| (name.trim().to_lowercase(), value.get().as_str())).filter(|(_, value)| !value.trim().is_empty()).collect())
+    }
+
+    /// The value of the first of `names` the entry keeps.
+    fn get(&self, names: &[&str]) -> Option<&'e str> {
+        names.iter().find_map(|wanted| {
+            let wanted = wanted.to_lowercase();
+            self.0.iter().find(|(name, _)| *name == wanted).map(|(_, value)| *value)
+        })
+    }
+
+    /// The card number: the first of [NUMBER] whose value passes Luhn and is
+    /// long enough, so a generic `Number` of another kind (an ID card's) is
+    /// not taken for one.
+    fn number(&self) -> Option<&'e str> {
+        NUMBER.iter().filter_map(|name| self.get(&[name])).find(|number| luhn(number) && digits(number).len() >= 12)
+    }
 }
 
 /// Whether the entry is a card: it keeps a number that passes Luhn.
 pub fn qualifies(entry: &EntryRef<'_>) -> bool {
-    number(entry).is_some()
+    Fields::of(entry).number().is_some()
 }
 
 /// The card's brand, from its number's first digits.
@@ -119,26 +129,28 @@ pub struct Fill {
 
 /// The redacted offer for `entry`, when it is a card.
 pub fn offer(entry: &EntryRef<'_>) -> Option<Offer> {
-    number(entry).map(|number| Offer { summary: summary(number) })
+    Fields::of(entry).number().map(|number| Offer { summary: summary(number) })
 }
 
 /// The card's fields, when `entry` is a card. With no expiry field, the
 /// entry's own expiry date (KeePass's *Expires*, where Keepass2Android's
 /// template keeps it) gives it, as `MM/YY`.
 pub fn fill(entry: &EntryRef<'_>) -> Option<Fill> {
-    let number = number(entry)?;
+    let fields = Fields::of(entry);
+    let number = fields.number()?;
     // By its name, else the one field whose value reads as an expiry, else the
     // entry's own expiry date.
-    let expiry = field(entry, EXPIRY)
-        .or_else(|| entry.fields.iter().map(|(_, value)| value.get().as_str()).find(|value| looks_like_expiry(value)))
+    let expiry = fields
+        .get(EXPIRY)
+        .or_else(|| fields.0.iter().map(|(_, value)| *value).find(|value| looks_like_expiry(value)))
         .map(str::to_string)
         .or_else(|| (entry.times.expires == Some(true)).then(|| entry.times.expiry.format("%m/%y").to_string()))
         .unwrap_or_default();
     Some(Fill {
-        name: Zeroizing::new(field(entry, NAME).unwrap_or("").to_string()),
+        name: Zeroizing::new(fields.get(NAME).unwrap_or("").to_string()),
         number: Zeroizing::new(number.to_string()),
         expiry: Zeroizing::new(expiry),
-        code: Zeroizing::new(field(entry, CODE).unwrap_or("").to_string()),
+        code: Zeroizing::new(fields.get(CODE).unwrap_or("").to_string()),
     })
 }
 

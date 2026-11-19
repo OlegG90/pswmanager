@@ -1,4 +1,4 @@
-import { api, type FileImported, type ImporterId, type Listing, type Module } from './api'
+import { api, modulesOn, type FileImported, type ImporterId, type Listing, type Module } from './api'
 import { busyButton, button, choiceList, el, enterPresses, errorLine } from './dom'
 import { IMPORT_INTRO, IMPORT_TAGGED, IMPORT_WARNING, importedMessage, skippedList } from './file-import-parts'
 import { SIMILAR_AFTER_IMPORT } from './similar-parts'
@@ -31,7 +31,7 @@ export function renderImport(container: HTMLElement, options: ImportOptions) {
   const start = async () => {
     let importers: Module[]
     try {
-      importers = (await api.modules()).filter((m) => m.kind === 'importers' && m.enabled)
+      importers = await modulesOn('importers')
     } catch (e) {
       options.fail(String(e))
       return

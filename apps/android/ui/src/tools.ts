@@ -4,7 +4,7 @@ import { EXPORT_INTRO, EXPORT_WARNING, exportedReport } from '../../../../src/fi
 import { IMPORT_INTRO, IMPORT_TAGGED, IMPORT_WARNING, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, similarCriteria, similarHint, similarSites, type Site, siteChoice } from '../../../../src/similar-parts'
-import type { Module } from '../../../../src/api'
+import { modulesOn as registryOn, type Module } from '../../../../src/api'
 import { api, type Exported, type ExportFormat, type GauthProgress, type Imported, type ImportStep, type Listing, type Similar } from './api'
 import { isCancelled } from '../../../../src/invoke'
 import { icon, listScreen } from './list'
@@ -208,7 +208,7 @@ const choiceItem = (label: string, hint: string, action: () => void) =>
  *  with why said, when it cannot be read. */
 async function modulesOn(kind: Module['kind']): Promise<Module[] | null> {
   try {
-    return (await api.modules()).filter((m) => m.kind === kind && m.enabled)
+    return await registryOn(kind)
   } catch (e) {
     snack(String(e))
     return null
