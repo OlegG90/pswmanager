@@ -33,6 +33,15 @@ class CardValuesTest {
   }
 
   @Test
+  fun theExpiryToSaveIsTheFieldsElseTheMonthAndYear() {
+    assertEquals("12/30", CardValues.typedExpiry(" 12/30 ", "01", "2031"))
+    assertEquals("06/2027", CardValues.typedExpiry(null, "06", "2027"))
+    assertEquals("06/2027", CardValues.typedExpiry("", "June", "27"))
+    assertEquals("", CardValues.typedExpiry(null, "MM", "YYYY"))
+    assertEquals("", CardValues.typedExpiry(null, "06", null))
+  }
+
+  @Test
   fun listsOfMonthsAndYearsAreToldApartByTheirOptions() {
     val months = listOf("MM") + (1..12).map { it.toString().padStart(2, '0') }
     val years = listOf("YYYY") + (2025..2038).map { it.toString() }

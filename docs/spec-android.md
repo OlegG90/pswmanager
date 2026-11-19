@@ -476,9 +476,21 @@ row, as the phone shows autofill).
   told apart by their options when nothing else says what they are. What makes an entry a card, and the names its fields
   may have (Keepass2Android's among them), is the core's (*Modules*). Locked, a card's fields offer
   *Unlock PswManager* too. With cards turned off in *Settings → Modules* nothing is offered for them;
-  logins are untouched either way. A card is not saved from a form.
-- **Not yet:** inline offers in the keyboard, filling addresses and TOTP codes, and saving a card typed
-  into a form.
+  logins are untouched either way.
+- **Saving a card** (#412): a card typed into a form PswManager offered for (locked or not) is offered to
+  save once the form is done with (Android's *Save to PswManager?*, for the card's number with its other
+  fields; a screen with a password field saves the login instead). *Save* opens PswManager's card save
+  screen, unlocked first if need be: the card typed in is named by its last four, and it goes into **the
+  card with the same number** (offered first), a **new card**, or **another card**, verified with the
+  fingerprint or the phone's screen lock. A new card is titled by its brand and last four (*Visa •• 1111*)
+  with the starter template's fields and icon (*Cardholder*, *Card number*, *Expiry*, *CVV*; the number
+  and the code protected); an existing card keeps its own field names, a value the form lacked stays as
+  it was, the old version goes to history, and an expiry it keeps as the entry's own date (as
+  Keepass2Android's template does) stays there. The expiry is the form's own field, else its month and
+  year (`MM/YYYY`). It goes up with the next sync; a toast names the entry it went to. What was typed is
+  held in memory only until the save screen takes it, as a login is. Nothing is offered to save with
+  cards turned off. A card is not linked to who asked: it is for any of them.
+- **Not yet:** inline offers in the keyboard, and filling addresses and TOTP codes.
 
 ## Synchronisation
 

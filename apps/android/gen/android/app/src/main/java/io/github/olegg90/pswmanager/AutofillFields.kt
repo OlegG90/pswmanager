@@ -26,6 +26,8 @@ class AutofillFields(
   val passwordText: String? = null,
   /** A card's fields, when the screen has a card number field. */
   val card: CardFields? = null,
+  /** What the card's fields hold, when Android asks to save (#412). */
+  val cardTyped: TypedCard? = null,
 ) {
   /** The login fields to fill, the user name first. */
   val loginIds: List<AutofillId> get() = listOfNotNull(username, password)
@@ -78,7 +80,7 @@ class AutofillFields(
         val select = node.htmlInfo?.tag.equals("select", ignoreCase = true)
         if (id != null && node.visibility == View.VISIBLE && (type == View.AUTOFILL_TYPE_LIST || type == View.AUTOFILL_TYPE_DATE || select)) {
           val options = node.autofillOptions.orEmpty().map { it.toString() }
-          cardKind(node, options)?.takeIf { it in EXPIRY_KINDS }?.let { card.putIfAbsent(it, Field(id, here, null, type, options)) }
+          cardKind(node, options)?.takeIf { it in EXPIRY_KINDS }?.let { card.putIfAbsent(it, Field(id, here, chosen(node, options), type, options)) }
         }
         if (id != null && type == View.AUTOFILL_TYPE_TEXT && node.visibility == View.VISIBLE) {
           val field = Field(id, here, node.autofillValue?.takeIf { it.isText }?.textValue?.toString())
@@ -122,7 +124,23 @@ class AutofillFields(
       val user = (username ?: lastText.takeIf { pass != null })?.takeIf { pass == null || it.page == pass.page }
       val page = (pass ?: user ?: number ?: return null).page
       val saved = (newPassword ?: lastPassword)?.takeIf { it.page == page } ?: pass
-      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text, cardFields)
+      // What the card's fields hold, for a save: the number typed is what makes it one.
+      val typedCard = number?.text?.takeIf { it.isNotBlank() }?.let {
+        val text = { kind: CardKind -> onCard(kind)?.text.orEmpty() }
+        TypedCard(text(CardKind.NAME), it, CardValues.typedExpiry(onCard(CardKind.EXPIRY)?.text, onCard(CardKind.MONTH)?.text, onCard(CardKind.YEAR)?.text), text(CardKind.CODE))
+      }
+      return AutofillFields(structure.activityComponent.packageName, page?.domain, page?.scheme, user?.id, pass?.id, user?.text, saved?.text, cardFields, typedCard)
+    }
+
+    /** What a list or date field holds, as text: the option chosen, or the date as `MM/YYYY`. */
+    private fun chosen(node: ViewNode, options: List<String>): String? {
+      val value = node.autofillValue ?: return null
+      return when {
+        value.isList -> options.getOrNull(value.listValue)
+        value.isDate -> java.time.Instant.ofEpochMilli(value.dateValue).atZone(java.time.ZoneOffset.UTC).let { "%02d/%d".format(it.monthValue, it.year) }
+        value.isText -> value.textValue.toString()
+        else -> null
+      }
     }
 
     /** The card hints Android and `autocomplete` give, lower case, by what they ask for. */

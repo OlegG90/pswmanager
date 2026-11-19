@@ -44,6 +44,18 @@ object CardValues {
     else -> null
   }
 
+  /**
+   * The expiry a form had, to save: its own field's text, else its month and
+   * year (`06` or `June`, `2027` or `27`) as `MM/YYYY`; empty when it had
+   * neither, or only a placeholder (`MM`, `YYYY`).
+   */
+  fun typedExpiry(expiry: String?, month: String?, year: String?): String {
+    expiry?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+    val number = month?.let(::monthOf) ?: return ""
+    val full = year?.trim()?.takeIf { YEAR_ONLY.matches(it) }?.let { if (it.length == 2) "20$it" else it } ?: return ""
+    return "${number.toString().padStart(2, '0')}/$full"
+  }
+
   /** The option for `month` (`01`…`12`): by its number (`1`, `01`, `01 - January`) or its name; null for none. */
   fun monthIndex(options: List<String>, month: String): Int? {
     val wanted = month.toIntOrNull() ?: return null
@@ -65,5 +77,6 @@ object CardValues {
   private val EXPIRY = Regex("""(\d{1,2})\s*[/\-.]\s*(\d{2}|\d{4})""")
   private val LEADING = Regex("""^(\d{1,2})(?!\d)""")
   private val YEAR = Regex("""\b20\d{2}\b""")
+  private val YEAR_ONLY = Regex("""\d{2}|\d{4}""")
   private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 }

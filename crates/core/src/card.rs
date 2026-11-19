@@ -35,9 +35,17 @@ pub const EXPIRY: &[&str] = &[
 /// Whether `value` reads as a card's expiry: a month and a year, `12/30`,
 /// `1/2030`, `12-30` or `12.30`, and nothing else.
 pub fn looks_like_expiry(value: &str) -> bool {
+    month_year(value).is_some()
+}
+
+/// The month (1–12) and the full year of an expiry (`12/30`, `1/2030`,
+/// `12-30`, `12.30`); none for anything else.
+pub fn month_year(value: &str) -> Option<(u32, i32)> {
     static EXPIRY_VALUE: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"^\s*(0?[1-9]|1[0-2])\s*[/.\-]\s*(\d{2}|\d{4})\s*$").unwrap());
-    EXPIRY_VALUE.is_match(value)
+    let parts = EXPIRY_VALUE.captures(value)?;
+    let year: i32 = parts[2].parse().ok()?;
+    Some((parts[1].parse().ok()?, if year < 100 { 2000 + year } else { year }))
 }
 
 /// An entry's fields with a value, by name lowered and trimmed, as another
@@ -64,13 +72,23 @@ impl<'e> Fields<'e> {
     /// long enough, so a generic `Number` of another kind (an ID card's) is
     /// not taken for one.
     fn number(&self) -> Option<&'e str> {
-        NUMBER.iter().filter_map(|name| self.get(&[name])).find(|number| luhn(number) && digits(number).len() >= 12)
+        NUMBER.iter().filter_map(|name| self.get(&[name])).find(|number| is_number(number))
     }
 }
 
 /// Whether the entry is a card: it keeps a number that passes Luhn.
 pub fn qualifies(entry: &EntryRef<'_>) -> bool {
-    Fields::of(entry).number().is_some()
+    number(entry).is_some()
+}
+
+/// The card's number, when the entry is a card.
+pub(crate) fn number<'e>(entry: &'e EntryRef<'_>) -> Option<&'e str> {
+    Fields::of(entry).number()
+}
+
+/// Whether `number` is a card number: it passes Luhn and is long enough.
+pub fn is_number(number: &str) -> bool {
+    luhn(number) && digits(number).len() >= 12
 }
 
 /// The card's brand, from its number's first digits.
@@ -86,7 +104,7 @@ pub fn brand(number: &str) -> &'static str {
 }
 
 /// The digits of `number`, without spaces or other separators.
-fn digits(number: &str) -> String {
+pub(crate) fn digits(number: &str) -> String {
     number.chars().filter(|c| c.is_ascii_digit()).collect()
 }
 

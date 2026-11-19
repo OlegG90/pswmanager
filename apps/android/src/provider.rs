@@ -18,6 +18,7 @@ use pswm_core::autofill::{self, Answer, Asking, Autofill, Give, Offer, Save};
 use pswm_core::session::Session;
 use pswm_core::settings::Settings;
 use pswm_core::store::Store;
+use pswm_core::vault::TypedCard;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use tauri::Manager;
@@ -456,6 +457,57 @@ pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_card<'lo
             let id = optional_text(env, &id)?.ok_or("No card chosen")?;
             let asking = asking(env, &origin, None, &package, &certificate)?;
             Ok(autofill().answer(&id, Give::Card { asking: &asking }))
+        })
+    })
+}
+
+/// Where a card typed into a form can go (`{entries: [{id, title, summary,
+/// same}], cloud}`, [Offer::CardChoices]): the card with the same `number`
+/// first; `failed` and why while locked or with cards turned off.
+#[no_mangle]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_cardChoices<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    state: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    number: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not read the request", |env| {
+            let number = Zeroizing::new(optional_text(env, &number)?.unwrap_or_default());
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            let cloud = syncs_with_cloud(env, &state)?;
+            Ok(autofill().offer(Offer::CardChoices { asking: &asking, number: &number, cloud }))
+        })
+    })
+}
+
+/// Keeps a card typed into a form into card `id` (a new entry when null,
+/// [Save::Card]): `ok` with `{id, title}`, the entry it went to.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_io_github_olegg90_pswmanager_ProviderBridge_saveCard<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: JString<'local>,
+    origin: JString<'local>,
+    package: JString<'local>,
+    certificate: JByteArray<'local>,
+    name: JString<'local>,
+    number: JString<'local>,
+    expiry: JString<'local>,
+    code: JString<'local>,
+) -> jstring {
+    native(&mut env, std::ptr::null_mut(), |env| {
+        reply(env, "PswManager could not save the card", |env| {
+            let id = optional_text(env, &id)?;
+            let text = |env: &mut Env, value: &JString| optional_text(env, value).map(|v| Zeroizing::new(v.unwrap_or_default()));
+            let (name, number, expiry, code) = (text(env, &name)?, text(env, &number)?, text(env, &expiry)?, text(env, &code)?);
+            let asking = asking(env, &origin, None, &package, &certificate)?;
+            let card = TypedCard { name: &name, number: &number, expiry: &expiry, code: &code };
+            Ok(autofill().save(Save::Card { id: id.as_deref(), asking: &asking, card }))
         })
     })
 }

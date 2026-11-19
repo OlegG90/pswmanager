@@ -136,6 +136,12 @@
             android:excludeFromRecents="true"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".AutofillCardSaveActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".AutofillLoginActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="false"

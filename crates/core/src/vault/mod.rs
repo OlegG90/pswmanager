@@ -27,7 +27,7 @@ mod passkeys;
 mod reading;
 mod typing;
 
-pub use cards::CardChoice;
+pub use cards::{CardChoice, CardSaveChoice, TypedCard};
 pub use logins::{LoginError, LoginPlace, APP_CERTIFICATE, CANDIDATES, UNCONFIRMED};
 
 /// An entry offered to a site or app: for its passkey, or its login.

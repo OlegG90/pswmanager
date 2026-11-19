@@ -26,6 +26,13 @@ class CardFields(
 }
 
 /**
+ * A card typed into a form, to save (#412): its number, code and cardholder's
+ * name as typed, and the expiry as `MM/YYYY` (or as typed), each empty when
+ * the form had none. Held in memory only ([Typed]).
+ */
+class TypedCard(val name: String, val number: String, val expiry: String, val code: String)
+
+/**
  * One of the expiry's fields: its id, its autofill type (`View.AUTOFILL_TYPE_TEXT`,
  * `_LIST` or `_DATE`), and a list's options as it shows them (empty otherwise).
  */

@@ -1111,9 +1111,9 @@ the card ones in `card.rs`), and the autofill router reads which fillers are tur
   describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
   Windows' choose screen leaves out a store that is off, too. Both apps refuse a module that is off
   through the same core checks (`modules::check_importer`, `check_exporter`, `check_cloud`).
-- **Phase 3** is the `CardFiller` pilot on Android's autofill (`spec-android.md` *Autofill → Cards*):
-  the core offers the cards redacted (brand and last four) and gives one card's fields only after the
-  phone verified the user. Windows has no card filling: the KeePassXC-Browser protocol has none, and
+- **Phase 3** is the `CardFiller` pilot on Android's autofill (`spec-android.md` *Autofill → Cards* and
+  *Saving a card*): the core offers the cards redacted (brand and last four), gives one card's fields only
+  after the phone verified the user, and keeps a card typed into a form as a new card or into one in use. Windows has no card filling: the KeePassXC-Browser protocol has none, and
   Auto-Type has no card semantics.
 
 ## SafeInCloud migration

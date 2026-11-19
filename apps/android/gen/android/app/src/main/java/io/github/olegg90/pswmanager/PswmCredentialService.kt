@@ -103,6 +103,15 @@ object ProviderBridge {
    */
   external fun card(id: String, origin: String?, packageName: String, certificate: ByteArray?): String?
 
+  /**
+   * Where a card typed into a form can go (#412): an [Answer], ok with `{entries: [{id, title,
+   * summary, same}], cloud}`, the card with the same `number` first.
+   */
+  external fun cardChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?, number: String): String?
+
+  /** Keeps a typed card into card `id` (a new one when null): an [Answer], ok with `{id, title}`. */
+  external fun saveCard(id: String?, origin: String?, packageName: String, certificate: ByteArray?, name: String, number: String, expiry: String, code: String): String?
+
   /** The entries a login offered can update: an [Answer], ok with `{entries, cloud}`. */
   external fun loginChoices(state: String, origin: String?, packageName: String, certificate: ByteArray?): String?
 

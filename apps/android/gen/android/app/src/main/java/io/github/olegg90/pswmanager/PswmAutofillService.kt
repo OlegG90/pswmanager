@@ -82,14 +82,18 @@ class PswmAutofillService : AutofillService() {
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
     val fields = AutofillFields.of(request.fillContexts.lastOrNull()?.structure)
     val password = fields?.passwordText
-    if (fields == null || fields.packageName == packageName || password.isNullOrEmpty()) return callback.onFailure("There is no password to save")
+    // A password to save, else a card (#412) the form offered to save.
+    val card = fields?.cardTyped?.takeIf { password.isNullOrEmpty() }
+    if (fields == null || fields.packageName == packageName || (password.isNullOrEmpty() && card == null)) return callback.onFailure("There is nothing to save")
     val caller = Caller.forAutofill(this, fields) ?: return callback.onFailure("Cannot tell who asks")
-    val save = Intent(this, AutofillSaveActivity::class.java)
-      .putFields(fields, caller, "save")
-      .putExtra(EXTRA_TYPED, typed.keep(typedUsername(request, fields), password))
+    val save = if (card != null) {
+      Intent(this, AutofillCardSaveActivity::class.java).putFields(fields, caller, "saveCard").putExtra(EXTRA_TYPED, typedCards.keep(card))
+    } else {
+      Intent(this, AutofillSaveActivity::class.java).putFields(fields, caller, "save").putExtra(EXTRA_TYPED, typed.keep(typedUsername(request, fields), password!!))
+    }
     // Immutable and once: nothing is added to it, and it is not answered twice.
     val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_CANCEL_CURRENT
-    callback.onSuccess(PendingIntent.getActivity(this, 3, save, flags).intentSender)
+    callback.onSuccess(PendingIntent.getActivity(this, if (card != null) 6 else 3, save, flags).intentSender)
   }
 
   /** The user name typed beside the password, else in the latest earlier step on the same page. */
@@ -229,13 +233,16 @@ class PswmAutofillService : AutofillService() {
     /**
      * What Android offers to save once the screen is done with (the activity
      * finished, or the fields gone, as a page in a browser does): the password
-     * field, with the user name field when there is one; null without a
-     * password field (the first step of a sign-in in two).
+     * field, with the user name field when there is one; else a card's number
+     * field, with its other fields (#412); null with neither (the first step
+     * of a sign-in in two).
      */
     private fun saveInfo(fields: AutofillFields): SaveInfo? {
-      val password = fields.password ?: return null
-      val info = SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD, arrayOf(password))
-      fields.username?.let { info.setOptionalIds(arrayOf(it)) }
+      val (type, required, optional) = fields.password?.let { Triple(SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_PASSWORD, it, listOfNotNull(fields.username)) }
+        ?: fields.card?.let { Triple(SaveInfo.SAVE_DATA_TYPE_CREDIT_CARD, it.number, it.ids.drop(1)) }
+        ?: return null
+      val info = SaveInfo.Builder(type, arrayOf(required))
+      if (optional.isNotEmpty()) info.setOptionalIds(optional.toTypedArray())
       return info.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE).build()
     }
 
@@ -278,6 +285,9 @@ class PswmAutofillService : AutofillService() {
 
     /** The login typed in, until [AutofillSaveActivity] takes it. */
     internal val typed = TypedLogins()
+
+    /** The card typed in, until [AutofillCardSaveActivity] takes it (#412). */
+    internal val typedCards = Typed<TypedCard>()
 
     /** The most entries offered under the fields; the rest are found through [AutofillPickActivity]. */
     private const val MAX_OFFERS = 10

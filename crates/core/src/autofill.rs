@@ -8,7 +8,7 @@
 use crate::dbfile::OpenError;
 use crate::modules;
 use crate::session::Session;
-use crate::vault::{EntryChoice, LoginError, LoginPlace, Vault};
+use crate::vault::{EntryChoice, LoginError, LoginPlace, TypedCard, Vault};
 use crate::webauthn::{self, Caller};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -101,6 +101,10 @@ pub enum Offer<'a> {
     /// brand and last four only, never the full number or the code (#412).
     /// A card is not for one app or site; who asks must still be someone.
     Cards(&'a Asking),
+    /// Where a card typed into a form can go (`{entries: [{id, title, summary,
+    /// same}], cloud}`): the cards in use, the one with the same `number`
+    /// first (`same`); never a number or a code.
+    CardChoices { asking: &'a Asking, number: &'a str, cloud: bool },
 }
 
 /// What is handed to who asks, from the entry the user picked.
@@ -128,6 +132,9 @@ pub enum Save<'a> {
     /// kept in entry `id` (or a new entry for the site); answered with
     /// WebAuthn's `RegistrationResponseJSON`, as text.
     Passkey { id: Option<&'a str>, request: &'a str, asking: &'a Asking },
+    /// A card typed into a form, kept into card `id` (or a new entry):
+    /// answered with `{id, title}`, the entry it went to.
+    Card { id: Option<&'a str>, asking: &'a Asking, card: TypedCard<'a> },
 }
 
 /// A lock waiting to happen after an unlock here: due after `after`, if
@@ -203,6 +210,14 @@ impl Autofill {
                 asking.place()?;
                 let cards = if self.filler_off("card") { Vec::new() } else { self.session.read(|v| v.cards())? };
                 serde_json::to_value(cards).map(Answer::Ok).map_err(|e| Answer::failed(e.to_string()))
+            }
+            Offer::CardChoices { asking, number, cloud } => {
+                asking.place()?;
+                if self.filler_off("card") {
+                    return Err(Answer::failed(CARDS_OFF));
+                }
+                let entries = self.session.read(|v| v.cards_for_save(number))?;
+                Ok(Answer::Ok(json!({ "entries": entries, "cloud": cloud })))
             }
             Offer::PasskeyChoices { request, cloud } => {
                 let (rp_id, site) = webauthn::creation_site(request).ok_or(NO_SITE)?;
@@ -286,6 +301,14 @@ impl Autofill {
                     }
                     self.session.with_mut(|v| Ok(LoginFiller::links(v, id, &place, confirmed)))?.map_err(|why| Answer::refused(why, &place))?;
                     Answer::Ok(Value::Null)
+                }
+                Save::Card { id, asking, card } => {
+                    asking.place()?;
+                    if self.filler_off("card") {
+                        return Err(Answer::failed(CARDS_OFF));
+                    }
+                    let (id, title) = self.session.with_mut(|v| Ok(v.save_card(id, &card)))?.map_err(Answer::failed)?;
+                    Answer::Ok(json!({ "id": id, "title": title }))
                 }
                 Save::Passkey { id, request, asking } => {
                     let caller = asking.caller()?;
@@ -744,6 +767,54 @@ mod tests {
         assert!(given_list(autofill.offer(Offer::Cards(&shop))).is_empty());
         assert_eq!(autofill.answer(&card, Give::Card { asking: &shop }), Answer::failed(CARDS_OFF));
         assert_eq!(ids(autofill.offer(Offer::Logins(&mail))), [login]);
+    }
+
+    #[test]
+    fn a_card_typed_into_a_form_is_kept_new_or_into_the_same_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let (autofill, changes) = provider();
+        let shop = app("com.example.shop", b"the shop's certificate");
+        let typed = |number: &'static str, expiry: &'static str| TypedCard { name: "Erin Example", number, expiry, code: "123" };
+        let save = |id: Option<&str>, card: TypedCard| autofill.save(Save::Card { id, asking: &shop, card });
+        assert_eq!(save(None, typed("4111 1111 1111 1111", "12/30")), Answer::failed(LOCKED));
+        autofill.unlocked(database(dir.path()), None);
+        assert_eq!(save(None, typed("4111 1111 1111 1112", "12/30")), Answer::failed("This is not a card number"));
+
+        // New: titled by brand and last four, the starter template's names, offered then.
+        let kept = given(save(None, typed("4111 1111 1111 1111", "12/2030")));
+        assert_eq!(kept["title"], "Visa •• 1111");
+        let id = kept["id"].as_str().unwrap().to_string();
+        assert_eq!(changes.load(Ordering::SeqCst), 1, "it goes up");
+        let card = given(autofill.answer(&id, Give::Card { asking: &shop }));
+        assert_eq!(card, json!({ "name": "Erin Example", "number": "4111 1111 1111 1111", "expiry": "12/30", "code": "123" }));
+
+        // The same number again: that card comes first, and an update keeps one entry.
+        let choices = given(autofill.offer(Offer::CardChoices { asking: &shop, number: "4111111111111111", cloud: false }));
+        assert_eq!((choices["entries"][0]["id"].as_str(), choices["entries"][0]["same"].as_bool()), (Some(id.as_str()), Some(true)));
+        assert!(!choices.to_string().contains("4111111111111111"), "never the number");
+        given(save(Some(&id), TypedCard { name: "", number: "4111111111111111", expiry: "01/31", code: "456" }));
+        let card = given(autofill.answer(&id, Give::Card { asking: &shop }));
+        assert_eq!((card["name"].as_str(), card["expiry"].as_str(), card["code"].as_str()), (Some("Erin Example"), Some("01/31"), Some("456")), "a value the form lacked stays");
+
+        // Turned off: no choices, nothing kept.
+        autofill.set_disabled(HashSet::from(["fillers:card".to_string()]));
+        assert_eq!(save(None, typed("5555555555554444", "")), Answer::failed(CARDS_OFF));
+    }
+
+    #[test]
+    fn a_keepass2android_card_keeps_its_expiry_as_the_entrys_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vault = database(dir.path());
+        let mut data = crate::edit::EntryData::default();
+        data.title = "Travel card".into();
+        data.expires = Some("2030-12-31T12:00:00Z".into());
+        data.fields.push(crate::edit::FieldData { name: "Number".into(), value: "5555555555554444".into(), protected: false });
+        let (id, _) = vault.save_entry(None, None, &data, false, &[]).unwrap();
+        vault.save_card(Some(&id), &TypedCard { name: "", number: "5555555555554444", expiry: "02/2032", code: "" }).unwrap();
+        let kept = vault.edit_data(&id).unwrap();
+        assert!(kept.expires.as_deref().unwrap().starts_with("2032-02-29"), "the month's last day: {:?}", kept.expires);
+        assert!(kept.fields.iter().all(|f| f.name != "Expiry"), "no field of its own");
+        assert_eq!(kept.fields.iter().filter(|f| f.name == "Number").count(), 1);
     }
 
     /// The list an offer answers.
