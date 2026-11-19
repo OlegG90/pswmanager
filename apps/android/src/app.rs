@@ -90,6 +90,7 @@ pub fn setup(builder: Builder<Wry>) -> Builder<Wry> {
             save_attachment,
             settings,
             set_setting,
+            modules,
             screen_off,
             clear_key_file,
             crate::icons::icon,
@@ -610,7 +611,18 @@ fn set_setting(app: AppHandle, store: State<Store>, name: String, value: serde_j
     if name == "allowScreenshots" {
         app.state::<crate::system::System<Wry>>().apply_screenshots()?;
     }
+    if name == "disabledModules" {
+        crate::provider::read_modules(&store);
+    }
     Ok(settings(store))
+}
+
+/// The in-tree modules (import and export formats, stores, autofill
+/// categories) the tools, sheets and Settings › Modules are rendered from,
+/// with whether each is turned off on this phone (#412).
+#[tauri::command]
+fn modules(store: State<Store>) -> Vec<pswm_core::modules::Module> {
+    pswm_core::modules::list(&Settings::of(&store).disabled_modules())
 }
 
 /// Whether the phone can autofill, and whether PswManager is its autofill service (#236).

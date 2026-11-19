@@ -89,6 +89,22 @@ export function renderChoose(container: HTMLElement, status: Status, options: Ch
     return el('label', { className: 'source' }, radio, el('span', { className: 'dot' }),
       el('span', { className: 'text' }, el('span', { className: 'title' }, title), el('span', { className: 'hint' }, hint)))
   })
+  // A store turned off in Settings › Modules is not offered (#412); were it
+  // the one chosen, opening a local file is chosen instead. The core refuses
+  // one anyway, before any sign-in.
+  void api.modules().then((modules) => {
+    const off = new Set(modules.filter((m) => m.kind === 'stores' && !m.enabled).map((m) => m.id))
+    sources.forEach((label, i) => {
+      const value = SOURCES[i][0]
+      if (!off.has(value)) return
+      label.hidden = true
+      if (source === value) {
+        source = 'local'
+        const local = sources[SOURCES.findIndex(([v]) => v === 'local')].querySelector('input')
+        if (local) local.checked = true
+      }
+    })
+  }, () => {})
   const changedOrNull = (next: Status) => (changed(status, next) ? next : null)
 
   const footer = el('div', { className: 'footer' },

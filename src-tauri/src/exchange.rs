@@ -4,7 +4,7 @@ use crate::databases::hello_ready;
 use crate::entries::fetch_icons;
 use crate::{hello, pick, sync};
 use crate::read_qr;
-use pswm_core::{cxf, file_export, file_import, gauth, qr, settings, vault};
+use pswm_core::{cxf, file_export, file_import, gauth, modules, qr, vault};
 use pswm_core::error::CommandError;
 use pswm_core::session::Session;
 use pswm_core::store::Store;
@@ -65,12 +65,7 @@ pub fn import_file(app: AppHandle, window: Window, id: String) -> Result<Option<
     let Some(path) = pick(&window, filter, extensions)? else { return Ok(None) };
     let file = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
     let content = Zeroizing::new(std::fs::read(&path).map_err(|e| format!("Cannot read {file}: {e}"))?);
-    if let Some(importer) = file_import::detect(&file, &content) {
-        let key = format!("importers:{importer}");
-        if settings::Settings::of(&app.state()).disabled_modules().contains(&key) {
-            return Err(format!("This file is a {importer} export, but that importer is turned off in Settings"));
-        }
-    }
+    modules::check_importer(&app.state(), &file, &content)?;
     if file_import::needs_password(&content) {
         app.state::<WaitingFile>().hold(file.clone(), content, path);
         return Ok(Some(ImportStep::Password { file }));
@@ -190,9 +185,7 @@ pub fn confirm_export(app: AppHandle, password: Option<String>) -> Result<(), Co
 /// is refused with that said.
 #[tauri::command(async)]
 pub fn export_file(app: AppHandle, window: Window, format: file_export::Format) -> Result<Option<file_export::Exported>, String> {
-    if settings::Settings::of(&app.state()).disabled_modules().contains(&format!("exporters:{}", format.id())) {
-        return Err(format!("The {} format is turned off in Settings", format.label()));
-    }
+    modules::check_exporter(&app.state(), format)?;
     let session = app.state::<Session>();
     let export = session.export(format)?;
     let (filter, extension) = (format.label(), format.extension());

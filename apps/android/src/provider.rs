@@ -56,8 +56,14 @@ pub fn app_in_front(shown: bool) {
 /// The fillers turned off in Settings › Modules are read again too, as an
 /// unlock in the app never passes through [unlock] here (#412).
 pub fn unlocked_in_app(store: &Store) {
-    autofill().set_disabled(Settings::of(store).disabled_modules());
+    read_modules(store);
     autofill().unlocked_in_app();
+}
+
+/// Reads which fillers are turned off in Settings › Modules (#412): at each
+/// unlock, and as soon as the setting changes.
+pub fn read_modules(store: &Store) {
+    autofill().set_disabled(Settings::of(store).disabled_modules());
 }
 
 /// A Java string argument; `None` when null.
@@ -181,7 +187,7 @@ fn unlock(env: &mut Env, context: &JObject, state: &JString, password: &JString,
         }
         // A filler turned off in Settings › Modules offers nothing and
         // refuses, through the router; read again at each unlock (#412).
-        autofill().set_disabled(Settings::of(store).disabled_modules());
+        read_modules(store);
         autofill().unlocked(vault, Settings::of(store).lock_in_background());
     })?;
     if let Some(app) = APP.get() {

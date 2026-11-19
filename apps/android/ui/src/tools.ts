@@ -1,9 +1,10 @@
 import { busyButton, button, el, enterPresses, errorLine } from '../../../../src/dom'
 import { describeEntries, titleOf } from '../../../../src/entry-text'
-import { EXPORT_FORMATS, exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
+import { exportedReport, fileExportAbout } from '../../../../src/file-export-parts'
 import { fileImportAbout, TIDY_HINT, TIDY_LABEL, tidyQuestion } from '../../../../src/file-import-parts'
 import { gauthAbout, importLabel, progressText } from '../../../../src/gauth-import-parts'
 import { anyCriterion, criteriaChecks, leaveSite, mergedCard, NO_CRITERION, NO_SIMILAR, NONE_TICKED, SIMILAR_AFTER_IMPORT, SIMILAR_INTRO, similarCriteria, similarHint, similarSites, type Site, siteChoice } from '../../../../src/similar-parts'
+import type { Module } from '../../../../src/api'
 import { api, type Exported, type ExportFormat, type GauthProgress, type Imported, type ImportStep, type Listing, type Similar } from './api'
 import { isCancelled } from '../../../../src/invoke'
 import { icon, listScreen } from './list'
@@ -18,9 +19,9 @@ export function toolsSheet(listing: Listing) {
   sheet((close) => [
     el('b', {}, 'Tools'),
     button('Import from another app…', 'Passwords and passkeys from another password manager on this phone', () => (close(), importSheet()), 'item'),
-    button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), fileImportSheet()), 'item'),
+    button('Import from a file…', 'A file another password manager exported (CSV, Bitwarden JSON)', () => (close(), void fileImportSheet()), 'item'),
     button('Import from Google Authenticator…', 'The accounts of its export, read from its QR codes', () => (close(), gauthSheet()), 'item'),
-    button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), fileExportSheet()), 'item'),
+    button('Export to a file…', 'A file another password manager imports (CSV, CXF JSON)', () => (close(), void fileExportSheet()), 'item'),
     button('Find similar entries', 'Entries alike in title, user name or site, to merge them', () => (close(), void similarScreen(listing)), 'item'),
     // Only while entries are in a group an older import made (#335).
     ...(listing.inImportGroups
@@ -200,12 +201,25 @@ function showImported(imported: Imported | null) {
 
 const isExportName = (name: string) => /\.(csv|json)$/i.test(name)
 
-/** Import from a file (#238): what it takes, then the phone's folders (All
- *  files access, #207) or Android's file picker. */
-function fileImportSheet() {
+/** The modules of `kind` turned on, from the core's registry (#412); null,
+ *  with why said, when it cannot be read. */
+async function modulesOn(kind: Module['kind']): Promise<Module[] | null> {
+  try {
+    return (await api.modules()).filter((m) => m.kind === kind && m.enabled)
+  } catch (e) {
+    snack(String(e))
+    return null
+  }
+}
+
+/** Import from a file (#238): what it takes (the importers turned on, #412),
+ *  then the phone's folders (All files access, #207) or Android's file picker. */
+async function fileImportSheet() {
+  const importers = await modulesOn('importers')
+  if (!importers) return
   sheet((close) => [
     el('b', {}, 'Import from a file'),
-    ...fileImportAbout(),
+    ...fileImportAbout(importers),
     button('Choose the file', 'Choose the file to import', () => {
       close()
       onPhone<ImportStep>('The file to import', (done, picker) => browsePhone({ first: isExportName, pick: api.importFileAt, done, picker }), api.importFromFile)
@@ -218,11 +232,14 @@ function fileImportSheet() {
 /** Export to a file (#240): the format, the user checked again (the
  *  fingerprint, or the master password), then where the file goes: the
  *  phone's folders (All files access, #207) or Android's save picker. */
-function fileExportSheet() {
+async function fileExportSheet() {
+  // The formats turned on, from the registry (#412): the exporter's id is the format.
+  const exporters = await modulesOn('exporters')
+  if (!exporters) return
   sheet((close) => [
     el('b', {}, 'Export to a file'),
-    ...fileExportAbout(),
-    ...EXPORT_FORMATS.map(([format, name]) => button(name, `Export as ${name}`, () => (close(), void confirmExport(() => void exportAs(format))), 'item')),
+    ...fileExportAbout(exporters),
+    ...exporters.map((m) => button(m.label, `Export as ${m.label}`, () => (close(), void confirmExport(() => void exportAs(m.id as ExportFormat))), 'item')),
     button('Cancel', 'Cancel', close, 'link'),
   ])
 }

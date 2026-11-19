@@ -1,5 +1,5 @@
 import { invoke } from '../../../../src/invoke'
-import type { Cloud, CloudFile, DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported, GauthProgress } from '../../../../src/api'
+import type { Cloud, CloudFile, DatabaseSetting, DatabaseSettings, Encryption, Entry, EntryData, EntryDetail, FileChange, GeneratorOptions, MergePreview, Similar, SimilarCriteria, StagedFile, Strength, Version, VersionDetail, ExportFormat, Exported, GauthProgress, Module } from '../../../../src/api'
 
 export type { Cloud, CloudFile, Entry, EntryData, EntryDetail, MergePreview, Similar, Version, VersionDetail, ExportFormat, Exported, GauthProgress }
 
@@ -114,6 +114,8 @@ export interface Settings {
   allowScreenshots: boolean
   /** Days between asking for the master password when biometric unlock is on. */
   passwordEveryDays: number
+  /** The modules turned off on this phone, as `kind:id` (Settings › Modules, #412). */
+  disabledModules: string[]
   version: string
 }
 
@@ -172,6 +174,9 @@ export const api = {
     invoke<{ status: Status; copyProblem: string | null }>('create_database', { name, password, place }),
   /** Imports from another password manager on this phone; null when the user went back. */
   importFromApp: () => invoke<Imported | null>('import_from_app'),
+  /** The in-tree modules (import and export formats, stores, autofill
+   *  categories), with whether each is turned off on this phone (#412). */
+  modules: () => invoke<Module[]>('modules'),
   /** Picks a file another password manager exported and imports it (#238). */
   importFromFile: () => invoke<ImportStep | null>('import_from_file'),
   /** Imports the file waiting for its password; a wrong one leaves it waiting. */

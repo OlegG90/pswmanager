@@ -1,12 +1,9 @@
+import type { Module } from './api'
 import { el } from './dom'
 
 /** What both apps' *Import from a file* says alike (docs/spec.md, *Import
  *  from a file*): the phone lists it as it is, Windows lays the sources out
  *  as rows with a button each (#354); each asks and answers in its own way. */
-
-/** The picker-filter choices the phone's import offers, grouped (JSON is
- *  Bitwarden or CXF); Windows lists one importer each (#412). */
-type ImportKind = 'csv' | 'json' | 'aegis'
 
 /** What an import brought, in a sentence (without the full stop). */
 export const importedMessage = (added: number, tag: string) =>
@@ -28,23 +25,17 @@ export function skippedList(skipped: { title: string; why: string }[]): Node[] {
     : []
 }
 
-/** The files an import reads, each with where it comes from. */
-export const IMPORT_SOURCES: [ImportKind, string, string][] = [
-  ['csv', 'CSV', 'Google Password Manager, Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass (no passkeys)'],
-  ['json', 'JSON', 'Bitwarden (passkeys too), or a Credential Exchange (CXF) file'],
-  ['aegis', 'Aegis', 'the authenticator’s export, plain or encrypted (its password is asked for)'],
-]
-
 /** What follows the sources: where the entries go, and that the file is best deleted. */
 export const IMPORT_TAGGED = 'Its entries are added as new ones with a tag of their own.'
 export const IMPORT_WARNING = 'Delete the file after the import: it holds every password in clear text.'
 
-/** Before the file is picked: the formats, where the entries go, and that
- *  the file is best deleted. */
-export function fileImportAbout(): Node[] {
+/** Before the file is picked: the formats (the importers turned on, from the
+ *  core's registry, #412), where the entries go, and that the file is best
+ *  deleted. */
+export function fileImportAbout(importers: Module[]): Node[] {
   return [
     el('p', {}, 'Choose a file another password manager exported:'),
-    el('ul', { className: 'formats' }, ...IMPORT_SOURCES.map(([, name, what]) => el('li', {}, el('b', {}, name), ` — ${what}`))),
+    el('ul', { className: 'formats' }, ...importers.map((m) => el('li', {}, el('b', {}, m.label), ` — ${m.hint}`))),
     el('p', {}, IMPORT_TAGGED),
     el('p', { className: 'muted' }, IMPORT_WARNING),
   ]

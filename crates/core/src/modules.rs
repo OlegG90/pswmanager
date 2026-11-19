@@ -20,7 +20,10 @@
 
 use crate::cxf::Import;
 use crate::file_export::Export;
-use crate::remote::{CloudFile, Location, Remote, RemoteError};
+use crate::file_export::Format;
+use crate::remote::{Cloud, CloudFile, Location, Remote, RemoteError};
+use crate::settings::Settings;
+use crate::store::Store;
 use keepass::db::EntryRef;
 use serde::Serialize;
 use serde_json::Value;
@@ -171,10 +174,75 @@ pub fn list(disabled: &HashSet<String>) -> Vec<Module> {
     modules
 }
 
+/// Whether the module `kind:id` is turned off on this device.
+fn off(store: &Store, kind: &str, id: &str) -> bool {
+    Settings::of(store).disabled_modules().contains(&format!("{kind}:{id}"))
+}
+
+/// Refuses the file `name` (`content`) when the importer it needs is turned
+/// off on this device, with that said; a file no importer takes is left for
+/// the parser to refuse. Both apps ask before the file is parsed or held for
+/// its password.
+pub fn check_importer(store: &Store, name: &str, content: &[u8]) -> Result<(), String> {
+    match crate::file_import::detect(name, content) {
+        Some(id) if off(store, "importers", id) => {
+            let label = crate::file_import::filter(id).map_or(id, |(label, _)| label);
+            Err(format!("This file is a {label} export, but that importer is turned off in Settings › Modules"))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Refuses an export to `format` when its exporter is turned off on this device.
+pub fn check_exporter(store: &Store, format: Format) -> Result<(), String> {
+    if off(store, "exporters", format.id()) {
+        return Err(format!("The {} format is turned off in Settings › Modules", format.label()));
+    }
+    Ok(())
+}
+
+/// Refuses to start a sign-in to `cloud`, or to make a file there, when the
+/// store is turned off on this device: nothing new links to it. The core
+/// refuses the link itself ([crate::sync]); asking first means no browser
+/// opens and no remote file is made for nothing.
+pub fn check_cloud(store: &Store, cloud: Cloud) -> Result<(), String> {
+    if off(store, "stores", cloud.id()) {
+        return Err(format!("{} is turned off in Settings › Modules: turn it back on to sync there", cloud.provider().name));
+    }
+    Ok(())
+}
+
+/// Refuses to sync a database to a new place in a folder when the folder
+/// store is turned off on this device.
+pub fn check_folder(store: &Store) -> Result<(), String> {
+    if off(store, "stores", "folder") {
+        return Err("Folder is turned off in Settings › Modules: turn it back on to sync there".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file_export::Format;
+
+    #[test]
+    fn a_module_turned_off_is_refused_with_where_to_turn_it_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::load(dir.path().join("pswm.json"));
+        let bitwarden = br#"{"items": []}"#;
+        assert!(check_importer(&store, "bw.json", bitwarden).is_ok());
+        assert!(check_exporter(&store, Format::Cxf).is_ok());
+        assert!(check_cloud(&store, Cloud::Dropbox).is_ok());
+        assert!(check_folder(&store).is_ok());
+        Settings::of(&store).set("disabledModules", serde_json::json!(["importers:bitwarden", "exporters:cxf", "stores:dropbox", "stores:folder"])).unwrap();
+        for refused in [check_importer(&store, "bw.json", bitwarden), check_exporter(&store, Format::Cxf), check_cloud(&store, Cloud::Dropbox), check_folder(&store)] {
+            assert!(refused.unwrap_err().contains("turned off in Settings › Modules"));
+        }
+        // Another format, or a file no importer takes, is not this check's to refuse.
+        assert!(check_importer(&store, "x.csv", b"name,password\n").is_ok());
+        assert!(check_importer(&store, "other.json", br#"{"foo": 1}"#).is_ok());
+        assert!(check_exporter(&store, Format::Csv).is_ok());
+    }
 
     #[test]
     fn importers_are_listed_in_reading_order() {
