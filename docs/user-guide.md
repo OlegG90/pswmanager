@@ -281,6 +281,7 @@ All in the sidebar under **Tools**.
 | **Database** | the database's name and description, the default user name, how much history to keep, **change the master password or key file**, the encryption, connected browser extensions |
 | **Sync** | *Upload…* / *Link…* or *Stop syncing*, how often to check for remote changes |
 | **Backup** | a backup folder and how often (every 2, 7 or 30 days); *Backup now* |
+| **Modules** | turn off a cloud store you don't use (Dropbox, Google Drive, OneDrive): it is no longer offered for syncing. A store a database syncs with can't be turned off until it stops syncing there; a folder is always there |
 | **About** | the version, *Check for updates*, the source code on GitHub |
 
 What is on the **Database** tab is kept inside the database file, so KeePassXC and the phone see it too.
@@ -480,16 +481,16 @@ many. Only these last two steps delete anything for good, on every device.
   apps on the phone that can hand over their passwords (Google Password Manager, Bitwarden, 1Password…);
   pick one and confirm there. Everything comes over as **new entries** with the tag *Imported from* the
   app and the date; nothing you have is changed. A sheet then says what came in and what did not.
-- **Import from a file…** — a CSV or JSON file another password manager exported (Google, Chrome,
-  Edge, Firefox, Bitwarden, 1Password, KeePass, KeePassXC, Aegis). An encrypted Aegis file asks for its password.
-  Such a file holds every password in plain text: **delete it** afterwards. The app offers *Delete the
-  file* when it can, otherwise it reminds you.
-- **Import from Google Authenticator…** — in Google Authenticator choose *Transfer accounts → Export
-  accounts*; then scan each QR code it shows with the camera (from another phone's screen), or pick
-  screenshots of them.
-- **Export to a file…** — a CSV or CXF JSON file for another password manager. The app asks for your
-  fingerprint or master password first and never writes over an existing file. Delete the file once it
-  is imported elsewhere.
+- **Import from a file…** — lists what it can read, as on Windows, each with its button: **CSV** (Google,
+  Chrome, Edge, Firefox, Bitwarden, 1Password, KeePass, KeePassXC), **Bitwarden**'s JSON, **Credential
+  Exchange**, **Aegis** (an encrypted file asks for its password) and **Google Authenticator**. For a
+  file, pick it (files of that kind come first). Such a file holds every password in plain text:
+  **delete it** afterwards. The app offers *Delete the file* when it can, otherwise it reminds you. For
+  Google Authenticator, choose *Transfer accounts → Export accounts* there; then scan each QR code it shows
+  with the camera (from another phone's screen), or pick screenshots of them.
+- **Export to a file…** — **CSV** or **Credential Exchange**, each with what it carries. The app asks for
+  your fingerprint or master password first and never writes over an existing file. Delete the file once
+  it is imported elsewhere.
 - **Find similar entries** — finds entries for the same site and user name (or the same title) and merges
   them: tick what counts as similar, choose the entry to keep, **Proceed** shows the result, **Merge**
   does it (the others go to the Trash). **Leave as is** hides a group until you open the tool again.
@@ -564,6 +565,18 @@ PswManager?**. Tap *Save*: PswManager unlocks if needed and asks where it goes:
 
 You confirm with your fingerprint or the screen lock, and a short message names the entry it went to.
 
+**Cards**: a payment form's card fields (number, security code, expiry, name on the card) offer your
+cards — each by its title, brand and last four digits only (*Travel card · Visa •• 1111*). Tap one,
+confirm with your fingerprint or the screen lock (**every time**, even unlocked), and the form is filled,
+the expiry's month and year too. An entry counts as a card when it keeps a card number: made from the
+*Credit card* template, imported, or made in Keepass2Android.
+
+- **Saving a card**: after you type a card into a form, Android asks **Save to PswManager?**. Tap *Save*:
+  PswManager unlocks if needed and offers **the same card** (if you have one with that number), **a new
+  card** (named after its brand and last four digits) or **another card**; confirm with your fingerprint or
+  the screen lock.
+- To stop PswManager filling cards, turn off **Cards** in *Settings → Modules*; logins go on as before.
+
 ### Passkeys and Credential Manager (Android 14 and newer)
 
 **Set it up once:** in Android's *Settings → Passwords, passkeys & accounts*, turn on PswManager and,
@@ -587,7 +600,7 @@ screens, never in a web page or another app.
 |---|---|---|
 | **Unlock PswManager** (in a login field or Android's sheet) | The database is locked; nothing about your entries has been shown. | Tap it and unlock. |
 | ***Trust this app?*** with the app's certificate | An app wants a login from an entry that doesn't know this app's certificate yet (one made in Keepass2Android, say), or you are linking an entry to the app. Any app can take any name; the certificate shows who really made it. | **Trust** only if it is the app you expect, from a source you trust. The entry then remembers it, and a fake app with the same name gets nothing. Otherwise **Cancel**. |
-| **Save to PswManager?** | You typed a new password into a form. | *Save*, then choose where it goes — or dismiss it. |
+| **Save to PswManager?** | You typed a new password, or a card, into a form. | *Save*, then choose where it goes — or dismiss it. |
 | PswManager asks **where to keep a passkey** | A site or app wants to create a passkey. | A new entry, or one of the site's entries. |
 | **The export screen**, naming another app | Another password manager wants your entries. | Confirm only if **you** started the import in that app. |
 | **The new key** screen | The master password was changed on another device. | Type the new one. *Not now* lets you keep working (your changes wait); the key button in the toolbar, or **Enter the new key…** in the sync sheet, brings it back. |
@@ -605,6 +618,7 @@ screens, never in a web page or another app.
 | **Appearance** | theme (as the phone, light or dark), *Download site icons*, *Swipes on the list* |
 | **Database** | the master password and key file, the database's name and description, the default user name, how much history to keep, the encryption (with a **Test** of how long an unlock takes on this phone) |
 | **Sync** | where it syncs, the visible copy's folder, *Check for changes*, *Sync now*, *Stop syncing…* or *Sync with …* |
+| **Modules** | **Stores**: turn off a cloud store you don't use (it is no longer offered); the one the database syncs with stays on until it stops syncing there. **Autofill categories**: *Logins* and *Cards*, each on or off |
 | **About** | the version, the GitHub repository |
 
 - What is on the **Database** tab is kept inside the database file, so the PC and KeePassXC see it too.
