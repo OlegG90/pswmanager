@@ -301,15 +301,16 @@ export async function renderSettings(
   }
 
   /** The in-tree modules the tools and sheets offer, each with its on/off (#412).
-   *  Only the stores and the autofill categories are offered here: turning
-   *  those off has a point (a store turned off pauses its syncs, local-only,
-   *  or a card filler that misbehaves). The import and export formats stay on,
-   *  as hiding one only loses a feature. Labels and hints come from the core
-   *  (`Module`); the frontend keeps no copy of them. */
+   *  Only the stores are offered here: turning one off has a point (its syncs
+   *  pause, local-only). The import and export formats stay on, as hiding one
+   *  only loses a feature. The autofill categories are not offered either: the
+   *  autofill router runs on Android only, so on this PC a switch for them
+   *  would change nothing while Auto-Type and the browser extension go on
+   *  filling. Labels and hints come from the core (`Module`); the frontend
+   *  keeps no copy of them. */
   function modulesGroup(s: Settings, status: Status): HTMLElement[] {
     const kinds: [Module['kind'], string][] = [
       ['stores', 'Stores'],
-      ['fillers', 'Autofill categories'],
     ]
     const change = (m: Module) => async (on: boolean) => {
       const disabled = new Set(s.disabledModules)

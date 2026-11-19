@@ -1091,13 +1091,15 @@ the card ones in `card.rs`), and the autofill router reads which fillers are tur
   their sources and formats from it, the import picker filters from each importer's extensions, a module
   turned off in Settings is not offered, and a file whose importer is off is refused with that said.
   The per-device `disabledModules` setting (a list of `kind:id` keys) turns a module off. The
-  Settings screen's *Modules* section offers the stores and the autofill categories — where off has a
-  point (a store turned off pauses its syncs, local-only; a card filler that misbehaves); the import and
-  export formats stay on, as hiding one only loses a feature. Disabled means absent, the same on both
-  apps: a hidden tool is not offered; a file whose importer or exporter is off is refused with that said;
-  nothing new links to a store that is off, and a database synced there pauses until the store is turned
-  back on or syncing stops; a filler that is off offers nothing and refuses, read again at each unlock
-  on the device that autofills (Windows lists the fillers for parity, its router never runs there).
+  Settings screen's *Modules* section offers the stores only — where off has a point (a store turned
+  off pauses its syncs, local-only); the import and export formats stay on, as hiding one only loses a
+  feature. The autofill categories are not offered on Windows: the autofill router runs on Android only,
+  so a switch here would change nothing while Auto-Type and the browser extension go on filling.
+  Disabled means absent, the same on both apps: a hidden tool is not offered; a file whose importer or
+  exporter is off is refused with that said; nothing new links to a store that is off, and a database
+  synced there pauses until the store is turned back on or syncing stops — its status line says the
+  store is turned off and that changes wait here, never "Synced"; a filler that is off offers nothing
+  and refuses, read again at each unlock on the device that autofills.
 - **Phase 2** put the sync setup's store list behind the registry too, and `docs/adding-a-store.md`
   describes how a new store is added (a `StorePlugin` plus its `Location` variant, UI labels and specs).
   The `CardFiller` pilot is Phase 3.

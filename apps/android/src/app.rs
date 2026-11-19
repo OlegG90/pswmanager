@@ -392,7 +392,7 @@ fn open(app: &AppHandle, password: Option<&str>, key_file: Option<&[u8]>) -> Res
     let (vault, listing) = open_vault(&app.state::<Store>(), password, key_file)?;
     crate::icons::fetch(app, &listing);
     app.state::<Session>().set(Some(vault));
-    crate::provider::unlocked_in_app();
+    crate::provider::unlocked_in_app(&app.state::<Store>());
     app.state::<Activity>().touch();
     crate::syncing::start(app.clone());
     Ok(listing)
@@ -536,9 +536,9 @@ fn lock_later(app: AppHandle, unlocked: bool) {
 }
 
 #[tauri::command]
-fn stay_unlocked(later: State<LockLater>, activity: State<Activity>, in_front: State<InFront>) {
+fn stay_unlocked(later: State<LockLater>, activity: State<Activity>, in_front: State<InFront>, store: State<Store>) {
     crate::provider::app_in_front(true);
-    crate::provider::unlocked_in_app();
+    crate::provider::unlocked_in_app(&store);
     later.0.next();
     // Coming back counts as use: the idle time starts again.
     activity.touch();

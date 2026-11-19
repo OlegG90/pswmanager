@@ -559,8 +559,10 @@ are in-tree optional modules behind registries in the shared core (#412). Phases
 registries route the existing code, the tools and the sync setup render from them (a `Module` carrying
 its label and hint — the single source, no copy in the frontend), and a per-device `disabledModules`
 setting turns a module off. Disabled means absent: nothing new links to a store that is off, and a
-database synced there pauses, local-only, until the store is turned back on or syncing stops; the
-router reads the fillers' toggles again at each unlock. The `CardFiller` pilot (Phase 3) is the `card`
+database synced there pauses, local-only, until the store is turned back on or syncing stops, its
+status saying the store is turned off and that changes wait here (never "Synced"); the router reads the
+fillers' toggles again at each unlock, whether the database is unlocked in the app or from the autofill
+service. The `CardFiller` pilot (Phase 3) is the `card`
 autofill category: the core owns what makes an entry a card, its brand and the redacted offer (brand and
 last four, never the full number or CVV), and the fields a form takes; the Kotlin autofill service
 detects card fields and asks, and the card answer is given from memory only, wiped once handed over.

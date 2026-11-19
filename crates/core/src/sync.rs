@@ -24,6 +24,9 @@ pub enum Outcome {
     Merged(Vec<String>),
     /// The remote file changed, and merging needs the key: at the next unlock.
     WaitingForUnlock,
+    /// The store is turned off in Settings › Modules (#412): nothing was
+    /// checked or sent, and changes made here wait until it is back on.
+    Paused,
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,18 +69,24 @@ fn store_off(store: &Store, location: &Location) -> Option<String> {
     if !Settings::of(store).disabled_modules().contains(&format!("stores:{}", location.kind())) {
         return None;
     }
-    let mut name = location.name().to_string();
+    Some(format!("{} is turned off in Settings › Modules: turn it back on to sync there", capitalized(location.name())))
+}
+
+/// `name` ("the folder", "Dropbox") as a sentence starts with it.
+fn capitalized(name: &str) -> String {
+    let mut name = name.to_string();
     name[..1].make_ascii_uppercase();
-    Some(format!("{name} is turned off in Settings › Modules: turn it back on to sync there"))
+    name
 }
 
 /// Syncs the working copy with `remote`. Uploads need nothing unlocked; a
 /// changed remote file is read with the unlocked database's key. A store
-/// turned off in Settings › Modules is absent: the sync pauses, local-only.
+/// turned off in Settings › Modules is absent: the sync pauses, local-only,
+/// and says so ([Outcome::Paused]) rather than look up to date.
 pub fn sync(remote: &dyn Remote, store: &Store, session: &Session) -> Result<Outcome, SyncError> {
     if let Some((_, state)) = synced(store) {
         if store_off(store, &state.location).is_some() {
-            return Ok(Outcome::UpToDate);
+            return Ok(Outcome::Paused);
         }
     }
     for _ in 0..ATTEMPTS {
@@ -417,6 +426,11 @@ pub fn describe(store: &Store, result: &Result<Outcome, SyncError>) -> (String, 
         }
         Ok(Outcome::Merged(_)) => (format!("Merged with {name} at {time}"), false),
         Ok(Outcome::WaitingForUnlock) => (format!("Changes in {name} are merged at the next unlock"), false),
+        // Never "Synced": nothing went to the store, and the user should see it.
+        Ok(Outcome::Paused) => {
+            let waiting = if has_pending(store) { "changes wait here until it is turned back on" } else { "syncing is paused until it is turned back on" };
+            (format!("{} is turned off in Settings › Modules: {waiting}", capitalized(name)), true)
+        }
         Ok(_) => (format!("Synced at {time}"), false),
         Err(SyncError::Offline(message)) if has_pending(store) => (format!("Offline — changes waiting ({message})"), true),
         Err(SyncError::Offline(message)) => (format!("Offline ({message})"), true),
@@ -981,9 +995,13 @@ mod tests {
         let folder = Location::Folder { path: s.remote.path.clone() };
         s.edit_here("Mail", "changed here");
         Settings::of(&s.store).set("disabledModules", serde_json::json!(["stores:folder"])).unwrap();
-        // The change waits here: the sync pauses, local-only, without failing.
-        assert_eq!(s.sync(), Ok(Outcome::UpToDate));
+        // The change waits here: the sync pauses, local-only, without failing,
+        // and the status says so rather than "Synced".
+        assert_eq!(s.sync(), Ok(Outcome::Paused));
+        assert!(settled(&Ok(Outcome::Paused)), "a background upload does not retry it");
         assert!(has_pending(&s.store));
+        let (text, problem) = describe(&s.store, &Ok(Outcome::Paused));
+        assert!(problem && text.starts_with("The folder is turned off") && text.contains("changes wait here"), "{text}");
         assert_ne!(s.remote_password("Mail"), "changed here");
         // Nothing new links to it either: the picker already hides it, and
         // the core refuses a direct call with where to turn it back on.

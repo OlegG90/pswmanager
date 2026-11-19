@@ -53,7 +53,10 @@ pub fn app_in_front(shown: bool) {
 }
 
 /// The app unlocked, or came to the front: a lock waiting here no longer counts.
-pub fn unlocked_in_app() {
+/// The fillers turned off in Settings › Modules are read again too, as an
+/// unlock in the app never passes through [unlock] here (#412).
+pub fn unlocked_in_app(store: &Store) {
+    autofill().set_disabled(Settings::of(store).disabled_modules());
     autofill().unlocked_in_app();
 }
 
