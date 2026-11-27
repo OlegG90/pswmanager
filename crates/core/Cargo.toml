@@ -46,5 +46,5 @@ ureq = { version = "3.2.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 # Draws the QR codes the tests read back.
-qrcode = { version = "0.14", default-features = false }
+qrcode = { version = "0.15", default-features = false }
 tempfile = { workspace = true }
