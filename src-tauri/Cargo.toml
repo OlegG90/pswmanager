@@ -25,7 +25,7 @@ base64 = { workspace = true }
 crypto_box = "0.9"
 chrono = { workspace = true }
 getrandom = { workspace = true }
-notify = "8"
+notify = "9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { version = "2", features = ["tray-icon"] }
